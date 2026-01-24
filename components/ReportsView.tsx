@@ -1,20 +1,22 @@
 
 import React, { useState, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 import { PontoService } from '../services/pontoService';
 import { User, Department } from '../types';
 import { Button, Input, LoadingState, Badge } from './UI';
-import { 
-  FileDown, 
-  Calendar, 
-  Filter, 
-  Users, 
+import {
+  FileDown,
+  Calendar,
+  Filter,
+  Users,
   Building,
   ArrowRight,
   TrendingUp,
   Clock,
   ShieldCheck,
   Printer,
-  FileText
+  FileText,
 } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -58,8 +60,42 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
     PontoService.exportToCSV(exportable, `relatorio_smartponto_${dateRange.start}_${dateRange.end}`);
   };
 
+  const handleExportExcel = () => {
+    const exportable = reportData.map(({ records, ...rest }) => rest);
+    PontoService.exportToExcel(exportable, `relatorio_smartponto_${dateRange.start}_${dateRange.end}`);
+  };
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleExportPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'landscape' });
+      doc.setFontSize(16);
+      doc.text('SmartPonto - Relatório de Ponto', 14, 16);
+      doc.setFontSize(10);
+      doc.text(`Período: ${dateRange.start} até ${dateRange.end}`, 14, 24);
+      const head = [['Colaborador', 'Cargo', 'Depto', 'Marcações', 'Horas Totais', 'Audit. Fraude']];
+      const body = reportData.map((r) => [
+        r.nome ?? '',
+        r.cargo ?? '',
+        r.departamento ?? '',
+        String(r.totalRecords ?? 0),
+        String(r.totalHours ?? ''),
+        String(r.fraudRisk ?? ''),
+      ]);
+      autoTable(doc, {
+        head,
+        body,
+        startY: 30,
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [79, 70, 229] },
+      });
+      doc.save(`relatorio_smartponto_${dateRange.start}_${dateRange.end}.pdf`);
+    } catch (e) {
+      console.error('Export PDF failed:', e);
+    }
   };
 
   return (
@@ -148,7 +184,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
                <Printer size={16} /> Imprimir
             </button>
             <button 
-              onClick={handlePrint} 
+              onClick={handleExportPDF} 
               className="flex items-center gap-2 px-5 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all border border-indigo-100/50 dark:border-indigo-900/50"
               title="Exportar como PDF"
             >
@@ -158,8 +194,17 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
               onClick={handleExportCSV} 
               className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
               title="Exportar como CSV"
+              aria-label="Exportar relatório como CSV"
             >
                <FileDown size={16} /> Exportar CSV
+            </button>
+            <button 
+              onClick={handleExportExcel} 
+              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-green-600/20 hover:bg-green-700 transition-all"
+              title="Exportar como Excel"
+              aria-label="Exportar relatório como Excel"
+            >
+               <FileDown size={16} /> Exportar Excel
             </button>
           </div>
         </header>

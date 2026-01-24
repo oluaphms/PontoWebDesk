@@ -412,5 +412,51 @@ export const PontoService = {
     link.download = `${filename}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
+  },
+
+  async exportToExcel(data: any[], filename: string) {
+    if (data.length === 0) return;
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Relatório');
+      
+      // Headers
+      const headers = Object.keys(data[0]);
+      worksheet.addRow(headers);
+      
+      // Style header
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4F46E5' }
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      
+      // Data rows
+      data.forEach(row => {
+        worksheet.addRow(Object.values(row));
+      });
+      
+      // Auto-fit columns
+      worksheet.columns.forEach(column => {
+        column.width = 15;
+      });
+      
+      // Generate buffer
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${filename}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error('Excel export failed:', error);
+      // Fallback to CSV
+      this.exportToCSV(data, filename);
+    }
   }
 };

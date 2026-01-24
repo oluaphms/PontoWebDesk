@@ -10,25 +10,87 @@ import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
 import { useRecords } from './hooks/useRecords';
 import { authService } from './services/authService';
-import { 
-  Fingerprint, 
-  ShieldCheck, 
-  Crown, 
-  AlertTriangle, 
-  Clock as ClockIcon, 
-  CalendarDays, 
-  Sparkles, 
+import { isSupabaseConfigured } from './services/supabase';
+import { validateLogin } from './lib/validationSchemas';
+import {
+  requestNotificationPermission,
+  startReminderCheck,
+  stopReminderCheck,
+  getReminderConfig,
+} from './services/pushReminderService';
+import {
+  Fingerprint,
+  ShieldCheck,
+  Crown,
+  AlertTriangle,
+  Clock as ClockIcon,
+  CalendarDays,
+  Sparkles,
   Building2,
   User as UserIcon,
   Lock,
   ArrowLeft,
-  ChevronRight
+  ChevronRight,
+  Settings,
+  ExternalLink,
 } from 'lucide-react';
 
 // Lazy loading of complex views
 const AdminView = lazy(() => import('./components/AdminView'));
 
-const App: React.FC = () => {
+function ConfigSupabaseScreen() {
+  const isVercel = typeof window !== 'undefined' && /vercel\.app/i.test(window.location.hostname);
+  return (
+    <div className="min-h-screen gradient-bg flex flex-col items-center justify-center p-6 text-center">
+      <div className="glass-card rounded-2xl p-8 max-w-lg w-full space-y-4">
+        <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
+          <Settings className="w-7 h-7 text-amber-600 dark:text-amber-400" />
+        </div>
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+          Supabase não configurado
+        </h1>
+        <p className="text-slate-600 dark:text-slate-400 text-sm">
+          Configure as variáveis de ambiente para o app funcionar.
+        </p>
+        {isVercel ? (
+          <div className="text-left bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 text-sm space-y-2">
+            <p className="font-medium text-slate-800 dark:text-slate-200">Na Vercel:</p>
+            <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400">
+              <li>Project → <strong>Settings</strong> → <strong>Environment Variables</strong></li>
+              <li>Adicione <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">VITE_SUPABASE_URL</code> (URL do projeto Supabase)</li>
+              <li>Adicione <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> (chave anon)</li>
+              <li><strong>Redeploy</strong> o projeto (Deployments → ⋯ → Redeploy)</li>
+            </ol>
+            <a
+              href="https://vercel.com/docs/environment-variables"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline mt-2"
+            >
+              Docs Vercel <ExternalLink className="w-4 h-4" />
+            </a>
+          </div>
+        ) : (
+          <div className="text-left bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 text-sm space-y-2">
+            <p className="font-medium text-slate-800 dark:text-slate-200">Localmente:</p>
+            <p className="text-slate-600 dark:text-slate-400">
+              Crie <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">.env.local</code> na raiz do projeto com:
+            </p>
+            <pre className="bg-slate-800 text-slate-100 p-3 rounded-lg text-xs overflow-x-auto text-left">
+{`VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+VITE_SUPABASE_ANON_KEY=sua-chave-anon`}
+            </pre>
+            <p className="text-slate-600 dark:text-slate-400">
+              Veja <strong>CONFIGURAR_SUPABASE.md</strong> para detalhes.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const AppMain: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [insights, setInsights] = useState<{insight: string, score: number} | null>(null);
@@ -97,6 +159,19 @@ const App: React.FC = () => {
     }
   }, [activeTab, fetchInsights]);
 
+  useEffect(() => {
+    if (!user || !user.preferences?.notifications) {
+      stopReminderCheck();
+      return;
+    }
+    const cfg = getReminderConfig();
+    if (!cfg.enabled) return;
+    requestNotificationPermission().then((p) => {
+      if (p === 'granted') startReminderCheck();
+    });
+    return () => stopReminderCheck();
+  }, [user?.id, user?.preferences?.notifications]);
+
   const handlePunchStart = (type: LogType) => {
     setError(null);
     setPunchType(type);
@@ -125,8 +200,9 @@ const App: React.FC = () => {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginData.identifier || !loginData.password) {
-      setLoginError("Por favor, preencha todos os campos.");
+    const parsed = validateLogin(loginData);
+    if (!parsed.success) {
+      setLoginError(parsed.error.errors[0]?.message ?? 'Dados inválidos');
       return;
     }
 
@@ -134,7 +210,6 @@ const App: React.FC = () => {
     setLoginError(null);
 
     try {
-      // Usar autenticação real do Firebase
       const result = await authService.signInWithEmail(
         loginData.identifier.includes('@') 
           ? loginData.identifier 
@@ -410,5 +485,8 @@ const App: React.FC = () => {
     </Layout>
   );
 };
+
+const App: React.FC = () =>
+  !isSupabaseConfigured ? <ConfigSupabaseScreen /> : <AppMain />;
 
 export default App;

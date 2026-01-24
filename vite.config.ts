@@ -6,6 +6,12 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       base: '/',
+      test: {
+        globals: true,
+        environment: 'jsdom',
+        setupFiles: './vitest.setup.ts',
+        include: ['**/*.test.{ts,tsx}'],
+      },
       server: {
         port: 3008,
         host: '0.0.0.0',

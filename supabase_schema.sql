@@ -52,18 +52,32 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE time_records ENABLE ROW LEVEL SECURITY;
 
--- Políticas básicas de segurança (ajuste conforme necessário)
--- Usuários podem ver seus próprios dados
+-- Políticas RLS (obrigatório para o app funcionar)
+-- USERS
 CREATE POLICY "Users can view own data" ON users
   FOR SELECT USING (auth.uid() = id);
-
 CREATE POLICY "Users can update own data" ON users
   FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can insert own data" ON users
+  FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Usuários podem ver seus próprios registros
+-- COMPANIES (sem políticas = tudo bloqueado; liberar para autenticados)
+CREATE POLICY "Companies select authenticated" ON companies
+  FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Companies insert authenticated" ON companies
+  FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Companies update authenticated" ON companies
+  FOR UPDATE TO authenticated USING (true);
+
+-- TIME_RECORDS
 CREATE POLICY "Users can view own records" ON time_records
   FOR SELECT USING (auth.uid()::text = user_id);
-
--- Usuários podem criar seus próprios registros
+CREATE POLICY "Users can view company records" ON time_records
+  FOR SELECT USING (
+    company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+    AND (SELECT company_id FROM users WHERE id = auth.uid()) IS NOT NULL
+  );
 CREATE POLICY "Users can create own records" ON time_records
   FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY "Users can update own records" ON time_records
+  FOR UPDATE USING (auth.uid()::text = user_id);

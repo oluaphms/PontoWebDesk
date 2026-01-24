@@ -1,5 +1,5 @@
 
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useState, useEffect } from 'react';
 import { User } from '../types';
 import { 
   LayoutDashboard, 
@@ -15,6 +15,10 @@ import {
   X,
   BrainCircuit
 } from 'lucide-react';
+import NotificationCenter from './NotificationCenter';
+import { NotificationService } from '../services/notificationService';
+import { ThemeService } from '../services/themeService';
+import { i18n } from '../lib/i18n';
 
 interface LayoutProps {
   user: User;
@@ -25,15 +29,34 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab, onLogout }) => {
-  const [theme, setTheme] = React.useState<'light' | 'dark'>(() => {
-    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-  });
+  const [theme, setTheme] = React.useState<'light' | 'dark' | 'auto'>(user.preferences?.theme || 'auto');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    ThemeService.init();
+    const savedTheme = user.preferences?.theme || 'auto';
+    ThemeService.applyTheme(savedTheme);
+    setTheme(savedTheme);
+  }, [user.preferences?.theme]);
+
+  useEffect(() => {
+    const loadUnread = async () => {
+      const count = await NotificationService.getUnreadCount(user.id);
+      setUnreadCount(count);
+    };
+    loadUnread();
+    const interval = setInterval(loadUnread, 30000);
+    return () => clearInterval(interval);
+  }, [user.id]);
 
   const toggleTheme = useCallback(() => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    document.documentElement.classList.toggle('dark');
+    const themes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
+    const currentIndex = themes.indexOf(theme);
+    const nextTheme = themes[(currentIndex + 1) % themes.length];
+    setTheme(nextTheme);
+    ThemeService.applyTheme(nextTheme);
   }, [theme]);
 
   const menuItems = React.useMemo(() => [
@@ -142,17 +165,29 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
             <button 
               onClick={toggleTheme}
               className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
-              aria-label={theme === 'light' ? 'Ativar modo escuro' : 'Ativar modo claro'}
+              aria-label={theme === 'light' ? 'Ativar modo escuro' : theme === 'dark' ? 'Ativar modo automático' : 'Ativar modo claro'}
+              title={theme === 'light' ? 'Modo claro' : theme === 'dark' ? 'Modo escuro' : 'Modo automático'}
             >
-              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+              {theme === 'light' ? <Sun size={20} /> : theme === 'dark' ? <Moon size={20} /> : <BrainCircuit size={20} />}
             </button>
-            <button 
-              className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all relative"
-              aria-label="Ver notificações"
-            >
-              <Bell size={20} />
-              <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-white dark:border-slate-900"></span>
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all relative"
+                aria-label={`Ver notificações${unreadCount > 0 ? `, ${unreadCount} não lidas` : ''}`}
+                aria-expanded={showNotifications}
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-white dark:border-slate-900" aria-label={`${unreadCount} notificações não lidas`}></span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 top-full mt-2 z-50">
+                  <NotificationCenter userId={user.id} onClose={() => setShowNotifications(false)} />
+                </div>
+              )}
+            </div>
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block" aria-hidden="true"></div>
             <div className="hidden sm:flex items-center gap-3 ml-2">
               <div className="text-right">
@@ -163,7 +198,7 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
           </div>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto custom-scrollbar focus:outline-none">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto custom-scrollbar focus:outline-none" role="main" aria-label="Conteúdo principal">
           <div className="p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full">
             {children}
           </div>

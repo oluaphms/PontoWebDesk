@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PontoService } from '../services/pontoService';
 import { LoggingService } from '../services/loggingService';
+import { PermissionService } from '../services/permissionService';
 import { EmployeeSummary, TimeRecord, User, PunchMethod, LogType, LogSeverity, AuditLog } from '../types';
 import { Button, Input, Badge, LoadingState } from './UI';
 import ReportsView from './ReportsView';

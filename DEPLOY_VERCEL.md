@@ -41,14 +41,14 @@ Em **Settings** → **General** → **Framework Preset**:
 - Tente **Vite**.
 - Se continuar 404, mude para **Other** e faça **Redeploy**. O `vercel.json` cuida do build.
 
-### 4. Variáveis de ambiente
+### 4. Variáveis de ambiente (obrigatório)
 
-Em **Settings** → **Environment Variables**:
+Em **Settings** → **Environment Variables** adicione:
 
-- `VITE_SUPABASE_URL` – URL do projeto Supabase  
-- `VITE_SUPABASE_ANON_KEY` – Chave anon do Supabase  
+- **`VITE_SUPABASE_URL`** – URL do projeto Supabase (ex: `https://xxxxx.supabase.co`)
+- **`VITE_SUPABASE_ANON_KEY`** – Chave **anon public** (Supabase → Settings → API)
 
-Use os mesmos valores do `.env.local` (não commitar `.env.local`).
+Use os mesmos valores do `.env.local`. **Sem essas variáveis**, o app exibe **"Supabase não configurado"** e não permite login. Após configurar, faça **Redeploy**. Veja [CONFIGURAR_SUPABASE.md](./CONFIGURAR_SUPABASE.md).
 
 ### 5. Deploy
 

@@ -82,21 +82,59 @@ export interface TimeRecord {
   adjustments?: Adjustment[];
 }
 
+export type UserRole = 'employee' | 'admin' | 'supervisor' | 'hr';
+
+export interface Permission {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export const PERMISSIONS = {
+  VIEW_REPORTS: 'view_reports',
+  ADJUST_PUNCH: 'adjust_punch',
+  MANAGE_USERS: 'manage_users',
+  VIEW_AUDIT: 'view_audit',
+  EXPORT_DATA: 'export_data',
+  MANAGE_SETTINGS: 'manage_settings',
+} as const;
+
+export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
+  employee: [],
+  supervisor: [PERMISSIONS.VIEW_REPORTS, PERMISSIONS.VIEW_AUDIT],
+  hr: [PERMISSIONS.VIEW_REPORTS, PERMISSIONS.VIEW_AUDIT, PERMISSIONS.EXPORT_DATA],
+  admin: Object.values(PERMISSIONS),
+};
+
 export interface User {
   id: string;
   nome: string;
   email: string;
   cargo: string;
-  role: 'employee' | 'admin';
+  role: UserRole;
   createdAt: Date;
   companyId: string;
   departmentId: string;
   avatar?: string;
+  permissions?: string[]; // Permissões customizadas (sobrescreve role)
   preferences: {
     notifications: boolean;
-    theme: 'light' | 'dark';
+    theme: 'light' | 'dark' | 'auto';
     allowManualPunch: boolean;
+    language: 'pt-BR' | 'en-US';
   };
+}
+
+export interface InAppNotification {
+  id: string;
+  userId: string;
+  type: 'info' | 'warning' | 'success' | 'error';
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: Date;
+  actionUrl?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface DailySummary {

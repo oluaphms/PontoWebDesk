@@ -28,8 +28,17 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
     refreshRecords();
   }, [refreshRecords]);
 
+  const lastPunchAt = useRef<number>(0);
+  const THROTTLE_MS = 5000;
+
   const addRecord = async (type: LogType, method: PunchMethod, data: any) => {
     if (!userId || !companyId) return;
+    const now = Date.now();
+    if (now - lastPunchAt.current < THROTTLE_MS) {
+      setError('Aguarde alguns segundos antes de registrar novamente.');
+      return;
+    }
+    lastPunchAt.current = now;
     setIsLoading(true);
     setError(null);
     try {
