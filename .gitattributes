@@ -1,0 +1,13 @@
+# Normalize line endings: check out with CRLF on Windows, commit as LF
+* text=auto eol=lf
+
+# Explicitly treat these as binary (no LF/CRLF conversion)
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

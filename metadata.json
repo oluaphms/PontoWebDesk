@@ -1,0 +1,9 @@
+
+{
+  "name": "SmartPonto - Ponto Eletrônico",
+  "description": "Um sistema de controle de ponto moderno e seguro com análise de produtividade via IA e geolocalização.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
