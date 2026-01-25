@@ -256,9 +256,15 @@ const AppMain: React.FC = () => {
     }
     const cfg = getReminderConfig();
     if (!cfg.enabled) return;
-    requestNotificationPermission().then((p) => {
-      if (p === 'granted') startReminderCheck();
-    });
+    
+    // Verificar se a permissão já foi concedida anteriormente
+    // Não solicitar automaticamente - apenas verificar o status atual
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      startReminderCheck();
+    }
+    // Se a permissão não foi concedida, não solicitar automaticamente
+    // O usuário pode solicitar manualmente nas configurações
+    
     return () => stopReminderCheck();
   }, [user?.id, user?.preferences?.notifications]);
 

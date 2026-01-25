@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ThemeService } from '../services/themeService';
 import { i18n } from '../lib/i18n';
+import { requestNotificationPermission, startReminderCheck } from '../services/pushReminderService';
 
 interface ProfileViewProps {
   user: User;
@@ -360,13 +361,43 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
               <div>
                 <p className="font-bold text-slate-900 dark:text-white">Notificações</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Receber notificações do sistema</p>
+                {error && preferences.notifications && typeof Notification !== 'undefined' && Notification.permission === 'denied' && (
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-1 font-medium">{error}</p>
+                )}
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
                 checked={preferences.notifications}
-                onChange={e => setPreferences({...preferences, notifications: e.target.checked})}
+                onChange={async (e) => {
+                  const enabled = e.target.checked;
+                  setPreferences({...preferences, notifications: enabled});
+                  
+                  // Limpar erro anterior
+                  if (error && error.includes('notificação')) {
+                    setError(null);
+                  }
+                  
+                  // Se ativando notificações e a permissão ainda não foi concedida, solicitar
+                  if (enabled && typeof Notification !== 'undefined') {
+                    if (Notification.permission === 'default') {
+                      // Solicitar permissão apenas quando o usuário interagir (gesto do usuário)
+                      const permission = await requestNotificationPermission();
+                      if (permission === 'granted') {
+                        startReminderCheck();
+                        setError(null); // Limpar erro se sucesso
+                      } else if (permission === 'denied') {
+                        setError('Permissão de notificação negada. Ative nas configurações do navegador.');
+                      }
+                    } else if (Notification.permission === 'granted') {
+                      startReminderCheck();
+                      setError(null); // Limpar erro se já tem permissão
+                    } else if (Notification.permission === 'denied') {
+                      setError('Permissão de notificação negada. Ative nas configurações do navegador.');
+                    }
+                  }
+                }}
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
