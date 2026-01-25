@@ -78,7 +78,28 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
   const startCamera = async () => {
     setError(null);
     setIsCapturing(false);
+    
+    // Verificar se getUserMedia está disponível
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError("Seu navegador não suporta acesso à câmera. Use Chrome, Firefox ou Safari atualizado.");
+      setShowTroubleshoot(true);
+      return;
+    }
+
+    // Verificar se está em HTTPS (requerido para getUserMedia em produção)
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      setError("Acesso à câmera requer conexão segura (HTTPS). Certifique-se de estar usando HTTPS.");
+      setShowTroubleshoot(true);
+      return;
+    }
+
     try {
+      // Parar qualquer stream existente primeiro
+      if (videoRef.current?.srcObject) {
+        const existingStream = videoRef.current.srcObject as MediaStream;
+        existingStream.getTracks().forEach(track => track.stop());
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: 'user', 
@@ -87,34 +108,72 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         } 
       });
       
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        
-        // Aguardar o vídeo estar pronto antes de marcar como capturando
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play()
-              .then(() => {
-                setIsCapturing(true);
-                setError(null);
-              })
-              .catch((err) => {
-                console.error('Erro ao reproduzir vídeo:', err);
-                setError("Erro ao iniciar a câmera. Tente novamente.");
-                setIsCapturing(false);
-              });
-          }
-        };
+      if (!videoRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        setError("Elemento de vídeo não encontrado. Recarregue a página.");
+        return;
+      }
+
+      videoRef.current.srcObject = stream;
+      
+      // Aguardar o vídeo estar pronto antes de marcar como capturando
+      const handleLoadedMetadata = () => {
+        if (videoRef.current) {
+          videoRef.current.play()
+            .then(() => {
+              setIsCapturing(true);
+              setError(null);
+            })
+            .catch((err) => {
+              console.error('Erro ao reproduzir vídeo:', err);
+              setError("Erro ao iniciar a câmera. Tente novamente.");
+              setIsCapturing(false);
+              stream.getTracks().forEach(track => track.stop());
+            });
+        }
+      };
+
+      // Remover listener anterior se existir
+      videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+      
+      // Se o vídeo já estiver carregado, chamar imediatamente
+      if (videoRef.current.readyState >= 2) {
+        handleLoadedMetadata();
       }
     } catch (err: any) {
       console.error('Erro ao acessar câmera:', err);
       setIsCapturing(false);
+      
+      // Parar qualquer stream que possa ter sido iniciado
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError("Câmera bloqueada. Permita o acesso para realizar a biometria.");
+        setError("Câmera bloqueada. Clique em 'Habilitar Acessos' e permita o acesso à câmera nas configurações do navegador.");
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada.");
+        setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada e tente novamente.");
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        setError("Câmera está sendo usada por outro aplicativo. Feche outros apps que usam a câmera e tente novamente.");
+      } else if (err.name === 'OverconstrainedError') {
+        setError("Configuração da câmera não suportada. Tentando configuração alternativa...");
+        // Tentar com configuração mais simples
+        setTimeout(() => {
+          navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+              if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().then(() => setIsCapturing(true));
+              }
+            })
+            .catch(() => setError("Não foi possível acessar a câmera. Verifique as permissões."));
+        }, 500);
+        return;
       } else {
-        setError("Erro ao acessar a câmera. Verifique as permissões e tente novamente.");
+        setError(`Erro ao acessar a câmera: ${err.message || 'Erro desconhecido'}. Verifique as permissões e tente novamente.`);
       }
       setShowTroubleshoot(true);
     }
@@ -130,10 +189,12 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
 
   useEffect(() => {
     if (method === PunchMethod.PHOTO && !photo && !showTroubleshoot) {
-      // Pequeno delay para garantir que o componente está montado
+      // Delay maior para garantir que o componente está totalmente montado e o DOM está pronto
       const timer = setTimeout(() => {
-        startCamera();
-      }, 100);
+        if (videoRef.current && !photo) {
+          startCamera();
+        }
+      }, 300);
       return () => {
         clearTimeout(timer);
         stopCamera();
@@ -311,14 +372,22 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
                             ref={videoRef} 
                             autoPlay 
                             playsInline 
+                            muted
                             className="w-full h-full object-cover scale-x-[-1]" 
                             onLoadedMetadata={() => {
                               // Garantir que o vídeo está pronto
                               if (videoRef.current) {
                                 videoRef.current.play().catch(err => {
                                   console.error('Erro ao reproduzir vídeo:', err);
+                                  setError("Erro ao iniciar a câmera. Tente novamente.");
+                                  setIsCapturing(false);
                                 });
                               }
+                            }}
+                            onError={(e) => {
+                              console.error('Erro no elemento de vídeo:', e);
+                              setError("Erro ao carregar o vídeo da câmera.");
+                              setIsCapturing(false);
                             }}
                           />
                           <button 

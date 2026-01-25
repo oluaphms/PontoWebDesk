@@ -8,6 +8,10 @@
   "theme_color": "#4f46e5",
   "orientation": "portrait-primary",
   "scope": "/",
+  "permissions": [
+    "camera",
+    "geolocation"
+  ],
   "icons": [
     {
       "src": "/favicon.svg",
