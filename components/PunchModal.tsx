@@ -209,9 +209,11 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
           }
           if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
             console.log('Câmera não encontrada - pode ser que não haja câmera ou permissão não foi concedida');
+            console.log('Definindo erro e estados...');
             setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada ou integrada ao dispositivo.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
+            console.log('Estados definidos - erro deve aparecer no overlay');
             return;
           }
           if (name === 'NotReadableError' || name === 'TrackStartError') {
