@@ -114,6 +114,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
   }, [method]);
 
   const startCamera = useCallback(async () => {
+    console.log('🎬 startCamera chamada');
     setError(null);
     setIsCapturing(false);
     
@@ -189,23 +190,32 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         }
       }
 
+      console.log('🔍 Após loop - stream:', !!stream, 'lastError:', lastError?.name, lastError?.message);
+      console.log('🔍 lastError completo:', lastError);
+
       if (!stream) {
+        console.log('❌ Nenhum stream obtido após todas as tentativas. Último erro:', lastError);
+        console.log('❌ Vou definir o erro agora...');
         // Tratar erros comuns com mensagens mais específicas para ajudar no debug
         if (lastError) {
           const name = lastError.name;
+          console.log('Tipo de erro:', name);
           if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+            console.log('Permissão negada');
             setError("Câmera bloqueada. Toque em 'Ativar Câmera' novamente e permita o acesso à câmera quando solicitado.");
             setIsCapturing(false);
-            setShowTroubleshoot(false); // Garantir que não fique em troubleshoot para permitir nova tentativa
+            setShowTroubleshoot(false);
             return;
           }
           if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-            setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada.");
+            console.log('Câmera não encontrada - pode ser que não haja câmera ou permissão não foi concedida');
+            setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada ou integrada ao dispositivo.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
             return;
           }
           if (name === 'NotReadableError' || name === 'TrackStartError') {
+            console.log('Câmera em uso');
             setError("Câmera está sendo usada por outro aplicativo. Feche outros apps e tente novamente.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
@@ -213,12 +223,14 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
           }
 
           // Mensagem fallback incluindo detalhe do último erro
+          console.log('Erro desconhecido:', lastError);
           setError(`Não foi possível acessar a câmera: ${lastError.message || lastError}. Tente novamente.`);
           setIsCapturing(false);
           setShowTroubleshoot(false);
           return;
         }
 
+        console.log('Nenhum erro específico capturado');
         setError('Não foi possível acessar a câmera. Tente novamente.');
         setIsCapturing(false);
         setShowTroubleshoot(false);
@@ -608,10 +620,17 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
                         <>
                           {/* Overlay quando câmera não está ativa */}
                           {/* Em dispositivos móveis, o overlay sempre aparece inicialmente para garantir gesto do usuário */}
-                          {/* Debug: verificar estados */}
                           {(() => {
-                            console.log('Verificando overlay - isCapturing:', isCapturing, 'showTroubleshoot:', showTroubleshoot, 'error:', error, 'method:', method);
-                            return !isCapturing && !showTroubleshoot;
+                            const shouldShow = !isCapturing && !showTroubleshoot;
+                            console.log('🔍 Verificando overlay:', { 
+                              shouldShow, 
+                              isCapturing, 
+                              showTroubleshoot, 
+                              error, 
+                              method,
+                              photo: !!photo
+                            });
+                            return shouldShow;
                           })() && (
                             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-30 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
                               <div className="w-16 h-16 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mb-4 animate-pulse">
