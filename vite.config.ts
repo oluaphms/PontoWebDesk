@@ -36,11 +36,23 @@ export default defineConfig(({ mode }) => {
         sourcemap: false,
         emptyOutDir: true,
         minify: 'esbuild',
+        cssCodeSplit: true,
+        cssMinify: true,
         rollupOptions: {
           output: {
             entryFileNames: 'assets/[name]-[hash].js',
             chunkFileNames: 'assets/[name]-[hash].js',
-            assetFileNames: 'assets/[name]-[hash].[ext]',
+            assetFileNames: (assetInfo) => {
+              const info = assetInfo.name?.split('.') || [];
+              const ext = info[info.length - 1];
+              if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
+                return 'assets/images/[name]-[hash][extname]';
+              }
+              if (/woff2?|eot|ttf|otf/i.test(ext)) {
+                return 'assets/fonts/[name]-[hash][extname]';
+              }
+              return 'assets/[name]-[hash][extname]';
+            },
             manualChunks: {
               'react-vendor': ['react', 'react-dom', 'react-is'],
               'supabase-vendor': ['@supabase/supabase-js'],
