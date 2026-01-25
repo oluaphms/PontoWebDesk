@@ -80,38 +80,69 @@
     <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 <script>
-  // Limpar Service Workers e caches antigos COMPLETAMENTE
-  (async function() {
+  // Limpar Service Workers e caches antigos COMPLETAMENTE - EXECUTAR IMEDIATAMENTE
+  (function() {
+    'use strict';
     if ('serviceWorker' in navigator) {
-      try {
-        // Desregistrar TODOS os Service Workers
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        let cacheNames = [];
-        
-        if ('caches' in window) {
-          cacheNames = await caches.keys();
+      // Executar imediatamente, sem esperar load
+      (async function() {
+        try {
+          // Desregistrar TODOS os Service Workers
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          let cacheNames = [];
+          
+          if ('caches' in window) {
+            cacheNames = await caches.keys();
+          }
+          
+          // Desregistrar todos os SWs
+          for (let registration of registrations) {
+            try {
+              const unregistered = await registration.unregister();
+              console.log('[CLEANUP] SW unregistered:', registration.scope, unregistered);
+            } catch (e) {
+              console.error('[CLEANUP] Error unregistering SW:', e);
+            }
+          }
+          
+          // Limpar TODOS os caches
+          if (cacheNames.length > 0) {
+            await Promise.all(cacheNames.map(name => {
+              console.log('[CLEANUP] Deleting cache:', name);
+              return caches.delete(name);
+            }));
+            console.log('[CLEANUP] All caches cleared');
+          }
+          
+          // Se havia SWs ou caches, recarregar para garantir limpeza completa
+          if (registrations.length > 0 || cacheNames.length > 0) {
+            console.log('[CLEANUP] Reloading to ensure clean state...');
+            // Usar replace para evitar adicionar ao histórico
+            setTimeout(() => window.location.replace(window.location.href), 50);
+          }
+        } catch (error) {
+          console.error('[CLEANUP] Error:', error);
         }
-        
-        for (let registration of registrations) {
-          const unregistered = await registration.unregister();
-          console.log('SW unregistered:', registration.scope, unregistered);
-        }
-        
-        // Limpar TODOS os caches
-        if (cacheNames.length > 0) {
-          await Promise.all(cacheNames.map(name => caches.delete(name)));
-          console.log('All caches cleared');
-        }
-        
-        // Forçar atualização da página após limpeza (apenas se havia algo para limpar)
-        if (registrations.length > 0 || cacheNames.length > 0) {
-          console.log('Cache cleared, reloading page...');
-          setTimeout(() => window.location.reload(), 100);
-        }
-      } catch (error) {
-        console.error('SW cleanup failed:', error);
-      }
+      })();
     }
+    
+    // Também limpar quando a página carregar (backup)
+    window.addEventListener('load', function() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+          }
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (let name of names) {
+            caches.delete(name);
+          }
+        });
+      }
+    });
   })();
 </script>
 </body>
