@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { LogType, PunchMethod, User, Company } from '../types';
-import { Camera, MapPin, Keyboard, X, Check, AlertTriangle, ShieldCheck, RefreshCw, Settings2, HelpCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Camera, MapPin, Keyboard, X, Check, AlertTriangle, ShieldCheck, RefreshCw, Settings2, HelpCircle, Loader2, AlertCircle, Upload } from 'lucide-react';
 import { Button, LoadingState, Badge } from './UI';
 import { PontoService } from '../services/pontoService';
 
@@ -23,7 +23,33 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
   const [error, setError] = useState<string | null>(null);
   const [showTroubleshoot, setShowTroubleshoot] = useState(false);
   const [isLocationLoading, setIsLocationLoading] = useState(false);
+  const [hasCamera, setHasCamera] = useState<boolean | null>(null); // null = ainda não verificado
+  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
   
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Verificar dispositivos disponíveis quando o modal abre
+  // NOTA: Esta verificação inicial é apenas informativa
+  // A verificação real acontece em startCamera() quando o usuário clica
+  useEffect(() => {
+    if (method === PunchMethod.PHOTO && hasCamera === null) {
+      // Verificação inicial silenciosa - não solicitar permissão ainda
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices.enumerateDevices().then(devices => {
+          const videoDevices = devices.filter(d => d.kind === 'videoinput');
+          console.log('📹 Verificação inicial - dispositivos encontrados:', videoDevices.length);
+          setAvailableDevices(videoDevices);
+          // Não definir hasCamera aqui - será definido em startCamera após solicitar permissão
+        }).catch(() => {
+          // Ignorar erro na verificação inicial
+        });
+      }
+    }
+  }, [method, hasCamera]);
+
   // Garantir que showTroubleshoot seja false quando o modal abre com método PHOTO
   useEffect(() => {
     if (method === PunchMethod.PHOTO) {
@@ -32,10 +58,6 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       setIsCapturing(false);
     }
   }, []);
-  
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     PontoService.getCompany(user.companyId).then(comp => {
@@ -74,6 +96,14 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       setShowTroubleshoot(false);
     }
   }, [method]);
+
+  // Debug: Log quando erro muda para verificar renderização
+  useEffect(() => {
+    if (error) {
+      console.log('🔄 Erro definido, componente deve re-renderizar. Erro:', error);
+      console.log('🔄 Estados atuais:', { isCapturing, showTroubleshoot, error, method, photo: !!photo });
+    }
+  }, [error, isCapturing, showTroubleshoot, method, photo]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -118,19 +148,64 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     setError(null);
     setIsCapturing(false);
     
-    // Verificar se getUserMedia está disponível
+    // 1. Verificar se getUserMedia está disponível
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("Seu navegador não suporta acesso à câmera. Use Chrome, Firefox ou Safari atualizado.");
-      // Não definir showTroubleshoot - deixar o overlay aparecer para o usuário tentar novamente
+      setHasCamera(false);
       return;
     }
 
-    // Verificar se está em HTTPS (requerido para getUserMedia em produção)
+    // 2. Verificar se está em HTTPS (requerido para getUserMedia em produção)
     const currentLocation = window.location;
-    if (currentLocation.protocol !== 'https:' && currentLocation.hostname !== 'localhost' && currentLocation.hostname !== '127.0.0.1') {
+    const isSecureContext = currentLocation.protocol === 'https:' || 
+                           currentLocation.hostname === 'localhost' || 
+                           currentLocation.hostname === '127.0.0.1' ||
+                           window.isSecureContext;
+    
+    if (!isSecureContext) {
       setError("Acesso à câmera requer conexão segura (HTTPS). Certifique-se de estar usando HTTPS.");
-      // Não definir showTroubleshoot - deixar o overlay aparecer para o usuário tentar novamente
+      setHasCamera(false);
       return;
+    }
+
+    // 3. Verificar dispositivos disponíveis ANTES de tentar getUserMedia
+    let videoDevices: MediaDeviceInfo[] = [];
+    try {
+      console.log('📹 Verificando dispositivos disponíveis...');
+      // Tentar obter permissão primeiro para ver labels
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        tempStream.getTracks().forEach(track => track.stop()); // Parar imediatamente
+      } catch (e) {
+        // Se falhar, continuar mesmo assim - pode ser permissão negada mas dispositivos existem
+      }
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      videoDevices = devices.filter(d => d.kind === 'videoinput');
+      
+      console.log('📹 Dispositivos de vídeo encontrados:', videoDevices.length);
+      if (videoDevices.length > 0) {
+        console.log('📹 Lista de dispositivos:', videoDevices.map(d => ({
+          deviceId: d.deviceId.substring(0, 20) + '...',
+          label: d.label || 'Sem label (sem permissão)',
+          kind: d.kind
+        })));
+      }
+
+      setAvailableDevices(videoDevices);
+      
+      // Se não houver dispositivos de vídeo, não tentar getUserMedia
+      if (videoDevices.length === 0) {
+        console.log('❌ Nenhum dispositivo de vídeo encontrado - evitando tentativas desnecessárias');
+        setHasCamera(false);
+        setError("Nenhuma câmera encontrada. Use o botão 'Enviar foto do dispositivo' para fazer upload de uma imagem.");
+        return;
+      }
+
+      setHasCamera(true);
+    } catch (err) {
+      console.error('Erro ao verificar dispositivos:', err);
+      // Continuar mesmo assim - pode ser que ainda funcione
     }
 
     // Aguardar um pouco para garantir que o elemento de vídeo está no DOM
@@ -146,32 +221,40 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
 
       console.log('Solicitando acesso à câmera...');
 
-      // NOTA: Não verificar enumerateDevices() antes de solicitar permissão
-      // porque os dispositivos só aparecem com labels após permissão ser concedida
-      // Vamos tentar getUserMedia diretamente - se não houver câmera, retornará erro específico
+      // 4. Detectar se é mobile ou desktop
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      // 5. Construir lista de constraints progressivas
+      const videoConstraints: any[] = [];
+      
+      // Se temos deviceId disponível, usar ele primeiro
+      if (videoDevices.length > 0 && videoDevices[0].deviceId) {
+        // Tentar com deviceId específico (mais confiável)
+        videoConstraints.push({ video: { deviceId: { exact: videoDevices[0].deviceId } } });
+        videoConstraints.push({ video: { deviceId: videoDevices[0].deviceId } });
+      }
 
-      // Tentar com configurações progressivas
-      console.log('Tentando obter stream com diferentes configurações...');
+      // Adicionar constraints baseadas em facingMode
+      if (isMobile) {
+        // Mobile: tentar traseira primeiro, depois frontal
+        videoConstraints.push({ video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } } });
+        videoConstraints.push({ video: { facingMode: 'environment' } });
+        videoConstraints.push({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } } });
+        videoConstraints.push({ video: { facingMode: 'user' } });
+      } else {
+        // Desktop: tentar frontal primeiro
+        videoConstraints.push({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } } });
+        videoConstraints.push({ video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 } } });
+        videoConstraints.push({ video: { facingMode: 'user' } });
+      }
+
+      // Fallback genérico
+      videoConstraints.push({ video: true });
+
+      // 6. Tentar com configurações progressivas
+      console.log(`Tentando obter stream com ${videoConstraints.length} configurações diferentes...`);
       let stream: MediaStream | null = null;
       let lastError: any = null;
-      const videoConstraints = [
-        { 
-          video: { 
-            facingMode: 'user', 
-            width: { ideal: 640 }, 
-            height: { ideal: 640 } 
-          } 
-        },
-        { 
-          video: { 
-            facingMode: 'user', 
-            width: { ideal: 480 }, 
-            height: { ideal: 480 } 
-          } 
-        },
-        { video: { facingMode: 'user' } },
-        { video: true }
-      ];
 
       for (let i = 0; i < videoConstraints.length; i++) {
         const constraints = videoConstraints[i];
@@ -183,6 +266,13 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         } catch (err: any) {
           lastError = err;
           console.log(`❌ Falha na tentativa ${i + 1}:`, err.name, err.message);
+          
+          // Se for NotFoundError e já tentamos várias vezes, parar
+          if (err.name === 'NotFoundError' && i >= 3) {
+            console.log('❌ NotFoundError persistente após múltiplas tentativas - parando loop');
+            break;
+          }
+          
           if (stream) {
             stream.getTracks().forEach(track => track.stop());
             stream = null;
@@ -190,50 +280,41 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         }
       }
 
-      console.log('🔍 Após loop - stream:', !!stream, 'lastError:', lastError?.name, lastError?.message);
-      console.log('🔍 lastError completo:', lastError);
-
+      // 7. Tratar resultado
       if (!stream) {
         console.log('❌ Nenhum stream obtido após todas as tentativas. Último erro:', lastError);
-        console.log('❌ Vou definir o erro agora...');
-        // Tratar erros comuns com mensagens mais específicas para ajudar no debug
+        
         if (lastError) {
           const name = lastError.name;
           console.log('Tipo de erro:', name);
+          
           if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-            console.log('Permissão negada');
-            setError("Câmera bloqueada. Toque em 'Ativar Câmera' novamente e permita o acesso à câmera quando solicitado.");
+            setError("Câmera bloqueada. Toque em 'Ativar Câmera' novamente e permita o acesso quando solicitado.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
             return;
           }
+          
           if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-            console.log('Câmera não encontrada - pode ser que não haja câmera ou permissão não foi concedida');
-            console.log('Definindo erro e estados...');
-            setError("Nenhuma câmera encontrada. Verifique se há uma câmera conectada ou integrada ao dispositivo.");
+            setHasCamera(false);
+            setError("Nenhuma câmera encontrada. Use o botão 'Enviar foto do dispositivo' para fazer upload de uma imagem.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
-            console.log('Estados definidos - erro deve aparecer no overlay');
             return;
           }
+          
           if (name === 'NotReadableError' || name === 'TrackStartError') {
-            console.log('Câmera em uso');
             setError("Câmera está sendo usada por outro aplicativo. Feche outros apps e tente novamente.");
             setIsCapturing(false);
             setShowTroubleshoot(false);
             return;
           }
 
-          // Mensagem fallback incluindo detalhe do último erro
-          console.log('Erro desconhecido:', lastError);
-          setError(`Não foi possível acessar a câmera: ${lastError.message || lastError}. Tente novamente.`);
-          setIsCapturing(false);
-          setShowTroubleshoot(false);
-          return;
+          setError(`Não foi possível acessar a câmera: ${lastError.message || 'Erro desconhecido'}. Tente novamente.`);
+        } else {
+          setError('Não foi possível acessar a câmera. Tente novamente.');
         }
-
-        console.log('Nenhum erro específico capturado');
-        setError('Não foi possível acessar a câmera. Tente novamente.');
+        
         setIsCapturing(false);
         setShowTroubleshoot(false);
         return;
@@ -395,6 +476,39 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       stopCamera();
     };
   }, [method, photo, showTroubleshoot, startCamera, stopCamera]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de arquivo
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor, selecione um arquivo de imagem válido.');
+      return;
+    }
+
+    // Validar tamanho (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('A imagem deve ter no máximo 5MB. Por favor, escolha uma imagem menor.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result && result.startsWith('data:image/')) {
+        setPhoto(result);
+        setError(null);
+        console.log('✅ Foto carregada do dispositivo, tamanho:', result.length, 'bytes');
+      } else {
+        setError('Erro ao processar a imagem. Tente novamente.');
+      }
+    };
+    reader.onerror = () => {
+      setError('Erro ao ler o arquivo. Tente novamente.');
+    };
+    reader.readAsDataURL(file);
+  };
 
   const capturePhoto = async () => {
     try {
@@ -616,7 +730,11 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
                     </div>
                   )}
 
-                  {method === PunchMethod.PHOTO && (
+                  {(() => {
+                    const isPhotoMethod = method === PunchMethod.PHOTO;
+                    console.log('📸 Renderizando método PHOTO?', { isPhotoMethod, method, PunchMethod_PHOTO: PunchMethod.PHOTO });
+                    return isPhotoMethod;
+                  })() && (
                     <div className="w-full h-full">
                       {!photo ? (
                         <>
@@ -639,40 +757,66 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
                                 <Camera size={32} />
                               </div>
                               <p className="text-white font-black text-sm uppercase tracking-widest mb-2">
-                                {error ? 'Erro ao Acessar Câmera' : 'Ativar Câmera'}
+                                {hasCamera === false || (error && error.includes('Nenhuma câmera encontrada'))
+                                  ? 'Câmera Não Disponível'
+                                  : error 
+                                    ? 'Erro ao Acessar Câmera' 
+                                    : 'Ativar Câmera'}
                               </p>
-                              <p className="text-slate-400 text-xs mb-6 leading-relaxed">
-                                {error 
-                                  ? 'Não foi possível acessar a câmera. Toque no botão abaixo para tentar novamente.'
-                                  : 'Toque no botão abaixo para permitir o acesso à câmera e iniciar a captura.'}
+                              <p className="text-slate-400 text-xs mb-6 leading-relaxed max-w-xs">
+                                {hasCamera === false || (error && error.includes('Nenhuma câmera encontrada'))
+                                  ? 'Não há câmera disponível neste dispositivo. Use o botão abaixo para enviar uma foto do seu dispositivo.'
+                                  : error 
+                                    ? 'Não foi possível acessar a câmera. Tente novamente ou envie uma foto do dispositivo.'
+                                    : 'Toque no botão abaixo para permitir o acesso à câmera e iniciar a captura.'}
                               </p>
                               {error && (
                                 <p className="text-red-400 text-xs mb-4 font-medium max-w-xs">{error}</p>
                               )}
-                              <Button 
-                                onClick={async () => {
-                                  try {
-                                    // Resetar todos os estados de erro antes de tentar novamente
-                                    setError(null);
-                                    setShowTroubleshoot(false);
-                                    setIsCapturing(false);
-                                    
-                                    // Pequeno delay para garantir que os estados foram atualizados
-                                    await new Promise(resolve => setTimeout(resolve, 50));
-                                    
-                                    // Tentar iniciar a câmera
-                                    await startCamera();
-                                  } catch (err) {
-                                    console.error('Erro ao ativar câmera:', err);
-                                    setError("Erro ao ativar a câmera. Verifique as permissões do navegador.");
-                                    setIsCapturing(false);
-                                  }
-                                }}
-                                size="sm" 
-                                className="rounded-xl px-8 flex items-center gap-2"
-                              >
-                                <Camera size={18} /> {error ? 'Tentar Novamente' : 'Ativar Câmera'}
-                              </Button>
+                              <div className="flex flex-col gap-3 w-full max-w-xs">
+                                {(hasCamera !== false && (!error || !error.includes('Nenhuma câmera encontrada'))) && (
+                                  <Button 
+                                    onClick={async () => {
+                                      try {
+                                        // Resetar todos os estados de erro antes de tentar novamente
+                                        setError(null);
+                                        setShowTroubleshoot(false);
+                                        setIsCapturing(false);
+                                        
+                                        // Pequeno delay para garantir que os estados foram atualizados
+                                        await new Promise(resolve => setTimeout(resolve, 50));
+                                        
+                                        // Tentar iniciar a câmera
+                                        await startCamera();
+                                      } catch (err) {
+                                        console.error('Erro ao ativar câmera:', err);
+                                        setError("Erro ao ativar a câmera. Verifique as permissões do navegador.");
+                                        setIsCapturing(false);
+                                      }
+                                    }}
+                                    size="sm" 
+                                    className="rounded-xl px-8 flex items-center gap-2"
+                                  >
+                                    <Camera size={18} /> {error ? 'Tentar Novamente' : 'Ativar Câmera'}
+                                  </Button>
+                                )}
+                                <Button 
+                                  onClick={() => fileInputRef.current?.click()}
+                                  variant="outline"
+                                  size="sm" 
+                                  className="rounded-xl px-8 flex items-center gap-2 border-white/20 text-white hover:bg-white/10"
+                                >
+                                  <Upload size={18} /> Enviar Foto do Dispositivo
+                                </Button>
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={handleFileUpload}
+                                  className="hidden"
+                                />
+                              </div>
                             </div>
                           )}
                           
