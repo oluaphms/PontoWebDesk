@@ -4,7 +4,7 @@
  * Gerencia autenticação de usuários usando Supabase Auth
  */
 
-import { auth, db, isSupabaseConfigured } from './supabase';
+import { auth, db, isSupabaseConfigured, supabase } from './supabase';
 import { User } from '../types';
 
 export interface AuthResult {
@@ -18,22 +18,32 @@ class AuthService {
    */
   private async supabaseUserToAppUser(supabaseUser: any): Promise<User | null> {
     try {
-      // Buscar dados do usuário no banco de dados
-      const userData = await db.select('users', [
+      const email = (supabaseUser.email || '').trim().toLowerCase();
+      if (!email) return null;
+
+      // 1) Buscar por id (auth.users.id = public.users.id)
+      let userData = await db.select('users', [
         { column: 'id', operator: 'eq', value: supabaseUser.id }
       ]);
-      
+
+      // 2) Se não encontrou, buscar por email (caso public.users tenha id antigo diferente do auth)
+      if (!userData?.length) {
+        userData = await db.select('users', [
+          { column: 'email', operator: 'eq', value: email }
+        ], undefined, 1);
+      }
+
       if (userData && userData.length > 0) {
         const user = userData[0];
         return {
           id: supabaseUser.id,
-          nome: user.nome || supabaseUser.user_metadata?.nome || supabaseUser.email?.split('@')[0] || 'Usuário',
+          nome: user.nome || supabaseUser.user_metadata?.nome || email.split('@')[0] || 'Usuário',
           email: supabaseUser.email || '',
           cargo: user.cargo || 'Colaborador',
           role: user.role || 'employee',
           createdAt: user.created_at ? new Date(user.created_at) : new Date(),
-          companyId: user.company_id || '',
-          departmentId: user.department_id || '',
+          companyId: user.company_id ?? '',
+          departmentId: user.department_id ?? '',
           avatar: supabaseUser.user_metadata?.avatar_url || user.avatar,
           preferences: user.preferences || {
             notifications: true,
@@ -41,26 +51,28 @@ class AuthService {
             allowManualPunch: true
           }
         };
-      } else {
-        // Criar usuário básico se não existir no banco
-        const newUser: User = {
-          id: supabaseUser.id,
-          nome: supabaseUser.user_metadata?.nome || supabaseUser.email?.split('@')[0] || 'Usuário',
-          email: supabaseUser.email || '',
-          cargo: 'Colaborador',
-          role: 'employee',
-          createdAt: new Date(),
-          companyId: '',
-          departmentId: '',
-          avatar: supabaseUser.user_metadata?.avatar_url,
-          preferences: {
-            notifications: true,
-            theme: 'light',
-            allowManualPunch: true,
-            language: 'pt-BR'
-          }
-        };
-        
+      }
+
+      // 3) Criar usuário básico se não existir no banco (primeiro login)
+      const newUser: User = {
+        id: supabaseUser.id,
+        nome: supabaseUser.user_metadata?.nome || email.split('@')[0] || 'Usuário',
+        email: supabaseUser.email || '',
+        cargo: 'Colaborador',
+        role: 'employee',
+        createdAt: new Date(),
+        companyId: '',
+        departmentId: '',
+        avatar: supabaseUser.user_metadata?.avatar_url,
+        preferences: {
+          notifications: true,
+          theme: 'light',
+          allowManualPunch: true,
+          language: 'pt-BR'
+        }
+      };
+
+      try {
         await db.insert('users', {
           id: newUser.id,
           nome: newUser.nome,
@@ -73,9 +85,32 @@ class AuthService {
           preferences: newUser.preferences,
           created_at: new Date().toISOString()
         });
-        
-        return newUser;
+      } catch (insertError: any) {
+        // Conflito de email (já existe outro id): usar perfil por email na próxima busca
+        if (insertError?.code === '23505' || insertError?.message?.includes('duplicate')) {
+          const byEmail = await db.select('users', [
+            { column: 'email', operator: 'eq', value: email }
+          ], undefined, 1);
+          if (byEmail?.[0]) {
+            const u = byEmail[0];
+            return {
+              id: supabaseUser.id,
+              nome: u.nome || newUser.nome,
+              email: supabaseUser.email || '',
+              cargo: u.cargo || 'Colaborador',
+              role: u.role || 'employee',
+              createdAt: u.created_at ? new Date(u.created_at) : new Date(),
+              companyId: u.company_id ?? '',
+              departmentId: u.department_id ?? '',
+              avatar: u.avatar || newUser.avatar,
+              preferences: u.preferences || newUser.preferences
+            };
+          }
+        }
+        throw insertError;
       }
+
+      return newUser;
     } catch (error) {
       console.error('Erro ao converter usuário Supabase:', error);
       return null;
@@ -238,24 +273,100 @@ class AuthService {
   }
 
   /**
-   * Recuperação de senha
+   * Recuperação de senha – envia link por e-mail (Supabase Auth).
+   * redirectTo usa VITE_APP_URL ou origin + '/reset-password'.
    */
   async resetPassword(email: string): Promise<{ success: boolean; error: string | null }> {
     try {
-      await auth.resetPassword(email);
+      const redirectTo = `${this.getResetRedirectUrl()}/reset-password`;
+      await auth.resetPassword(email, redirectTo);
       return { success: true, error: null };
     } catch (error: any) {
       let errorMessage = 'Erro ao enviar email de recuperação';
-      
-      if (error.message) {
-        if (error.message.includes('not found')) {
-          errorMessage = 'Usuário não encontrado';
-        } else {
-          errorMessage = error.message;
+      if (error?.message) {
+        if (error.message.includes('not found')) errorMessage = 'Usuário não encontrado';
+        else if (/redirect|url.*config|smtp/i.test(error.message))
+          errorMessage = `Falha ao enviar. No Supabase: Authentication → URL Configuration, adicione: ${this.getResetRedirectUrl()}`;
+        else errorMessage = error.message;
+      }
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /** URL base para redirect de recuperação (env ou origin). */
+  private getResetRedirectUrl(): string {
+    const base = (import.meta.env?.VITE_APP_URL || import.meta.env?.VITE_SUPABASE_REDIRECT || '').toString().trim();
+    if (base) return base.replace(/\/$/, '');
+    if (typeof window !== 'undefined' && window.location?.origin) return String(window.location.origin).replace(/\/$/, '');
+    return 'http://localhost:3010';
+  }
+
+  /**
+   * Resolve identificador (e-mail ou nome) para e-mail na tabela users.
+   * Usado na recuperação de senha quando o usuário não informa e-mail.
+   */
+  async getEmailForReset(identifier: string): Promise<string | null> {
+    if (!isSupabaseConfigured) return null;
+    const q = identifier.trim().toLowerCase();
+    if (!q) return null;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailRegex.test(q)) return q;
+    try {
+      const rows = await db.select('users', [{ column: 'email', operator: 'eq', value: q }], undefined as any, 1);
+      if (rows?.[0]?.email) return String(rows[0].email).trim().toLowerCase();
+      const byName = await db.select('users', [{ column: 'nome', operator: 'ilike', value: `%${q}%` }], undefined as any, 1);
+      return byName?.[0]?.email ? String(byName[0].email).trim().toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Obtém ou restaura a sessão de recuperação a partir do hash da URL (type=recovery).
+   * Usar antes de updateUser({ password }) no fluxo de redefinir senha.
+   */
+  async getOrRestoreRecoverySession(): Promise<{ session: any }> {
+    if (!isSupabaseConfigured || !supabase) return { session: null };
+    try {
+      if (typeof supabase.auth.initialize === 'function') await supabase.auth.initialize();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) return { session };
+      if (typeof window === 'undefined' || !window.location?.hash) return { session: null };
+      const hash = window.location.hash.replace(/^#/, '');
+      const params = new URLSearchParams(hash);
+      if (params.get('type') !== 'recovery') return { session: null };
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        if (error) return { session: null };
+        const { data: { session: next } } = await supabase.auth.getSession();
+        return { session: next ?? null };
+      }
+      const tokenHash = params.get('token_hash');
+      if (tokenHash) {
+        const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
+        if (error) return { session: null };
+        return { session: data?.session ?? null };
+      }
+      return { session: null };
+    } catch {
+      return { session: null };
+    }
+  }
+
+  /** Remove o hash de recuperação da URL após redefinir a senha (segurança). */
+  clearRecoveryHashFromUrl(): void {
+    try {
+      if (typeof window !== 'undefined' && window.history?.replaceState && window.location?.hash) {
+        const hash = window.location.hash.replace(/^#/, '');
+        const params = new URLSearchParams(hash);
+        if (params.get('type') === 'recovery') {
+          window.history.replaceState({}, '', window.location.pathname + window.location.search || '/');
         }
       }
-      
-      return { success: false, error: errorMessage };
+    } catch {
+      // ignore
     }
   }
 
@@ -279,15 +390,6 @@ class AuthService {
       const supabaseUser = await Promise.race([getUserPromise, timeoutPromise]);
       
       if (!supabaseUser) {
-        // Tentar recuperar do localStorage como fallback
-        const saved = localStorage.getItem('current_user');
-        if (saved) {
-          try {
-            return JSON.parse(saved);
-          } catch {
-            return null;
-          }
-        }
         return null;
       }
       
@@ -295,35 +397,15 @@ class AuthService {
     } catch (error: any) {
       // Tratar erros de refresh token inválido silenciosamente (comportamento esperado quando não há sessão)
       if (error?.message?.includes('Refresh Token') || error?.message?.includes('Auth session missing')) {
-        // Limpar sessão inválida silenciosamente
         try {
           await auth.signOut();
         } catch {
           // Ignorar erros ao limpar sessão
         }
-        // Tentar recuperar do localStorage como fallback
-        const saved = localStorage.getItem('current_user');
-        if (saved) {
-          try {
-            return JSON.parse(saved);
-          } catch {
-            return null;
-          }
-        }
         return null;
       }
       
-      // Para outros erros, logar normalmente
       console.error('Erro ao obter usuário atual:', error);
-      // Tentar recuperar do localStorage como fallback
-      const saved = localStorage.getItem('current_user');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return null;
-        }
-      }
       return null;
     }
   }

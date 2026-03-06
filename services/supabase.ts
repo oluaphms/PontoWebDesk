@@ -96,10 +96,10 @@ const realAuth = configured
           ?? (data as { unsubscribe?: () => void })?.unsubscribe;
         return typeof unsub === 'function' ? () => unsub() : () => {};
       },
-      resetPassword: async (email: string) => {
-        const { error } = await client!.auth.resetPasswordForEmail(email, {
-          redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/reset-password`,
-        });
+      resetPassword: async (email: string, redirectTo?: string) => {
+        const base = redirectTo?.replace(/\/reset-password\/?$/, '') || (typeof window !== 'undefined' ? window.location.origin : '');
+        const to = redirectTo && redirectTo.startsWith('http') ? redirectTo : `${base}/reset-password`;
+        const { error } = await client!.auth.resetPasswordForEmail(email, { redirectTo: to });
         if (error) throw error;
       },
       updatePassword: async (newPassword: string) => {

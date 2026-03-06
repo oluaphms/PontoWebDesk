@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { User, LogType, DailySummary, PunchMethod, Company } from './types';
 import Layout from './components/Layout';
 import Clock from './components/Clock';
@@ -56,6 +56,25 @@ import AdjustmentsPage from './src/pages/Adjustments';
 import VacationsPage from './src/pages/Vacations';
 import AbsencesPage from './src/pages/Absences';
 import TimeBalancePage from './src/pages/TimeBalance';
+import DepartmentsPage from './src/pages/Departments';
+import NotificationsPage from './src/pages/Notifications';
+import AIChatPage from './src/pages/AIChat';
+import ProductivityTrendsPage from './src/pages/ProductivityTrends';
+import RealTimeInsightsPage from './src/pages/RealTimeInsights';
+import AlertsPage from './src/pages/Alerts';
+import TeamsPage from './src/pages/Teams';
+import ScreenshotsPage from './src/pages/Screenshots';
+import TimeAttendancePage from './src/pages/TimeAttendance';
+import ActivitiesPage from './src/pages/Activities';
+import ProjectsPage from './src/pages/Projects';
+import ReportsPage from './src/pages/Reports';
+import SettingsPage from './src/pages/Settings';
+import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
+import ResetPasswordPage from './src/pages/ResetPassword';
+import AcceptInvitePage from './src/pages/AcceptInvite';
+import RoleGuard from './src/components/auth/RoleGuard';
+import AdminLayout from './src/layouts/AdminLayout';
+import EmployeeLayout from './src/layouts/EmployeeLayout';
 
 // Lazy loading of complex views
 const AdminView = lazy(() => import('./components/AdminView'));
@@ -140,6 +159,7 @@ const AppMain: React.FC = () => {
   const [loginData, setLoginData] = useState({ identifier: '', password: '' });
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   // Theme State (para tela de login)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -157,6 +177,7 @@ const AppMain: React.FC = () => {
 
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -448,12 +469,11 @@ const AppMain: React.FC = () => {
     setLoginError(null);
 
     try {
-      const result = await authService.signInWithEmail(
-        loginData.identifier.includes('@')
-          ? loginData.identifier
-          : `${loginData.identifier}@smartponto.com`,
-        loginData.password
-      );
+      const rawEmail = loginData.identifier.includes('@')
+        ? loginData.identifier
+        : `${loginData.identifier}@smartponto.com`;
+      const email = rawEmail.trim().toLowerCase();
+      const result = await authService.signInWithEmail(email, loginData.password);
 
       if (result.error) {
         setLoginError(result.error);
@@ -470,8 +490,10 @@ const AppMain: React.FC = () => {
 
         if (result.user.role === 'admin' || result.user.role === 'hr') {
           setActiveTab('admin');
+          navigate('/dashboard', { replace: true });
         } else {
           setActiveTab('dashboard');
+          navigate('/dashboard', { replace: true });
         }
       }
     } catch (error: any) {
@@ -481,17 +503,17 @@ const AppMain: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    try {
-      await authService.signOut();
-    } catch (error) {
-      console.error('Erro ao fazer logout:', error);
-    }
     setUser(null);
     setCompany(null);
     setInsights(null);
     setLoginStep('choice');
     setLoginRole(null);
     setLoginData({ identifier: '', password: '' });
+    try {
+      await authService.signOut();
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error);
+    }
   };
 
   // Theme functions (ANTES de qualquer return condicional)
@@ -529,7 +551,8 @@ const AppMain: React.FC = () => {
   }
 
   if (!user) {
-
+    if (location.pathname === '/reset-password') return <ResetPasswordPage />;
+    if (location.pathname === '/accept-invite') return <AcceptInvitePage />;
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 overflow-hidden relative font-sans transition-colors duration-300">
         {/* Botão de modo escuro - canto superior direito */}
@@ -645,40 +668,19 @@ const AppMain: React.FC = () => {
                   >
                     Entrar no Sistema
                   </Button>
+
+                  <p className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                    >
+                      Esqueci minha senha
+                    </button>
+                  </p>
                 </form>
 
-                {/* Perfis de teste (Supabase) */}
-                <div className="mt-8 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-left space-y-3">
-                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                    Perfis de teste (Supabase)
-                  </p>
-                  <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
-                    <p className="font-semibold">Administrador</p>
-                    <p>
-                      Usuário: <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">admin</code> ou{' '}
-                      <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">admin@smartponto.com</code>
-                    </p>
-                    <p>
-                      Senha: <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">admin123</code>
-                    </p>
-                  </div>
-                  <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-2 border-t border-slate-200 dark:border-slate-700">
-                    <p className="font-semibold">Desenvolvedor</p>
-                    <p>
-                      Usuário:{' '}
-                      <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">desenvolvedor</code> ou{' '}
-                      <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">
-                        desenvolvedor@smartponto.com
-                      </code>
-                    </p>
-                    <p>
-                      Senha: <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">dev123</code>
-                    </p>
-                  </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    Esses usuários precisam existir na tabela <code className="px-1 rounded bg-slate-200 dark:bg-slate-700">users</code> do Supabase com as mesmas credenciais.
-                  </p>
-                </div>
+                <ForgotPasswordModal isOpen={showForgotPassword} onClose={() => setShowForgotPassword(false)} />
               </div>
             )}
           </div>
@@ -694,11 +696,14 @@ const AppMain: React.FC = () => {
   const path = location.pathname;
   const isPortalRoute =
     path === '/dashboard' ||
+    path === '/dashboard-admin' ||
+    path === '/dashboard-employee' ||
     path === '/time-clock' ||
     path === '/time-records' ||
     path === '/admin' ||
     path === '/settings' ||
     path === '/employees' ||
+    path === '/departments' ||
     path === '/schedules' ||
     path === '/locations' ||
     path === '/devices' ||
@@ -706,37 +711,114 @@ const AppMain: React.FC = () => {
     path === '/adjustments' ||
     path === '/vacations' ||
     path === '/absences' ||
-    path === '/time-balance';
+    path === '/time-balance' ||
+    path === '/notifications' ||
+    path === '/ai-chat' ||
+    path === '/productivity-trends' ||
+    path === '/real-time-insights' ||
+    path === '/alerts' ||
+    path === '/teams' ||
+    path === '/screenshots' ||
+    path === '/time-attendance' ||
+    path === '/activities' ||
+    path === '/projects' ||
+    path === '/reports';
+
+  const isAdminOrHr = user.role === 'admin' || user.role === 'hr';
+  const LayoutComponent = isAdminOrHr ? AdminLayout : EmployeeLayout;
 
   if (isPortalRoute) {
     return (
-      <Layout user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
+      <LayoutComponent user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
         <Suspense fallback={<LoadingState message="Carregando módulo inteligente..." />}>
           <Routes>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard-admin" element={<DashboardPage />} />
+            <Route path="/dashboard-employee" element={<DashboardPage />} />
             <Route path="/time-clock" element={<TimeClockPage />} />
             <Route path="/time-records" element={<TimeRecordsPage />} />
             <Route
               path="/admin"
               element={
-                user.role === 'admin' || user.role === 'hr'
-                  ? <AdminView admin={user} />
-                  : <DashboardPage />
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <AdminView admin={user} />
+                </RoleGuard>
               }
             />
-            <Route path="/settings" element={<ProfileView user={user} />} />
-            <Route path="/employees" element={<EmployeesPage />} />
-            <Route path="/schedules" element={<SchedulesPage />} />
-            <Route path="/locations" element={<LocationsPage />} />
-            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/settings" element={<SettingsPage user={user} />} />
+            <Route
+              path="/employees"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <EmployeesPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/departments"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <DepartmentsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/schedules"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <SchedulesPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/locations"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <LocationsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/devices"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <DevicesPage />
+                </RoleGuard>
+              }
+            />
             <Route path="/requests" element={<RequestsPage />} />
-            <Route path="/adjustments" element={<AdjustmentsPage />} />
+            <Route
+              path="/adjustments"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <AdjustmentsPage />
+                </RoleGuard>
+              }
+            />
             <Route path="/vacations" element={<VacationsPage />} />
             <Route path="/absences" element={<AbsencesPage />} />
             <Route path="/time-balance" element={<TimeBalancePage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route
+              path="/ai-chat"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <AIChatPage />
+                </RoleGuard>
+              }
+            />
+            <Route path="/productivity-trends" element={<ProductivityTrendsPage />} />
+            <Route path="/real-time-insights" element={<RealTimeInsightsPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/teams" element={<TeamsPage />} />
+            <Route path="/screenshots" element={<ScreenshotsPage />} />
+            <Route path="/time-attendance" element={<TimeAttendancePage />} />
+            <Route path="/activities" element={<ActivitiesPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
           </Routes>
         </Suspense>
-      </Layout>
+      </LayoutComponent>
     );
   }
 
