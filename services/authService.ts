@@ -138,14 +138,18 @@ class AuthService {
 
   /**
    * Login com email e senha.
-   * Faz logout antes para evitar conflito de sessão (ex.: no celular, segundo login falhando com 400).
+   * Tenta limpar sessão anterior com timeout curto para não travar se o Supabase estiver lento/inacessível.
    */
   async signInWithEmail(email: string, password: string): Promise<AuthResult> {
     try {
+      // signOut com timeout de 2s: se o servidor não responder (projeto pausado/rede), não bloqueia o login
       try {
-        await auth.signOut();
+        await Promise.race([
+          auth.signOut(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('signOut timeout')), 2000)),
+        ]);
       } catch {
-        // Ignora erro ao limpar sessão anterior (pode não existir)
+        // Ignora: sessão inexistente, timeout ou servidor inacessível – segue para signIn
       }
       const data = await auth.signIn(email, password);
       

@@ -479,13 +479,13 @@ const AppMain: React.FC = () => {
       const email = rawEmail.trim().toLowerCase();
 
       const loginPromise = authService.signInWithEmail(email, loginData.password);
-      const LOGIN_TIMEOUT_MS = 60000; // 60 segundos (conexão lenta, Supabase frio ou rede instável)
+      const LOGIN_TIMEOUT_MS = 45000; // 45 segundos
       const timeoutPromise = new Promise<{ user: any; error: string | null }>((_, reject) =>
         setTimeout(
           () =>
             reject(
               new Error(
-                'Tempo esgotado. Verifique sua conexão e tente de novo. Confira também: .env.local (VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY) e se o projeto Supabase está ativo (Dashboard).'
+                'Tempo esgotado. O servidor Supabase pode estar pausado (free tier) ou a rede está lenta. Abra https://supabase.com/dashboard e verifique se o projeto está ativo (Restore se pausado). Em seguida use "Limpar sessão e tentar de novo".'
               )
             ),
           LOGIN_TIMEOUT_MS

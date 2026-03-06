@@ -96,6 +96,21 @@ Após configurar, você deve ver:
 
 ## 🆘 Se Ainda Tiver Problemas
 
+### Mensagem "Tempo esgotado" (local e web)
+
+Se o login nunca completa e aparece **Tempo esgotado** tanto em localhost quanto no site (ex.: Vercel):
+
+1. **Projeto Supabase pausado (free tier)**  
+   Acesse [Supabase Dashboard](https://supabase.com/dashboard), abra o projeto e veja se está **Paused**. Se estiver, clique em **Restore** e aguarde alguns minutos. Depois use no app **"Limpar sessão e tentar de novo"** e tente logar de novo.
+
+2. **Rede / firewall**  
+   Teste em outra rede (ex.: 4G no celular) ou desative VPN. No navegador (F12 → Rede), confira se a requisição para `*.supabase.co` aparece e se fica pendente ou retorna erro.
+
+3. **Variáveis em produção (Vercel)**  
+   No site publicado, as variáveis vêm do Vercel, não do `.env.local`. Em **Vercel → Project → Settings → Environment Variables**, confira **VITE_SUPABASE_URL** e **VITE_SUPABASE_ANON_KEY** (e redeploy após alterar).
+
+### Outros problemas
+
 1. Verifique se todas as variáveis começam com `VITE_`
 2. Verifique se não há espaços extras nas variáveis
 3. Certifique-se de que reiniciou o servidor após alterar o `.env.local`
