@@ -122,8 +122,8 @@ class SupabaseService {
         100
       );
       return records.map(supabaseToTimeRecord);
-    } catch (error) {
-      console.error('Erro ao buscar registros do Supabase:', error);
+    } catch (error: any) {
+      console.error('Erro ao buscar registros do Supabase:', error?.message ?? error);
       return [];
     }
   }
@@ -153,8 +153,8 @@ class SupabaseService {
         1000
       );
       return records.map(supabaseToTimeRecord);
-    } catch (error) {
-      console.error('Erro ao buscar registros da empresa:', error);
+    } catch (error: any) {
+      console.error('Erro ao buscar registros da empresa:', error?.message ?? error);
       return [];
     }
   }
@@ -246,6 +246,7 @@ class SupabaseService {
    * Obter empresa
    */
   async getCompany(companyId: string): Promise<Company | null> {
+    if (!companyId || !companyId.trim()) return null;
     if (!isSupabaseConfigured()) {
       const stored = localStorage.getItem(`company_${companyId}`);
       return stored ? JSON.parse(stored) : null;
@@ -270,8 +271,8 @@ class SupabaseService {
         };
       }
       return null;
-    } catch (error) {
-      console.error('Erro ao buscar empresa do Supabase:', error);
+    } catch (error: any) {
+      console.error('Erro ao buscar empresa do Supabase:', error?.message ?? error);
       return null;
     }
   }

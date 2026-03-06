@@ -111,8 +111,9 @@ class AuthService {
       }
 
       return newUser;
-    } catch (error) {
-      console.error('Erro ao converter usuário Supabase:', error);
+    } catch (error: any) {
+      const msg = error?.message ?? error?.code ?? String(error);
+      console.error('Erro ao converter usuário Supabase:', msg);
       // Fallback: retorna usuário mínimo a partir só do Auth (tabela users inexistente/RLS/schema)
       const email = (supabaseUser?.email || '').trim().toLowerCase();
       if (!email) return null;

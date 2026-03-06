@@ -70,8 +70,10 @@ export const NotificationService = {
           actionUrl: r.action_url,
           metadata: r.metadata ?? {},
         }));
-      } catch (e) {
-        console.error('Get notifications Supabase failed:', e);
+      } catch (e: any) {
+        if (e?.name !== 'AbortError' && !e?.message?.includes('Lock broken')) {
+          console.error('Get notifications Supabase failed:', e?.message ?? e);
+        }
       }
     }
 

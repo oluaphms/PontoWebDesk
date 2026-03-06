@@ -23,6 +23,23 @@ function notConfigured(): never {
   throw new Error(notConfiguredMsg);
 }
 
+// Usar sessionStorage evita "Lock broken by another request with the 'steal' option"
+// que ocorre com IndexedDB quando há múltiplas abas ou refresh durante refresh do token.
+const authStorage =
+  typeof window !== 'undefined'
+    ? {
+        getItem: (key: string) => Promise.resolve(window.sessionStorage.getItem(key)),
+        setItem: (key: string, value: string) => {
+          window.sessionStorage.setItem(key, value);
+          return Promise.resolve();
+        },
+        removeItem: (key: string) => {
+          window.sessionStorage.removeItem(key);
+          return Promise.resolve();
+        },
+      }
+    : undefined;
+
 let client: SupabaseClient | null = null;
 if (configured) {
   client = createClient(supabaseUrl!, supabaseAnonKey!, {
@@ -30,6 +47,7 @@ if (configured) {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      storage: authStorage,
     },
   });
 }
@@ -43,17 +61,22 @@ export async function testSupabaseConnection(): Promise<{ ok: boolean; message?:
   }
   const timeoutMs = 8000;
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const { error } = await client.from('users').select('id').limit(1).abortSignal(controller.signal);
-    clearTimeout(timeoutId);
+    const queryPromise = client.from('users').select('id').limit(1);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), timeoutMs)
+    );
+    const { error } = await Promise.race([queryPromise, timeoutPromise]);
     if (error && error.code !== 'PGRST116') {
       return { ok: false, message: error.message || 'Erro ao acessar o Supabase.' };
     }
     return { ok: true };
   } catch (e: any) {
-    if (e?.name === 'AbortError') {
-      return { ok: false, message: 'Sem resposta do Supabase em 8s. Verifique a URL (VITE_SUPABASE_URL), a rede e se o projeto está ativo no Dashboard.' };
+    if (e?.message === 'timeout') {
+      return {
+        ok: false,
+        message:
+          'Sem resposta do Supabase. Verifique VITE_SUPABASE_URL no .env.local (ou nas variáveis da Vercel), a rede e se o projeto está ativo em supabase.com/dashboard.',
+      };
     }
     return { ok: false, message: e?.message || 'Não foi possível conectar ao Supabase.' };
   }
@@ -108,18 +131,52 @@ const realAuth = configured
         return data;
       },
       signOut: async () => {
-        const { error } = await client!.auth.signOut();
-        if (error) throw error;
+        try {
+          const { error } = await client!.auth.signOut();
+          if (error) throw error;
+        } catch (e: any) {
+          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
+            try {
+              await client!.auth.signOut();
+            } catch {
+              // Ignorar falha ao limpar sessão
+            }
+            return;
+          }
+          throw e;
+        }
       },
       getUser: async () => {
-        const { data: { user }, error } = await client!.auth.getUser();
-        if (error) throw error;
-        return user;
+        const run = async (): Promise<any> => {
+          const { data: { user }, error } = await client!.auth.getUser();
+          if (error) throw error;
+          return user;
+        };
+        try {
+          return await run();
+        } catch (e: any) {
+          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
+            await new Promise((r) => setTimeout(r, 300));
+            return run();
+          }
+          throw e;
+        }
       },
       getSession: async () => {
-        const { data: { session }, error } = await client!.auth.getSession();
-        if (error) throw error;
-        return session;
+        const run = async (): Promise<any> => {
+          const { data: { session }, error } = await client!.auth.getSession();
+          if (error) throw error;
+          return session;
+        };
+        try {
+          return await run();
+        } catch (e: any) {
+          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
+            await new Promise((r) => setTimeout(r, 300));
+            return run();
+          }
+          throw e;
+        }
       },
       onAuthStateChange: (callback: (event: string, session: any) => void) => {
         const { data } = client!.auth.onAuthStateChange(callback);

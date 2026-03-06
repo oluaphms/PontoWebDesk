@@ -11,7 +11,7 @@
 --
 --    | E-mail                        | Senha (exemplo)  | Auto Confirm |
 --    |------------------------------|------------------|--------------|
---    | funcionario@smartponto.com   | funcionario123   | SIM          |
+--    | funcionario@smartponto.com   |    | SIM          |
 --    | admin@smartponto.com         | admin123         | SIM          |
 --    | desenvolvedor@smartponto.com | dev123           | SIM          |
 --

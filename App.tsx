@@ -11,7 +11,7 @@ import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
 import { useRecords } from './hooks/useRecords';
 import { authService } from './services/authService';
-import { isSupabaseConfigured } from './services/supabase';
+import { isSupabaseConfigured, testSupabaseConnection } from './services/supabase';
 import { validateLogin } from './lib/validationSchemas';
 import ProfileView from './components/ProfileView';
 import {
@@ -342,7 +342,7 @@ const AppMain: React.FC = () => {
 
     // Se a empresa exige foto obrigatória, abrir direto o modal de foto
     // Isso é especialmente importante em dispositivos móveis para acionar a câmera imediatamente
-    if (company?.settings.requirePhoto) {
+    if (company?.settings?.requirePhoto) {
       setSelectedMethod(PunchMethod.PHOTO);
       setPunchType(type);
       setShowMethodSelection(false);
@@ -422,8 +422,14 @@ const AppMain: React.FC = () => {
 
     const workedHours = totalMs / (1000 * 60 * 60);
 
-    const [startH, startM] = company.settings.standardHours.start.split(':').map(Number);
-    const [endH, endM] = company.settings.standardHours.end.split(':').map(Number);
+    const standardHoursConfig = company.settings?.standardHours;
+    if (!standardHoursConfig?.start || !standardHoursConfig?.end) {
+      setTodayProgress(0);
+      setTodayLabel(`${stats.today}`);
+      return;
+    }
+    const [startH, startM] = standardHoursConfig.start.split(':').map(Number);
+    const [endH, endM] = standardHoursConfig.end.split(':').map(Number);
     const standardMs =
       (endH * 60 + endM - (startH * 60 + startM)) * 60 * 1000;
     const standardHours = standardMs / (1000 * 60 * 60);
@@ -473,6 +479,12 @@ const AppMain: React.FC = () => {
     setLoginError(null);
 
     try {
+      const connectionTest = await testSupabaseConnection();
+      if (!connectionTest.ok) {
+        setLoginError(connectionTest.message ?? 'Não foi possível conectar ao Supabase.');
+        return;
+      }
+
       const rawEmail = loginData.identifier.includes('@')
         ? loginData.identifier
         : `${loginData.identifier}@smartponto.com`;
@@ -967,7 +979,7 @@ const AppMain: React.FC = () => {
                       <Camera size={24} /> Pausa
                     </Button>
                   </div>
-                  {company?.settings.requirePhoto && (
+                  {company?.settings?.requirePhoto && (
                     <div className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                       <Camera size={16} className="text-indigo-600 dark:text-indigo-400" />
                       <span className="font-bold">Foto obrigatória para registro</span>
@@ -1214,7 +1226,7 @@ const AppMain: React.FC = () => {
                 </button>
 
                 {/* Ponto Manual (se permitido) */}
-                {company?.settings.allowManualPunch && (
+                {company?.settings?.allowManualPunch && (
                   <button
                     onClick={(e) => {
                       e.preventDefault();
