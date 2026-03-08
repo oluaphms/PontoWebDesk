@@ -11,7 +11,7 @@ import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
 import { useRecords } from './hooks/useRecords';
 import { authService } from './services/authService';
-import { isSupabaseConfigured, testSupabaseConnection } from './services/supabase';
+import { isSupabaseConfigured } from './services/supabase';
 import { validateLogin } from './lib/validationSchemas';
 import ProfileView from './components/ProfileView';
 import {
@@ -465,7 +465,7 @@ const AppMain: React.FC = () => {
     });
   }, [records, historyTypeFilter, historyMethodFilter, historyDateFilter]);
 
-  const handleLoginSubmit = async (e: React.FormEvent, skipConnectionTest = false) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = validateLogin(loginData);
     if (!parsed.success) {
@@ -477,14 +477,7 @@ const AppMain: React.FC = () => {
     setLoginError(null);
 
     try {
-      if (!skipConnectionTest) {
-        const connectionTest = await testSupabaseConnection();
-        if (!connectionTest.ok) {
-          setLoginError(connectionTest.message ?? 'Não foi possível conectar ao Supabase.');
-          return;
-        }
-      }
-
+      // Teste de conexão removido do login: causava timeout em redes locais mesmo com projeto ativo. O login direto retorna erro claro se URL/senha estiverem errados ou projeto inacessível.
       const rawEmail = loginData.identifier.includes('@')
         ? loginData.identifier
         : `${loginData.identifier}@smartponto.com`;
@@ -743,24 +736,13 @@ const AppMain: React.FC = () => {
                       <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-500 text-xs font-bold animate-in shake">
                         <AlertTriangle size={16} /> {loginError}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={handleClearSessionAndRetry}
-                          className="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 underline"
-                        >
-                          Limpar sessão e tentar de novo
-                        </button>
-                        {loginError.includes('não respondeu a tempo') || loginError.includes('Sem resposta') ? (
-                          <button
-                            type="button"
-                            onClick={(e) => { setLoginError(null); handleLoginSubmit(e, true); }}
-                            className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
-                          >
-                            Tentar login mesmo assim
-                          </button>
-                        ) : null}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleClearSessionAndRetry}
+                        className="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 underline"
+                      >
+                        Limpar sessão e tentar de novo
+                      </button>
                     </div>
                   )}
 

@@ -50,6 +50,11 @@ if (configured) {
       storage: authStorage,
     },
   });
+  // Em desenvolvimento, confirma no console que o .env foi carregado (URL mascarada)
+  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && typeof console !== 'undefined') {
+    const u = (supabaseUrl || '').trim();
+    console.log('[SmartPonto] Supabase configurado. URL:', u ? `${u.slice(0, 30)}...` : '(vazia)');
+  }
 }
 
 export const supabase = client;
