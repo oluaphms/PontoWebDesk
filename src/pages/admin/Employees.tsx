@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserPlus, Pencil, UserX, Trash2, Eye, UserCheck } from 'lucide-react';
+import { UserPlus, Pencil, UserX, Trash2, Eye, UserCheck, Search } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, auth, isSupabaseConfigured } from '../../services/supabaseClient';
@@ -49,6 +49,7 @@ const AdminEmployees: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const loadData = async () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
@@ -60,6 +61,7 @@ const AdminEmployees: React.FC = () => {
         db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
       ]);
       const deptMap = new Map((deptRows ?? []).map((d: any) => [d.id, d.name]));
+      const schedMap = new Map((schedRows ?? []).map((s: any) => [s.id, s.name]));
       const list = (usersRows ?? []).map((u: any) => ({
         id: u.id,
         nome: u.nome || '',
@@ -70,6 +72,7 @@ const AdminEmployees: React.FC = () => {
         department_id: u.department_id,
         department_name: u.department_id ? deptMap.get(u.department_id) : undefined,
         schedule_id: u.schedule_id,
+        schedule_name: u.schedule_id ? schedMap.get(u.schedule_id) : undefined,
         status: u.status || 'active',
         created_at: u.created_at,
       }));
@@ -194,6 +197,16 @@ const AdminEmployees: React.FC = () => {
     }
   };
 
+  const searchLower = search.trim().toLowerCase();
+  const filteredRows = searchLower
+    ? rows.filter(
+        (r) =>
+          r.nome.toLowerCase().includes(searchLower) ||
+          (r.email && r.email.toLowerCase().includes(searchLower)) ||
+          (r.cpf && r.cpf.replace(/\D/g, '').includes(searchLower))
+      )
+    : rows;
+
   const handleDelete = async (id: string) => {
     if (!confirm('Excluir este funcionário? Esta ação não pode ser desfeita.')) return;
     try {
@@ -231,6 +244,24 @@ const AdminEmployees: React.FC = () => {
           </button>
         </div>
 
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nome, e-mail ou CPF..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 text-sm"
+            />
+          </div>
+          {search && (
+            <span className="text-sm text-slate-500 dark:text-slate-400 self-center">
+              {filteredRows.length} de {rows.length} resultado(s)
+            </span>
+          )}
+        </div>
+
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden">
           {loadingData ? (
             <div className="p-12 text-center text-slate-500">Carregando...</div>
@@ -243,17 +274,19 @@ const AdminEmployees: React.FC = () => {
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">CPF</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Cargo</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Departamento</th>
+                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Escala</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Status</th>
                     <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {filteredRows.map((row) => (
                     <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                       <td className="px-4 py-3 text-slate-900 dark:text-white font-medium">{row.nome}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.cpf || '—'}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.cargo}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.department_name || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.schedule_name || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-lg text-xs font-medium ${row.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                           {row.status === 'active' ? 'Ativo' : 'Inativo'}
@@ -277,6 +310,9 @@ const AdminEmployees: React.FC = () => {
               </table>
               {rows.length === 0 && (
                 <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum funcionário cadastrado.</p>
+              )}
+              {rows.length > 0 && filteredRows.length === 0 && (
+                <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum resultado para &quot;{search}&quot;.</p>
               )}
             </div>
           )}

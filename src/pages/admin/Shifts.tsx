@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Copy } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
@@ -79,10 +79,39 @@ const AdminShifts: React.FC = () => {
     setModalOpen(true);
   };
 
+  const openDuplicate = (row: ShiftRow) => {
+    setEditingId(null);
+    setForm({
+      name: `${row.name} (cópia)`,
+      start_time: toTimeStr(row.start_time),
+      end_time: toTimeStr(row.end_time),
+      break_duration: row.break_duration ?? 0,
+      tolerance_minutes: row.tolerance_minutes ?? 0,
+    });
+    setModalOpen(true);
+  };
+
+  const timeToMinutes = (t: string) => {
+    if (!t || t.length < 5) return 0;
+    const [h, m] = t.slice(0, 5).split(':').map(Number);
+    return h * 60 + m;
+  };
+
   const handleSave = async () => {
     if (!isSupabaseConfigured) return;
     if (!form.name.trim()) {
       setMessage({ type: 'error', text: 'Informe o nome do horário.' });
+      return;
+    }
+    const startMin = timeToMinutes(form.start_time);
+    const endMin = timeToMinutes(form.end_time);
+    if (endMin <= startMin) {
+      setMessage({ type: 'error', text: 'A saída deve ser após a entrada.' });
+      return;
+    }
+    const durationMin = endMin - startMin;
+    if (form.break_duration >= durationMin) {
+      setMessage({ type: 'error', text: 'O intervalo deve ser menor que a jornada (entrada até saída).' });
       return;
     }
     setSaving(true);
@@ -168,6 +197,7 @@ const AdminShifts: React.FC = () => {
                   <td className="px-4 py-3">{row.break_duration ?? 0}</td>
                   <td className="px-4 py-3">{row.tolerance_minutes ?? 0}</td>
                   <td className="px-4 py-3 text-right">
+                    <button type="button" onClick={() => openDuplicate(row)} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg" title="Duplicar"><Copy className="w-4 h-4" /></button>
                     <button type="button" onClick={() => openEdit(row)} className="p-2 text-slate-500 hover:text-indigo-600 rounded-lg"><Pencil className="w-4 h-4" /></button>
                     <button type="button" onClick={() => handleDelete(row.id)} className="p-2 text-slate-500 hover:text-red-600 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                   </td>

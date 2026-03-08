@@ -30,9 +30,10 @@ const AdminSchedules: React.FC = () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     setLoadingData(true);
     try {
+      const shiftFilters = user.companyId ? [{ column: 'company_id', operator: 'eq', value: user.companyId }] : undefined;
       const [schedRows, shiftRows] = await Promise.all([
         db.select('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        db.select('work_shifts') as Promise<any[]>,
+        db.select('work_shifts', shiftFilters) as Promise<any[]>,
       ]);
       const shiftMap = new Map((shiftRows ?? []).map((s: any) => [s.id, s.name]));
       setRows((schedRows ?? []).map((r: any) => ({
@@ -187,6 +188,9 @@ const AdminSchedules: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Horário</label>
+              {shifts.length === 0 && (
+                <p className="text-amber-600 dark:text-amber-400 text-sm mb-2">Crie um horário em Horários primeiro.</p>
+              )}
               <select value={form.shift_id} onChange={(e) => setForm({ ...form, shift_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                 <option value="">Nenhum</option>
                 {shifts.map((s) => (
