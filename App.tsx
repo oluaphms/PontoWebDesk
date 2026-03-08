@@ -11,7 +11,9 @@ import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
 import { useRecords } from './hooks/useRecords';
 import { authService } from './services/authService';
-import { isSupabaseConfigured, testSupabaseConnection } from './services/supabase';
+import { isSupabaseConfigured, testSupabaseConnection, resetSession } from './services/supabase';
+import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
+import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
 import ProfileView from './components/ProfileView';
 import {
@@ -164,6 +166,10 @@ const AppMain: React.FC = () => {
   const [showIdentifier, setShowIdentifier] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Conexão Supabase (fallback quando servidor pausado/rede lenta)
+  const [connectionUnavailable, setConnectionUnavailable] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+
   // Theme State (para tela de login)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
@@ -206,13 +212,14 @@ const AppMain: React.FC = () => {
           return;
         }
 
-        // Teste de conexão ao iniciar (log em dev; evita timeout por URL errada)
+        // Teste de conexão ao iniciar (log em dev; fallback se servidor pausado)
         testSupabaseConnection(10000).then((result) => {
           if (result.ok && import.meta.env?.DEV) {
             console.log('[SmartPonto] Conexão Supabase OK');
           }
-          if (!result.ok && typeof console !== 'undefined') {
-            console.warn('[SmartPonto] Supabase connection test failed:', result.message);
+          if (!result.ok) {
+            logSupabaseError(new Error(result.message ?? 'Connection test failed'), result);
+            if (isMounted) setConnectionUnavailable(true);
           }
         });
 
@@ -511,7 +518,9 @@ const AppMain: React.FC = () => {
       try {
         result = await Promise.race([loginPromise, timeoutPromise]);
       } catch (timeoutErr: any) {
+        logSupabaseError(timeoutErr, 'login');
         setLoginError(timeoutErr?.message || 'Tempo esgotado. Tente novamente.');
+        setConnectionUnavailable(true);
         return;
       }
 
@@ -548,19 +557,10 @@ const AppMain: React.FC = () => {
     }
   };
 
-  /** Limpa sessão e estado para tentar login de novo (útil quando 400 ou "só logou uma vez no celular"). */
+  /** Limpa sessão e estado para tentar login de novo (timeout, 400 ou sessão quebrada). */
   const handleClearSessionAndRetry = async () => {
     setLoginError(null);
-    try {
-      await authService.signOut();
-    } catch {
-      // ignora
-    }
-    try {
-      localStorage.removeItem('current_user');
-    } catch {
-      // ignora
-    }
+    await resetSession();
   };
 
   const handleLogout = async () => {
@@ -595,6 +595,23 @@ const AppMain: React.FC = () => {
     return theme === 'light' ? 'Modo claro' : 'Modo escuro';
   }, [theme]);
 
+  // Reconexão automática quando servidor está indisponível (ex.: free tier pausado)
+  useEffect(() => {
+    if (!connectionUnavailable || !isSupabaseConfigured) return;
+
+    const interval = setInterval(async () => {
+      setIsReconnecting(true);
+      const ok = await checkSupabaseConnection();
+      if (ok) {
+        setConnectionUnavailable(false);
+        setIsReconnecting(false);
+      }
+      setIsReconnecting(false);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [connectionUnavailable]);
+
   // Timeout de segurança adicional para garantir que o loading sempre termine
   useEffect(() => {
     if (!isInitialLoading) return;
@@ -609,6 +626,33 @@ const AppMain: React.FC = () => {
 
   if (isInitialLoading) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><LoadingState message="Protegendo sua conexão..." /></div>;
+  }
+
+  // Fallback: servidor temporariamente indisponível (free tier pausado / rede lenta)
+  if (connectionUnavailable) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full space-y-6">
+          <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+            Servidor temporariamente indisponível.
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
+            {isReconnecting ? 'Tentando reconectar...' : 'Aguarde ou limpe a sessão para tentar novamente.'}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button
+              onClick={() => resetSession()}
+              className="w-full sm:w-auto"
+            >
+              Limpar sessão e tentar de novo
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {

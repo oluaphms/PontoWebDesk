@@ -56,6 +56,16 @@ const authStorage =
       }
     : undefined;
 
+const SUPABASE_FETCH_TIMEOUT_MS = 15000;
+
+const fetchWithTimeout: typeof fetch = (...args) =>
+  Promise.race([
+    fetch(...args),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Supabase timeout')), SUPABASE_FETCH_TIMEOUT_MS),
+    ),
+  ]);
+
 let client: SupabaseClient | null = null;
 if (configured) {
   client = createClient(supabaseUrl!, supabaseAnonKey!, {
@@ -64,6 +74,9 @@ if (configured) {
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storage: authStorage,
+    },
+    global: {
+      fetch: fetchWithTimeout,
     },
   });
   // Em desenvolvimento, confirma no console que o .env foi carregado (URL mascarada)
@@ -370,5 +383,24 @@ const realStorage = configured
   : stubStorage;
 
 export const storage = realStorage;
+
+/**
+ * Limpa sessão quebrada (timeout, projeto pausado, token corrompido).
+ * Faz signOut no Supabase, limpa localStorage/sessionStorage e recarrega a página.
+ */
+export async function resetSession(): Promise<void> {
+  try {
+    if (client) await client.auth.signOut();
+  } catch {
+    // ignora falha de rede/timeout no signOut
+  }
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.clear();
+    if (typeof sessionStorage !== 'undefined') sessionStorage.clear();
+  } catch {
+    // ignora
+  }
+  if (typeof window !== 'undefined') window.location.reload();
+}
 
 export default supabase;
