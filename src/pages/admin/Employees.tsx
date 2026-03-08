@@ -27,25 +27,15 @@ interface ScheduleOption {
   name: string;
 }
 
-const CARGO_OPCOES = [
-  'Colaborador',
-  'Analista',
-  'Desenvolvedor',
-  'Designer',
-  'Gerente',
-  'Coordenador',
-  'Assistente',
-  'Estagiário',
-  'Supervisor',
-  'Diretor',
-  'Outro',
-];
+const OUTRO_CARGO_VALUE = '__outro__';
 
 const AdminEmployees: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const navigate = useNavigate();
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
+  const [cargos, setCargos] = useState<{ id: string; name: string }[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -55,11 +45,11 @@ const AdminEmployees: React.FC = () => {
     email: '',
     password: '',
     phone: '',
-    cargo: 'Colaborador',
+    cargo: '',
+    cargoOutro: '',
     department_id: '',
     schedule_id: '',
   });
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -69,10 +59,11 @@ const AdminEmployees: React.FC = () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     setLoadingData(true);
     try {
-      const [usersRows, schedRows, deptRows] = await Promise.all([
+      const [usersRows, schedRows, deptRows, jobTitlesRows] = await Promise.all([
         db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'created_at', ascending: false }) as Promise<any[]>,
         db.select('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+        db.select('job_titles', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
       ]);
       const deptMap = new Map((deptRows ?? []).map((d: any) => [d.id, d.name]));
       const schedMap = new Map((schedRows ?? []).map((s: any) => [s.id, s.name]));
@@ -93,6 +84,7 @@ const AdminEmployees: React.FC = () => {
       setRows(list);
       setSchedules((schedRows ?? []).map((s: any) => ({ id: s.id, name: s.name })));
       setDepartments((deptRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
+      setCargos((jobTitlesRows ?? []).map((j: any) => ({ id: j.id, name: j.name || '' })));
     } catch (e) {
       console.error(e);
     } finally {
@@ -106,7 +98,8 @@ const AdminEmployees: React.FC = () => {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ nome: '', cpf: '', email: '', password: '', phone: '', cargo: 'Colaborador', cargoOutro: '', department_id: '', schedule_id: '' });
+    const firstCargo = cargos[0]?.name || '';
+    setForm({ nome: '', cpf: '', email: '', password: '', phone: '', cargo: firstCargo || OUTRO_CARGO_VALUE, cargoOutro: '', department_id: '', schedule_id: '' });
     setModalOpen(true);
     setError(null);
     setSuccess(null);
@@ -114,15 +107,15 @@ const AdminEmployees: React.FC = () => {
 
   const openEdit = (row: EmployeeRow) => {
     setEditingId(row.id);
-    const cargoBase = CARGO_OPCOES.includes(row.cargo) ? row.cargo : 'Outro';
+    const cargoCadastrado = cargos.some((c) => c.name === row.cargo);
     setForm({
       nome: row.nome,
       cpf: row.cpf || '',
       email: row.email,
       password: '',
       phone: row.phone || '',
-      cargo: cargoBase,
-      cargoOutro: cargoBase === 'Outro' ? row.cargo : '',
+      cargo: cargoCadastrado ? row.cargo : OUTRO_CARGO_VALUE,
+      cargoOutro: cargoCadastrado ? '' : row.cargo,
       department_id: row.department_id || '',
       schedule_id: row.schedule_id || '',
     });
@@ -145,7 +138,7 @@ const AdminEmployees: React.FC = () => {
       setError('Informe a senha inicial para o funcionário.');
       return;
     }
-    const cargoFinal = form.cargo === 'Outro' ? (form.cargoOutro.trim() || 'Outro') : form.cargo;
+    const cargoFinal = form.cargo === OUTRO_CARGO_VALUE ? (form.cargoOutro.trim() || 'Colaborador') : form.cargo;
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -357,11 +350,13 @@ const AdminEmployees: React.FC = () => {
                 <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Telefone" />
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cargo</label>
                 <select value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                  {CARGO_OPCOES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                  {cargos.length === 0 && <option disabled>Nenhum cargo cadastrado. Cadastre em Cargos no menu.</option>}
+                  {cargos.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
+                  <option value={OUTRO_CARGO_VALUE}>Outro (especificar)</option>
                 </select>
-                {form.cargo === 'Outro' && (
+                {form.cargo === OUTRO_CARGO_VALUE && (
                   <>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Especificar cargo</label>
                     <input type="text" value={form.cargoOutro} onChange={(e) => setForm({ ...form, cargoOutro: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Ex: Analista de Suporte" />
@@ -370,6 +365,7 @@ const AdminEmployees: React.FC = () => {
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Departamento</label>
                 <select value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                   <option value="">Nenhum</option>
+                  {departments.length === 0 && <option disabled>Nenhum departamento. Cadastre em Departamentos no menu.</option>}
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}

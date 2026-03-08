@@ -1,22 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Plus, Pencil, Trash2 } from 'lucide-react';
-import { useCurrentUser } from '../hooks/useCurrentUser';
-import PageHeader from '../components/PageHeader';
-import { db, isSupabaseConfigured } from '../services/supabaseClient';
-import { LoadingState } from '../../components/UI';
-import RoleGuard from '../components/auth/RoleGuard';
+import { Briefcase, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
+import PageHeader from '../../components/PageHeader';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { LoadingState } from '../../../components/UI';
+import RoleGuard from '../../components/auth/RoleGuard';
 
-interface DepartmentRow {
+interface JobTitleRow {
   id: string;
   name: string;
   company_id: string;
-  manager_id?: string;
   created_at: string;
 }
 
-const DepartmentsPage: React.FC = () => {
+const AdminJobTitles: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const [rows, setRows] = useState<DepartmentRow[]>([]);
+  const [rows, setRows] = useState<JobTitleRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -31,17 +30,16 @@ const DepartmentsPage: React.FC = () => {
     }
     setLoadingData(true);
     try {
-      const data = (await db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+      const data = (await db.select('job_titles', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
       setRows((data ?? []).map((r: any) => ({
         id: r.id,
         name: r.name || '',
         company_id: r.company_id,
-        manager_id: r.manager_id,
         created_at: r.created_at,
       })));
     } catch (e) {
       console.error(e);
-      setMessage({ type: 'error', text: 'Erro ao carregar departamentos.' });
+      setMessage({ type: 'error', text: 'Erro ao carregar cargos.' });
     } finally {
       setLoadingData(false);
     }
@@ -58,7 +56,7 @@ const DepartmentsPage: React.FC = () => {
     setMessage(null);
   };
 
-  const openEdit = (row: DepartmentRow) => {
+  const openEdit = (row: JobTitleRow) => {
     setEditingId(row.id);
     setName(row.name);
     setModalOpen(true);
@@ -69,24 +67,24 @@ const DepartmentsPage: React.FC = () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      setMessage({ type: 'error', text: 'Informe o nome do departamento.' });
+      setMessage({ type: 'error', text: 'Informe o nome do cargo.' });
       return;
     }
     setSaving(true);
     setMessage(null);
     try {
       if (editingId) {
-        await db.update('departments', editingId, { name: trimmed });
-        setMessage({ type: 'success', text: 'Departamento atualizado com sucesso.' });
+        await db.update('job_titles', editingId, { name: trimmed });
+        setMessage({ type: 'success', text: 'Cargo atualizado com sucesso.' });
       } else {
-        await db.insert('departments', {
+        await db.insert('job_titles', {
           id: crypto.randomUUID(),
           company_id: user.companyId,
           name: trimmed,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        setMessage({ type: 'success', text: 'Departamento cadastrado com sucesso.' });
+        setMessage({ type: 'success', text: 'Cargo cadastrado com sucesso.' });
       }
       setModalOpen(false);
       load();
@@ -98,10 +96,10 @@ const DepartmentsPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Excluir este departamento? Funcionários vinculados podem ficar sem departamento.')) return;
+    if (!confirm('Excluir este cargo? Funcionários com este cargo manterão o nome do cargo no perfil.')) return;
     try {
-      await db.delete('departments', id);
-      setMessage({ type: 'success', text: 'Departamento excluído.' });
+      await db.delete('job_titles', id);
+      setMessage({ type: 'success', text: 'Cargo excluído.' });
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao excluir.' });
@@ -126,16 +124,16 @@ const DepartmentsPage: React.FC = () => {
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
-            title="Departamentos"
-            subtitle="Cadastre setores para vincular aos funcionários"
-            icon={<Building2 size={24} />}
+            title="Cargos"
+            subtitle="Cadastre cargos para atribuir aos funcionários"
+            icon={<Briefcase size={24} />}
           />
           <button
             type="button"
             onClick={openCreate}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors"
           >
-            <Plus className="w-5 h-5" /> Novo departamento
+            <Plus className="w-5 h-5" /> Novo cargo
           </button>
         </div>
 
@@ -168,7 +166,7 @@ const DepartmentsPage: React.FC = () => {
                 </tbody>
               </table>
               {!loadingData && rows.length === 0 && (
-                <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum departamento cadastrado. Clique em &quot;Novo departamento&quot; para começar.</p>
+                <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum cargo cadastrado. Clique em &quot;Novo cargo&quot; para começar.</p>
               )}
             </>
           )}
@@ -177,15 +175,15 @@ const DepartmentsPage: React.FC = () => {
         {modalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !saving && setModalOpen(false)}>
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingId ? 'Editar departamento' : 'Novo departamento'}</h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingId ? 'Editar cargo' : 'Novo cargo'}</h3>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nome</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nome do cargo</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  placeholder="Ex: TI, Comercial, RH"
+                  placeholder="Ex: Analista, Desenvolvedor, Assistente"
                 />
               </div>
               <div className="flex gap-3 pt-2">
@@ -204,4 +202,4 @@ const DepartmentsPage: React.FC = () => {
   );
 };
 
-export default DepartmentsPage;
+export default AdminJobTitles;

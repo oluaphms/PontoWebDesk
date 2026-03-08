@@ -70,6 +70,7 @@ import AdminTimesheet from './src/pages/admin/Timesheet';
 import AdminMonitoring from './src/pages/admin/Monitoring';
 import AdminSchedules from './src/pages/admin/Schedules';
 import AdminShifts from './src/pages/admin/Shifts';
+import AdminJobTitles from './src/pages/admin/JobTitles';
 import AdminCompany from './src/pages/admin/Company';
 import AdminReports from './src/pages/admin/Reports';
 import AdminSettings from './src/pages/admin/Settings';
@@ -893,6 +894,7 @@ const AppMain: React.FC = () => {
             <Route path="/admin/schedules" element={<AdminSchedules />} />
             <Route path="/admin/shifts" element={<AdminShifts />} />
             <Route path="/admin/departments" element={<DepartmentsPage />} />
+            <Route path="/admin/job-titles" element={<AdminJobTitles />} />
             <Route path="/admin/company" element={<AdminCompany />} />
             <Route path="/admin/reports" element={<AdminReports />} />
             <Route path="/admin/settings" element={<AdminSettings />} />

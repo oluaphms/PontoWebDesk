@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { User } from '../types';
 import { Bell, Search, Sun, Moon, BrainCircuit } from 'lucide-react';
 import NotificationCenter from './NotificationCenter';
@@ -89,6 +89,7 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
         { label: 'Dashboard', path: '/admin/dashboard' },
         { label: 'Funcionários', path: '/admin/employees' },
         { label: 'Departamentos', path: '/admin/departments' },
+        { label: 'Cargos', path: '/admin/job-titles' },
         { label: 'Espelho de Ponto', path: '/admin/timesheet' },
         { label: 'Monitoramento', path: '/admin/monitoring' },
         { label: 'Escalas', path: '/admin/schedules' },
@@ -97,14 +98,14 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
         { label: 'Relatórios', path: '/admin/reports' },
         { label: 'Configurações', path: '/admin/settings' },
       ].map((item) => (
-        <button
+        <Link
           key={item.path}
-          type="button"
-          onClick={() => { navigate(item.path); setIsMobileMenuOpen(false); }}
-          className={`w-full text-left px-4 py-3 rounded-xl font-medium ${location.pathname === item.path ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          to={item.path}
+          onClick={() => setIsMobileMenuOpen(false)}
+          className={`block w-full text-left px-4 py-3 rounded-xl font-medium no-underline ${location.pathname === item.path ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
         >
           {item.label}
-        </button>
+        </Link>
       ))}
     </nav>
   ) : useEmployeeSidebar ? (
@@ -118,14 +119,14 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
         { label: 'Perfil', path: '/employee/profile' },
         { label: 'Configurações', path: '/employee/settings' },
       ].map((item) => (
-        <button
+        <Link
           key={item.path}
-          type="button"
-          onClick={() => { navigate(item.path); setIsMobileMenuOpen(false); }}
-          className={`w-full text-left px-4 py-3 rounded-xl font-medium ${location.pathname === item.path ? 'bg-emerald-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          to={item.path}
+          onClick={() => setIsMobileMenuOpen(false)}
+          className={`block w-full text-left px-4 py-3 rounded-xl font-medium no-underline ${location.pathname === item.path ? 'bg-emerald-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
         >
           {item.label}
-        </button>
+        </Link>
       ))}
     </nav>
   ) : (

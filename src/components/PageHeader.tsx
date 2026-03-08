@@ -9,12 +9,13 @@ interface PageHeaderProps {
 }
 
 export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, icon, actions }) => {
+  const iconElement = icon && (React.isValidElement(icon) ? icon : typeof icon === 'function' ? React.createElement(icon as React.ComponentType, { size: 24 }) : icon);
   return (
     <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
       <div className="flex items-start gap-3">
-        {icon && (
+        {iconElement && (
           <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-            {icon}
+            {iconElement}
           </div>
         )}
         <div>
