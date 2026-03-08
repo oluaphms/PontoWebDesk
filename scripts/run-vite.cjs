@@ -24,7 +24,19 @@ if (!fs.existsSync(viteBin)) {
   }
 }
 
-const result = spawnSync(process.execPath, [viteBin, ...process.argv.slice(2)], {
+// Remove --port / --port=N para garantir que a porta seja sempre a do vite.config.ts (strictPort: 3010)
+const raw = process.argv.slice(2)
+const filtered = []
+for (let i = 0; i < raw.length; i++) {
+  if (raw[i] === '--port') {
+    i++
+    continue
+  }
+  if (String(raw[i]).startsWith('--port=')) continue
+  filtered.push(raw[i])
+}
+
+const result = spawnSync(process.execPath, [viteBin, ...filtered], {
   cwd: projectRoot,
   stdio: 'inherit',
   env

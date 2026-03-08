@@ -4,6 +4,7 @@
  * Gerencia autenticação de usuários usando Supabase Auth
  */
 
+import { getAppBaseUrl } from './appUrl';
 import { auth, db, isSupabaseConfigured, supabase } from './supabase';
 import { User } from '../types';
 
@@ -147,7 +148,9 @@ class AuthService {
    */
   async signInWithEmail(email: string, password: string): Promise<AuthResult> {
     try {
-      // signOut com timeout de 2s: se o servidor não responder (projeto pausado/rede), não bloqueia o login
+      // Limpar sessão local primeiro (instantâneo, não chama servidor) para não travar em estado quebrado após timeout
+      await auth.signOut({ scope: 'local' });
+      // Tentar também signOut no servidor com timeout; se estiver lento/pausado, não bloqueia
       try {
         await Promise.race([
           auth.signOut(),
@@ -183,7 +186,26 @@ class AuthService {
           }
           return { user: appUser, error: null };
         }
-        // Fallback final: usuário mínimo só com dados do Auth
+        // Fallback: perfil não carregou a tempo (timeout). Tentar buscar só o role no DB
+        // para admin/desenvolvedor não caírem na dashboard de funcionário.
+        let fallbackRole: User['role'] = 'employee';
+        let fallbackCompanyId = '';
+        try {
+          const roleRows = await Promise.race([
+            db.select('users', [{ column: 'id', operator: 'eq', value: data.user.id }], undefined as any, 1),
+            new Promise<any[]>(r => setTimeout(() => r([]), 2000)),
+          ]);
+          if (roleRows?.[0]) {
+            const row = roleRows[0];
+            if (row.role) {
+              const r = String(row.role).toLowerCase();
+              if (r === 'admin' || r === 'hr' || r === 'supervisor') fallbackRole = r as User['role'];
+            }
+            if (row.company_id) fallbackCompanyId = String(row.company_id);
+          }
+        } catch {
+          // mantém employee e companyId vazio
+        }
         const u = data.user;
         const email = (u.email || '').trim().toLowerCase();
         const minimalUser: User = {
@@ -191,9 +213,9 @@ class AuthService {
           nome: u.user_metadata?.nome || email.split('@')[0] || 'Usuário',
           email: u.email || '',
           cargo: 'Colaborador',
-          role: 'employee',
+          role: fallbackRole,
           createdAt: new Date(),
-          companyId: '',
+          companyId: fallbackCompanyId,
           departmentId: '',
           avatar: u.user_metadata?.avatar_url,
           preferences: { notifications: true, theme: 'light', allowManualPunch: true, language: 'pt-BR' }
@@ -357,12 +379,9 @@ class AuthService {
     }
   }
 
-  /** URL base para redirect de recuperação (env ou origin). */
+  /** URL base para redirect de recuperação (VITE_APP_URL ou origin). */
   private getResetRedirectUrl(): string {
-    const base = (import.meta.env?.VITE_APP_URL || import.meta.env?.VITE_SUPABASE_REDIRECT || '').toString().trim();
-    if (base) return base.replace(/\/$/, '');
-    if (typeof window !== 'undefined' && window.location?.origin) return String(window.location.origin).replace(/\/$/, '');
-    return 'http://localhost:3010';
+    return getAppBaseUrl();
   }
 
   /**

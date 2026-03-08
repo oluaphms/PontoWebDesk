@@ -27,8 +27,8 @@ export default defineConfig(({ mode }) => {
 
     server: {
       port: 3010,
-      host: '0.0.0.0',
-      strictPort: false
+      strictPort: true,
+      host: true
     },
 
     esbuild: {

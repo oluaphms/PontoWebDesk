@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { getAppBaseUrl } from '../../services/appUrl';
 
-const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
+const API_BASE = getAppBaseUrl();
 
 interface InviteInfo {
   email: string;

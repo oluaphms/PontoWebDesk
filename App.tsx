@@ -11,7 +11,7 @@ import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
 import { useRecords } from './hooks/useRecords';
 import { authService } from './services/authService';
-import { isSupabaseConfigured, testSupabaseConnection, resetSession } from './services/supabase';
+import { isSupabaseConfigured, testSupabaseConnection, resetSession, clearLocalAuthSession } from './services/supabase';
 import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
@@ -522,7 +522,12 @@ const AppMain: React.FC = () => {
       } catch (timeoutErr: any) {
         logSupabaseError(timeoutErr, 'login');
         setLoginError(timeoutErr?.message || 'Tempo esgotado. Tente novamente.');
-        // Não força tela "Servidor indisponível": usuário fica no login e pode clicar em "Limpar sessão e tentar de novo"
+        // Limpar sessão local para o próximo "Entrar" funcionar sem precisar clicar em "Limpar sessão"
+        try {
+          await clearLocalAuthSession();
+        } catch {
+          // ignora
+        }
         return;
       }
 
@@ -876,6 +881,22 @@ const AppMain: React.FC = () => {
     path === '/reports';
 
   const isAdminOrHr = user.role === 'admin' || user.role === 'hr';
+
+  // Sempre redirecionar raiz para a dashboard correta por role (evita mostrar layout antigo)
+  if (path === '/') {
+    return <Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />;
+  }
+
+  // Admin/HR não devem ver área de funcionário: redirecionar para dashboard admin
+  if (isPortalRoute && isAdminOrHr && isEmployeeRoute) {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
+  // Funcionário em rota admin: redirecionar para dashboard do funcionário
+  if (isPortalRoute && path.startsWith('/admin') && !isAdminOrHr) {
+    return <Navigate to="/employee/dashboard" replace />;
+  }
+
   const LayoutComponent = isAdminRoute ? AdminLayout : isEmployeeRoute ? EmployeeLayout : isAdminOrHr ? AdminLayout : EmployeeLayout;
 
   if (isPortalRoute) {
@@ -906,8 +927,8 @@ const AppMain: React.FC = () => {
             <Route path="/employee/profile" element={<EmployeeProfile />} />
             <Route path="/employee/settings" element={<EmployeeSettings />} />
             <Route path="/employee/time-balance" element={<TimeBalancePage />} />
-            {/* Rotas legadas (compatibilidade) */}
-            <Route path="/dashboard" element={isAdminOrHr ? <AdminDashboard /> : <EmployeeDashboard />} />
+            {/* Rotas legadas: /dashboard redireciona pela role para evitar confusão */}
+            <Route path="/dashboard" element={<Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />} />
             <Route path="/dashboard-admin" element={<AdminDashboard />} />
             <Route path="/dashboard-employee" element={<EmployeeDashboard />} />
             <Route path="/time-clock" element={<TimeClockPage />} />

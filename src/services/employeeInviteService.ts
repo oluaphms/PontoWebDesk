@@ -4,6 +4,7 @@
  * - Convite por e-mail (API): inviteEmployeeByEmail() chama VITE_INVITE_API_URL.
  */
 
+import { getAppBaseUrl } from '../../services/appUrl';
 import { db, isSupabaseConfigured } from '../../services/supabase';
 
 const INVITE_API_URL = import.meta.env.VITE_INVITE_API_URL as string | undefined;
@@ -69,10 +70,7 @@ export async function createEmployeeInviteByLink(payload: CreateInviteByLinkPayl
     return { success: false, error: err?.message ?? 'Erro ao criar convite.' };
   }
 
-  const origin =
-    (typeof window !== 'undefined' && window.location?.origin)
-      ? window.location.origin
-      : (import.meta.env?.VITE_APP_URL || '').toString().trim().replace(/\/$/, '');
+  const origin = getAppBaseUrl();
   if (!origin || !/^https?:\/\//.test(origin)) {
     return { success: false, error: 'URL do app não configurada (VITE_APP_URL ou origin).' };
   }
@@ -111,7 +109,7 @@ export async function inviteEmployeeByEmail(payload: InvitePayload): Promise<Inv
         department_id: payload.department_id || undefined,
         role: payload.role || 'employee',
         schedule_id: payload.schedule_id || undefined,
-        redirect_url: payload.redirectUrl || (typeof window !== 'undefined' ? window.location.origin : undefined),
+        redirect_url: payload.redirectUrl || getAppBaseUrl(),
       }),
     });
     const data = await res.json().catch(() => ({}));

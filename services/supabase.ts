@@ -6,6 +6,7 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getAppBaseUrl } from './appUrl';
 
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
 const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
@@ -161,8 +162,7 @@ export async function withSupabaseTimeout<T>(
 const stubAuth = {
   signIn: async () => notConfigured(),
   signUp: async () => notConfigured(),
-  signOut: async () => {
-    // Não fazer nada se não configurado
+  signOut: async (_options?: { scope?: 'local' }) => {
     console.warn('Supabase not configured - signOut ignored');
   },
   getUser: async () => {
@@ -205,14 +205,14 @@ const realAuth = configured
         if (!data) throw new Error('Erro ao criar conta: dados não retornados');
         return data;
       },
-      signOut: async () => {
+      signOut: async (options?: { scope?: 'local' }) => {
         try {
-          const { error } = await client!.auth.signOut();
+          const { error } = await client!.auth.signOut(options);
           if (error) throw error;
         } catch (e: any) {
           if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
             try {
-              await client!.auth.signOut();
+              await client!.auth.signOut(options);
             } catch {
               // Ignorar falha ao limpar sessão
             }
@@ -260,7 +260,7 @@ const realAuth = configured
         return typeof unsub === 'function' ? () => unsub() : () => {};
       },
       resetPassword: async (email: string, redirectTo?: string) => {
-        const base = redirectTo?.replace(/\/reset-password\/?$/, '') || (typeof window !== 'undefined' ? window.location.origin : '');
+        const base = redirectTo?.replace(/\/reset-password\/?$/, '') || getAppBaseUrl();
         const to = redirectTo && redirectTo.startsWith('http') ? redirectTo : `${base}/reset-password`;
         const { error } = await client!.auth.resetPasswordForEmail(email, { redirectTo: to });
         if (error) throw error;
@@ -273,7 +273,7 @@ const realAuth = configured
         const { data, error } = await client!.auth.signInWithOAuth({
           provider,
           options: {
-            redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
+            redirectTo: `${getAppBaseUrl()}/auth/callback`,
           },
         });
         if (error) throw error;
@@ -386,6 +386,30 @@ const realStorage = configured
 export const storage = realStorage;
 
 const RESET_SESSION_SIGNOUT_TIMEOUT_MS = 4000;
+
+/**
+ * Limpa apenas a sessão local (storage). Não chama o servidor — instantâneo.
+ * Use após timeout de login para que o próximo "Entrar" funcione sem "Limpar sessão".
+ */
+export async function clearLocalAuthSession(): Promise<void> {
+  try {
+    if (client) await client.auth.signOut({ scope: 'local' });
+  } catch {
+    // Ignorar; em seguida limpar chaves sb- do sessionStorage se existirem
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const keys: string[] = [];
+        for (let i = 0; i < window.sessionStorage.length; i++) {
+          const k = window.sessionStorage.key(i);
+          if (k && k.startsWith('sb-')) keys.push(k);
+        }
+        keys.forEach((k) => window.sessionStorage.removeItem(k));
+      }
+    } catch {
+      // ignora
+    }
+  }
+}
 
 /**
  * Limpa sessão quebrada (timeout, projeto pausado, token corrompido).
