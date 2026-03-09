@@ -15,6 +15,79 @@ export interface AuthResult {
 
 class AuthService {
   /**
+   * Resolve um identificador de login (email, CPF, nome completo, primeiro nome)
+   * para um email válido que exista no Supabase Auth.
+   *
+   * Regras:
+   * - Se contiver "@": tratado diretamente como email.
+   * - Se for só dígitos com 11 caracteres: tratado como CPF (coluna `cpf` em public.users).
+   * - Caso contrário: tenta nome completo em `users.nome` e depois primeiro nome (ILIKE).
+   * - Se nada for encontrado, faz fallback para o comportamento antigo:
+   *   `<identificador>@smartponto.com`.
+   */
+  private async resolveLoginEmail(identifier: string): Promise<string> {
+    const raw = (identifier || '').trim();
+    if (!raw) return raw;
+
+    const lower = raw.toLowerCase();
+
+    // 1) Já é um email
+    if (lower.includes('@')) {
+      return lower;
+    }
+
+    // Se Supabase não está configurado, mantém o comportamento antigo
+    if (!isSupabaseConfigured) {
+      return `${lower}@smartponto.com`;
+    }
+
+    // 2) CPF (somente dígitos, 11 caracteres)
+    const digitsOnly = raw.replace(/\D/g, '');
+    if (digitsOnly.length === 11) {
+      try {
+        const byCpf = await db.select('users', [
+          { column: 'cpf', operator: 'eq', value: digitsOnly },
+        ], undefined, 1);
+        if (byCpf?.[0]?.email) {
+          return String(byCpf[0].email).trim().toLowerCase();
+        }
+      } catch {
+        // ignora e segue para outras estratégias
+      }
+    }
+
+    // 3) Nome completo exato
+    try {
+      const byFullName = await db.select('users', [
+        { column: 'nome', operator: 'eq', value: raw },
+      ], undefined, 1);
+      if (byFullName?.[0]?.email) {
+        return String(byFullName[0].email).trim().toLowerCase();
+      }
+    } catch {
+      // ignora e tenta primeiro nome
+    }
+
+    // 4) Primeiro nome com ILIKE (início do nome)
+    const firstName = raw.split(/\s+/)[0];
+    if (firstName) {
+      try {
+        const byFirstName = await db.select('users', [
+          { column: 'nome', operator: 'ilike', value: `${firstName}%` },
+        ], undefined, 1);
+        if (byFirstName?.[0]?.email) {
+          return String(byFirstName[0].email).trim().toLowerCase();
+        }
+      } catch {
+        // ignora; cai no fallback
+      }
+    }
+
+    // 5) Fallback: padrão antigo `<identificador>@smartponto.com`
+    return `${lower}@smartponto.com`;
+  }
+
+  /**
    * Converte Supabase User para User do sistema
    */
   private async supabaseUserToAppUser(supabaseUser: any): Promise<User | null> {
@@ -146,8 +219,11 @@ class AuthService {
    * Login com email e senha.
    * Só limpa sessão local se já existir sessão, para não quebrar logins seguintes (ex.: após HMR ou segundo login).
    */
-  async signInWithEmail(email: string, password: string): Promise<AuthResult> {
+  async signInWithEmail(identifier: string, password: string): Promise<AuthResult> {
     try {
+      // Resolver identificador (email, CPF, nome) para um email válido
+      const email = await this.resolveLoginEmail(identifier);
+
       // Limpar sessão local apenas se houver sessão (evita side effects desnecessários que podem atrapalhar o próximo signIn)
       try {
         const session = await auth.getSession();
