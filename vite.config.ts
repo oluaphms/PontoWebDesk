@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+const projectRoot = path.resolve(__dirname)
+
 export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production'
 
@@ -42,13 +44,16 @@ export default defineConfig(({ mode }) => {
 
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.')
+        '@': projectRoot,
+        // Garante que todas as importações usem a MESMA instância de React
+        react: path.resolve(projectRoot, 'node_modules/react'),
+        'react-dom': path.resolve(projectRoot, 'node_modules/react-dom'),
       },
       dedupe: ['react', 'react-dom', 'react-is']
     },
 
     optimizeDeps: {
-      include: ['react-is', 'recharts']
+      include: ['react', 'react-dom', 'react-is', 'recharts', 'lucide-react', 'framer-motion', 'react-router-dom'],
     },
 
     publicDir: 'public',

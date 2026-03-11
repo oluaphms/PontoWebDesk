@@ -5,6 +5,7 @@ import {
   Building2,
   Briefcase,
   Clock,
+  Clock12,
   Calendar,
   Activity,
   BarChart3,
@@ -13,6 +14,9 @@ import {
   MapPin,
   Scale,
   User,
+  CalendarClock,
+  ClipboardList,
+  CircleOff,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -30,6 +34,10 @@ export const adminNavigation: NavItem[] = [
   { name: 'Espelho de Ponto', path: '/admin/timesheet', icon: Clock },
   { name: 'Escalas', path: '/admin/schedules', icon: Calendar },
   { name: 'Horários', path: '/admin/shifts', icon: Clock },
+  { name: 'Jornada de Trabalho', path: '/admin/time-attendance', icon: CalendarClock },
+  { name: 'Ajustes de Ponto', path: '/admin/adjustments', icon: Clock12 },
+  { name: 'Ausências', path: '/admin/absences', icon: CircleOff },
+  { name: 'Solicitações', path: '/admin/requests', icon: ClipboardList },
   { name: 'Monitoramento', path: '/admin/monitoring', icon: Activity },
   { name: 'Relatórios', path: '/admin/reports', icon: BarChart3 },
   { name: 'Empresa', path: '/admin/company', icon: Building },
@@ -60,7 +68,8 @@ export function getNavigationForRole(role: string): NavItem[] {
 export function getBottomNavPrimaryItems(role: string): NavItem[] {
   const all = getNavigationForRole(role);
   const paths = role === 'admin' || role === 'hr' ? ADMIN_BOTTOM_PRIMARY : EMPLOYEE_BOTTOM_PRIMARY;
-  return paths.map((path) => all.find((item) => item.path === path)).filter(Boolean) as NavItem[];
+  const primary = paths.map((path) => all.find((item) => item.path === path)).filter(Boolean) as NavItem[];
+  return primary.length > 0 ? primary : all.slice(0, 4);
 }
 
 /** Itens que vão no drawer "Mais" no mobile (demais páginas) */

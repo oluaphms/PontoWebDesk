@@ -1,5 +1,10 @@
-
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+
+if (typeof React === 'undefined' || typeof useState !== 'function') {
+  throw new Error(
+    '[SmartPonto] React não carregou corretamente (múltiplas cópias?). Limpe o cache: delete a pasta node_modules/.vite e rode npm run dev de novo.'
+  );
+}
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { User, LogType, DailySummary, PunchMethod, Company } from './types';
 import Layout from './components/Layout';
@@ -58,6 +63,10 @@ import RealTimeInsightsPage from './src/pages/RealTimeInsights';
 import CompanyPage from './src/pages/Company';
 import ReportsPage from './src/pages/Reports';
 import SettingsPage from './src/pages/Settings';
+import TimeAttendancePage from './src/pages/TimeAttendance';
+import AdjustmentsPage from './src/pages/Adjustments';
+import AbsencesPage from './src/pages/Absences';
+import RequestsPage from './src/pages/Requests';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
 import ResetPasswordPage from './src/pages/ResetPassword';
 import AcceptInvitePage from './src/pages/AcceptInvite';
@@ -916,6 +925,10 @@ const AppMain: React.FC = () => {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/employees" element={<AdminEmployees />} />
             <Route path="/admin/timesheet" element={<AdminTimesheet />} />
+            <Route path="/admin/time-attendance" element={<TimeAttendancePage />} />
+            <Route path="/admin/adjustments" element={<AdjustmentsPage />} />
+            <Route path="/admin/absences" element={<AbsencesPage />} />
+            <Route path="/admin/requests" element={<RequestsPage />} />
             <Route path="/admin/monitoring" element={<AdminMonitoring />} />
             <Route path="/admin/schedules" element={<AdminSchedules />} />
             <Route path="/admin/shifts" element={<AdminShifts />} />

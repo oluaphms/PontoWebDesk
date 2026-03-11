@@ -23,6 +23,7 @@ const DepartmentsPage: React.FC = () => {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const load = async () => {
     if (!user?.companyId || !isSupabaseConfigured) {
@@ -56,6 +57,7 @@ const DepartmentsPage: React.FC = () => {
     setName('');
     setModalOpen(true);
     setMessage(null);
+    setModalError(null);
   };
 
   const openEdit = (row: DepartmentRow) => {
@@ -63,16 +65,27 @@ const DepartmentsPage: React.FC = () => {
     setName(row.name);
     setModalOpen(true);
     setMessage(null);
+    setModalError(null);
   };
 
-  const handleSave = async () => {
-    if (!user?.companyId || !isSupabaseConfigured) return;
+  const handleSave = async (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (!isSupabaseConfigured) {
+      setModalError('Supabase não configurado. Configure as variáveis de ambiente e reinicie.');
+      return;
+    }
+    if (!user?.companyId) {
+      setModalError('Empresa não identificada. Faça logout e login novamente.');
+      return;
+    }
     const trimmed = name.trim();
     if (!trimmed) {
-      setMessage({ type: 'error', text: 'Informe o nome do departamento.' });
+      setModalError('Informe o nome do departamento.');
       return;
     }
     setSaving(true);
+    setModalError(null);
     setMessage(null);
     try {
       if (editingId) {
@@ -90,8 +103,10 @@ const DepartmentsPage: React.FC = () => {
       }
       setModalOpen(false);
       load();
-    } catch (e: any) {
-      setMessage({ type: 'error', text: e?.message || 'Erro ao salvar.' });
+    } catch (err: any) {
+      const text = err?.message || err?.error?.message || 'Erro ao salvar. Tente novamente.';
+      setModalError(text);
+      setMessage({ type: 'error', text });
     } finally {
       setSaving(false);
     }
@@ -178,12 +193,17 @@ const DepartmentsPage: React.FC = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !saving && setModalOpen(false)}>
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingId ? 'Editar departamento' : 'Novo departamento'}</h3>
+              {modalError && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+                  {modalError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nome</label>
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); setModalError(null); }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                   placeholder="Ex: TI, Comercial, RH"
                 />
@@ -192,7 +212,7 @@ const DepartmentsPage: React.FC = () => {
                 <button type="button" onClick={() => setModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium">
                   Cancelar
                 </button>
-                <button type="button" onClick={handleSave} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50">
+                <button type="button" onClick={(e) => handleSave(e)} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50">
                   {saving ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>

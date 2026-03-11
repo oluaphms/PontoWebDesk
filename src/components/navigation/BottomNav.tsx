@@ -1,7 +1,7 @@
 import React, { memo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, LogOut } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import {
   getBottomNavPrimaryItems,
   getMoreMenuItems,
@@ -9,9 +9,53 @@ import {
 } from '../../config/navigation';
 import type { User } from '../../../types';
 
+const SvgMenu = ({ size = 24 }: { size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <line x1="4" x2="20" y1="12" y2="12" />
+    <line x1="4" x2="20" y1="6" y2="6" />
+    <line x1="4" x2="20" y1="18" y2="18" />
+  </svg>
+);
+const SvgX = ({ size = 20 }: { size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+  </svg>
+);
+const SvgLogOut = ({ size = 20 }: { size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" x2="9" y1="12" y2="12" />
+  </svg>
+);
+
 export interface BottomNavProps {
   user: User;
   onLogout: () => void;
+}
+
+/** Renderiza ícone do item ou fallback com a inicial do label. */
+function NavIcon({
+  icon: Icon,
+  size = 24,
+  label,
+}: {
+  icon: LucideIcon | undefined;
+  size?: number;
+  label: string;
+}) {
+  if (Icon) {
+    return <Icon size={size} aria-hidden className="shrink-0" />;
+  }
+  return (
+    <span
+      className="inline-flex items-center justify-center font-bold text-[10px] text-current shrink-0"
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      {label.charAt(0)}
+    </span>
+  );
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
@@ -27,9 +71,9 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
         className="fixed bottom-0 left-0 right-0 z-40 lg:hidden flex items-center justify-around bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 safe-area-pb"
         aria-label="Navegação principal"
       >
-        {primaryItems.map((item) => {
+        {(primaryItems.length > 0 ? primaryItems : getNavigationForRole(user?.role ?? 'employee').slice(0, 4)).map((item) => {
           const isActive = location.pathname === item.path;
-          const Icon = item.icon;
+          const label = typeof item.name === 'string' ? item.name : String(item.name ?? '');
           return (
             <button
               key={item.path}
@@ -41,10 +85,10 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                   : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
               }`}
               aria-current={isActive ? 'page' : undefined}
-              aria-label={item.name}
+              aria-label={label}
             >
-              <Icon size={24} aria-hidden />
-              <span className="text-[10px] font-medium truncate max-w-full">{item.name}</span>
+              <NavIcon icon={item?.icon} size={24} label={label} />
+              <span className="text-[10px] font-medium truncate max-w-full">{label}</span>
             </button>
           );
         })}
@@ -59,7 +103,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
           aria-label="Mais opções"
           aria-expanded={drawerOpen}
         >
-          <Menu size={24} aria-hidden />
+          <SvgMenu size={24} />
           <span className="text-[10px] font-medium">Mais</span>
         </button>
       </nav>
@@ -93,13 +137,13 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                   className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                   aria-label="Fechar"
                 >
-                  <X size={20} />
+                  <SvgX size={20} />
                 </button>
               </div>
               <div className="overflow-y-auto flex-1 p-4 flex flex-col gap-1">
                 {moreItems.map((item) => {
                   const isActive = location.pathname === item.path;
-                  const Icon = item.icon;
+                  const label = typeof item.name === 'string' ? item.name : String(item.name ?? '');
                   return (
                     <button
                       key={item.path}
@@ -117,8 +161,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                         }
                       `}
                     >
-                      <Icon size={20} aria-hidden />
-                      {item.name}
+                      <NavIcon icon={item?.icon} size={20} label={label} />
+                      {label}
                     </button>
                   );
                 })}
@@ -133,7 +177,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                   className="flex items-center gap-3 w-full rounded-xl px-4 py-3 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
                   aria-label="Sair do sistema"
                 >
-                  <LogOut size={20} aria-hidden />
+                  <SvgLogOut size={20} />
                   Sair do sistema
                 </button>
               </div>

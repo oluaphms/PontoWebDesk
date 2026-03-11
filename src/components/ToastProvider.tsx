@@ -77,7 +77,7 @@ export class ToastProvider extends React.Component<ToastProviderProps, ToastProv
                   : 'bg-slate-800'
               }`}
             >
-              {toast.message}
+              {typeof toast.message === 'string' ? toast.message : String(toast.message)}
             </div>
           ))}
         </div>

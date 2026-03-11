@@ -48,26 +48,37 @@ export const Button: React.FC<ButtonProps> = ({
   );
 };
 
+/** Garante que o conteúdo seja renderizável (evita React Error #525: objects are not valid as React child) */
+function safeReactChild(value: React.ReactNode): React.ReactNode {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (React.isValidElement(value)) return value;
+  if (Array.isArray(value)) return value.map(safeReactChild);
+  if (typeof value === 'object') return String(value);
+  return value;
+}
+
 export const Badge: React.FC<{ children: React.ReactNode; color?: 'indigo' | 'green' | 'slate' | 'amber' | 'red'; className?: string; role?: string }> = ({ 
   children, 
   color = 'slate',
   className = '',
   role = 'status'
 }) => {
-  const colors = {
+  const colors: Record<string, string> = {
     indigo: "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-300",
     green: "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300",
     slate: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300",
     amber: "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300",
     red: "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300"
   };
+  const colorClass = colors[color] ?? colors.slate;
 
   return (
     <span 
       role={role}
-      className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 ${colors[color]} ${className}`}
+      className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 ${colorClass} ${className}`}
     >
-      {children}
+      {safeReactChild(children)}
     </span>
   );
 };
