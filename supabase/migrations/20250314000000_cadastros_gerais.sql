@@ -124,12 +124,30 @@ CREATE POLICY "feriados_modify_company" ON public.feriados FOR ALL TO authentica
   USING (company_id = (SELECT company_id FROM public.users WHERE id = auth.uid()));
 
 -- Feriado x Departamentos (quais departamentos o feriado vale)
-CREATE TABLE IF NOT EXISTS public.feriado_departamentos (
-  feriado_id UUID NOT NULL REFERENCES public.feriados(id) ON DELETE CASCADE,
-  department_id UUID NOT NULL REFERENCES public.departments(id) ON DELETE CASCADE,
-  PRIMARY KEY (feriado_id, department_id)
-);
+-- department_id compatível com public.departments(id): UUID ou TEXT conforme o schema existente
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'feriado_departamentos') THEN
+    NULL; -- já existe
+  ELSIF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'departments' AND column_name = 'id' AND data_type = 'uuid'
+  ) THEN
+    CREATE TABLE public.feriado_departamentos (
+      feriado_id UUID NOT NULL REFERENCES public.feriados(id) ON DELETE CASCADE,
+      department_id UUID NOT NULL REFERENCES public.departments(id) ON DELETE CASCADE,
+      PRIMARY KEY (feriado_id, department_id)
+    );
+  ELSE
+    CREATE TABLE public.feriado_departamentos (
+      feriado_id UUID NOT NULL REFERENCES public.feriados(id) ON DELETE CASCADE,
+      department_id TEXT NOT NULL REFERENCES public.departments(id) ON DELETE CASCADE,
+      PRIMARY KEY (feriado_id, department_id)
+    );
+  END IF;
+END $$;
 ALTER TABLE public.feriado_departamentos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "feriado_departamentos_all" ON public.feriado_departamentos;
 CREATE POLICY "feriado_departamentos_all" ON public.feriado_departamentos FOR ALL TO authenticated USING (true);
 
 -- Feriado x Cidades (quais cidades o feriado vale)
@@ -139,6 +157,7 @@ CREATE TABLE IF NOT EXISTS public.feriado_cidades (
   PRIMARY KEY (feriado_id, cidade_id)
 );
 ALTER TABLE public.feriado_cidades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "feriado_cidades_all" ON public.feriado_cidades;
 CREATE POLICY "feriado_cidades_all" ON public.feriado_cidades FOR ALL TO authenticated USING (true);
 
 -- motivo_demissao: updated_at para compatibilidade com db.update

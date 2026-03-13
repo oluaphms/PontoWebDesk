@@ -13,6 +13,10 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own data" ON public.users;
 DROP POLICY IF EXISTS "Users can update own data" ON public.users;
 DROP POLICY IF EXISTS "Users can insert own data" ON public.users;
+-- Remover políticas que podem já existir (ex.: criadas por 20250308110000)
+DROP POLICY IF EXISTS "users_select_own_or_company" ON public.users;
+DROP POLICY IF EXISTS "users_insert_own_or_company" ON public.users;
+DROP POLICY IF EXISTS "users_update_own_or_company" ON public.users;
 
 -- SELECT: ver próprio perfil OU usuários da mesma empresa (lista de funcionários para admin)
 CREATE POLICY "users_select_own_or_company" ON public.users
@@ -48,6 +52,10 @@ BEGIN
     ALTER TABLE public.departments ENABLE ROW LEVEL SECURITY;
     DROP POLICY IF EXISTS "Departments select company" ON public.departments;
     DROP POLICY IF EXISTS "Departments modify admin" ON public.departments;
+    DROP POLICY IF EXISTS "departments_select_company" ON public.departments;
+    DROP POLICY IF EXISTS "departments_insert_company" ON public.departments;
+    DROP POLICY IF EXISTS "departments_update_company" ON public.departments;
+    DROP POLICY IF EXISTS "departments_delete_company" ON public.departments;
     CREATE POLICY "departments_select_company" ON public.departments
       FOR SELECT TO authenticated
       USING (company_id = (SELECT company_id FROM public.users WHERE id = auth.uid()));

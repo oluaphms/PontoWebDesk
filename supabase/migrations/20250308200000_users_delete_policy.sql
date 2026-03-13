@@ -1,6 +1,7 @@
 -- Permite exclusão de funcionários (public.users) por admin da mesma empresa.
 -- Sem esta política, db.delete('users', id) é bloqueado por RLS e o funcionário não é removido.
 
+DROP POLICY IF EXISTS "users_delete_own_or_company" ON public.users;
 CREATE POLICY "users_delete_own_or_company" ON public.users
   FOR DELETE TO authenticated
   USING (
