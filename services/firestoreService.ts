@@ -123,7 +123,11 @@ class SupabaseService {
       );
       return records.map(supabaseToTimeRecord);
     } catch (error: any) {
-      console.error('Erro ao buscar registros do Supabase:', error?.message ?? error);
+      const msg = error?.message ?? error;
+      console.error('Erro ao buscar registros do Supabase:', msg);
+      if (typeof msg === 'string' && (msg.includes('infinite recursion') || msg.includes('policy for relation'))) {
+        console.warn('[Supabase RLS] Recursão nas políticas. Aplique a migration 20250326000000_fix_rls_infinite_recursion_users_time_records.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
+      }
       return [];
     }
   }

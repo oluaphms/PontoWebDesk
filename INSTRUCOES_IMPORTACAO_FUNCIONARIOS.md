@@ -155,3 +155,25 @@ Você pode editar esse arquivo no Excel ou em um editor de texto e importá-lo; 
 | **.doc** | Preferir salvar como .docx e importar o .docx. |
 
 Com isso, o arquivo (PDF, TXT, DOC, DOCX, CSV ou Excel) terá o que é necessário para ser aceito e importado com sucesso.
+
+---
+
+## 9. Erro 500 / "infinite recursion detected in policy for relation users"
+
+Se ao importar funcionários ou ao abrir a tela de funcionários aparecer erro **500** no console do navegador com a mensagem **"infinite recursion detected in policy for relation users"**, o banco Supabase está com políticas RLS que causam recursão.
+
+**O que fazer:**
+
+1. **Aplicar a migration que corrige a recursão** no seu projeto Supabase:
+   - No Dashboard do Supabase: **SQL Editor** → New query.
+   - Copie e execute o conteúdo do arquivo:
+     `supabase/migrations/20250326000000_fix_rls_infinite_recursion_users_time_records.sql`
+   - Ou, se usar CLI: `supabase db push` (aplica todas as migrations pendentes).
+
+2. **Garantir que a função `get_my_company_id()` tenha owner com permissão de bypass RLS** (se o erro continuar após a migration):
+   - No SQL Editor do Supabase execute:
+     ```sql
+     ALTER FUNCTION public.get_my_company_id() OWNER TO postgres;
+     ```
+
+Depois disso, recarregue a página e tente a importação novamente.
