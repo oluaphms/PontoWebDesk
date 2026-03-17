@@ -1,0 +1,1 @@
+Forçar novo deploy em 2026-03-16.
