@@ -43,7 +43,9 @@ Use o resultado como valor de `API_KEY`.
 
 ## 2. Cron: sincronização a cada 5 minutos
 
-O `vercel.json` já está configurado com um cron que chama **POST /api/rep/sync** a cada 5 minutos:
+**Cron no Vercel** só está disponível no **plano Pro**. No plano Hobby (grátis), o deploy pode falhar se o `vercel.json` tiver o bloco `crons`; por isso ele foi removido para o deploy funcionar.
+
+**Se você usa Vercel Pro:** adicione no `vercel.json`:
 
 ```json
 "crons": [
@@ -54,10 +56,11 @@ O `vercel.json` já está configurado com um cron que chama **POST /api/rep/sync
 ]
 ```
 
-- No Vercel, ao fazer deploy, esse cron é ativado automaticamente.
-- O Vercel envia o valor de **CRON_SECRET** no header `Authorization` ao chamar o cron. Por isso é importante definir **CRON_SECRET** nas variáveis de ambiente (ou usar o mesmo valor de **API_KEY** e definir os dois iguais).
+O Vercel envia o **CRON_SECRET** no header `Authorization` ao chamar o cron. Defina **CRON_SECRET** nas variáveis de ambiente (pode ser o mesmo valor de **API_KEY**).
 
-Se quiser **desativar** o cron, remova ou comente o bloco `"crons"` no `vercel.json`.
+**Se você usa plano Hobby (grátis):** use um serviço externo para chamar o sync a cada 5 minutos, por exemplo:
+- [cron-job.org](https://cron-job.org) (grátis)
+- Configurar: URL `https://SEU_DOMINIO.vercel.app/api/rep/sync`, método POST, header `Authorization: Bearer SEU_CRON_SECRET`, intervalo 5 minutos.
 
 ---
 
