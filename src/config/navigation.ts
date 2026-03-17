@@ -100,7 +100,9 @@ export function getBottomNavPrimaryItems(role: string, currentPath?: string): Na
 export function getMoreMenuItems(role: string, currentPath?: string): NavItem[] {
   const all = getNavigationForRole(role, currentPath);
   if (role === 'admin' || role === 'hr') {
-    return all;
+    // Para admin/HR, não repetir algumas ações que já aparecem em botões de tela
+    // Removemos "Importar Funcionários" do menu "Mais" para evitar duplicidade na tela de colaboradores
+    return all.filter((item) => item.path !== '/admin/import-employees');
   }
   const primaryPaths = EMPLOYEE_BOTTOM_PRIMARY;
   return all.filter((item) => !primaryPaths.includes(item.path));
