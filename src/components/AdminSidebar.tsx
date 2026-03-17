@@ -26,6 +26,8 @@ import {
   FileCheck,
   CircleOff,
   HelpCircle,
+  Timer,
+  Upload,
 } from 'lucide-react';
 import type { User } from '../../types';
 
@@ -54,6 +56,9 @@ const ADMIN_ITEMS = [
   { label: 'Ponto Diário', path: '/admin/ponto-diario', icon: CalendarDays },
   { label: 'Ponto Diário (Somente Leitura)', path: '/admin/ponto-diario-leitura', icon: CalendarDays },
   { label: 'Arquivos Fiscais', path: '/admin/arquivos-fiscais', icon: FileText },
+  { label: 'Relógios REP', path: '/admin/rep-devices', icon: Timer },
+  { label: 'Monitor REP', path: '/admin/rep-monitor', icon: Activity },
+  { label: 'Importar AFD', path: '/admin/import-rep', icon: Upload },
   { label: 'Monitoramento', path: '/admin/monitoring', icon: Activity },
   { label: 'Escalas', path: '/admin/schedules', icon: Calendar },
   { label: 'Horários', path: '/admin/shifts', icon: Clock },
