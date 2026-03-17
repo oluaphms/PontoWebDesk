@@ -28,7 +28,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
-      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div className="w-full max-w-sm max-h-[90vh] sm:max-h-[80vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
         {description && (
           <p className="text-sm text-slate-600 dark:text-slate-400">{description}</p>
