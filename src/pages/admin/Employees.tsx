@@ -645,7 +645,8 @@ const AdminEmployees: React.FC = () => {
           metadata: { nome: nomeFinal, cargo: cargoFinal },
         });
         await confirmEmployeeEmailInAuth(emailFinal.toLowerCase());
-        await db.insert('users', {
+
+        const payload: any = {
           id: userId,
           nome: nomeFinal,
           cpf: row.cpf?.trim() || null,
@@ -659,7 +660,10 @@ const AdminEmployees: React.FC = () => {
           status: 'active',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        };
+        if (userId) payload.id = userId;
+
+        await db.insert('users', payload);
         return true;
       };
 
@@ -673,9 +677,23 @@ const AdminEmployees: React.FC = () => {
       } catch (err: any) {
         const msg = String(err?.message ?? '');
         const code = err?.code ?? '';
-        const is429 = msg.includes('429') || (err?.status === 429);
+        const status = err?.status ?? err?.statusCode ?? null;
+        const lower = msg.toLowerCase();
+        const is429 = status === 429 || code === '429' || lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests');
         const isDup = code === '23505' || msg.includes('duplicate') || /already registered|already exists|user already/i.test(msg);
-        if (is429) {
+        const is404Auth =
+          status === 404 ||
+          code === '404' ||
+          lower.includes('404') ||
+          lower.includes('not found');
+
+        if (is404Auth) {
+          failed.push({
+            row: rowNum,
+            email: emailFinal,
+            reason: 'Falha ao criar conta de acesso (endpoint /api/create-employee-auth não encontrado). Peça ao suporte para configurar o backend de autenticação antes de importar.',
+          });
+        } else if (is429) {
           await delay(RETRY_AFTER_429_MS);
           try {
             const retryOk = await doCreateAndInsert();
@@ -689,7 +707,7 @@ const AdminEmployees: React.FC = () => {
           failed.push({
             row: rowNum,
             email: emailFinal,
-            reason: isDup ? 'E-mail já cadastrado' : (msg || 'Erro ao criar'),
+            reason: isDup ? 'E-mail já cadastrado' : (msg || 'Erro ao criar conta/funcionário'),
           });
         }
       }
@@ -765,8 +783,6 @@ const AdminEmployees: React.FC = () => {
     try {
       await runBulkImport(importPreview.valid as ImportRow[]);
       setImportStep('result');
-      // Fecha o modal após importar com sucesso para o usuário já ver a lista atualizada
-      setImportModalOpen(false);
       setImportPreview(null);
       setImportParseError(null);
       setImportRawRows(null);
@@ -1287,24 +1303,6 @@ const AdminEmployees: React.FC = () => {
                       </ul>
                     </details>
                   )}
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setImportStep('upload')}
-                      disabled={importing}
-                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium"
-                    >
-                      Voltar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmImport}
-                      disabled={importing || importPreview.valid.length === 0}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {importing ? 'Importando...' : `Confirmar e importar (${importPreview.valid.length})`}
-                    </button>
-                  </div>
                   {importError && (
                     <div className="mt-3 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-xs text-red-700 dark:text-red-300">
                       {importError}
@@ -1334,8 +1332,32 @@ const AdminEmployees: React.FC = () => {
                   )}
                 </div>
               )}
-              <div className="flex justify-end pt-2">
-                <button type="button" onClick={() => setImportModalOpen(false)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800">
+              <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 mt-2">
+                {importStep === 'preview' && importPreview && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportStep('upload')}
+                      disabled={importing}
+                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmImport}
+                      disabled={importing || importPreview.valid.length === 0}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {importing ? 'Importando...' : `Confirmar e importar (${importPreview.valid.length})`}
+                    </button>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setImportModalOpen(false)}
+                  className="ml-auto px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
                   Fechar
                 </button>
               </div>
