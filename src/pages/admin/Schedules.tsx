@@ -616,7 +616,7 @@ const AdminSchedules: React.FC = () => {
 
       {/* Modal Escala simples */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !saving && setModalOpen(false)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !saving && setModalOpen(false)}>
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingId ? 'Editar Escala' : 'Criar Escala'}</h3>
             <div>
@@ -648,7 +648,7 @@ const AdminSchedules: React.FC = () => {
 
       {/* Modal Escala Cíclica */}
       {modalCiclicaOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto" onClick={() => !saving && setModalCiclicaOpen(false)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto" role="dialog" aria-modal="true" onClick={() => !saving && setModalCiclicaOpen(false)}>
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl my-8 p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{editingCiclicaId ? 'Editar Escala Cíclica' : 'Incluir Escala Cíclica'}</h3>
 
@@ -754,7 +754,7 @@ const AdminSchedules: React.FC = () => {
 
       {/* Modal incluir horário (escala mensal) */}
       {addShiftModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-sm p-6 space-y-4">
             <h4 className="font-semibold text-slate-900 dark:text-white">Selecione o horário e uma cor</h4>
             {shifts.filter((s) => !mensalShifts.some((ms) => ms.shift_id === s.id)).length === 0 ? (
@@ -780,7 +780,7 @@ const AdminSchedules: React.FC = () => {
 
       {/* Modal adicionar funcionário (escala mensal) */}
       {addEmployeeMensalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-md max-h-[70vh] overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between">
               <h4 className="font-semibold text-slate-900 dark:text-white">Adicionar funcionário</h4>
@@ -800,7 +800,7 @@ const AdminSchedules: React.FC = () => {
 
       {/* Modal copiar para outro mês */}
       {copyMonthOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-sm p-6 space-y-4">
             <h4 className="font-semibold text-slate-900 dark:text-white">Copiar escala para outro mês</h4>
             <input type="month" value={copyTargetPeriod} onChange={(e) => setCopyTargetPeriod(e.target.value)} className={inputClass} />

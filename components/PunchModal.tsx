@@ -627,11 +627,11 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     : methodTabs;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xl animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/80 backdrop-blur-xl animate-in fade-in duration-300">
       <div
         ref={modalRef}
         tabIndex={-1}
-        className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10 outline-none max-h-[90vh] lg:max-h-[80vh] overflow-y-auto"
+        className="w-full h-full bg-white dark:bg-slate-900 rounded-none shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10 outline-none overflow-y-auto flex flex-col lg:max-w-5xl lg:h-[90vh] lg:rounded-[3rem] lg:my-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

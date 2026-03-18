@@ -23,6 +23,19 @@ const SmartDock: React.FC = () => {
   const dockEntries = Object.entries(groups);
   const openGroup = dockFloatingGroupKey ? groups[dockFloatingGroupKey] : null;
 
+  /** Esconde o rodapé quando algum modal/dialog está aberto para não sobrepor botões */
+  const [modalOpen, setModalOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const hasDialog = !!document.querySelector('[role="dialog"], [aria-modal="true"]');
+      setModalOpen(hasDialog);
+    };
+    const obs = new MutationObserver(() => check());
+    obs.observe(document.body, { childList: true, subtree: true });
+    check();
+    return () => obs.disconnect();
+  }, []);
+
   /** Calcula posição do card para ficar centralizado no botão e dentro da viewport */
   const updateCardPosition = useCallback(() => {
     if (!dockFloatingGroupKey || !openGroup) {
@@ -116,8 +129,9 @@ const SmartDock: React.FC = () => {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex items-center backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-t border-slate-200/80 dark:border-slate-800/80 safe-area-pb py-2 lg:py-3 lg:left-1/2 lg:right-auto lg:bottom-6 lg:-translate-x-1/2 lg:rounded-2xl lg:border lg:border-slate-200/80 dark:lg:border-slate-800/80 lg:shadow-xl lg:max-w-2xl lg:w-full"
+        className={`fixed bottom-0 left-0 right-0 z-40 flex items-center backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-t border-slate-200/80 dark:border-slate-800/80 safe-area-pb py-2 lg:py-3 lg:left-1/2 lg:right-auto lg:bottom-6 lg:-translate-x-1/2 lg:rounded-2xl lg:border lg:border-slate-200/80 dark:lg:border-slate-800/80 lg:shadow-xl lg:max-w-2xl lg:w-full transition-transform duration-200 ease-out ${modalOpen ? 'translate-y-full opacity-0 pointer-events-none' : ''}`}
         aria-label={i18n.t('layout.navLabel')}
+        aria-hidden={modalOpen}
       >
         <div className="flex justify-between items-center w-full px-2 sm:px-4 gap-1">
           {dockEntries.map(([groupKey, group], index) => {

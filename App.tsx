@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { User, LogType, DailySummary, PunchMethod, Company } from './types';
 import Layout from './components/Layout';
@@ -174,44 +174,44 @@ VITE_SUPABASE_ANON_KEY=sua-chave-anon`}
 }
 
 const AppMain: React.FC = () => {
-  const [user, setUser] = React.useState<User | null>(null);
-  const [activeTab, setActiveTab] = React.useState('dashboard');
-  const [insights, setInsights] = React.useState<{ insight: string, score: number } | null>(null);
-  const [punchType, setPunchType] = React.useState<LogType | null>(null);
-  const [showMethodSelection, setShowMethodSelection] = React.useState(false);
-  const [pendingPunchType, setPendingPunchType] = React.useState<LogType | null>(null);
-  const [selectedMethod, setSelectedMethod] = React.useState<PunchMethod | null>(null);
-  const [showOnboarding, setShowOnboarding] = React.useState(false);
-  const [showCelebration, setShowCelebration] = React.useState(false);
-  const [isInitialLoading, setIsInitialLoading] = React.useState(true);
-  const [company, setCompany] = React.useState<Company | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [insights, setInsights] = useState<{ insight: string, score: number } | null>(null);
+  const [punchType, setPunchType] = useState<LogType | null>(null);
+  const [showMethodSelection, setShowMethodSelection] = useState(false);
+  const [pendingPunchType, setPendingPunchType] = useState<LogType | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<PunchMethod | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [company, setCompany] = useState<Company | null>(null);
 
   // Filtros do histórico
-  const [historyMethodFilter, setHistoryMethodFilter] = React.useState<'all' | PunchMethod>('all');
-  const [historyTypeFilter, setHistoryTypeFilter] = React.useState<'all' | LogType>('all');
-  const [historyDateFilter, setHistoryDateFilter] = React.useState<string>('');
+  const [historyMethodFilter, setHistoryMethodFilter] = useState<'all' | PunchMethod>('all');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | LogType>('all');
+  const [historyDateFilter, setHistoryDateFilter] = useState<string>('');
 
   // Timer visual de jornada
-  const [todayProgress, setTodayProgress] = React.useState<number>(0);
-  const [todayLabel, setTodayLabel] = React.useState<string>('00h 00m de 00h 00m');
+  const [todayProgress, setTodayProgress] = useState<number>(0);
+  const [todayLabel, setTodayLabel] = useState<string>('00h 00m de 00h 00m');
 
   // Login State
-  const [loginStep, setLoginStep] = React.useState<'choice' | 'form'>('choice');
-  const [loginRole, setLoginRole] = React.useState<'admin' | 'employee' | null>(null);
-  const [loginData, setLoginData] = React.useState({ identifier: '', password: '' });
-  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
-  const [loginError, setLoginError] = React.useState<string | null>(null);
-  const [showForgotPassword, setShowForgotPassword] = React.useState(false);
-  const [showIdentifier, setShowIdentifier] = React.useState(false);
-  const [showPassword, setShowPassword] = React.useState(false);
+  const [loginStep, setLoginStep] = useState<'choice' | 'form'>('choice');
+  const [loginRole, setLoginRole] = useState<'admin' | 'employee' | null>(null);
+  const [loginData, setLoginData] = useState({ identifier: '', password: '' });
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showIdentifier, setShowIdentifier] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Conexão Supabase (fallback quando servidor pausado/rede lenta)
-  const [connectionUnavailable, setConnectionUnavailable] = React.useState(false);
-  const [isReconnecting, setIsReconnecting] = React.useState(false);
-  const [isResettingSession, setIsResettingSession] = React.useState(false);
+  const [connectionUnavailable, setConnectionUnavailable] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isResettingSession, setIsResettingSession] = useState(false);
 
   // Theme State (para tela de login)
-  const [theme, setTheme] = React.useState<'light' | 'dark'>(() => {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('smartponto_theme');
       // Se for 'auto' ou não existir, converte para o tema do sistema
@@ -231,14 +231,14 @@ const AppMain: React.FC = () => {
   const navigate = useNavigate();
 
   // Aplicar idioma padrão das configurações quando não houver preferência no navegador
-  React.useEffect(() => {
+  useEffect(() => {
     if (globalSettings?.language && typeof window !== 'undefined' && !localStorage.getItem('smartponto_language')) {
       const lang = globalSettings.language === 'en-US' || globalSettings.language === 'pt-BR' ? globalSettings.language : 'pt-BR';
       setLanguage(lang);
     }
   }, [globalSettings?.language, setLanguage]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
     let isMounted = true;
 
@@ -354,7 +354,7 @@ const AppMain: React.FC = () => {
     };
   }, []);
 
-  const fetchInsights = React.useCallback(async () => {
+  const fetchInsights = useCallback(async () => {
     if (records.length >= 2 && !insights) {
       const summary: DailySummary = {
         date: new Date().toISOString(),
@@ -366,13 +366,13 @@ const AppMain: React.FC = () => {
     }
   }, [records, insights]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeTab === 'dashboard' && records.length > 0) {
       fetchInsights();
     }
   }, [activeTab, fetchInsights]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!user || !user.preferences?.notifications) {
       stopReminderCheck();
       return;
@@ -392,7 +392,7 @@ const AppMain: React.FC = () => {
   }, [user?.id, user?.preferences?.notifications]);
 
   // Theme effect (aplicar tema quando mudar)
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       // Aplicar tema diretamente (sem modo auto)
       if (typeof window !== 'undefined') {
@@ -461,16 +461,16 @@ const AppMain: React.FC = () => {
     } catch (err) { }
   };
 
-  const isWorking = React.useMemo(() => records[0]?.type === LogType.IN, [records]);
+  const isWorking = useMemo(() => records[0]?.type === LogType.IN, [records]);
 
-  const stats = React.useMemo(() => ({
+  const stats = useMemo(() => ({
     today: PontoService.calculateDailyHours(records),
     balance: "+12h 45m",
     status: isWorking ? 'Em Jornada' : 'Pausa / Descanso'
   }), [records, isWorking]);
 
   // Calcular progresso diário visual (comparando com jornada padrão da empresa)
-  React.useEffect(() => {
+  useEffect(() => {
     if (!company) {
       setTodayProgress(0);
       setTodayLabel('00h 00m de 00h 00m');
@@ -530,7 +530,7 @@ const AppMain: React.FC = () => {
   }, [records, company, globalSettings, stats.today]);
 
   // Registros filtrados para a aba de histórico
-  const filteredHistory = React.useMemo(() => {
+  const filteredHistory = useMemo(() => {
     return records.filter(rec => {
       if (historyTypeFilter !== 'all' && rec.type !== historyTypeFilter) return false;
       if (historyMethodFilter !== 'all' && rec.method !== historyMethodFilter) return false;
@@ -632,7 +632,7 @@ const AppMain: React.FC = () => {
     setLoginError(null);
   };
 
-  const handleLogout = React.useCallback(async () => {
+  const handleLogout = useCallback(async () => {
     setUser(null);
     setCompany(null);
     setInsights(null);
@@ -653,7 +653,7 @@ const AppMain: React.FC = () => {
   );
 
   // Theme functions (ANTES de qualquer return condicional)
-  const toggleTheme = React.useCallback(() => {
+  const toggleTheme = useCallback(() => {
     try {
       const nextTheme = theme === 'light' ? 'dark' : 'light';
       setTheme(nextTheme);
@@ -662,16 +662,16 @@ const AppMain: React.FC = () => {
     }
   }, [theme]);
 
-  const getThemeIcon = React.useCallback(() => {
+  const getThemeIcon = useCallback(() => {
     return theme === 'light' ? <Sun size={20} /> : <Moon size={20} />;
   }, [theme]);
 
-  const getThemeLabel = React.useCallback(() => {
+  const getThemeLabel = useCallback(() => {
     return theme === 'light' ? i18n.t('layout.themeLight') : i18n.t('layout.themeDark');
   }, [theme]);
 
   // Reconexão automática quando servidor está indisponível (ex.: free tier pausado)
-  React.useEffect(() => {
+  useEffect(() => {
     if (!connectionUnavailable || !isSupabaseConfigured) return;
 
     const interval = setInterval(async () => {
@@ -688,7 +688,7 @@ const AppMain: React.FC = () => {
   }, [connectionUnavailable]);
 
   // Timeout de segurança adicional para garantir que o loading sempre termine
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isInitialLoading) return;
 
     const safetyTimeout = setTimeout(() => {

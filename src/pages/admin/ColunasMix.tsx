@@ -281,7 +281,9 @@ const AdminColunasMix: React.FC = () => {
 
         {modalOpen && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
             onClick={() => !saving && setModalOpen(false)}
           >
             <div

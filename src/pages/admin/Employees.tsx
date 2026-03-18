@@ -434,16 +434,33 @@ const AdminEmployees: React.FC = () => {
     } catch (e: any) {
       const msg = String(e?.message ?? '');
       const code = e?.code ?? '';
+      const status = e?.status ?? e?.statusCode ?? null;
+      const lower = msg.toLowerCase();
+
       const isDuplicateEmail =
         code === '23505' ||
         msg.includes('users_email_key') ||
         (msg.includes('duplicate key') && msg.includes('email')) ||
         /already registered|already exists|user already/i.test(msg);
-      const isDuplicateIdentificador = msg.includes('numero_identificador') || (msg.includes('duplicate key') && msg.includes('identificador'));
+
+      const isDuplicateIdentificador =
+        msg.includes('numero_identificador') || (msg.includes('duplicate key') && msg.includes('identificador'));
+
+      const isRateLimit429 =
+        status === 429 ||
+        code === '429' ||
+        msg.includes('429') ||
+        lower.includes('rate limit') ||
+        lower.includes('too many requests');
+
       if (isDuplicateEmail) {
         setError('Este e-mail já está cadastrado. Use outro e-mail ou edite o funcionário existente.');
       } else if (isDuplicateIdentificador) {
         setError('Nº Identificador já existe no sistema. Informe outro número.');
+      } else if (isRateLimit429) {
+        setError(
+          'Limite de criação/envio de e-mails do Supabase atingido (erro 429). Aguarde alguns minutos e tente novamente ou reduza a quantidade de cadastros consecutivos.'
+        );
       } else {
         setError(msg || 'Erro ao salvar');
       }
@@ -871,7 +888,7 @@ const AdminEmployees: React.FC = () => {
         </div>
 
         {modalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !saving && setModalOpen(false)}>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !saving && setModalOpen(false)}>
             <div
               className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6"
               onClick={(e) => e.stopPropagation()}
@@ -1143,7 +1160,7 @@ const AdminEmployees: React.FC = () => {
 
         {/* Modal Importar funcionário */}
         {importModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !importing && setImportModalOpen(false)}>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !importing && setImportModalOpen(false)}>
             <div
               className={`bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 ${importStep === 'mapping' ? 'max-w-2xl' : 'max-w-lg'}`}
               onClick={(e) => e.stopPropagation()}

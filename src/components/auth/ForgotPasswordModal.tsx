@@ -57,10 +57,10 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden onClick={handleClose} />
       <div
-        className="relative w-full max-w-md max-h-[90vh] sm:max-h-[80vh] bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto"
+        className="relative w-full h-full bg-white dark:bg-slate-900 border border-slate-200/40 dark:border-slate-800 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto flex flex-col lg:max-w-lg lg:h-[90vh] lg:rounded-2xl lg:my-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="forgot-password-title"
@@ -80,7 +80,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
         </div>
 
         {success ? (
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1">
             <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-600 dark:text-emerald-400">
               <CheckCircle size={24} className="shrink-0" />
               <p className="text-sm font-medium">
@@ -92,7 +92,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
             </Button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 flex-1 flex flex-col">
             <p className="text-sm text-slate-600 dark:text-slate-400">
               Informe o e-mail da sua conta ou o nome cadastrado. Enviaremos um link para redefinir sua senha.
             </p>
@@ -113,7 +113,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
                 <span>{error}</span>
               </div>
             )}
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-2 mt-auto">
               <Button type="button" variant="outline" onClick={handleClose} className="flex-1">
                 Cancelar
               </Button>
