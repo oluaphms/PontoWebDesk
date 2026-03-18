@@ -46,7 +46,11 @@ function mapAuthErrorToFriendly(
   return { message: 'Falha ao criar usuário no Auth.', code: 'CREATE_FAILED' };
 }
 
-export default async function handler(request: Request): Promise<Response> {
+/**
+ * Implementação principal em cima do objeto Web `Request`.
+ * Em Vercel (Node) usamos um adaptador abaixo para converter (req, res) → Request → Response.
+ */
+async function handleRequest(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -79,7 +83,14 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 
-  const authHeader = request.headers.get('Authorization') || '';
+  const authHeader =
+    // Web Fetch API
+    (request.headers as any).get?.('authorization') ||
+    (request.headers as any).get?.('Authorization') ||
+    // Node/Vercel (IncomingHttpHeaders)
+    (request.headers as any)['authorization'] ||
+    (request.headers as any)['Authorization'] ||
+    '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!jwt) {
     return Response.json(
@@ -236,3 +247,45 @@ export default async function handler(request: Request): Promise<Response> {
   }
 }
 
+/**
+ * Adaptador para Vercel / Next.js (req, res).
+ * Converte o `req` Node em um `Request` Web, chama `handleRequest` e traduz o `Response` de volta.
+ */
+export default async function handler(req: any, res: any) {
+  try {
+    const url = req.url?.startsWith('http')
+      ? req.url
+      : `https://${req.headers.host || 'localhost'}${req.url || ''}`;
+
+    const init: RequestInit = {
+      method: req.method,
+      headers: req.headers as any,
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      if (typeof req.body === 'string' || req.body instanceof Uint8Array) {
+        (init as any).body = req.body;
+      } else if (req.body) {
+        (init as any).body = JSON.stringify(req.body);
+      }
+    }
+
+    const request = new Request(url, init);
+    const response = await handleRequest(request);
+
+    // Copiar status e headers
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+
+    const text = await response.text();
+    res.send(text);
+  } catch (e: any) {
+    console.error('create-employee-auth handler error', e);
+    res
+      .status(500)
+      .setHeader('Content-Type', 'application/json')
+      .send(JSON.stringify({ error: e?.message || 'Erro interno.', code: 'INTERNAL_ERROR' }));
+  }
+}
