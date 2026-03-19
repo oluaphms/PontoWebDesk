@@ -24,6 +24,30 @@ async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
   }
 }
 
+/** Define ou altera a senha do funcionário no Auth (por e-mail). Usado na edição e na importação (senha provisória 123456). */
+async function setEmployeePasswordInAuth(email: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const session = await auth.getSession();
+    const token = (session as { access_token?: string } | null)?.access_token;
+    if (!token) return { success: false, error: 'Sessão do administrador não encontrada.' };
+    const base = (import.meta.env.VITE_APP_URL as string) || (typeof window !== 'undefined' ? window.location.origin : '');
+    if (!base) return { success: false, error: 'URL do app não resolvida.' };
+    const res = await fetch(`${base.replace(/\/$/, '')}/api/set-employee-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ email: email.trim().toLowerCase(), newPassword: newPassword.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = typeof data?.error === 'string' ? data.error : 'Falha ao alterar senha.';
+      return { success: false, error: msg };
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Erro ao alterar senha.' };
+  }
+}
+
 /** Código de erro retornado pela API create-employee-auth (para mensagens consistentes). */
 const AUTH_ERROR_CODES: Record<string, string> = {
   USER_ALREADY_EXISTS: 'E-mail já cadastrado.',
@@ -235,6 +259,8 @@ const AdminEmployees: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showSenhaWeb, setShowSenhaWeb] = useState(false);
   const [askInvisivel, setAskInvisivel] = useState<string | null>(null);
+  const [settingPassword, setSettingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
 
   const loadData = async () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
@@ -400,6 +426,7 @@ const AdminEmployees: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     setForm(defaultForm());
+    setPasswordMessage(null);
     setModalOpen(true);
     setError(null);
     setSuccess(null);
@@ -407,6 +434,7 @@ const AdminEmployees: React.FC = () => {
 
   const openEdit = (row: EmployeeRow) => {
     setEditingId(row.id);
+    setPasswordMessage(null);
     const cargoCadastrado = cargos.some((c) => c.name === row.cargo);
     const cfg = row.employee_config || {};
     const web = cfg.dados_web || {};
@@ -478,10 +506,6 @@ const AdminEmployees: React.FC = () => {
       setError('E-mail é obrigatório.');
       return;
     }
-    if (!editingId && !form.password.trim()) {
-      setError('Informe a senha provisória para o funcionário fazer o primeiro login.');
-      return;
-    }
     if (!form.pis_pasep?.trim()) {
       setError('Nº PIS/PASEP é obrigatório (aparece nos relatórios e é enviado ao REP).');
       return;
@@ -531,15 +555,18 @@ const AdminEmployees: React.FC = () => {
         };
 
         let authUserId: string | null = null;
+        const senhaCriacao = (form.password && form.password.trim()) ? form.password.trim() : '123456';
         try {
-          // Tenta criar conta no Auth (fluxo ideal)
-          const { userId } = await createEmployeeAuthUser({
+          // Tenta criar conta no Auth (fluxo ideal); senha vazia = provisória 123456
+          const { userId, existing } = await createEmployeeAuthUser({
             email,
-            password: form.password,
+            password: senhaCriacao,
             metadata: { nome: form.nome, cargo: cargoFinal },
           });
           authUserId = userId;
-          // Segurança: se o auth provider ignorar email_confirm, tenta confirmar via endpoint existente.
+          if (existing) {
+            await setEmployeePasswordInAuth(email, '123456');
+          }
           await confirmEmployeeEmailInAuth(email);
         } catch (authErr: any) {
           const msg = String(authErr?.message ?? '');
@@ -791,12 +818,15 @@ const AdminEmployees: React.FC = () => {
       const doCreateAndInsert = async (): Promise<boolean> => {
         let authUserId: string | null = null;
         try {
-          const { userId } = await createEmployeeAuthUser({
+          const { userId, existing } = await createEmployeeAuthUser({
             email: emailFinal.toLowerCase(),
             password: senha,
             metadata: { nome: nomeFinal, cargo: cargoFinal },
           });
           authUserId = userId;
+          if (existing) {
+            await setEmployeePasswordInAuth(emailFinal.toLowerCase(), '123456');
+          }
           await confirmEmployeeEmailInAuth(emailFinal.toLowerCase());
         } catch (authErr: any) {
           const msg = String(authErr?.message ?? '');
@@ -1252,7 +1282,7 @@ const AdminEmployees: React.FC = () => {
                   </div>
                 </section>
 
-                {/* Acesso (e-mail e senha provisória - apenas na criação) */}
+                {/* Acesso (e-mail e senha provisória - criação; na edição: definir senha provisória) */}
                 <section>
                   <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Acesso ao sistema</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1269,12 +1299,39 @@ const AdminEmployees: React.FC = () => {
                             value={form.password}
                             onChange={(e) => setForm({ ...form, password: e.target.value })}
                             className="w-full pl-3 pr-10 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                            placeholder="Senha para o funcionário fazer o primeiro login"
+                            placeholder="Senha para o funcionário fazer o primeiro login (vazio = 123456)"
                             autoComplete="new-password"
                           />
                           <button type="button" onClick={() => setShowPassword((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? <Eye size={18} /> : <EyeOff size={18} />}</button>
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">O funcionário fará login com o e-mail acima e esta senha provisória. Recomende que ele altere a senha em Configurações após o primeiro acesso.</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">O funcionário fará login com o e-mail acima e esta senha provisória. Se não informar, use 123456. Recomende que ele altere a senha em Configurações após o primeiro acesso.</p>
+                      </div>
+                    )}
+                    {editingId && form.email?.trim() && (
+                      <div className="sm:col-span-2 space-y-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Senha provisória (login do funcionário)</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Para o colaborador importado ou que nunca logou: defina a senha provisória 123456 para ele acessar com o e-mail acima.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={settingPassword}
+                            onClick={async () => {
+                              setPasswordMessage(null);
+                              setSettingPassword(true);
+                              const result = await setEmployeePasswordInAuth(form.email.trim(), '123456');
+                              setSettingPassword(false);
+                              setPasswordMessage(result.success ? 'Senha provisória 123456 definida. O funcionário já pode fazer login.' : (result.error || 'Falha ao definir senha.'));
+                            }}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium"
+                          >
+                            {settingPassword ? 'Definindo...' : 'Definir senha provisória 123456'}
+                          </button>
+                        </div>
+                        {passwordMessage && (
+                          <p className={`text-xs ${passwordMessage.startsWith('Senha') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {passwordMessage}
+                          </p>
+                        )}
                       </div>
                     )}
                     <div>
