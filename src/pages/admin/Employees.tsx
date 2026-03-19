@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { UserPlus, Pencil, UserX, Trash2, Eye, EyeOff, UserCheck, Search, Upload, FileDown, X, Camera, User } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, auth, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, auth, isSupabaseConfigured, resetSession } from '../../services/supabaseClient';
 
 /** Chama a API para confirmar o e-mail do funcionário no Auth (permite login sem clicar em link). */
 async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
@@ -587,6 +587,24 @@ const AdminEmployees: React.FC = () => {
       const code = e?.code ?? '';
       const status = e?.status ?? e?.statusCode ?? null;
       const lower = msg.toLowerCase();
+
+      const isAuthSessionError =
+        status === 401 ||
+        lower.includes('refresh token') ||
+        lower.includes('auth session missing') ||
+        (lower.includes('jwt') && lower.includes('expired'));
+
+      if (isAuthSessionError) {
+        setError('Sua sessão expirou ou ficou inválida. A página será recarregada para novo login.');
+        try {
+          await resetSession();
+        } catch {
+          if (typeof window !== 'undefined') {
+            window.location.reload();
+          }
+        }
+        return;
+      }
 
       const isDuplicateEmail =
         code === '23505' ||
