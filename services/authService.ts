@@ -361,11 +361,13 @@ class AuthService {
    * Não faz signOut antes do signIn para evitar loop e falha no segundo login (sessão é substituída pelo Supabase).
    */
   async signInWithEmail(identifier: string, password: string): Promise<AuthResult> {
+    let resolvedEmail = '';
+    const isEmailInput = (identifier || '').trim().includes('@');
     try {
       // Resolver identificador (email, CPF, nome) para um email válido
-      const email = await this.resolveLoginEmail(identifier);
+      resolvedEmail = await this.resolveLoginEmail(identifier);
 
-      const data = await auth.signIn(email, password);
+      const data = await auth.signIn(resolvedEmail, password);
       
       if (!data || !data.user) {
         return { user: null, error: 'Erro ao fazer login. Tente novamente.' };
@@ -409,7 +411,12 @@ class AuthService {
       const msg = error?.message ?? '';
 
       if (msg.includes('Invalid login credentials') || error?.status === 400) {
-        errorMessage = 'Usuário ou senha incorreto. Se você foi importado ou cadastrado e nunca logou, peça ao administrador ativar seu acesso.';
+        if (!isEmailInput && resolvedEmail) {
+          errorMessage = `Usuário ou senha incorreto. O nome "${identifier}" foi resolvido para: ${resolvedEmail}. Se não for o e-mail correto, use o e-mail completo ou o nome completo.`;
+        } else {
+          errorMessage =
+            'Usuário ou senha incorreto. Se você foi importado ou cadastrado e nunca logou, peça ao administrador ativar seu acesso.';
+        }
       } else if (msg.includes('Email not confirmed')) {
         errorMessage = 'E-mail ainda não confirmado. No Supabase: Authentication → Users → clique no usuário → "Confirm email". Ou peça ao administrador confirmar; novos cadastros pelo painel já são confirmados automaticamente.';
       } else if (msg.includes('Informe e-mail e senha')) {
