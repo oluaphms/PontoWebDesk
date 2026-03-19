@@ -33,6 +33,25 @@ class AuthService {
     const rawNormalized = raw.replace(/\s+/g, ' ');
     const lower = rawNormalized.toLowerCase();
 
+    // Se for o usuário informando "nome"/"primeiro nome" (sem @),
+    // o app ainda NÃO tem sessão auth; então RLS costuma bloquear leitura de public.users.
+    // Para funcionar sempre, chamamos uma RPC SECURITY DEFINER que ignora RLS e resolve para o email.
+    if (!lower.includes('@') && isSupabaseConfigured && supabase) {
+      try {
+        const result = await supabase.rpc('resolve_login_email', { p_identifier: rawNormalized });
+        // supabase-js retorna { data, error }; mas algumas versões já retornam direto o data.
+        const emailResolved =
+          typeof result === 'object' && result !== null && 'data' in (result as any)
+            ? (result as any).data
+            : result;
+        if (typeof emailResolved === 'string' && emailResolved.trim()) {
+          return emailResolved.trim().toLowerCase();
+        }
+      } catch {
+        // ignora e segue com fallback (db.select) para compatibilidade
+      }
+    }
+
     // 0) Atalhos comuns: "admin" e "administrador" sempre usam a conta admin padrão
     if (lower === 'admin' || lower === 'administrador') {
       return 'admin@smartponto.com';
