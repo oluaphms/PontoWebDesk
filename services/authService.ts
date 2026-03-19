@@ -36,8 +36,10 @@ class AuthService {
     // Se for o usuário informando "nome"/"primeiro nome" (sem @),
     // o app ainda NÃO tem sessão auth; então RLS costuma bloquear leitura de public.users.
     // Para funcionar sempre, chamamos uma RPC SECURITY DEFINER que ignora RLS e resolve para o email.
+    let attemptedRpc = false;
     if (!lower.includes('@') && isSupabaseConfigured && supabase) {
       try {
+        attemptedRpc = true;
         const result = await supabase.rpc('resolve_login_email', { p_identifier: rawNormalized });
         // supabase-js retorna { data, error }; mas algumas versões já retornam direto o data.
         const emailResolved =
@@ -146,6 +148,9 @@ class AuthService {
     }
 
     // 5) Fallback: padrão antigo `<identificador>@smartponto.com`
+    // Evita gerar e-mail inválido quando o identificador tem múltiplas palavras
+    // (ex.: "Paulo Henrique" vira "paulo henrique@smartponto.com") e a RPC não está disponível.
+    if (attemptedRpc && rawNormalized.includes(' ')) return '';
     return `${lower}@smartponto.com`;
   }
 
@@ -401,6 +406,14 @@ class AuthService {
     try {
       // Resolver identificador (email, CPF, nome) para um email válido
       resolvedEmail = await this.resolveLoginEmail(identifier);
+
+      if (!resolvedEmail) {
+        return {
+          user: null,
+          error:
+            'Não foi possível resolver o nome para um e-mail válido. Use o e-mail completo (ou o nome completo) no campo de login.',
+        };
+      }
 
       const data = await auth.signIn(resolvedEmail, password);
       
