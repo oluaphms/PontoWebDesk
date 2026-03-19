@@ -86,11 +86,19 @@ class AuthService {
     const firstName = rawNormalized.split(/\s+/)[0];
     if (firstName) {
       try {
-        const byFirstName = await db.select('users', [
-          { column: 'nome', operator: 'ilike', value: `${firstName}%` },
-        ], undefined, 1);
-        if (byFirstName?.[0]?.email) {
+        const byFirstName = await db.select(
+          'users',
+          [{ column: 'nome', operator: 'ilike', value: `${firstName}%` }],
+          undefined,
+          5,
+        );
+        if (byFirstName?.length === 1 && byFirstName[0]?.email) {
           return String(byFirstName[0].email).trim().toLowerCase();
+        }
+        if (byFirstName?.length && byFirstName.length > 1) {
+          throw new Error(
+            `Existem múltiplos usuários com o primeiro nome "${firstName}". Use o e-mail completo ou o nome completo.`,
+          );
         }
       } catch {
         // ignora; cai no fallback
@@ -99,11 +107,19 @@ class AuthService {
       // 4.1) Primeiro nome contido em qualquer posição
       // (ex.: "Morais Paulo" precisa casar com "%Paulo%")
       try {
-        const byFirstNameContains = await db.select('users', [
-          { column: 'nome', operator: 'ilike', value: `%${firstName}%` },
-        ], undefined, 1);
-        if (byFirstNameContains?.[0]?.email) {
+        const byFirstNameContains = await db.select(
+          'users',
+          [{ column: 'nome', operator: 'ilike', value: `%${firstName}%` }],
+          undefined,
+          5,
+        );
+        if (byFirstNameContains?.length === 1 && byFirstNameContains[0]?.email) {
           return String(byFirstNameContains[0].email).trim().toLowerCase();
+        }
+        if (byFirstNameContains?.length && byFirstNameContains.length > 1) {
+          throw new Error(
+            `Existem múltiplos usuários com o primeiro nome "${firstName}". Use o e-mail completo ou o nome completo.`,
+          );
         }
       } catch {
         // ignora; cai no fallback
