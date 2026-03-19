@@ -57,12 +57,12 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
 
   const handleExportCSV = () => {
     const exportable = reportData.map(({ records, ...rest }) => rest);
-    PontoService.exportToCSV(exportable, `relatorio_smartponto_${dateRange.start}_${dateRange.end}`);
+    PontoService.exportToCSV(exportable, `relatorio_chronodigital_${dateRange.start}_${dateRange.end}`);
   };
 
   const handleExportExcel = () => {
     const exportable = reportData.map(({ records, ...rest }) => rest);
-    PontoService.exportToExcel(exportable, `relatorio_smartponto_${dateRange.start}_${dateRange.end}`);
+    PontoService.exportToExcel(exportable, `relatorio_chronodigital_${dateRange.start}_${dateRange.end}`);
   };
 
   const handlePrint = () => {
@@ -73,7 +73,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
     try {
       const doc = new jsPDF({ orientation: 'landscape' });
       doc.setFontSize(16);
-      doc.text('SmartPonto - Relatório de Ponto', 14, 16);
+      doc.text('ChronoDigital - Relatório de Ponto', 14, 16);
       doc.setFontSize(10);
       doc.text(`Período: ${dateRange.start} até ${dateRange.end}`, 14, 24);
       const head = [['Colaborador', 'Cargo', 'Depto', 'Marcações', 'Horas Totais', 'Audit. Fraude']];
@@ -92,7 +92,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ admin }) => {
         styles: { fontSize: 9 },
         headStyles: { fillColor: [79, 70, 229] },
       });
-      doc.save(`relatorio_smartponto_${dateRange.start}_${dateRange.end}.pdf`);
+      doc.save(`relatorio_chronodigital_${dateRange.start}_${dateRange.end}.pdf`);
     } catch (e) {
       console.error('Export PDF failed:', e);
     }
