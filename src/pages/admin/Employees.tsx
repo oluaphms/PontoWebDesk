@@ -123,6 +123,7 @@ interface EmployeeConfig {
 
 interface EmployeeRow {
   id: string;
+  legacy_id?: string;
   nome: string;
   cpf?: string;
   email: string;
@@ -340,6 +341,7 @@ const AdminEmployees: React.FC = () => {
           const schedId = e.schedule_id || e.escala_id || null;
           return {
             id: e.id || `legacy-${email}`,
+            legacy_id: e.id || undefined,
             nome,
             cpf: e.cpf || null,
             email,
@@ -544,12 +546,38 @@ const AdminEmployees: React.FC = () => {
         motivo_demissao_id: form.motivo_demissao_id || null,
         observacoes: form.observacoes?.trim() || null,
         employee_config: buildEmployeeConfig(),
+        updated_at: new Date().toISOString(),
       };
       if (editingId) {
-        const resultRow = await db.update('users', editingId, payload).catch(() => null);
-        if (!resultRow) {
-          // If update didn't return a row, it might be a legacy employee not yet in the 'users' table.
-          await db.update('employees', editingId.replace(/^legacy-/, ''), payload).catch(() => null);
+        const editingRow = rows.find((r) => r.id === editingId);
+        const isLegacyRow = editingId.startsWith('legacy-');
+
+        if (!isLegacyRow) {
+          const resultRow = await db.update('users', editingId, payload).catch(() => null);
+          if (!resultRow) {
+            // Compatibilidade: se o registro não estiver em users, tentar atualizar em employees.
+            await db.update('employees', editingId, payload).catch(() => null);
+          }
+        } else {
+          // Linha legada (employees sem id estável na lista): localizar por id legado ou e-mail.
+          const legacyEmail = (editingRow?.email || '').trim().toLowerCase();
+          const legacyId = editingRow?.legacy_id;
+
+          if (legacyId) {
+            await db.update('employees', legacyId, payload);
+          } else if (legacyEmail) {
+            const legacyRows = await db.select('employees', [
+              { column: 'company_id', operator: 'eq', value: user.companyId },
+              { column: 'email', operator: 'eq', value: legacyEmail },
+            ]) as any[];
+            const targetLegacy = legacyRows?.[0];
+            if (!targetLegacy?.id) {
+              throw new Error('Funcionário legado não encontrado para atualização.');
+            }
+            await db.update('employees', targetLegacy.id, payload);
+          } else {
+            throw new Error('Não foi possível identificar o funcionário legado para salvar.');
+          }
         }
         setSuccess('Funcionário atualizado com sucesso.');
         setModalOpen(false);
@@ -1483,7 +1511,7 @@ const AdminEmployees: React.FC = () => {
                     disabled={saving}
                     className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
                   >
-                    {editingId ? 'Concluir' : 'Concluir'}
+                    {saving ? 'Salvando...' : 'Salvar'}
                   </button>
                 </div>
               </form>
