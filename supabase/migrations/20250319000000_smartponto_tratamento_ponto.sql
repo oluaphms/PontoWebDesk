@@ -168,9 +168,10 @@ ALTER TABLE public.time_records ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ;
 COMMENT ON COLUMN public.time_records.source IS 'Origem do registro: web, mobile, kiosk';
 
 -- 7) work_schedules - view para compatibilidade (daily_hours/weekly_hours).
--- A tabela work_schedules pode ser referenciada por user_schedules.schedule_id; usar CASCADE e recriar FK para schedules.
-DROP TABLE IF EXISTS public.work_schedules CASCADE;
+-- A tabela work_schedules pode existir no legado; hoje preferimos VIEW sobre schedules + work_shifts.
+-- IMPORTANTE: dropar VIEW antes de DROP TABLE — senão, se work_schedules já for view, DROP TABLE falha (42809).
 DROP VIEW IF EXISTS public.work_schedules;
+DROP TABLE IF EXISTS public.work_schedules CASCADE;
 CREATE VIEW public.work_schedules AS
 SELECT
   s.id,

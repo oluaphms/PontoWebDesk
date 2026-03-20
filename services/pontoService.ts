@@ -40,7 +40,7 @@ const INITIAL_COMPANIES: Company[] = [
 ];
 
 export const PontoService = {
-  
+
   getDeviceId(): string {
     let id = localStorage.getItem('smartponto_device_id');
     if (!id) {
@@ -52,14 +52,14 @@ export const PontoService = {
 
   async getCompany(companyId: string): Promise<Company | undefined> {
     if (cache.companies.has(companyId)) return cache.companies.get(companyId);
-    
+
     // Tentar Firestore primeiro
     const firestoreCompany = await firestoreService.getCompany(companyId);
     if (firestoreCompany) {
       cache.companies.set(companyId, firestoreCompany);
       return firestoreCompany;
     }
-    
+
     // Fallback para localStorage
     const stored = localStorage.getItem(`company_${companyId}`);
     const company = stored ? JSON.parse(stored) : INITIAL_COMPANIES.find(c => c.id === companyId);
@@ -68,7 +68,7 @@ export const PontoService = {
       if (!stored) {
         localStorage.setItem(`company_${companyId}`, JSON.stringify(company));
         // Salvar no Firestore também (se configurado)
-        await firestoreService.saveCompany(company).catch(() => {});
+        await firestoreService.saveCompany(company).catch(() => { });
       }
     }
     return company;
@@ -79,13 +79,13 @@ export const PontoService = {
       const updateData: any = {
         updated_at: new Date().toISOString(),
       };
-      
+
       if (data.nome) updateData.nome = data.nome;
       if (data.cargo) updateData.cargo = data.cargo;
       if (data.preferences) updateData.preferences = data.preferences;
-      
+
       await firestoreService.db.update('users', userId, updateData);
-      
+
       // Atualizar cache local se existir
       const stored = localStorage.getItem(`current_user`);
       if (stored) {
@@ -93,6 +93,7 @@ export const PontoService = {
         if (currentUser.id === userId) {
           const updatedUser = { ...currentUser, ...data };
           localStorage.setItem('current_user', JSON.stringify(updatedUser));
+          window.dispatchEvent(new Event('current_user_changed'));
         }
       }
     } catch (error) {
@@ -104,13 +105,13 @@ export const PontoService = {
   async updateCompanySettings(companyId: string, settings: Company['settings']): Promise<void> {
     const company = await this.getCompany(companyId);
     if (!company) throw new Error("Empresa não encontrada");
-    
+
     const updated = { ...company, settings };
     cache.companies.set(companyId, updated);
     localStorage.setItem(`company_${companyId}`, JSON.stringify(updated));
-    
+
     // Salvar no Firestore também
-    await firestoreService.saveCompany(updated).catch(() => {});
+    await firestoreService.saveCompany(updated).catch(() => { });
 
     // Monitoramento: Log de alteração de configuração
     LoggingService.log({
@@ -131,7 +132,7 @@ export const PontoService = {
     const allRecords = await this.loadAllRecords();
     const recordIndex = allRecords.findIndex(r => r.id === recordId);
     if (recordIndex === -1) throw new Error("Registro não encontrado.");
-    
+
     const oldRecord = allRecords[recordIndex];
     const [hours, minutes] = updates.time.split(':').map(Number);
     const newDate = new Date(oldRecord.createdAt);
@@ -158,10 +159,10 @@ export const PontoService = {
 
     allRecords[recordIndex] = updatedRecord;
     this.saveAllRecords(allRecords);
-    
+
     // Atualizar no Firestore também
-    await firestoreService.updateTimeRecord(recordId, updatedRecord).catch(() => {});
-    
+    await firestoreService.updateTimeRecord(recordId, updatedRecord).catch(() => { });
+
     // Monitoramento: Log de ação administrativa sensível
     LoggingService.log({
       severity: LogSeverity.SECURITY,
@@ -178,11 +179,11 @@ export const PontoService = {
   },
 
   async registerPunch(
-    userId: string, 
+    userId: string,
     companyId: string,
-    type: LogType, 
-    method: PunchMethod, 
-    location?: GeoLocation, 
+    type: LogType,
+    method: PunchMethod,
+    location?: GeoLocation,
     photoBase64?: string,
     justification?: string
   ): Promise<TimeRecord> {
@@ -228,7 +229,7 @@ export const PontoService = {
       location,
       justification,
       createdAt: serverTime,
-      ipAddress: '189.121.22.45', 
+      ipAddress: '189.121.22.45',
       deviceId,
       fraudFlags,
       deviceInfo: {
@@ -253,7 +254,7 @@ export const PontoService = {
 
     // Salvar no Firestore (ou localStorage como fallback)
     await firestoreService.saveTimeRecord(newRecord);
-    
+
     // Manter cache local também
     const updatedUserRecords = [newRecord, ...userRecords];
     cache.records.set(userId, updatedUserRecords);
@@ -262,14 +263,14 @@ export const PontoService = {
     const allRecords = await this.loadAllRecords();
     allRecords.unshift(newRecord);
     this.saveAllRecords(allRecords);
-    
+
     cache.kpis.delete(companyId);
     return newRecord;
   },
 
   async getRecords(userId: string): Promise<TimeRecord[]> {
     if (cache.records.has(userId)) return cache.records.get(userId)!;
-    
+
     // Tentar Firestore primeiro
     try {
       const firestoreRecords = await firestoreService.getTimeRecords(userId);
@@ -280,7 +281,7 @@ export const PontoService = {
     } catch (error) {
       console.warn('Erro ao buscar do Firestore, usando localStorage:', error);
     }
-    
+
     // Fallback para localStorage
     const stored = localStorage.getItem(`records_${userId}`);
     if (!stored) return [];
@@ -295,7 +296,7 @@ export const PontoService = {
 
   async loadAllRecords(): Promise<TimeRecord[]> {
     if (cache.allRecords) return cache.allRecords;
-    
+
     // Tentar buscar do Firestore (precisa de companyId, então vamos usar localStorage como fallback)
     // Em produção, isso seria uma query mais complexa
     const stored = localStorage.getItem('all_time_records');
@@ -327,7 +328,7 @@ export const PontoService = {
     } catch (error) {
       console.warn('Erro ao buscar usuários do Firestore, usando mock:', error);
     }
-    
+
     // Fallback para dados mock se Firestore não retornar nada
     if (allUsers.length === 0) {
       allUsers = [
@@ -339,7 +340,7 @@ export const PontoService = {
     }
 
     const companyEmployees = allUsers.filter(u => u.companyId === companyId);
-    
+
     // Buscar registros do Firestore ou localStorage
     let companyRecords: TimeRecord[] = [];
     try {
@@ -447,11 +448,11 @@ export const PontoService = {
       const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Relatório');
-      
+
       // Headers
       const headers = Object.keys(data[0]);
       worksheet.addRow(headers);
-      
+
       // Style header
       const headerRow = worksheet.getRow(1);
       headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -461,17 +462,17 @@ export const PontoService = {
         fgColor: { argb: 'FF4F46E5' }
       };
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-      
+
       // Data rows
       data.forEach(row => {
         worksheet.addRow(Object.values(row));
       });
-      
+
       // Auto-fit columns
       worksheet.columns.forEach(column => {
         column.width = 15;
       });
-      
+
       // Generate buffer
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

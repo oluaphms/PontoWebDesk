@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { authService } from '../../services/authService';
 import { User } from '../../types';
 
 function getStoredUser(): User | null {
@@ -15,50 +14,36 @@ function getStoredUser(): User | null {
 
 export function useCurrentUser() {
   const [user, setUser] = useState<User | null>(() => getStoredUser());
-  const [loading, setLoading] = useState(true);
+  // Se usuário já está no cache, não precisamos de loading real
+  const [loading, setLoading] = useState(!getStoredUser());
 
   useEffect(() => {
     let mounted = true;
 
-    const load = async () => {
-      try {
-        let u = await authService.getCurrentUser();
-
-        // Evita falso "sem usuário" em corrida de sessão logo após navegação/login.
-        if (!u) {
-          await new Promise((resolve) => setTimeout(resolve, 600));
-          u = await authService.getCurrentUser();
-        }
-
-        if (!u) {
-          // Fallback para o cache local persistido após login bem-sucedido.
-          u = getStoredUser();
-        }
-
-        if (mounted) setUser(u);
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    const handleStorageChange = () => {
+      if (!mounted) return;
+      const u = getStoredUser();
+      setUser(u);
+      setLoading(false);
     };
 
-    load();
+    // Timeout de segurança fall-back
+    const fallbackTimeout = setTimeout(() => {
+      if (mounted && loading) setLoading(false);
+    }, 2000);
 
-    // Mantém o user sincronizado com mudanças reais de sessão.
-    const unsubscribe = authService.onAuthStateChanged((nextUser) => {
-      if (!mounted) return;
-      setUser(nextUser ?? getStoredUser());
-      setLoading(false);
-    });
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('current_user_changed', handleStorageChange);
+
+    handleStorageChange();
 
     return () => {
       mounted = false;
-      try {
-        unsubscribe?.();
-      } catch {
-        // noop
-      }
+      clearTimeout(fallbackTimeout);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('current_user_changed', handleStorageChange);
     };
-  }, []);
+  }, [loading]);
 
   return { user, loading };
 }

@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS public.registro_funcoes (
 );
 CREATE INDEX IF NOT EXISTS idx_registro_funcoes_user_data ON public.registro_funcoes(user_id, data);
 ALTER TABLE public.registro_funcoes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "registro_funcoes_company" ON public.registro_funcoes;
 CREATE POLICY "registro_funcoes_company" ON public.registro_funcoes FOR ALL TO authenticated
   USING (company_id = (SELECT company_id FROM public.users WHERE id = auth.uid()));
 
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS public.sobre_aviso (
 );
 CREATE INDEX IF NOT EXISTS idx_sobre_aviso_user_data ON public.sobre_aviso(user_id, data);
 ALTER TABLE public.sobre_aviso ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sobre_aviso_company" ON public.sobre_aviso;
 CREATE POLICY "sobre_aviso_company" ON public.sobre_aviso FOR ALL TO authenticated
   USING (company_id = (SELECT company_id FROM public.users WHERE id = auth.uid()));
 
@@ -118,6 +120,7 @@ CREATE TABLE IF NOT EXISTS public.horas_espera (
 );
 CREATE INDEX IF NOT EXISTS idx_horas_espera_user_data ON public.horas_espera(user_id, data);
 ALTER TABLE public.horas_espera ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "horas_espera_company" ON public.horas_espera;
 CREATE POLICY "horas_espera_company" ON public.horas_espera FOR ALL TO authenticated
   USING (company_id = (SELECT company_id FROM public.users WHERE id = auth.uid()));
 

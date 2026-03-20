@@ -416,11 +416,11 @@ class AuthService {
       }
 
       const data = await auth.signIn(resolvedEmail, password);
-      
+
       if (!data || !data.user) {
         return { user: null, error: 'Erro ao fazer login. Tente novamente.' };
       }
-      
+
       if (data.user) {
         // Timeout na carga do perfil: free tier / RLS podem demorar; fallback evita travar o login
         const PROFILE_LOAD_TIMEOUT_MS = 20000;
@@ -438,6 +438,7 @@ class AuthService {
         if (appUser) {
           try {
             localStorage.setItem('current_user', JSON.stringify(appUser));
+            window.dispatchEvent(new Event('current_user_changed'));
           } catch {
             // ignore
           }
@@ -447,12 +448,13 @@ class AuthService {
         const minimalUser = await this.buildMinimalAppUserFromAuthUser(data.user);
         try {
           localStorage.setItem('current_user', JSON.stringify(minimalUser));
+          window.dispatchEvent(new Event('current_user_changed'));
         } catch {
           // ignore
         }
         return { user: minimalUser, error: null };
       }
-      
+
       return { user: null, error: 'Erro ao fazer login. Tente novamente.' };
     } catch (error: any) {
       let errorMessage = 'Erro ao fazer login';
@@ -481,8 +483,8 @@ class AuthService {
    * Registro de novo usuário
    */
   async signUpWithEmail(
-    email: string, 
-    password: string, 
+    email: string,
+    password: string,
     nome: string,
     companyId: string
   ): Promise<AuthResult> {
@@ -491,11 +493,11 @@ class AuthService {
         nome,
         company_id: companyId
       });
-      
+
       if (!data || !data.user) {
         return { user: null, error: 'Erro ao criar conta. Tente novamente.' };
       }
-      
+
       if (data.user) {
         // Criar usuário no banco de dados
         const newUser: User = {
@@ -515,7 +517,7 @@ class AuthService {
             language: 'pt-BR'
           }
         };
-        
+
         await db.insert('users', {
           id: newUser.id,
           nome: newUser.nome,
@@ -528,15 +530,16 @@ class AuthService {
           preferences: newUser.preferences,
           created_at: new Date().toISOString()
         });
-        
+
         localStorage.setItem('current_user', JSON.stringify(newUser));
+        window.dispatchEvent(new Event('current_user_changed'));
         return { user: newUser, error: null };
       }
-      
+
       return { user: null, error: 'Erro ao criar conta' };
     } catch (error: any) {
       let errorMessage = 'Erro ao criar conta';
-      
+
       if (error.message) {
         if (error.message.includes('User already registered')) {
           errorMessage = 'Este email já está em uso';
@@ -546,7 +549,7 @@ class AuthService {
           errorMessage = error.message;
         }
       }
-      
+
       return { user: null, error: errorMessage };
     }
   }
@@ -557,14 +560,14 @@ class AuthService {
   async signInWithGoogle(): Promise<AuthResult> {
     try {
       const result = await auth.signInWithOAuth('google');
-      
+
       // OAuth redireciona, então retornamos sucesso
       // O callback será tratado no componente
       return { user: null, error: null };
     } catch (error: any) {
-      return { 
-        user: null, 
-        error: error.message || 'Erro ao fazer login com Google' 
+      return {
+        user: null,
+        error: error.message || 'Erro ao fazer login com Google'
       };
     }
   }
@@ -593,6 +596,7 @@ class AuthService {
         if (typeof window !== 'undefined') {
           // Perfil app
           window.localStorage.removeItem('current_user');
+          window.dispatchEvent(new Event('current_user_changed'));
 
           // Tokens/artefatos do Supabase
           const clearSbKeys = (storage: Storage | undefined) => {
@@ -752,6 +756,7 @@ class AuthService {
         try {
           if (typeof window !== 'undefined') {
             window.localStorage.removeItem('current_user');
+            window.dispatchEvent(new Event('current_user_changed'));
           }
         } catch {
           // ignora
@@ -767,6 +772,7 @@ class AuthService {
           try {
             if (typeof window !== 'undefined') {
               window.localStorage.setItem('current_user', JSON.stringify(appUser));
+              window.dispatchEvent(new Event('current_user_changed'));
             }
           } catch {
             // ignora
@@ -789,6 +795,7 @@ class AuthService {
       try {
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('current_user', JSON.stringify(minimal));
+          window.dispatchEvent(new Event('current_user_changed'));
         }
       } catch {
         // ignora
@@ -804,7 +811,7 @@ class AuthService {
         }
         return null;
       }
-      
+
       console.error('Erro ao obter usuário atual:', error);
       return null;
     }
@@ -830,6 +837,7 @@ class AuthService {
           try {
             if (typeof window !== 'undefined') {
               window.localStorage.setItem('current_user', JSON.stringify(appUser));
+              window.dispatchEvent(new Event('current_user_changed'));
             }
           } catch {
             // ignora
@@ -837,7 +845,10 @@ class AuthService {
           callback(appUser);
         } else {
           try {
-            if (typeof window !== 'undefined') window.localStorage.removeItem('current_user');
+            if (typeof window !== 'undefined') {
+              window.localStorage.removeItem('current_user');
+              window.dispatchEvent(new Event('current_user_changed'));
+            }
           } catch {
             // ignora
           }
@@ -850,6 +861,7 @@ class AuthService {
             try {
               if (typeof window !== 'undefined') {
                 window.localStorage.setItem('current_user', JSON.stringify(appUser));
+                window.dispatchEvent(new Event('current_user_changed'));
               }
             } catch {
               // ignora
@@ -857,7 +869,10 @@ class AuthService {
             callback(appUser);
           } catch {
             try {
-              if (typeof window !== 'undefined') window.localStorage.removeItem('current_user');
+              if (typeof window !== 'undefined') {
+                window.localStorage.removeItem('current_user');
+                window.dispatchEvent(new Event('current_user_changed'));
+              }
             } catch {
               // ignora
             }
@@ -865,7 +880,10 @@ class AuthService {
           }
         } else {
           try {
-            if (typeof window !== 'undefined') window.localStorage.removeItem('current_user');
+            if (typeof window !== 'undefined') {
+              window.localStorage.removeItem('current_user');
+              window.dispatchEvent(new Event('current_user_changed'));
+            }
           } catch {
             // ignora
           }

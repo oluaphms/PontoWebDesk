@@ -1,21 +1,21 @@
 -- Colunas da página Empresa (AdminCompany): bairro, cidade, cep, estado, pais, etc.
 -- Corrige: "Could not find the 'bairro' column of 'companies' in the schema cache"
 
-ALTER TABLE public.companies
-  ADD COLUMN IF NOT EXISTS bairro TEXT,
-  ADD COLUMN IF NOT EXISTS cidade TEXT,
-  ADD COLUMN IF NOT EXISTS cep TEXT,
-  ADD COLUMN IF NOT EXISTS estado TEXT,
-  ADD COLUMN IF NOT EXISTS pais TEXT,
-  ADD COLUMN IF NOT EXISTS fax TEXT,
-  ADD COLUMN IF NOT EXISTS cei TEXT,
-  ADD COLUMN IF NOT EXISTS numero_folha TEXT,
-  ADD COLUMN IF NOT EXISTS inscricao_estadual TEXT,
-  ADD COLUMN IF NOT EXISTS responsavel_nome TEXT,
-  ADD COLUMN IF NOT EXISTS responsavel_cargo TEXT,
-  ADD COLUMN IF NOT EXISTS responsavel_email TEXT,
-  ADD COLUMN IF NOT EXISTS receipt_fields JSONB DEFAULT '[]',
-  ADD COLUMN IF NOT EXISTS use_default_timezone BOOLEAN DEFAULT true;
+-- Uma instrução por coluna: evita erro se alguém colar só um trecho, e falhas isoladas.
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS bairro TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS cidade TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS cep TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS estado TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS pais TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS fax TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS cei TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS numero_folha TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS inscricao_estadual TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS responsavel_nome TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS responsavel_cargo TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS responsavel_email TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS receipt_fields JSONB DEFAULT '[]';
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS use_default_timezone BOOLEAN DEFAULT true;
 
 -- endereco/telefone: garantir como TEXT se a tabela usa address/phone de outra migration
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS endereco TEXT;
