@@ -398,6 +398,12 @@ export function validatePunchSequence(records: RawTimeRecord[], newType: string)
   if (last === type) {
     if (type === 'entrada') return { valid: false, error: 'Não é permitido duas entradas seguidas.' };
     if (type === 'saída') return { valid: false, error: 'Não é permitido duas saídas seguidas.' };
+    if (type === 'pausa') {
+      return {
+        valid: false,
+        error: 'Não é permitido duas pausas seguidas. Finalize o intervalo com Entrada (retorno) antes de nova pausa.',
+      };
+    }
   }
   if (last === 'pausa' && type === 'saída') return { valid: false, error: 'Após pausa, registre retorno (Entrada) antes da Saída.' };
   return { valid: true };
