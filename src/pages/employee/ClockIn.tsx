@@ -4,7 +4,12 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getDayRecords, validatePunchSequence } from '../../services/timeProcessingService';
-import { getCurrentLocation } from '../../services/locationService';
+import {
+  getCurrentLocationResult,
+  geolocationReasonMessage,
+  type GeoPosition,
+  type GeolocationFailureReason,
+} from '../../services/locationService';
 import {
   validatePunch,
   generateDeviceFingerprint,
@@ -19,6 +24,28 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useToast } from '../../components/ToastProvider';
 import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
+
+function waitForVideoReady(video: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      resolve();
+      return;
+    }
+    let tid: number;
+    const onMeta = () => {
+      video.removeEventListener('loadedmetadata', onMeta);
+      window.clearTimeout(tid);
+      if (video.videoWidth > 0 && video.videoHeight > 0) resolve();
+      else reject(new Error('dimensões'));
+    };
+    video.addEventListener('loadedmetadata', onMeta);
+    tid = window.setTimeout(() => {
+      video.removeEventListener('loadedmetadata', onMeta);
+      if (video.videoWidth > 0 && video.videoHeight > 0) resolve();
+      else reject(new Error('timeout'));
+    }, 12000);
+  });
+}
 
 /** Normaliza tipo vindo do banco para comparação com a UI */
 function normalizeLastType(raw: string | undefined | null): string | null {
@@ -40,7 +67,17 @@ const EmployeeClockIn: React.FC = () => {
   const [lastType, setLastType] = useState<string | null>(null);
   const [lastRecordAt, setLastRecordAt] = useState<string | null>(null);
   const [useDigital, setUseDigital] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  /** Modal de comprovação (GPS + câmera / digital) */
+  const [proofModalOpen, setProofModalOpen] = useState(false);
+  const [pendingLogType, setPendingLogType] = useState<LogType | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [geo, setGeo] = useState<GeoPosition | null>(null);
+  const [gpsFailReason, setGpsFailReason] = useState<GeolocationFailureReason | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [hadBiometric, setHadBiometric] = useState(false);
+  const [digitalFallbackToPhoto, setDigitalFallbackToPhoto] = useState(false);
+  const [webAuthnBusy, setWebAuthnBusy] = useState(false);
+  const modalVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const loadTodayState = useCallback(async () => {
@@ -74,39 +111,122 @@ const EmployeeClockIn: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadTodayState]);
 
-  const capturePhoto = (): Promise<string | null> => {
-    return new Promise((resolve) => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        resolve(null);
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (modalVideoRef.current) modalVideoRef.current.srcObject = null;
+  }, []);
+
+  const startCameraPreview = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.addToast('error', 'Este navegador não permite acesso à câmera.');
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost') {
+      toast.addToast('error', 'Câmera e GPS costumam exigir HTTPS (exceto em localhost).');
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const video = modalVideoRef.current;
+      if (!video) {
+        stream.getTracks().forEach((t) => t.stop());
         return;
       }
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } }).then((stream) => {
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) {
-          stream.getTracks().forEach((t) => t.stop());
-          resolve(null);
-          return;
-        }
-        video.srcObject = stream;
-        video.play().then(() => {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            stream.getTracks().forEach((t) => t.stop());
-            resolve(null);
-            return;
-          }
-          ctx.drawImage(video, 0, 0);
-          stream.getTracks().forEach((t) => t.stop());
-          streamRef.current = null;
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        }).catch(() => resolve(null));
-      }).catch(() => resolve(null));
-    });
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play().catch(() => undefined);
+    } catch {
+      toast.addToast('error', 'Permita o acesso à câmera nas configurações do navegador.');
+    }
+  }, [stopCamera, toast]);
+
+  const captureFrameFromModal = async (): Promise<string | null> => {
+    const video = modalVideoRef.current;
+    if (!video || !streamRef.current) return null;
+    try {
+      await waitForVideoReady(video);
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || video.videoWidth < 2) return null;
+      ctx.drawImage(video, 0, 0);
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch {
+      return null;
+    }
   };
+
+  const closeProofModal = useCallback(() => {
+    stopCamera();
+    setProofModalOpen(false);
+    setPendingLogType(null);
+    setGeo(null);
+    setGpsFailReason(null);
+    setPhotoDataUrl(null);
+    setHadBiometric(false);
+    setDigitalFallbackToPhoto(false);
+    setGpsLoading(false);
+    setWebAuthnBusy(false);
+  }, [stopCamera]);
+
+  const retryGps = useCallback(async () => {
+    setGpsLoading(true);
+    setGpsFailReason(null);
+    const r = await getCurrentLocationResult();
+    setGpsLoading(false);
+    if (r.ok === false) {
+      setGeo(null);
+      setGpsFailReason(r.reason);
+      return;
+    }
+    setGeo(r.position);
+    setGpsFailReason(null);
+  }, []);
+
+  useEffect(() => {
+    if (!proofModalOpen) return;
+    let cancelled = false;
+    (async () => {
+      setGpsLoading(true);
+      setGpsFailReason(null);
+      setGeo(null);
+      const r = await getCurrentLocationResult();
+      if (cancelled) return;
+      setGpsLoading(false);
+      if (r.ok === false) {
+        setGeo(null);
+        setGpsFailReason(r.reason);
+        return;
+      }
+      setGeo(r.position);
+      setGpsFailReason(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [proofModalOpen]);
+
+  const needsCameraPreview =
+    proofModalOpen &&
+    (globalSettings?.photo_required === true || !useDigital || (useDigital && digitalFallbackToPhoto));
+
+  useEffect(() => {
+    if (!needsCameraPreview) {
+      if (!proofModalOpen) stopCamera();
+      return;
+    }
+    void startCameraPreview();
+    return () => {
+      stopCamera();
+    };
+  }, [needsCameraPreview, proofModalOpen, startCameraPreview, stopCamera]);
 
   const tryWebAuthn = async (): Promise<boolean> => {
     if (typeof window === 'undefined' || !window.PublicKeyCredential) return false;
@@ -151,18 +271,13 @@ const EmployeeClockIn: React.FC = () => {
     return PunchMethod.MANUAL;
   };
 
-  const handlePunch = async (type: LogType) => {
+  const executePunchRegistration = async (
+    type: LogType,
+    geoPos: GeoPosition | null,
+    localPhotoDataUrl: string | null,
+    biometricOk: boolean
+  ) => {
     if (!user) return;
-    if (!isSupabaseConfigured) {
-      setError('Sistema de ponto indisponível. Tente mais tarde.');
-      toast.addToast('error', 'Sistema de ponto indisponível.');
-      return;
-    }
-    if (!user.companyId || String(user.companyId).trim() === '') {
-      setError('Seu cadastro está incompleto (empresa não vinculada). Entre em contato com o administrador.');
-      toast.addToast('error', 'Cadastro sem empresa vinculada.');
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -178,16 +293,14 @@ const EmployeeClockIn: React.FC = () => {
         return;
       }
 
-      const geo = await getCurrentLocation();
-
       if (globalSettings?.gps_required) {
-        if (!geo?.latitude || !geo?.longitude) {
+        if (!geoPos?.latitude || !geoPos?.longitude) {
           setError('O registro de ponto exige localização. Ative o GPS e tente novamente.');
           toast.addToast('error', 'Ative o GPS para registrar o ponto.');
           return;
         }
         const locations = await getCompanyLocations(user.companyId);
-        if (locations.length > 0 && !isWithinAllowedLocation(geo.latitude, geo.longitude, locations)) {
+        if (locations.length > 0 && !isWithinAllowedLocation(geoPos.latitude, geoPos.longitude, locations)) {
           setError('Você não está dentro da área permitida para registrar ponto.');
           toast.addToast('error', 'Fora da área permitida.');
           return;
@@ -195,37 +308,16 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       let photoUrl: string | null = null;
-      let hadBiometric = false;
-      let method: PunchMethod = PunchMethod.PHOTO;
-
-      if (globalSettings?.photo_required) {
-        const dataUrl = await capturePhoto();
-        if (!dataUrl) {
-          setError('É obrigatória a captura de foto para registrar ponto. Permita o acesso à câmera.');
-          toast.addToast('error', 'Permita o acesso à câmera para registrar o ponto.');
-          return;
-        }
-        photoUrl = await uploadPhoto(dataUrl);
+      if (localPhotoDataUrl) {
+        photoUrl = await uploadPhoto(localPhotoDataUrl);
         if (!photoUrl) {
           setError('Não foi possível enviar a foto. Verifique o bucket de armazenamento ou tente novamente.');
           toast.addToast('error', 'Falha ao enviar a foto.');
           return;
         }
-        method = PunchMethod.PHOTO;
-      } else if (useDigital) {
-        hadBiometric = await tryWebAuthn();
-        if (hadBiometric) {
-          method = PunchMethod.BIOMETRIC;
-        } else {
-          const dataUrl = await capturePhoto();
-          if (dataUrl) photoUrl = await uploadPhoto(dataUrl);
-        }
-      } else {
-        const dataUrl = await capturePhoto();
-        if (dataUrl) photoUrl = await uploadPhoto(dataUrl);
       }
 
-      method = resolveMethod(hadBiometric, photoUrl, geo);
+      const method = resolveMethod(biometricOk, photoUrl, geoPos);
 
       let allowedLocations: AllowedLocation[] = [];
       let trustedDeviceIds: string[] = [];
@@ -263,8 +355,8 @@ const EmployeeClockIn: React.FC = () => {
         companyId: user.companyId,
         type: typeStr,
         timestamp: now,
-        latitude: geo?.latitude,
-        longitude: geo?.longitude,
+        latitude: geoPos?.latitude,
+        longitude: geoPos?.longitude,
         deviceId: fingerprint.deviceId,
         history,
       });
@@ -273,7 +365,7 @@ const EmployeeClockIn: React.FC = () => {
         employeeId: user.id,
         companyId: user.companyId,
         type: typeStr,
-        location: geo ? { latitude: geo.latitude, longitude: geo.longitude, accuracy: geo.accuracy } : undefined,
+        location: geoPos ? { latitude: geoPos.latitude, longitude: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
         deviceFingerprint: fingerprint,
         allowedLocations,
         trustedDeviceIds,
@@ -291,12 +383,12 @@ const EmployeeClockIn: React.FC = () => {
         type: typeStr,
         method,
         recordId,
-        location: geo ? { lat: geo.latitude, lng: geo.longitude, accuracy: geo.accuracy } : undefined,
+        location: geoPos ? { lat: geoPos.latitude, lng: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
         photoUrl: photoUrl || undefined,
         source: 'web',
-        latitude: geo?.latitude ?? null,
-        longitude: geo?.longitude ?? null,
-        accuracy: geo?.accuracy ?? null,
+        latitude: geoPos?.latitude ?? null,
+        longitude: geoPos?.longitude ?? null,
+        accuracy: geoPos?.accuracy ?? null,
         deviceId: fingerprint.deviceId,
         deviceType: 'web',
         ipAddress: null,
@@ -307,8 +399,8 @@ const EmployeeClockIn: React.FC = () => {
       await savePunchEvidence({
         timeRecordId: result.id,
         photoUrl: photoUrl || null,
-        locationLat: geo?.latitude ?? null,
-        locationLng: geo?.longitude ?? null,
+        locationLat: geoPos?.latitude ?? null,
+        locationLng: geoPos?.longitude ?? null,
         deviceId: fingerprint.deviceId,
         fraudScore: validationResult.fraudScore,
       });
@@ -327,6 +419,7 @@ const EmployeeClockIn: React.FC = () => {
               ? 'Intervalo'
               : typeStr;
       toast.addToast('success', `${label} registrada com sucesso.`);
+      closeProofModal();
     } catch (e: any) {
       const msg = e?.message || 'Erro ao registrar ponto';
       setError(msg);
@@ -334,6 +427,83 @@ const EmployeeClockIn: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleConfirmProof = async () => {
+    if (!user || pendingLogType == null) return;
+    if (globalSettings?.gps_required && (!geo?.latitude || !geo?.longitude)) {
+      toast.addToast('error', 'É necessário obter a localização antes de registrar.');
+      return;
+    }
+    if (globalSettings?.photo_required && !photoDataUrl) {
+      toast.addToast('error', 'Capture a foto obrigatória antes de registrar.');
+      return;
+    }
+    await executePunchRegistration(pendingLogType, geo, photoDataUrl, hadBiometric);
+  };
+
+  const handleTryWebAuthnInModal = async () => {
+    setWebAuthnBusy(true);
+    try {
+      const ok = await tryWebAuthn();
+      setHadBiometric(ok);
+      if (ok) {
+        toast.addToast('success', 'Dispositivo validado.');
+      } else {
+        setDigitalFallbackToPhoto(true);
+        toast.addToast(
+          'info',
+          'A biometria WebAuthn completa exige cadastro no servidor. Use a foto abaixo ou continue só com GPS, se permitido.'
+        );
+      }
+    } finally {
+      setWebAuthnBusy(false);
+    }
+  };
+
+  const handleCapturePhotoClick = async () => {
+    const dataUrl = await captureFrameFromModal();
+    if (!dataUrl) {
+      toast.addToast('error', 'Não foi possível capturar a imagem. Aguarde a câmera iniciar e tente de novo.');
+      return;
+    }
+    setPhotoDataUrl(dataUrl);
+    toast.addToast('success', 'Foto capturada.');
+  };
+
+  const beginPunch = async (type: LogType) => {
+    if (!user) return;
+    if (!isSupabaseConfigured) {
+      setError('Sistema de ponto indisponível. Tente mais tarde.');
+      toast.addToast('error', 'Sistema de ponto indisponível.');
+      return;
+    }
+    if (!user.companyId || String(user.companyId).trim() === '') {
+      setError('Seu cadastro está incompleto (empresa não vinculada). Entre em contato com o administrador.');
+      toast.addToast('error', 'Cadastro sem empresa vinculada.');
+      return;
+    }
+    setError(null);
+    const today = new Date().toISOString().slice(0, 10);
+    const dayRecords = await getDayRecords(user.id, today);
+    const typeStr = type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
+    const validation = validatePunchSequence(dayRecords, typeStr);
+    if (!validation.valid) {
+      setError(validation.error || 'Sequência inválida.');
+      toast.addToast('error', validation.error || 'Sequência inválida.');
+      return;
+    }
+    setPendingLogType(type);
+    setGeo(null);
+    setGpsFailReason(null);
+    setPhotoDataUrl(null);
+    setHadBiometric(false);
+    setDigitalFallbackToPhoto(false);
+    setProofModalOpen(true);
+  };
+
+  const handlePunch = (type: LogType) => {
+    void beginPunch(type);
   };
 
   /** Em jornada: última batida do dia foi entrada (trabalhando ou após retorno de intervalo) */
@@ -520,7 +690,144 @@ const EmployeeClockIn: React.FC = () => {
         <MapPin className="w-4 h-4 shrink-0" /> GPS quando disponível; comprovação por {globalSettings?.photo_required ? 'foto (obrigatória)' : useDigital ? 'WebAuthn ou foto' : 'foto opcional'}.
       </p>
 
-      <video ref={videoRef} className="hidden" playsInline muted />
+      {proofModalOpen && pendingLogType != null && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Fechar"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !saving && closeProofModal()}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="proof-modal-title"
+            className="relative z-[101] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-5 md:p-6 space-y-5"
+          >
+            <h2 id="proof-modal-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              Comprovar registro de ponto
+            </h2>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+                Localização (GPS)
+              </div>
+              {typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Em HTTP (sem HTTPS), o navegador pode bloquear GPS e câmera. Use HTTPS em produção ou teste em localhost.
+                </p>
+              )}
+              {gpsLoading && <p className="text-sm text-slate-600 dark:text-slate-400">Obtendo localização…</p>}
+              {!gpsLoading && geo && (
+                <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                  Posição obtida (precisão ~{Math.round(geo.accuracy)} m).
+                </p>
+              )}
+              {!gpsLoading && gpsFailReason && (
+                <p className="text-sm text-red-700 dark:text-red-300">{geolocationReasonMessage(gpsFailReason)}</p>
+              )}
+              <button
+                type="button"
+                disabled={gpsLoading || saving}
+                onClick={() => void retryGps()}
+                className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+              >
+                Tentar localização novamente
+              </button>
+            </div>
+
+            {useDigital && !globalSettings?.photo_required && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                  <Fingerprint className="w-4 h-4 text-indigo-500 shrink-0" />
+                  Comprovação digital (WebAuthn)
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  A validação biométrica completa depende de cadastro no servidor (FIDO2). Aqui você pode tentar o leitor do sistema; se não funcionar, use a foto abaixo ou registre só com GPS.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={saving || webAuthnBusy || hadBiometric}
+                    onClick={() => void handleTryWebAuthnInModal()}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium disabled:opacity-50 min-h-[44px]"
+                  >
+                    {webAuthnBusy ? 'Aguardando…' : hadBiometric ? 'Dispositivo validado' : 'Tentar no dispositivo'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setDigitalFallbackToPhoto(true)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-medium min-h-[44px]"
+                  >
+                    Usar foto
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {needsCameraPreview && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                  <Camera className="w-4 h-4 text-sky-500 shrink-0" />
+                  {globalSettings?.photo_required ? 'Foto obrigatória' : 'Foto (opcional)'}
+                </div>
+                <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-black">
+                  <video ref={modalVideoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleCapturePhotoClick()}
+                    className="px-4 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-medium min-h-[44px]"
+                  >
+                    Capturar foto
+                  </button>
+                  {photoDataUrl && !globalSettings?.photo_required && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setPhotoDataUrl(null)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-sm min-h-[44px]"
+                    >
+                      Remover foto
+                    </button>
+                  )}
+                </div>
+                {photoDataUrl && (
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Foto pronta para envio.</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 justify-end pt-2 border-t border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => closeProofModal()}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-medium min-h-[44px]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={
+                  saving ||
+                  gpsLoading ||
+                  (globalSettings?.gps_required === true && (!geo?.latitude || !geo?.longitude)) ||
+                  (globalSettings?.photo_required === true && !photoDataUrl)
+                }
+                onClick={() => void handleConfirmProof()}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 min-h-[44px]"
+              >
+                {saving ? 'Registrando…' : 'Confirmar e registrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

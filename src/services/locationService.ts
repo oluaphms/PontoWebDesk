@@ -18,9 +18,77 @@ export interface GetCurrentLocationOptions {
 
 const DEFAULT_OPTIONS: GetCurrentLocationOptions = {
   enableHighAccuracy: true,
-  timeout: 15000,
+  timeout: 20000,
+  /** Permite reutilizar posição recente (mais rápido e menos falhas em redes lentas) */
   maximumAge: 60000,
 };
+
+export type GeolocationFailureReason = 'denied' | 'timeout' | 'unavailable' | 'unsupported';
+
+export type LocationResult =
+  | { ok: true; position: GeoPosition }
+  | { ok: false; position: null; reason: GeolocationFailureReason };
+
+/** Mensagem amigável para o usuário (PT-BR). */
+export function geolocationReasonMessage(reason: GeolocationFailureReason): string {
+  switch (reason) {
+    case 'denied':
+      return 'Permissão de localização negada. Abra as configurações do navegador e permita a localização para este site.';
+    case 'timeout':
+      return 'Tempo esgotado ao obter o GPS. Verifique se o GPS está ligado e tente novamente.';
+    case 'unavailable':
+      return 'Não foi possível obter a posição (posição indisponível). Tente ao ar livre ou ative o GPS.';
+    case 'unsupported':
+      return 'Este navegador não suporta geolocalização.';
+    default:
+      return 'Não foi possível obter a localização.';
+  }
+}
+
+/**
+ * Obtém a localização com motivo de falha (para exibir ao usuário).
+ */
+export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}): Promise<LocationResult> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve({ ok: false, position: null, reason: 'unsupported' });
+      return;
+    }
+
+    if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost') {
+      resolve({ ok: false, position: null, reason: 'unavailable' });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          ok: true,
+          position: {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy ?? 0,
+            timestamp: position.timestamp,
+          },
+        });
+      },
+      (err) => {
+        const code = (err as GeolocationPositionError)?.code;
+        if (code === 1) resolve({ ok: false, position: null, reason: 'denied' });
+        else if (code === 2) resolve({ ok: false, position: null, reason: 'unavailable' });
+        else if (code === 3) resolve({ ok: false, position: null, reason: 'timeout' });
+        else resolve({ ok: false, position: null, reason: 'unavailable' });
+      },
+      {
+        enableHighAccuracy: opts.enableHighAccuracy,
+        timeout: opts.timeout,
+        maximumAge: opts.maximumAge ?? 60000,
+      }
+    );
+  });
+}
 
 /**
  * Obtém a localização atual do dispositivo.
@@ -29,29 +97,5 @@ const DEFAULT_OPTIONS: GetCurrentLocationOptions = {
 export function getCurrentLocation(
   options: GetCurrentLocationOptions = {}
 ): Promise<GeoPosition | null> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-
-  return new Promise((resolve) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy ?? 0,
-          timestamp: position.timestamp,
-        });
-      },
-      () => resolve(null),
-      {
-        enableHighAccuracy: opts.enableHighAccuracy,
-        timeout: opts.timeout,
-        maximumAge: opts.maximumAge ?? 0,
-      }
-    );
-  });
+  return getCurrentLocationResult(options).then((r) => (r.ok ? r.position : null));
 }
