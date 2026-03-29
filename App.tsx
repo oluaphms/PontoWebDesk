@@ -1015,9 +1015,7 @@ const AppMain: React.FC = () => {
       <LayoutComponent user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
         <React.Suspense fallback={<LoadingState message="Carregando módulo inteligente..." />}>
           <Routes>
-            {/* Redirecionamentos para dashboard (apenas path exato; /employee/* usa rota aninhada abaixo) */}
-            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-            {/* Rotas Admin: protegidas por RBAC (apenas admin/hr) */}
+            {/* Rotas Admin: /admin redireciona pelo index; não duplicar Route path="/admin" (quebra sub-rotas como /admin/bank-hours). */}
             <Route path="/admin" element={<ProtectedRoute user={user} allowedRoles={['admin', 'hr']}><Outlet /></ProtectedRoute>}>
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="dashboard" element={<AdminDashboard />} />

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { FolderKanban, Plus, Users } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import ModalForm from '../components/ModalForm';
@@ -226,8 +227,11 @@ const ProjectsPage: React.FC = () => {
     console.log('Open project details', project.id);
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando projetos..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

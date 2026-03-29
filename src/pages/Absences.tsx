@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { CircleOff } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -119,8 +120,11 @@ const AbsencesPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando ausências..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

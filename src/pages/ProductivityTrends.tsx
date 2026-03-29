@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Activity, BarChart3, Clock3, TrendingUp } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
@@ -332,8 +333,11 @@ const ProductivityTrendsPage: React.FC = () => {
     return min;
   }, [chartData]);
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando tendências de produtividade..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

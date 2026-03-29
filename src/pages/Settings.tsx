@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Shield, Bell, Cog, Globe2, MonitorPlay } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { Button, LoadingState } from '../../components/UI';
@@ -157,8 +158,11 @@ const SettingsPage: React.FC = () => {
     setContextLanguage(lang); // atualiza o contexto para todo o sistema (sidebar, layout, etc.)
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message={i18n.t('settings.loading')} />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

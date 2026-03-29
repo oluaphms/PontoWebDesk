@@ -1,4 +1,5 @@
 /**
+import { Navigate } from 'react-router-dom';
  * Radar de presença em tempo real
  * Quem está trabalhando agora, quem saiu, quem está atrasado, em hora extra, quem faltou.
  * Atualização via Supabase Realtime.
@@ -160,7 +161,8 @@ const AdminLiveAttendance: React.FC = () => {
     }
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">

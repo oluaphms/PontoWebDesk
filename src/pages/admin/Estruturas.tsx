@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { GitBranch, Plus, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -220,7 +221,8 @@ const AdminEstruturas: React.FC = () => {
 
   const parentOptions = rows.filter((r) => !editingId || r.id !== editingId);
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

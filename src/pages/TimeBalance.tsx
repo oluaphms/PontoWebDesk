@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Scale } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -138,18 +139,21 @@ const TimeBalancePage: React.FC = () => {
     const [year, month] = monthInput.split('-').map(Number);
 
     const defaultSchedule = schedules[0];
-    const byDate = () => defaultSchedule;
+    const byDate = (_date: Date) => defaultSchedule;
 
     return calculateMonthlyBalance(
       records,
-      (date) => byDate(date),
+      byDate,
       month - 1,
       year,
     );
   }, [records, schedules, monthInput]);
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando saldo de horas..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Cpu, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -101,8 +102,11 @@ const DevicesPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando dispositivos..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

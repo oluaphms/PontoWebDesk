@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { Clock, CalendarDays, Activity, Scale, ClipboardList, LogIn, LogOut, FileEdit, FileText } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -115,7 +115,8 @@ const EmployeeDashboard: React.FC = () => {
 
   const statusLabel = lastRecord?.type === 'entrada' ? i18n.t('dashboard.statusWorking') : lastRecord?.type === 'pausa' ? i18n.t('dashboard.statusBreak') : i18n.t('dashboard.statusOff');
 
-  if (loading || !user) return <LoadingState message={i18n.t('common.loading')} />;
+  if (loading) return <LoadingState message={i18n.t('common.loading')} />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-8">

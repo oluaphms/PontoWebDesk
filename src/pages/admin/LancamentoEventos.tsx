@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
   CalendarClock,
   Plus,
@@ -385,7 +386,8 @@ const AdminLancamentoEventos: React.FC = () => {
     }));
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

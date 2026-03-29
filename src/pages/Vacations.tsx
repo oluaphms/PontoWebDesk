@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { PlaneTakeoff } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -160,8 +161,11 @@ const VacationsPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando férias..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

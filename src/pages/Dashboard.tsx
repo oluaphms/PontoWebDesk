@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { CalendarDays, Clock as ClockIcon, Inbox, Layers3 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
@@ -140,8 +141,11 @@ const DashboardPage: React.FC = () => {
 
   const lastPunch = records[0] ?? null;
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando seu painel..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

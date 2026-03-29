@@ -1,4 +1,5 @@
 /**
+import { Navigate } from 'react-router-dom';
  * Importação em massa de funcionários (SmartPonto).
  * Upload CSV/XLSX, preview, validação, confirmação e resumo.
  */
@@ -185,7 +186,8 @@ const ImportEmployeesPage: React.FC = () => {
   const validCount = validated.filter((r) => r._valid).length;
   const invalidCount = validated.length - validCount;
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

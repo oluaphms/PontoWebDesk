@@ -1,4 +1,5 @@
 /**
+import { Navigate } from 'react-router-dom';
  * Relatório de Segurança / Antifraude – registros suspeitos, funcionários, localização, score.
  */
 
@@ -87,7 +88,8 @@ export default function ReportSecurity() {
     URL.revokeObjectURL(a.href);
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

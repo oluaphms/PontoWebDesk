@@ -1,4 +1,5 @@
 /**
+import { Navigate } from 'react-router-dom';
  * Dashboard Antifraude – registros suspeitos, alertas, mapa de registros.
  */
 
@@ -147,7 +148,8 @@ export default function AdminSecurity() {
     .sort((a, b) => b.max - a.max)
     .slice(0, 10);
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-8">

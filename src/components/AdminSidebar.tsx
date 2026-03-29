@@ -28,6 +28,7 @@ import {
   HelpCircle,
   Timer,
   Upload,
+  Scale,
 } from 'lucide-react';
 import type { User } from '../../types';
 
@@ -65,6 +66,7 @@ const ADMIN_ITEMS = [
   { label: 'Horários', path: '/admin/shifts', icon: Clock },
   { label: 'Empresa', path: '/admin/company', icon: Building },
   { label: 'Relatórios', path: '/admin/reports', icon: FileBarChart },
+  { label: 'Banco de Horas', path: '/admin/bank-hours', icon: Scale },
   { label: 'Ajuda', path: '/admin/ajuda', icon: HelpCircle },
   { label: 'Configurações', path: '/admin/settings', icon: Settings },
 ];

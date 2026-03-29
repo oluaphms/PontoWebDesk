@@ -40,18 +40,18 @@ function notConfigured(): never {
   throw new Error(notConfiguredMsg);
 }
 
-// Usar sessionStorage evita "Lock broken by another request with the 'steal' option"
-// que ocorre com IndexedDB quando há múltiplas abas ou refresh durante refresh do token.
+// localStorage permite reabrir o app em nova aba com a mesma sessão (sessionStorage é só por aba).
+// Se voltar o erro de lock do IndexedDB em múltiplas abas, avalie voltar a sessionStorage ou storage customizado.
 const authStorage =
   typeof window !== 'undefined'
     ? {
-        getItem: (key: string) => Promise.resolve(window.sessionStorage.getItem(key)),
+        getItem: (key: string) => Promise.resolve(window.localStorage.getItem(key)),
         setItem: (key: string, value: string) => {
-          window.sessionStorage.setItem(key, value);
+          window.localStorage.setItem(key, value);
           return Promise.resolve();
         },
         removeItem: (key: string) => {
-          window.sessionStorage.removeItem(key);
+          window.localStorage.removeItem(key);
           return Promise.resolve();
         },
       }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Scale } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
@@ -48,7 +49,8 @@ const ReportBankHours: React.FC = () => {
     })();
   }, [user?.companyId]);
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

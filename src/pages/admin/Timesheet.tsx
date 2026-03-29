@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -222,7 +223,8 @@ const AdminTimesheet: React.FC = () => {
     }
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

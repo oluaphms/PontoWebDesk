@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, PauseCircle, PlayCircle, Users } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import DataTable from '../components/DataTable';
@@ -173,8 +173,11 @@ const RealTimeInsightsPage: React.FC = () => {
     navigate('/screenshots');
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando visão em tempo real..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

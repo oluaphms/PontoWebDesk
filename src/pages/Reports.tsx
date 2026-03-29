@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { BarChart3, CalendarRange, Download, FileText, Users } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
@@ -269,8 +270,11 @@ const ReportsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando relatórios..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

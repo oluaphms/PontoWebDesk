@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Users, UserPlus, Upload, Mail, Pencil, UserX, Send } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -344,8 +345,11 @@ const EmployeesPage: React.FC = () => {
     });
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando funcionários..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

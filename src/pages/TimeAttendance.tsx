@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, Download, Edit3, Plus } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
@@ -220,8 +221,11 @@ const TimeAttendancePage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando jornada de trabalho..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

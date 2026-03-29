@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import PageHeader from '../components/PageHeader';
@@ -63,8 +64,11 @@ const TimeRecordsPage: React.FC = () => {
     load();
   }, [user, dateFrom, dateTo]);
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando registros..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

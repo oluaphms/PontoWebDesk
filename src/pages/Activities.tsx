@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { ActivitySquare, BadgeX, Clock3, Link2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
@@ -124,8 +125,11 @@ const ActivitiesPage: React.FC = () => {
     console.log('Bloquear app', log.app_name, log.url);
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando atividades..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
@@ -74,7 +74,8 @@ const EmployeeProfile: React.FC = () => {
     }
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

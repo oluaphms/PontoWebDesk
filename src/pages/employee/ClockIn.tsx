@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
   Camera,
   MapPin,
@@ -14,7 +15,7 @@ import {
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
-import { getDayRecords, validatePunchSequence } from '../../services/timeProcessingService';
+import { getDayRecords, getLocalDateString, validatePunchSequence } from '../../services/timeProcessingService';
 import {
   getCurrentLocationResult,
   geolocationReasonMessage,
@@ -102,7 +103,7 @@ const EmployeeClockIn: React.FC = () => {
   const loadTodayState = useCallback(async () => {
     if (!user || !isSupabaseConfigured) return;
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       const dayRecords = await getDayRecords(user.id, today);
       if (!dayRecords.length) {
         setLastType(null);
@@ -306,7 +307,7 @@ const EmployeeClockIn: React.FC = () => {
     try {
       const fingerprint: DeviceFingerprint = generateDeviceFingerprint();
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       const dayRecords = await getDayRecords(user.id, today);
       const typeStr = type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
       const validation = validatePunchSequence(dayRecords, typeStr);
@@ -533,7 +534,7 @@ const EmployeeClockIn: React.FC = () => {
       return;
     }
     setError(null);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDateString();
     const dayRecords = await getDayRecords(user.id, today);
     const typeStr = type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
     const validation = validatePunchSequence(dayRecords, typeStr);
@@ -560,7 +561,8 @@ const EmployeeClockIn: React.FC = () => {
   /** Em intervalo: última batida foi início de pausa */
   const isBreak = lastType === 'pausa';
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   const buttonBase =
     'flex flex-col items-center justify-center gap-4 p-8 rounded-2xl border-2 min-h-[44px] touch-manipulation cursor-pointer select-none transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]';

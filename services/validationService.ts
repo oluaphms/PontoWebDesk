@@ -54,6 +54,14 @@ export const ValidationService = {
       return { isValid: false, error: `Você já realizou uma marcação de ${newType}.` };
     }
 
+    if (lastRecord.type === LogType.OUT && newType === LogType.BREAK) {
+      return { isValid: false, error: 'Após saída, registre uma nova entrada antes do intervalo.' };
+    }
+
+    if (lastRecord.type === LogType.BREAK && newType === LogType.OUT) {
+      return { isValid: false, error: 'Após pausa, registre retorno (Entrada) antes da Saída.' };
+    }
+
     return { isValid: true };
   }
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Navigate } from 'react-router-dom';
 import { CalendarDays, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -229,7 +229,8 @@ const AdminPontoDiario: React.FC = () => {
     setData(d.toISOString().slice(0, 10));
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

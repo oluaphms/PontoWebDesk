@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { UserPlus, Pencil, UserX, Trash2, Eye, EyeOff, UserCheck, Search, Upload, FileDown, X, Camera, User, AlertTriangle } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -1089,7 +1089,8 @@ const AdminEmployees: React.FC = () => {
     e.target.value = '';
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

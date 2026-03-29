@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
@@ -118,8 +118,11 @@ const AlertsPage: React.FC = () => {
     navigate('/notifications');
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando alertas..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

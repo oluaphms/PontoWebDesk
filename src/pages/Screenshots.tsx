@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Camera, Eye, EyeOff, Trash2, Download } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
@@ -139,8 +140,11 @@ const ScreenshotsPage: React.FC = () => {
     a.click();
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando screenshots..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

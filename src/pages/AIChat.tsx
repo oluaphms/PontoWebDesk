@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
 import { Bot, Send, Sparkles, Loader2, User } from 'lucide-react';
@@ -75,8 +76,11 @@ const AIChatPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   if (!isHR) {

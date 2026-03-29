@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   Calendar,
   ChevronLeft,
@@ -285,7 +285,8 @@ const AdminCartaoPonto: React.FC = () => {
     return `${day}/${m}/${y}`;
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>

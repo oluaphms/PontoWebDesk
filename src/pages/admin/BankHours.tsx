@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Scale, User, TrendingUp, TrendingDown } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -80,7 +81,7 @@ const AdminBankHours: React.FC = () => {
       }
     };
     load();
-  }, [user?.companyId, filterUserId, monthFilter]);
+  }, [user?.companyId, filterUserId, monthFilter, employees]);
 
   const byEmployee = React.useMemo(() => {
     const map = new Map<string, { movements: BankHoursRow[]; currentBalance: number }>();
@@ -129,8 +130,10 @@ const AdminBankHours: React.FC = () => {
           </div>
         </div>
 
-        {loading || !user ? (
+        {loading ? (
           <LoadingState message="Carregando..." />
+        ) : !user ? (
+          <Navigate to="/" replace />
         ) : loadingData ? (
           <LoadingState message="Carregando movimentações..." />
         ) : (

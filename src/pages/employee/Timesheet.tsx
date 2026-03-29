@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { FileDown } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -78,7 +79,8 @@ const EmployeeTimesheet: React.FC = () => {
 
   const exportPDF = () => window.print();
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

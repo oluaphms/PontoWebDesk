@@ -79,6 +79,14 @@ function normalizeType(type: string): PunchType {
   return lower as PunchType;
 }
 
+/** Data local YYYY-MM-DD; use no lugar de `toISOString().slice(0,10)` para filtros do dia civil. */
+export function getLocalDateString(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Busca marcações do dia para um funcionário (considerando ajustes aprovados).
  */
@@ -406,5 +414,7 @@ export function validatePunchSequence(records: RawTimeRecord[], newType: string)
     }
   }
   if (last === 'pausa' && type === 'saída') return { valid: false, error: 'Após pausa, registre retorno (Entrada) antes da Saída.' };
+  if (last === 'saída' && type === 'pausa')
+    return { valid: false, error: 'Após saída, registre uma nova entrada antes do intervalo.' };
   return { valid: true };
 }

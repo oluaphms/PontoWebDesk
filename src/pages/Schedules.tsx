@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { CalendarRange, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -123,8 +124,11 @@ const SchedulesPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando escalas..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

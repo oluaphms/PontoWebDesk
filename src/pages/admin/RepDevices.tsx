@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
@@ -168,7 +169,8 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
-  if (loading || !user) return <LoadingState message="Carregando..." />;
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">

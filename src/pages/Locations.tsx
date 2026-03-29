@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { MapPin, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
@@ -106,8 +107,11 @@ const LocationsPage: React.FC = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <LoadingState message="Carregando localizações..." />;
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import {
   Users,
   UserCheck,
@@ -123,7 +123,8 @@ const AdminDashboard: React.FC = () => {
     load();
   }, [user?.companyId]);
 
-  if (loading || !user) return <LoadingState message={i18n.t('common.loading')} />;
+  if (loading) return <LoadingState message={i18n.t('common.loading')} />;
+  if (!user) return <Navigate to="/" replace />;
 
   const cardItems = [
     { label: i18n.t('dashboard.totalEmployees'), value: cards.totalEmployees, icon: Users, color: 'bg-indigo-500' },

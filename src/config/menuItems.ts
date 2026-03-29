@@ -19,6 +19,7 @@ export const adminMenuItems: MenuItemConfig[] = [
   { nameKey: 'menu.horarios', icon: 'schedule', route: '/admin/shifts' },
   { nameKey: 'menu.empresa', icon: 'business', route: '/admin/company' },
   { nameKey: 'menu.reports', icon: 'data_usage', route: '/admin/reports' },
+  { nameKey: 'menu.timeBalance', icon: 'scale', route: '/admin/bank-hours' },
   { nameKey: 'menu.repDevices', icon: 'schedule', route: '/admin/rep-devices' },
   { nameKey: 'menu.repMonitor', icon: 'insights', route: '/admin/rep-monitor' },
   { nameKey: 'menu.importRep', icon: 'upload', route: '/admin/import-rep' },
