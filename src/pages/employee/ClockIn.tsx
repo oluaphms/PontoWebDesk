@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   Camera,
@@ -15,9 +15,11 @@ import { getDayRecords, getLocalDateString, validatePunchSequence } from '../../
 import {
   getCurrentLocationResult,
   geolocationReasonMessage,
+  watchGeoPosition,
   type GeoPosition,
   type GeolocationFailureReason,
 } from '../../services/locationService';
+import { uploadPunchPhotoWithRetry, validatePunchImageDataUrl } from '../../utils/punchPhotoUpload';
 import {
   validatePunch,
   generateDeviceFingerprint,
@@ -32,6 +34,8 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useToast } from '../../components/ToastProvider';
 import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
+
+const LocationMap = React.lazy(() => import('../../../components/LocationMap'));
 import {
   hasStoredPasskey,
   isWebAuthnSupported,
@@ -83,8 +87,10 @@ const EmployeeClockIn: React.FC = () => {
   const [lastType, setLastType] = useState<string | null>(null);
   const [lastRecordAt, setLastRecordAt] = useState<string | null>(null);
   const [verificationMode, setVerificationMode] = useState<VerificationMode>('photo');
-  /** Qual card está expandido; `null` = nenhum (ações só após clicar no card). */
-  const [expandedMethod, setExpandedMethod] = useState<VerificationMode | null>(null);
+  /** Após escolher FOTO/DIGITAL/MANUAL, painel com Entrada / Saída / intervalos. */
+  const [showActionSheet, setShowActionSheet] = useState(false);
+  /** Feedback de GPS para o usuário */
+  const [geoLiveStatus, setGeoLiveStatus] = useState<'idle' | 'obtaining' | 'captured' | 'failed'>('idle');
   /** Modal de comprovação (GPS + câmera / digital) */
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [pendingLogType, setPendingLogType] = useState<LogType | null>(null);
@@ -197,42 +203,60 @@ const EmployeeClockIn: React.FC = () => {
     setDigitalFallbackToPhoto(false);
     setGpsLoading(false);
     setWebAuthnBusy(false);
+    setGeoLiveStatus('idle');
   }, [stopCamera]);
 
   const retryGps = useCallback(async () => {
     setGpsLoading(true);
     setGpsFailReason(null);
-    const r = await getCurrentLocationResult();
+    setGeoLiveStatus('obtaining');
+    const r = await getCurrentLocationResult({ timeout: 15000, maximumAge: 0 });
     setGpsLoading(false);
     if (r.ok === false) {
       setGeo(null);
       setGpsFailReason(r.reason);
+      setGeoLiveStatus('failed');
       return;
     }
     setGeo(r.position);
     setGpsFailReason(null);
+    setGeoLiveStatus('captured');
   }, []);
 
   useEffect(() => {
     if (!proofModalOpen) return;
     let cancelled = false;
+    setGeoLiveStatus('obtaining');
     (async () => {
       setGpsLoading(true);
       setGpsFailReason(null);
       setGeo(null);
-      const r = await getCurrentLocationResult();
+      const r = await getCurrentLocationResult({ timeout: 15000, maximumAge: 0 });
       if (cancelled) return;
       setGpsLoading(false);
       if (r.ok === false) {
         setGeo(null);
         setGpsFailReason(r.reason);
+        setGeoLiveStatus('failed');
         return;
       }
       setGeo(r.position);
       setGpsFailReason(null);
+      setGeoLiveStatus('captured');
     })();
+
+    const stopWatch = watchGeoPosition((r) => {
+      if (cancelled) return;
+      if (r.ok && r.position) {
+        setGeo(r.position);
+        setGpsFailReason(null);
+        setGeoLiveStatus('captured');
+      }
+    }, { minIntervalMs: 5000, timeout: 20000, maximumAge: 0 });
+
     return () => {
       cancelled = true;
+      stopWatch();
     };
   }, [proofModalOpen]);
 
@@ -265,20 +289,6 @@ const EmployeeClockIn: React.FC = () => {
       stopCamera();
     };
   }, [needsCameraPreview, proofModalOpen, startCameraPreview, stopCamera]);
-
-  const uploadPhoto = async (dataUrl: string): Promise<string | null> => {
-    if (!storage || !user) return null;
-    try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `punch-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      const path = `${user.id}/${Date.now()}-${file.name}`;
-      await storage.upload('photos', path, file);
-      return storage.getPublicUrl('photos', path);
-    } catch {
-      return null;
-    }
-  };
 
   const resolveMethod = (
     hadBiometric: boolean,
@@ -331,11 +341,32 @@ const EmployeeClockIn: React.FC = () => {
 
       let photoUrl: string | null = null;
       if (localPhotoDataUrl) {
-        photoUrl = await uploadPhoto(localPhotoDataUrl);
-        if (!photoUrl) {
-          // Fallback: mantém o registro com a evidência local para não bloquear a batida.
+        const validated = validatePunchImageDataUrl(localPhotoDataUrl);
+        if (!validated.ok) {
+          setError(validated.message);
+          toast.addToast('error', validated.message);
+          return;
+        }
+        if (!storage || !user) {
+          setError('Armazenamento indisponível para envio da foto.');
+          toast.addToast('error', 'Armazenamento indisponível.');
+          return;
+        }
+        const uploaded = await uploadPunchPhotoWithRetry(storage, user.id, localPhotoDataUrl);
+        if (uploaded.publicUrl) {
+          photoUrl = uploaded.publicUrl;
+        } else if (uploaded.error && !uploaded.transientFailure) {
+          setError(uploaded.error);
+          toast.addToast('error', uploaded.error);
+          return;
+        } else {
           photoUrl = localPhotoDataUrl;
-          toast.addToast('info', 'Foto salva localmente para este registro (falha de upload no servidor).');
+          toast.addToast(
+            'info',
+            uploaded.transientFailure
+              ? 'Rede instável: foto mantida no registro; tente novamente mais tarde para sincronizar o arquivo.'
+              : 'Não foi possível enviar a foto ao servidor; o registro segue com referência local.'
+          );
         }
       }
 
@@ -635,8 +666,8 @@ const EmployeeClockIn: React.FC = () => {
 
       <div className="space-y-2">
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          Toque em <strong>FOTO</strong>, <strong>DIGITAL</strong>
-          {canUseManualPunch ? <> ou <strong>MANUAL</strong></> : null} para ver as ações de registro. A{' '}
+          Escolha <strong>FOTO</strong>, <strong>DIGITAL</strong>
+          {canUseManualPunch ? <> ou <strong>MANUAL</strong></> : null} e, em seguida, o tipo de registro (entrada, saída ou intervalo). A{' '}
           <strong>localização</strong> é obtida no comprovante; no modo manual, conforme política da empresa.
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-500">
@@ -647,104 +678,42 @@ const EmployeeClockIn: React.FC = () => {
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        <strong>Sequência do dia:</strong> Entrada → (opcional) Início do intervalo (pausa) → Entrada (retorno) → Saída. Após pausa, use <strong>Registrar Entrada</strong> para voltar ou o atalho &quot;Finalizar intervalo&quot; abaixo.
+        <strong>Sequência do dia:</strong> Entrada → (opcional) Início do intervalo (pausa) → Entrada (retorno) → Saída. Após pausa, use <strong>Registrar entrada</strong> para voltar ou o atalho &quot;Finalizar intervalo&quot; abaixo.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="flex flex-wrap justify-center gap-4 max-w-2xl mx-auto">
         {[
-          { mode: 'photo' as const, label: 'FOTO', icon: Camera },
-          { mode: 'digital' as const, label: 'DIGITAL', icon: Fingerprint },
-          ...(canUseManualPunch ? [{ mode: 'manual' as const, label: 'MANUAL', icon: Keyboard }] : []),
+          { mode: 'photo' as const, label: 'Foto', icon: Camera },
+          { mode: 'digital' as const, label: 'Digital', icon: Fingerprint },
+          ...(canUseManualPunch ? [{ mode: 'manual' as const, label: 'Manual', icon: Keyboard }] : []),
         ].map((card) => {
-          const selected = expandedMethod === card.mode;
           const Icon = card.icon;
           return (
-            <div
+            <button
               key={card.mode}
-              className={`rounded-2xl border p-4 space-y-3 ${
-                selected
-                  ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-900/20'
-                  : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
-              }`}
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setVerificationMode(card.mode);
+                if (card.mode === 'photo' || card.mode === 'manual') setDigitalFallbackToPhoto(false);
+                setShowActionSheet(true);
+              }}
+              className="min-w-[140px] flex flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-5 shadow-sm hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50"
             >
-              <button
-                type="button"
-                aria-expanded={selected}
-                aria-controls={`clock-actions-${card.mode}`}
-                id={`clock-card-${card.mode}`}
-                onClick={() => {
-                  setVerificationMode(card.mode);
-                  if (card.mode === 'photo' || card.mode === 'manual') setDigitalFallbackToPhoto(false);
-                  setExpandedMethod((prev) => (prev === card.mode ? null : card.mode));
-                }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
-              >
-                <Icon className="w-4 h-4" />
-                {card.label}
-              </button>
-              {expandedMethod === card.mode && (
-                <div id={`clock-actions-${card.mode}`} className="grid grid-cols-2 gap-2" role="group" aria-labelledby={`clock-card-${card.mode}`}>
-                  <button
-                    type="button"
-                    disabled={saving || isIn}
-                    onClick={() => {
-                      setVerificationMode(card.mode);
-                      handlePunch(LogType.IN);
-                    }}
-                    className="rounded-xl py-2 text-xs font-semibold bg-emerald-100 text-emerald-800 disabled:opacity-50"
-                  >
-                    Registrar entrada
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving || !isIn || isBreak}
-                    onClick={() => {
-                      setVerificationMode(card.mode);
-                      handlePunch(LogType.BREAK);
-                    }}
-                    className="rounded-xl py-2 text-xs font-semibold bg-amber-100 text-amber-800 disabled:opacity-50"
-                  >
-                    Iniciar intervalo
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving || !isBreak}
-                    onClick={() => {
-                      setVerificationMode(card.mode);
-                      handlePunch(LogType.IN);
-                    }}
-                    className="rounded-xl py-2 text-xs font-semibold bg-sky-100 text-sky-800 disabled:opacity-50"
-                  >
-                    Finalizar intervalo
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving || !isIn}
-                    onClick={() => {
-                      setVerificationMode(card.mode);
-                      handlePunch(LogType.OUT);
-                    }}
-                    className="rounded-xl py-2 text-xs font-semibold bg-red-100 text-red-800 disabled:opacity-50"
-                  >
-                    Registrar saida
-                  </button>
-                </div>
-              )}
-            </div>
+              <Icon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{card.label}</span>
+            </button>
           );
         })}
       </div>
 
-      <p className="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2">
+      <p className="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2 justify-center text-center">
         <MapPin className="w-4 h-4 shrink-0" />
-        {expandedMethod == null ? (
-          <span>Abra um dos cards acima (FOTO, DIGITAL ou MANUAL) para escolher o modo antes de registrar.</span>
+        {!showActionSheet ? (
+          <span>Toque em um modo de comprovação acima para abrir as opções de registro.</span>
         ) : (
-          <>
-            {verificationMode === 'manual' && manualBypassActive
-              ? 'Modo manual: registro sem GPS nem foto obrigatórios (conforme política).'
-              : 'Localização enviada automaticamente no registro quando obtida.'}{' '}
-            Comprovação escolhida:{' '}
+          <span>
+            Modo{' '}
             <strong>
               {verificationMode === 'photo'
                 ? 'foto'
@@ -752,10 +721,99 @@ const EmployeeClockIn: React.FC = () => {
                   ? 'digital (WebAuthn)'
                   : 'manual'}
             </strong>
-            .
-          </>
+            : escolha entrada, saída ou intervalo no painel. A localização é obtida no comprovante (exceto manual conforme política).
+          </span>
         )}
       </p>
+
+      {showActionSheet && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Fechar"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !saving && setShowActionSheet(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="action-sheet-title"
+            className="relative z-[91] w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-6 space-y-5"
+          >
+            <div className="text-center space-y-1">
+              <h2 id="action-sheet-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                Tipo de registro
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Modo:{' '}
+                <strong>
+                  {verificationMode === 'photo'
+                    ? 'Foto'
+                    : verificationMode === 'digital'
+                      ? 'Digital'
+                      : 'Manual'}
+                </strong>
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-sm mx-auto">
+              <button
+                type="button"
+                disabled={saving || isIn}
+                onClick={() => {
+                  setShowActionSheet(false);
+                  handlePunch(LogType.IN);
+                }}
+                className="rounded-xl py-3 px-4 text-sm font-semibold bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100 disabled:opacity-50"
+              >
+                Entrada
+              </button>
+              <button
+                type="button"
+                disabled={saving || !isIn || isBreak}
+                onClick={() => {
+                  setShowActionSheet(false);
+                  handlePunch(LogType.BREAK);
+                }}
+                className="rounded-xl py-3 px-4 text-sm font-semibold bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100 disabled:opacity-50"
+              >
+                Iniciar intervalo
+              </button>
+              <button
+                type="button"
+                disabled={saving || !isBreak}
+                onClick={() => {
+                  setShowActionSheet(false);
+                  handlePunch(LogType.IN);
+                }}
+                className="rounded-xl py-3 px-4 text-sm font-semibold bg-sky-100 text-sky-900 dark:bg-sky-900/30 dark:text-sky-100 disabled:opacity-50"
+              >
+                Finalizar intervalo
+              </button>
+              <button
+                type="button"
+                disabled={saving || !isIn}
+                onClick={() => {
+                  setShowActionSheet(false);
+                  handlePunch(LogType.OUT);
+                }}
+                className="rounded-xl py-3 px-4 text-sm font-semibold bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100 disabled:opacity-50"
+              >
+                Saída
+              </button>
+            </div>
+            <div className="flex justify-center">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowActionSheet(false)}
+                className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:underline"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {proofModalOpen && pendingLogType != null && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -788,14 +846,20 @@ const EmployeeClockIn: React.FC = () => {
                   Em HTTP (sem HTTPS), o navegador pode bloquear GPS e câmera. Use HTTPS em produção ou teste em localhost.
                 </p>
               )}
-              {gpsLoading && <p className="text-sm text-slate-600 dark:text-slate-400">Obtendo localização…</p>}
-              {!gpsLoading && geo && (
-                <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                  Posição obtida (precisão ~{Math.round(geo.accuracy)} m).
+              {gpsLoading && (
+                <p className="text-sm text-slate-600 dark:text-slate-400" role="status">
+                  Obtendo localização…
                 </p>
               )}
-              {!gpsLoading && gpsFailReason && (
-                <p className="text-sm text-red-700 dark:text-red-300">{geolocationReasonMessage(gpsFailReason)}</p>
+              {!gpsLoading && geoLiveStatus === 'captured' && geo && (
+                <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status">
+                  Localização capturada (precisão ~{Math.round(geo.accuracy)} m).
+                </p>
+              )}
+              {!gpsLoading && geoLiveStatus === 'failed' && gpsFailReason && (
+                <p className="text-sm text-red-700 dark:text-red-300" role="alert">
+                  Falha ao obter localização. {geolocationReasonMessage(gpsFailReason)}
+                </p>
               )}
               <button
                 type="button"
@@ -805,6 +869,17 @@ const EmployeeClockIn: React.FC = () => {
               >
                 Tentar localização novamente
               </button>
+              {geo && geo.latitude != null && geo.longitude != null && (
+                <div className="h-52 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 mt-3 bg-slate-100 dark:bg-slate-800">
+                  <Suspense
+                    fallback={
+                      <div className="h-full flex items-center justify-center text-xs text-slate-500">Carregando mapa…</div>
+                    }
+                  >
+                    <LocationMap lat={geo.latitude} lng={geo.longitude} accuracy={geo.accuracy} className="rounded-xl" />
+                  </Suspense>
+                </div>
+              )}
             </div>
 
             {verificationMode === 'manual' && manualBypassActive && (

@@ -368,6 +368,30 @@ const AppMain: React.FC = () => {
     };
   }, []);
 
+  /** JWT inválido em chamadas REST: limpa sessão e evita estado “meio logado”. */
+  useEffect(() => {
+    const onAuthExpired = () => {
+      void (async () => {
+        try {
+          await clearLocalAuthSession();
+        } catch {
+          // ignora
+        }
+        try {
+          localStorage.removeItem('current_user');
+        } catch {
+          // ignora
+        }
+        window.dispatchEvent(new Event('current_user_changed'));
+        if (typeof window !== 'undefined') {
+          window.location.href = window.location.origin + '/';
+        }
+      })();
+    };
+    window.addEventListener('supabase:auth-expired', onAuthExpired);
+    return () => window.removeEventListener('supabase:auth-expired', onAuthExpired);
+  }, []);
+
   // Ao exibir tela de login (user null), garantir formulário em estado inicial
   useEffect(() => {
     if (!user) {

@@ -5,6 +5,7 @@
  */
 
 import { supabase, db, isSupabaseConfigured } from '../services/supabaseClient';
+import { withTimeout } from '../utils/withTimeout';
 
 export interface RegisterPunchParams {
   userId: string;
@@ -80,16 +81,21 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
     source = 'web',
   } = params;
 
-  const { data, error } = await supabase.rpc(RPC_NAME, {
-    p_user_id: userId,
-    p_company_id: companyId,
-    p_type: type,
-    p_method: method,
-    p_record_id: recordId || null,
-    p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
-    p_photo_url: photoUrl || null,
-    p_source: source,
-  });
+  const RPC_TIMEOUT_MS = 15000;
+  const { data, error } = await withTimeout(
+    supabase.rpc(RPC_NAME, {
+      p_user_id: userId,
+      p_company_id: companyId,
+      p_type: type,
+      p_method: method,
+      p_record_id: recordId || null,
+      p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
+      p_photo_url: photoUrl || null,
+      p_source: source,
+    }),
+    RPC_TIMEOUT_MS,
+    'registrar ponto (REP)',
+  );
 
   if (error) throw error;
   if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
@@ -126,24 +132,29 @@ export async function registerPunchSecure(params: RegisterPunchSecureParams): Pr
     fraudFlags,
   } = params;
 
-  const { data, error } = await supabase.rpc(RPC_SECURE_NAME, {
-    p_user_id: userId,
-    p_company_id: companyId,
-    p_type: type,
-    p_method: method,
-    p_record_id: recordId || null,
-    p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
-    p_photo_url: photoUrl || null,
-    p_source: source,
-    p_latitude: latitude ?? null,
-    p_longitude: longitude ?? null,
-    p_accuracy: accuracy ?? null,
-    p_device_id: deviceId ?? null,
-    p_device_type: deviceType ?? null,
-    p_ip_address: ipAddress ?? null,
-    p_fraud_score: fraudScore ?? null,
-    p_fraud_flags: fraudFlags && fraudFlags.length ? fraudFlags : null,
-  });
+  const RPC_TIMEOUT_MS = 15000;
+  const { data, error } = await withTimeout(
+    supabase.rpc(RPC_SECURE_NAME, {
+      p_user_id: userId,
+      p_company_id: companyId,
+      p_type: type,
+      p_method: method,
+      p_record_id: recordId || null,
+      p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
+      p_photo_url: photoUrl || null,
+      p_source: source,
+      p_latitude: latitude ?? null,
+      p_longitude: longitude ?? null,
+      p_accuracy: accuracy ?? null,
+      p_device_id: deviceId ?? null,
+      p_device_type: deviceType ?? null,
+      p_ip_address: ipAddress ?? null,
+      p_fraud_score: fraudScore ?? null,
+      p_fraud_flags: fraudFlags && fraudFlags.length ? fraudFlags : null,
+    }),
+    RPC_TIMEOUT_MS,
+    'registrar ponto (REP seguro)',
+  );
 
   if (error) {
     if (error.code === '42883') {

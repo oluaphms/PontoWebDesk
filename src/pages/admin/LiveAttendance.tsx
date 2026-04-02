@@ -200,15 +200,21 @@ const AdminLiveAttendance: React.FC = () => {
 function useSupabaseRealtimeEffect(refresh: () => void) {
   const ref = React.useRef(refresh);
   ref.current = refresh;
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     const channel = supabase
       .channel('live-attendance')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_records' }, () => {
-        ref.current();
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          debounceRef.current = null;
+          ref.current();
+        }, 400);
       })
       .subscribe();
     return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       supabase.removeChannel(channel);
     };
   }, []);

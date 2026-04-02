@@ -6,6 +6,7 @@
 
 import { getAppBaseUrl } from './appUrl';
 import { auth, clearLocalAuthSession, db, isSupabaseConfigured, supabase } from './supabase';
+import { withTimeout } from '../src/utils/withTimeout';
 import { User } from '../types';
 
 export interface AuthResult {
@@ -610,6 +611,18 @@ class AuthService {
           };
           clearSbKeys(window.sessionStorage);
           clearSbKeys(window.localStorage);
+
+          // Cookies legados (se algum middleware definiu sb-* ou similar)
+          try {
+            document.cookie.split(';').forEach((c) => {
+              const name = c.split('=')[0]?.trim();
+              if (name && (name.startsWith('sb-') || name.toLowerCase().includes('supabase'))) {
+                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
+              }
+            });
+          } catch {
+            // ignora
+          }
         }
       } catch {
         // ignora falha ao limpar storage
@@ -728,81 +741,27 @@ class AuthService {
   }
 
   /**
-   * Obter usuário atual
+   * Obter usuário atual (com timeout para evitar loading infinito em rede lenta / RLS pesado).
    */
   async getCurrentUser(): Promise<User | null> {
     try {
-      // Verificar se Supabase está configurado antes de tentar
-      if (!isSupabaseConfigured) {
-        console.warn('Supabase not configured - returning null user');
-        // Fallback: tentar usuário salvo em localStorage (modo desenvolvimento / offline)
+      return await withTimeout(this.getCurrentUserResolved(), 12000, 'carregar sessão');
+    } catch (error: any) {
+      if (String(error?.message || '').includes('Tempo esgotado')) {
         try {
           if (typeof window !== 'undefined') {
             const stored = window.localStorage.getItem('current_user');
             if (stored) {
+              if (import.meta.env?.DEV && typeof console !== 'undefined') {
+                console.warn('[Auth] getCurrentUser: timeout — usando perfil em cache');
+              }
               return JSON.parse(stored) as User;
             }
           }
         } catch {
-          // ignora erro de leitura
-        }
-        return null;
-      }
-
-      // Usar sessão local primeiro (rápido). `getUser()` valida na rede e podia perder a corrida de 3s,
-      // apagando `current_user` e mandando de volta ao login mesmo com sessão válida no sessionStorage.
-      const session = await auth.getSession();
-      if (!session?.user) {
-        try {
-          if (typeof window !== 'undefined') {
-            window.localStorage.removeItem('current_user');
-            window.dispatchEvent(new Event('current_user_changed'));
-          }
-        } catch {
           // ignora
         }
-        return null;
       }
-
-      const supabaseUser = session.user;
-
-      try {
-        const appUser = await this.supabaseUserToAppUser(supabaseUser);
-        if (appUser) {
-          try {
-            if (typeof window !== 'undefined') {
-              window.localStorage.setItem('current_user', JSON.stringify(appUser));
-              window.dispatchEvent(new Event('current_user_changed'));
-            }
-          } catch {
-            // ignora
-          }
-          return appUser;
-        }
-      } catch (error: any) {
-        if (error?.message?.includes('Refresh Token') || error?.message?.includes('Auth session missing')) {
-          try {
-            await auth.signOut();
-          } catch {
-            // Ignorar erros ao limpar sessão
-          }
-          return null;
-        }
-        // Perfil completo falhou (RLS/rede): segue com usuário mínimo — não deslogar
-      }
-
-      const minimal = await this.buildMinimalAppUserFromAuthUser(supabaseUser);
-      try {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('current_user', JSON.stringify(minimal));
-          window.dispatchEvent(new Event('current_user_changed'));
-        }
-      } catch {
-        // ignora
-      }
-      return minimal;
-    } catch (error: any) {
-      // Tratar erros de refresh token inválido silenciosamente (comportamento esperado quando não há sessão)
       if (error?.message?.includes('Refresh Token') || error?.message?.includes('Auth session missing')) {
         try {
           await auth.signOut();
@@ -811,10 +770,79 @@ class AuthService {
         }
         return null;
       }
-
       console.error('Erro ao obter usuário atual:', error);
       return null;
     }
+  }
+
+  /** Implementação interna de getCurrentUser (sem timeout). */
+  private async getCurrentUserResolved(): Promise<User | null> {
+    // Verificar se Supabase está configurado antes de tentar
+    if (!isSupabaseConfigured) {
+      console.warn('Supabase not configured - returning null user');
+      try {
+        if (typeof window !== 'undefined') {
+          const stored = window.localStorage.getItem('current_user');
+          if (stored) {
+            return JSON.parse(stored) as User;
+          }
+        }
+      } catch {
+        // ignora erro de leitura
+      }
+      return null;
+    }
+
+    const session = await auth.getSession();
+    if (!session?.user) {
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('current_user');
+          window.dispatchEvent(new Event('current_user_changed'));
+        }
+      } catch {
+        // ignora
+      }
+      return null;
+    }
+
+    const supabaseUser = session.user;
+
+    try {
+      const appUser = await this.supabaseUserToAppUser(supabaseUser);
+      if (appUser) {
+        try {
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('current_user', JSON.stringify(appUser));
+            window.dispatchEvent(new Event('current_user_changed'));
+          }
+        } catch {
+          // ignora
+        }
+        return appUser;
+      }
+    } catch (error: any) {
+      if (error?.message?.includes('Refresh Token') || error?.message?.includes('Auth session missing')) {
+        try {
+          await auth.signOut();
+        } catch {
+          // Ignorar erros ao limpar sessão
+        }
+        return null;
+      }
+      // Perfil completo falhou (RLS/rede): segue com usuário mínimo — não deslogar
+    }
+
+    const minimal = await this.buildMinimalAppUserFromAuthUser(supabaseUser);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('current_user', JSON.stringify(minimal));
+        window.dispatchEvent(new Event('current_user_changed'));
+      }
+    } catch {
+      // ignora
+    }
+    return minimal;
   }
 
   /**

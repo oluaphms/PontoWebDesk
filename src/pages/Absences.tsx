@@ -23,6 +23,7 @@ const AbsencesPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [rows, setRows] = useState<AbsenceRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<{ absence_date: string; type: string; reason: string }>({
     absence_date: '',
@@ -35,8 +36,10 @@ const AbsencesPage: React.FC = () => {
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
 
+    let cancelled = false;
     const load = async () => {
       setIsLoadingData(true);
+      setLoadError(null);
       try {
         const filters: { column: string; operator: string; value: any }[] = [];
         if (!isAdminView) {
@@ -49,6 +52,7 @@ const AbsencesPage: React.FC = () => {
             { column: 'absence_date', ascending: false },
           )) ?? [];
 
+        if (cancelled) return;
         setRows(
           res.map((r: any) => ({
             id: r.id,
@@ -59,14 +63,21 @@ const AbsencesPage: React.FC = () => {
             created_at: r.created_at,
           })),
         );
-      } catch (e) {
-        console.error('Erro ao carregar ausências:', e);
+      } catch (e: any) {
+        if (!cancelled) {
+          const msg = e?.message || 'Falha ao carregar dados.';
+          setLoadError(msg);
+          console.error('Erro ao carregar ausências:', e);
+        }
       } finally {
-        setIsLoadingData(false);
+        if (!cancelled) setIsLoadingData(false);
       }
     };
 
-    load();
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [user, isAdminView]);
 
   const openCreate = () => {
@@ -121,7 +132,7 @@ const AbsencesPage: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingState message="Carregando ausências..." />;
+    return <LoadingState message="Carregando sessão..." />;
   }
   if (!user) {
     return <Navigate to="/" replace />;
@@ -139,6 +150,12 @@ const AbsencesPage: React.FC = () => {
           </Button>
         }
       />
+
+      {loadError && (
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
+          {loadError}
+        </div>
+      )}
 
       {isLoadingData ? (
         <LoadingState message="Carregando ausências..." />

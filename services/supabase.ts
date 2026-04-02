@@ -57,13 +57,31 @@ const authStorage =
       }
     : undefined;
 
-// Timeout por requisição (auth + REST). Free tier pode ter cold start; 30s evita falso "Tempo esgotado".
-const SUPABASE_FETCH_TIMEOUT_MS = 30000;
+// Timeout por requisição HTTP (auth + REST). 15s equilibra cold start e evita espera infinita.
+const SUPABASE_FETCH_TIMEOUT_MS = 15000;
 
-// Wrapper de fetch com timeout explícito, evitando uso de spread em typeof fetch (TS 5.8).
+let authExpiredEventPending = false;
+
+// Wrapper de fetch com timeout + sinalização de JWT inválido (401 em REST).
 const fetchWithTimeout = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
   Promise.race([
-    fetch(input, init),
+    fetch(input, init).then((res) => {
+      if (typeof window !== 'undefined' && res.status === 401 && !authExpiredEventPending) {
+        const u = String(input);
+        if (u.includes('/rest/v1/') && !u.includes('/auth/v1/')) {
+          authExpiredEventPending = true;
+          try {
+            window.dispatchEvent(new CustomEvent('supabase:auth-expired'));
+          } catch {
+            // ignora
+          }
+          setTimeout(() => {
+            authExpiredEventPending = false;
+          }, 3000);
+        }
+      }
+      return res;
+    }),
     new Promise<Response>((_, reject) =>
       setTimeout(() => reject(new Error('Supabase timeout')), SUPABASE_FETCH_TIMEOUT_MS),
     ),
@@ -92,7 +110,7 @@ if (configured) {
 export const supabase = client;
 
 /** Timeout padrão para testes de conexão e operações (ms). */
-const DEFAULT_CONNECTION_TIMEOUT_MS = 20000;
+const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 
 /** Testa se o projeto Supabase está acessível (rede, URL e chave). Usa tabela users ou employees. */
 export async function testSupabaseConnection(
@@ -322,17 +340,41 @@ const realDb = configured
         orderBy?: { column: string; ascending?: boolean },
         limit?: number
       ) => {
-        let query = client!.from(table).select('*');
-        if (filters) {
-          filters.forEach((f) => {
-            query = (query as any)[f.operator](f.column, f.value);
-          });
+        const DB_SELECT_TIMEOUT_MS = 10000;
+        const run = async () => {
+          let query = client!.from(table).select('*');
+          if (filters) {
+            filters.forEach((f) => {
+              query = (query as any)[f.operator](f.column, f.value);
+            });
+          }
+          if (orderBy) query = (query as any).order(orderBy.column, { ascending: orderBy.ascending ?? true });
+          if (limit != null) query = (query as any).limit(limit);
+          const { data, error } = await query;
+          if (error) throw error;
+          return data;
+        };
+        try {
+          return await Promise.race([
+            run(),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `Tempo esgotado ao carregar dados (${DB_SELECT_TIMEOUT_MS / 1000}s). Verifique a rede ou tente novamente.`,
+                    ),
+                  ),
+                DB_SELECT_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+        } catch (e: any) {
+          if (import.meta.env?.DEV && typeof console !== 'undefined') {
+            console.warn('[db.select]', table, e?.message ?? e);
+          }
+          throw e;
         }
-        if (orderBy) query = (query as any).order(orderBy.column, { ascending: orderBy.ascending ?? true });
-        if (limit != null) query = (query as any).limit(limit);
-        const { data, error } = await query;
-        if (error) throw error;
-        return data;
       },
       subscribe: (table: string, callback: (payload: any) => void, filters?: string) => {
         const ch = client!

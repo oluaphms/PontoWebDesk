@@ -99,3 +99,66 @@ export function getCurrentLocation(
 ): Promise<GeoPosition | null> {
   return getCurrentLocationResult(options).then((r) => (r.ok ? r.position : null));
 }
+
+export interface WatchGeoOptions extends GetCurrentLocationOptions {
+  /** Intervalo mínimo entre emissões de posição (ms). Padrão 4000. */
+  minIntervalMs?: number;
+}
+
+/**
+ * Atualiza a posição em tempo quase real (`watchPosition`). Retorna função para parar o rastreamento.
+ */
+export function watchGeoPosition(onResult: (result: LocationResult) => void, options: WatchGeoOptions = {}): () => void {
+  const minInterval = options.minIntervalMs ?? 4000;
+  let lastEmit = 0;
+
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    onResult({ ok: false, position: null, reason: 'unsupported' });
+    return () => undefined;
+  }
+
+  if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost') {
+    onResult({ ok: false, position: null, reason: 'unavailable' });
+    return () => undefined;
+  }
+
+  const opts = {
+    enableHighAccuracy: options.enableHighAccuracy ?? DEFAULT_OPTIONS.enableHighAccuracy,
+    timeout: options.timeout ?? 25000,
+    maximumAge: options.maximumAge ?? 0,
+  };
+
+  const id = navigator.geolocation.watchPosition(
+    (position) => {
+      const now = Date.now();
+      if (now - lastEmit < minInterval) return;
+      lastEmit = now;
+      onResult({
+        ok: true,
+        position: {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy ?? 0,
+          timestamp: position.timestamp,
+        },
+      });
+    },
+    (err) => {
+      const code = (err as GeolocationPositionError)?.code;
+      let reason: GeolocationFailureReason = 'unavailable';
+      if (code === 1) reason = 'denied';
+      else if (code === 2) reason = 'unavailable';
+      else if (code === 3) reason = 'timeout';
+      onResult({ ok: false, position: null, reason });
+    },
+    opts
+  );
+
+  return () => {
+    try {
+      navigator.geolocation.clearWatch(id);
+    } catch {
+      // ignora
+    }
+  };
+}

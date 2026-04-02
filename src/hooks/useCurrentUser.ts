@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { User } from '../../types';
 import { authService } from '../../services/authService';
 import { isSupabaseConfigured } from '../../services/supabase';
+
+const HYDRATE_TIMEOUT_MS = 10000;
 
 function getStoredUser(): User | null {
   try {
@@ -26,6 +28,7 @@ export function readCachedUser(): User | null {
 export function useCurrentUser() {
   const [user, setUser] = useState<User | null>(() => getStoredUser());
   const [loading, setLoading] = useState(() => getStoredUser() === null);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -37,8 +40,10 @@ export function useCurrentUser() {
     };
 
     const hydrate = async () => {
+      if (hydratedRef.current) return;
       if (!isSupabaseConfigured) {
         applyStored();
+        hydratedRef.current = true;
         return;
       }
       try {
@@ -46,9 +51,11 @@ export function useCurrentUser() {
         if (mounted) {
           setUser(u);
           setLoading(false);
+          hydratedRef.current = true;
         }
       } catch {
         applyStored();
+        hydratedRef.current = true;
       }
     };
 
@@ -58,8 +65,13 @@ export function useCurrentUser() {
     window.addEventListener('current_user_changed', applyStored);
 
     const fallbackTimeout = window.setTimeout(() => {
-      if (mounted) setLoading(false);
-    }, 8000);
+      if (mounted) {
+        setLoading(false);
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
+          console.warn('[useCurrentUser] fallback: encerrando loading após', HYDRATE_TIMEOUT_MS, 'ms');
+        }
+      }
+    }, HYDRATE_TIMEOUT_MS);
 
     return () => {
       mounted = false;
