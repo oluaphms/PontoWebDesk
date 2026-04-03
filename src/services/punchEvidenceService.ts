@@ -32,7 +32,10 @@ export async function savePunchEvidence(params: SavePunchEvidenceParams): Promis
       device_id: params.deviceId ?? null,
       fraud_score: params.fraudScore ?? null,
     });
-  } catch {
+  } catch (e) {
+    if (import.meta.env?.DEV && typeof console !== 'undefined') {
+      console.warn('[punch_evidence] insert falhou (não bloqueia o ponto):', e);
+    }
     // não falhar o registro principal
   }
 }

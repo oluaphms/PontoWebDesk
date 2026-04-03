@@ -15,9 +15,13 @@ import { getDayRecords, getLocalDateString, validatePunchSequence } from '../../
 import {
   getCurrentLocationResult,
   geolocationReasonMessage,
+  geolocationActionHint,
+  queryGeolocationPermission,
+  logGeolocationDebug,
   watchGeoPosition,
   type GeoPosition,
   type GeolocationFailureReason,
+  type GeoPermissionState,
 } from '../../services/locationService';
 import { uploadPunchPhotoWithRetry, validatePunchImageDataUrl } from '../../utils/punchPhotoUpload';
 import {
@@ -27,7 +31,7 @@ import {
   type DeviceFingerprint,
 } from '../../security/antiFraudEngine';
 import { detectBehaviorAnomaly } from '../../ai/anomalyDetection';
-import { registerPunchSecure } from '../../rep/repEngine';
+import { registerPunchSecure, normalizePunchRegistrationError } from '../../rep/repEngine';
 import { savePunchEvidence, createFraudAlertsForFlags } from '../../services/punchEvidenceService';
 import { getCompanyLocations, isWithinAllowedLocation } from '../../services/settingsService';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -87,7 +91,6 @@ const EmployeeClockIn: React.FC = () => {
   const [lastType, setLastType] = useState<string | null>(null);
   const [lastRecordAt, setLastRecordAt] = useState<string | null>(null);
   const [verificationMode, setVerificationMode] = useState<VerificationMode>('photo');
-  const [showActionSheet, setShowActionSheet] = useState(false);
   /** Feedback de GPS para o usuário */
   const [geoLiveStatus, setGeoLiveStatus] = useState<'idle' | 'obtaining' | 'captured' | 'failed'>('idle');
   /** Modal de comprovação (GPS + câmera / digital) */
@@ -96,6 +99,7 @@ const EmployeeClockIn: React.FC = () => {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [geo, setGeo] = useState<GeoPosition | null>(null);
   const [gpsFailReason, setGpsFailReason] = useState<GeolocationFailureReason | null>(null);
+  const [geoPermissionState, setGeoPermissionState] = useState<GeoPermissionState>('unknown');
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [hadBiometric, setHadBiometric] = useState(false);
   const [digitalFallbackToPhoto, setDigitalFallbackToPhoto] = useState(false);
@@ -203,23 +207,31 @@ const EmployeeClockIn: React.FC = () => {
     setGpsLoading(false);
     setWebAuthnBusy(false);
     setGeoLiveStatus('idle');
+    setGeoPermissionState('unknown');
   }, [stopCamera]);
 
   const retryGps = useCallback(async () => {
-    setGpsLoading(true);
+    setGeo(null);
     setGpsFailReason(null);
     setGeoLiveStatus('obtaining');
-    const r = await getCurrentLocationResult({ timeout: 15000, maximumAge: 0 });
+    setGpsLoading(true);
+    logGeolocationDebug('retryGps:start', {});
+    const perm = await queryGeolocationPermission();
+    setGeoPermissionState(perm);
+    logGeolocationDebug('retryGps:permission', { permission: perm });
+    const r = await getCurrentLocationResult({ timeout: 20000, maximumAge: 0 });
     setGpsLoading(false);
     if (r.ok === false) {
       setGeo(null);
       setGpsFailReason(r.reason);
       setGeoLiveStatus('failed');
+      logGeolocationDebug('retryGps:fail', { reason: r.reason, apiMessage: r.apiMessage });
       return;
     }
     setGeo(r.position);
     setGpsFailReason(null);
     setGeoLiveStatus('captured');
+    logGeolocationDebug('retryGps:ok', { position: r.position });
   }, []);
 
   useEffect(() => {
@@ -230,13 +242,19 @@ const EmployeeClockIn: React.FC = () => {
       setGpsLoading(true);
       setGpsFailReason(null);
       setGeo(null);
-      const r = await getCurrentLocationResult({ timeout: 15000, maximumAge: 0 });
+      const perm = await queryGeolocationPermission();
+      if (!cancelled) {
+        setGeoPermissionState(perm);
+        logGeolocationDebug('modal:permission', { permission: perm });
+      }
+      const r = await getCurrentLocationResult({ timeout: 20000, maximumAge: 0 });
       if (cancelled) return;
       setGpsLoading(false);
       if (r.ok === false) {
         setGeo(null);
         setGpsFailReason(r.reason);
         setGeoLiveStatus('failed');
+        logGeolocationDebug('modal:initial:fail', { reason: r.reason, apiMessage: r.apiMessage });
         return;
       }
       setGeo(r.position);
@@ -429,6 +447,20 @@ const EmployeeClockIn: React.FC = () => {
           ? crypto.randomUUID()
           : `rec-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
+      const punchPayload = {
+        userId: user.id,
+        companyId: user.companyId,
+        type: typeStr,
+        method,
+        recordId,
+        hasLocation: !!(geoPos?.latitude != null && geoPos?.longitude != null),
+        hasPhoto: !!photoUrl,
+        manualBypass,
+      };
+      if (import.meta.env?.DEV && typeof console !== 'undefined') {
+        console.info('[ClockIn] registerPunchSecure', punchPayload);
+      }
+
       const result = await registerPunchSecure({
         userId: user.id,
         companyId: user.companyId,
@@ -472,8 +504,12 @@ const EmployeeClockIn: React.FC = () => {
               : typeStr;
       toast.addToast('success', `${label} registrada com sucesso.`);
       closeProofModal();
-    } catch (e: any) {
-      const msg = e?.message || 'Erro ao registrar ponto';
+    } catch (e: unknown) {
+      const err = normalizePunchRegistrationError(e);
+      const msg = err.message || 'Erro ao registrar ponto';
+      if (import.meta.env?.DEV && typeof console !== 'undefined') {
+        console.warn('[ClockIn] registerPunch erro', e);
+      }
       setError(msg);
       toast.addToast('error', msg);
     } finally {
@@ -770,6 +806,20 @@ const EmployeeClockIn: React.FC = () => {
                   Em HTTP (sem HTTPS), o navegador pode bloquear GPS e câmera. Use HTTPS em produção ou teste em localhost.
                 </p>
               )}
+              {geoPermissionState !== 'unknown' && geoPermissionState !== 'unsupported' && (
+                <p className="text-xs text-slate-500 dark:text-slate-400" role="status">
+                  Permissão de localização no navegador:{' '}
+                  <strong>
+                    {geoPermissionState === 'granted'
+                      ? 'permitida'
+                      : geoPermissionState === 'denied'
+                        ? 'negada'
+                        : geoPermissionState === 'prompt'
+                          ? 'aguardando escolha'
+                          : geoPermissionState}
+                  </strong>
+                </p>
+              )}
               {gpsLoading && (
                 <p className="text-sm text-slate-600 dark:text-slate-400" role="status">
                   Obtendo localização…
@@ -781,18 +831,42 @@ const EmployeeClockIn: React.FC = () => {
                 </p>
               )}
               {!gpsLoading && geoLiveStatus === 'failed' && gpsFailReason && (
-                <p className="text-sm text-red-700 dark:text-red-300" role="alert">
-                  Falha ao obter localização. {geolocationReasonMessage(gpsFailReason)}
-                </p>
+                <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-950/30 p-3 space-y-2" role="alert">
+                  <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                    {gpsFailReason === 'denied' ? 'Localização bloqueada' : 'Não foi possível usar o GPS'}
+                  </p>
+                  <p className="text-sm text-red-700 dark:text-red-300">{geolocationReasonMessage(gpsFailReason)}</p>
+                  <p className="text-xs text-red-800/90 dark:text-red-200/90">{geolocationActionHint(gpsFailReason)}</p>
+                  {import.meta.env?.DEV && (
+                    <p className="text-[10px] font-mono text-slate-500 break-all">Debug: motivo={gpsFailReason}</p>
+                  )}
+                </div>
               )}
               <button
                 type="button"
                 disabled={gpsLoading || saving}
                 onClick={() => void retryGps()}
-                className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2.5 disabled:opacity-50 min-h-[44px]"
               >
                 Tentar localização novamente
               </button>
+              {canUseManualPunch && !manualBypassActive && geoLiveStatus === 'failed' && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+                    {globalSettings?.gps_required
+                      ? 'Se a política da empresa permitir registro sem GPS, use o modo manual abaixo.'
+                      : 'Você pode concluir o registro sem GPS usando o modo manual.'}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setVerificationMode('manual')}
+                    className="w-full rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 text-sm font-medium py-2.5"
+                  >
+                    Continuar em registro manual (sem localização automática)
+                  </button>
+                </div>
+              )}
               {geo && geo.latitude != null && geo.longitude != null && (
                 <div className="h-52 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 mt-3 bg-slate-100 dark:bg-slate-800">
                   <Suspense
@@ -923,7 +997,7 @@ const EmployeeClockIn: React.FC = () => {
                 type="button"
                 disabled={
                   saving ||
-                  (gpsLoading && !manualBypassActive) ||
+                  (gpsLoading && !manualBypassActive && globalSettings?.gps_required === true) ||
                   (globalSettings?.gps_required === true &&
                     (!geo?.latitude || !geo?.longitude) &&
                     !manualBypassActive) ||

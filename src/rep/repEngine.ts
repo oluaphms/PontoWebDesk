@@ -62,6 +62,26 @@ export interface IntegrityResult {
 const RPC_NAME = 'rep_register_punch';
 const MAX_NSR = 999999999;
 
+/** Mensagem amigável para erros de RPC / RLS no registro de ponto. */
+export function normalizePunchRegistrationError(err: unknown): Error {
+  const e = err as { message?: string; code?: string; details?: string };
+  const msg = String(e?.message ?? err ?? '');
+  const code = e?.code;
+  if (
+    code === '42501' ||
+    /row-level security|violates row-level security|RLS|permission denied for table/i.test(msg) ||
+    /42501/.test(msg)
+  ) {
+    return new Error(
+      'Não foi possível concluir o registro por permissão no servidor. Atualize a página, faça login novamente ou contate o suporte.',
+    );
+  }
+  if (/Não autorizado a registrar ponto para outro usuário/i.test(msg)) {
+    return new Error('Sessão inconsistente: faça logout e entre novamente.');
+  }
+  return err instanceof Error ? err : new Error(msg || 'Erro ao registrar ponto');
+}
+
 /**
  * Registra marcação de ponto conforme REP-P (NSR + hash + imutabilidade).
  * Usa RPC no Supabase para garantir sequência e hash no servidor.
@@ -97,7 +117,7 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
     'registrar ponto (REP)',
   );
 
-  if (error) throw error;
+  if (error) throw normalizePunchRegistrationError(error);
   if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
 
   return data as RegisterPunchResult;
@@ -160,7 +180,7 @@ export async function registerPunchSecure(params: RegisterPunchSecureParams): Pr
     if (error.code === '42883') {
       return registerPunch(params);
     }
-    throw error;
+    throw normalizePunchRegistrationError(error);
   }
   if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
 
