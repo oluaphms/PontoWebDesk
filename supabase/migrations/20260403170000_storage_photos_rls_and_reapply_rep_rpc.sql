@@ -1,7 +1,46 @@
--- Registro de ponto: garantir bypass de RLS nas RPCs REP (INSERT em time_records / point_receipts / time_nsr_sequence).
--- Motivo: CREATE OR REPLACE pode resetar ALTER FUNCTION; no Supabase o insert falha com
--- "new row violates row-level security policy" se row_security permanecer ativo.
--- Dupla camada: SET row_security = off no cabeçalho + SET LOCAL no corpo (PostgREST aplica RLS ao invoker).
+-- 1) Storage bucket `photos`: upload da selfie falha com o mesmo texto "new row violates row-level security policy"
+--    em storage.objects se não houver política de INSERT (comum em projetos Supabase novos).
+-- 2) Reaplica as RPCs REP com SET LOCAL row_security (idempotente; corrige DBs que rodaram versão antiga de 20260403160000).
+
+-- ─── Storage: bucket + RLS ─────────────────────────────────────────────────────
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('photos', 'photos', true)
+ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
+
+DROP POLICY IF EXISTS "photos_public_read" ON storage.objects;
+CREATE POLICY "photos_public_read"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'photos');
+
+DROP POLICY IF EXISTS "photos_authenticated_insert_own_folder" ON storage.objects;
+CREATE POLICY "photos_authenticated_insert_own_folder"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'photos'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "photos_authenticated_update_own_folder" ON storage.objects;
+CREATE POLICY "photos_authenticated_update_own_folder"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'photos'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'photos'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "photos_authenticated_delete_own_folder" ON storage.objects;
+CREATE POLICY "photos_authenticated_delete_own_folder"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'photos'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- ─── RPCs REP (mesmo conteúdo que 20260403160000; reaplica após correções) ───
 
 CREATE OR REPLACE FUNCTION public.rep_register_punch(
   p_user_id TEXT,
@@ -269,15 +308,6 @@ BEGIN
   );
 END;
 $$;
-
-COMMENT ON FUNCTION public.rep_register_punch IS
-  'REP-P: NSR + hash. SET LOCAL row_security off + cabeçalho: bypass RLS no PostgREST.';
-
-COMMENT ON FUNCTION public.rep_register_punch_secure IS
-  'REP-P + antifraude. SET LOCAL row_security off + cabeçalho: bypass RLS no PostgREST.';
-
-COMMENT ON FUNCTION public.insert_punch_evidence_for_own_punch IS
-  'Evidência do próprio usuário; SET LOCAL row_security off após validação.';
 
 GRANT EXECUTE ON FUNCTION public.rep_register_punch(text, text, text, text, text, jsonb, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.rep_register_punch_secure(
