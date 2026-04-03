@@ -23,15 +23,29 @@ export interface CreateFraudAlertParams {
 
 export async function savePunchEvidence(params: SavePunchEvidenceParams): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
+  const row = {
+    time_record_id: params.timeRecordId,
+    photo_url: params.photoUrl ?? null,
+    location_lat: params.locationLat ?? null,
+    location_lng: params.locationLng ?? null,
+    device_id: params.deviceId ?? null,
+    fraud_score: params.fraudScore ?? null,
+  };
   try {
-    await db.insert('punch_evidence', {
-      time_record_id: params.timeRecordId,
-      photo_url: params.photoUrl ?? null,
-      location_lat: params.locationLat ?? null,
-      location_lng: params.locationLng ?? null,
-      device_id: params.deviceId ?? null,
-      fraud_score: params.fraudScore ?? null,
+    const { error: rpcError } = await supabase.rpc('insert_punch_evidence_for_own_punch', {
+      p_time_record_id: params.timeRecordId,
+      p_photo_url: params.photoUrl ?? null,
+      p_location_lat: params.locationLat ?? null,
+      p_location_lng: params.locationLng ?? null,
+      p_device_id: params.deviceId ?? null,
+      p_fraud_score: params.fraudScore ?? null,
     });
+    if (!rpcError) return;
+
+    if (import.meta.env?.DEV && typeof console !== 'undefined') {
+      console.warn('[punch_evidence] RPC falhou, tentando insert direto:', rpcError);
+    }
+    await db.insert('punch_evidence', row);
   } catch (e) {
     if (import.meta.env?.DEV && typeof console !== 'undefined') {
       console.warn('[punch_evidence] insert falhou (não bloqueia o ponto):', e);
