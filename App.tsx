@@ -1036,7 +1036,16 @@ const AppMain: React.FC = () => {
     path === '/schedules' ||
     path === '/real-time-insights' ||
     path === '/company' ||
-    path === '/reports';
+    path === '/reports' ||
+    path === '/time-balance' ||
+    path === '/requests' ||
+    path === '/vacations' ||
+    path === '/absences' ||
+    path === '/notifications' ||
+    path === '/adjustments' ||
+    path === '/ai-chat' ||
+    path === '/locations' ||
+    path === '/devices';
 
   const isAdminOrHr = user.role === 'admin' || user.role === 'hr';
 
@@ -1124,6 +1133,12 @@ const AppMain: React.FC = () => {
               <Route path="settings" element={<EmployeeSettings />} />
               <Route path="time-balance" element={<TimeBalancePage />} />
             </Route>
+            {/* Atalhos legados (sidebar antiga / links salvos): enviam para a área correta */}
+            <Route path="/time-balance" element={<Navigate to={isAdminOrHr ? '/admin/bank-hours' : '/employee/time-balance'} replace />} />
+            <Route
+              path="/requests"
+              element={<Navigate to={isAdminOrHr ? '/admin/requests' : '/employee/requests'} replace />}
+            />
             {/* Rotas legadas: /dashboard redireciona pela role para evitar confusão */}
             <Route path="/dashboard" element={<Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />} />
             <Route path="/dashboard-admin" element={<AdminDashboard />} />

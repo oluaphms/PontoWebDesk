@@ -8,6 +8,8 @@ import { getAppBaseUrl } from './appUrl';
 import { auth, clearLocalAuthSession, db, isSupabaseConfigured, supabase } from './supabase';
 import { withTimeout } from '../src/utils/withTimeout';
 import { User } from '../types';
+import { logTenantLoginSuccess } from '../src/services/tenantAudit';
+import { resolveTenantId } from '../src/services/tenantScope';
 
 export interface AuthResult {
   user: User | null;
@@ -15,6 +17,20 @@ export interface AuthResult {
 }
 
 class AuthService {
+  /** Sincroniza tenant_id no user_metadata do Supabase Auth (visível no JWT após refresh). */
+  private async syncTenantUserMetadata(appUser: User): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+    const tid = resolveTenantId(appUser);
+    if (!tid) return;
+    try {
+      await supabase.auth.updateUser({
+        data: { tenant_id: tid, company_id: tid },
+      });
+    } catch {
+      // não bloquear login
+    }
+  }
+
   /**
    * Resolve um identificador de login (email, CPF, nome completo, primeiro nome)
    * para um email válido que exista no Supabase Auth.
@@ -197,7 +213,7 @@ class AuthService {
     if (email === 'funcionario@smartponto.com') {
       fallbackRole = 'employee';
     }
-    return {
+    const u: User = {
       id: supabaseUser.id,
       nome: supabaseUser.user_metadata?.nome || (email ? email.split('@')[0] : 'Usuário'),
       email: supabaseUser.email || '',
@@ -205,10 +221,12 @@ class AuthService {
       role: fallbackRole,
       createdAt: new Date(),
       companyId: fallbackCompanyId,
+      tenantId: fallbackCompanyId,
       departmentId: '',
       avatar: supabaseUser.user_metadata?.avatar_url,
       preferences: { notifications: true, theme: 'light', allowManualPunch: true, language: 'pt-BR' },
     };
+    return u;
   }
 
   /**
@@ -248,6 +266,8 @@ class AuthService {
         if (emailLower === 'funcionario@smartponto.com') {
           effectiveRole = 'employee';
         }
+        const cid = user.company_id ?? '';
+        const tid = (user as { tenant_id?: string }).tenant_id ?? cid;
         return {
           id: supabaseUser.id,
           nome: user.nome || supabaseUser.user_metadata?.nome || email.split('@')[0] || 'Usuário',
@@ -255,9 +275,11 @@ class AuthService {
           cargo: user.cargo || 'Colaborador',
           role: effectiveRole,
           createdAt: user.created_at ? new Date(user.created_at) : new Date(),
-          companyId: user.company_id ?? '',
+          companyId: cid,
+          tenantId: tid,
           departmentId: user.department_id ?? '',
           schedule_id: user.schedule_id,
+          shift_id: (user as { shift_id?: string }).shift_id,
           phone: user.phone,
           avatar: supabaseUser.user_metadata?.avatar_url || user.avatar,
           preferences: user.preferences || {
@@ -297,6 +319,7 @@ class AuthService {
         role: resolvedRole,
         createdAt: new Date(),
         companyId: '',
+        tenantId: '',
         departmentId: '',
         avatar: supabaseUser.user_metadata?.avatar_url,
         preferences: {
@@ -328,6 +351,8 @@ class AuthService {
           ], undefined, 1);
           if (byEmail?.[0]) {
             const u = byEmail[0];
+            const cid = u.company_id ?? '';
+            const tid = (u as { tenant_id?: string }).tenant_id ?? cid;
             return {
               id: supabaseUser.id,
               nome: u.nome || newUser.nome,
@@ -335,9 +360,11 @@ class AuthService {
               cargo: u.cargo || 'Colaborador',
               role: u.role || 'employee',
               createdAt: u.created_at ? new Date(u.created_at) : new Date(),
-              companyId: u.company_id ?? '',
+              companyId: cid,
+              tenantId: tid,
               departmentId: u.department_id ?? '',
               schedule_id: u.schedule_id,
+              shift_id: (u as { shift_id?: string }).shift_id,
               phone: u.phone,
               avatar: u.avatar || newUser.avatar,
               preferences: u.preferences || newUser.preferences
@@ -385,6 +412,7 @@ class AuthService {
         role: resolvedRole,
         createdAt: new Date(),
         companyId: '',
+        tenantId: '',
         departmentId: '',
         avatar: supabaseUser.user_metadata?.avatar_url,
         preferences: {
@@ -438,6 +466,12 @@ class AuthService {
         ]);
         if (appUser) {
           try {
+            await this.syncTenantUserMetadata(appUser);
+            await logTenantLoginSuccess(appUser);
+          } catch {
+            // ignore
+          }
+          try {
             localStorage.setItem('current_user', JSON.stringify(appUser));
             window.dispatchEvent(new Event('current_user_changed'));
           } catch {
@@ -447,6 +481,12 @@ class AuthService {
         }
         // Fallback: perfil não carregou a tempo (timeout) — mesmo fluxo que onAuthStateChanged (não deslogar)
         const minimalUser = await this.buildMinimalAppUserFromAuthUser(data.user);
+        try {
+          await this.syncTenantUserMetadata(minimalUser);
+          await logTenantLoginSuccess(minimalUser);
+        } catch {
+          // ignore
+        }
         try {
           localStorage.setItem('current_user', JSON.stringify(minimalUser));
           window.dispatchEvent(new Event('current_user_changed'));
@@ -509,6 +549,7 @@ class AuthService {
           role: 'employee',
           createdAt: new Date(),
           companyId,
+          tenantId: companyId,
           departmentId: '',
           avatar: data.user.user_metadata?.avatar_url,
           preferences: {
@@ -812,6 +853,11 @@ class AuthService {
       const appUser = await this.supabaseUserToAppUser(supabaseUser);
       if (appUser) {
         try {
+          await this.syncTenantUserMetadata(appUser);
+        } catch {
+          // ignora
+        }
+        try {
           if (typeof window !== 'undefined') {
             window.localStorage.setItem('current_user', JSON.stringify(appUser));
             window.dispatchEvent(new Event('current_user_changed'));
@@ -834,6 +880,11 @@ class AuthService {
     }
 
     const minimal = await this.buildMinimalAppUserFromAuthUser(supabaseUser);
+    try {
+      await this.syncTenantUserMetadata(minimal);
+    } catch {
+      // ignora
+    }
     try {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('current_user', JSON.stringify(minimal));
@@ -863,6 +914,11 @@ class AuthService {
             appUser = await this.buildMinimalAppUserFromAuthUser(session.user);
           }
           try {
+            if (appUser) await this.syncTenantUserMetadata(appUser);
+          } catch {
+            // ignora
+          }
+          try {
             if (typeof window !== 'undefined') {
               window.localStorage.setItem('current_user', JSON.stringify(appUser));
               window.dispatchEvent(new Event('current_user_changed'));
@@ -886,6 +942,11 @@ class AuthService {
         if (session?.user) {
           try {
             const appUser = await this.buildMinimalAppUserFromAuthUser(session.user);
+            try {
+              await this.syncTenantUserMetadata(appUser);
+            } catch {
+              // ignora
+            }
             try {
               if (typeof window !== 'undefined') {
                 window.localStorage.setItem('current_user', JSON.stringify(appUser));

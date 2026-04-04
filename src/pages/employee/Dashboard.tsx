@@ -20,6 +20,7 @@ const EmployeeDashboard: React.FC = () => {
   const [todayHours, setTodayHours] = useState('');
   const [monthHours, setMonthHours] = useState('');
   const [balanceHours, setBalanceHours] = useState<string>('—');
+  const [bankCreditDebit, setBankCreditDebit] = useState<string>('');
   const [pendingRequests, setPendingRequests] = useState(0);
   const [scheduleName, setScheduleName] = useState<string>('—');
   const [loadingData, setLoadingData] = useState(true);
@@ -96,6 +97,32 @@ const EmployeeDashboard: React.FC = () => {
           setPendingRequests(0);
         }
 
+        try {
+          const bankRows = (await db.select(
+            'bank_hours',
+            [{ column: 'employee_id', operator: 'eq', value: user.id }],
+            { column: 'date', ascending: false },
+            200,
+          )) as any[];
+          const latest = bankRows?.[0];
+          const bal = latest != null && latest.balance != null ? Number(latest.balance) : null;
+          if (bal != null && !Number.isNaN(bal)) {
+            const sign = bal > 0 ? '+' : '';
+            setBalanceHours(`${sign}${bal.toFixed(1)}h`);
+            const monthPrefix = new Date().toISOString().slice(0, 7);
+            const monthMovs = (bankRows ?? []).filter((r: any) => (r.date || '').slice(0, 7) === monthPrefix);
+            const credit = monthMovs.reduce((s, r) => s + Number(r.hours_added ?? 0), 0);
+            const debit = monthMovs.reduce((s, r) => s + Number(r.hours_removed ?? 0), 0);
+            setBankCreditDebit(`Este mês: +${credit.toFixed(1)}h crédito · −${debit.toFixed(1)}h débito`);
+          } else {
+            setBalanceHours('0h');
+            setBankCreditDebit('Sem movimentações no banco ainda');
+          }
+        } catch {
+          setBalanceHours('—');
+          setBankCreditDebit('Indisponível');
+        }
+
         if (user.schedule_id) {
           try {
             const sched = (await db.select('schedules', [{ column: 'id', operator: 'eq', value: user.schedule_id }])) as any[];
@@ -152,15 +179,25 @@ const EmployeeDashboard: React.FC = () => {
             <p className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">{monthHours || '0h 0m'}</p>
           </div>
         </div>
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white">
+        <button
+          type="button"
+          onClick={() => navigate('/employee/time-balance')}
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 flex items-center gap-4 text-left w-full hover:border-amber-300 dark:hover:border-amber-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+        >
+          <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
             <Scale className="w-6 h-6" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{i18n.t('dashboard.balanceHours')}</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">{balanceHours}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">{loadingData ? '—' : balanceHours}</p>
+            {bankCreditDebit && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate" title={bankCreditDebit}>
+                {bankCreditDebit}
+              </p>
+            )}
+            <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 font-medium">Ver banco de horas →</p>
           </div>
-        </div>
+        </button>
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 flex items-center gap-4 sm:col-span-2 lg:col-span-1">
           <div className="w-12 h-12 rounded-xl bg-violet-500 flex items-center justify-center text-white">
             <ClipboardList className="w-6 h-6" />

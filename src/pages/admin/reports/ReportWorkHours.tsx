@@ -68,7 +68,11 @@ const ReportWorkHours: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Relatório de Jornada" subtitle="Horas trabalhadas x esperadas por funcionário" icon={<Clock className="w-5 h-5" />} />
+      <PageHeader
+        title="Relatório de Jornada"
+        subtitle="Horas trabalhadas × esperadas por funcionário no mês. Use o Espelho de Ponto para ver entrada/saída, localização e método (foto, GPS, manual) por dia."
+        icon={<Clock className="w-5 h-5" />}
+      />
       <div className="flex flex-wrap gap-4 items-end">
         <label className="block">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Mês</span>

@@ -7,7 +7,7 @@ import DataTable from '../components/DataTable';
 import { Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { calculateMonthlyBalance, WorkSchedule } from '../utils/timeCalculations';
-import { TimeRecord, LogType } from '../../types';
+import { TimeRecord, LogType, PunchMethod } from '../../types';
 
 interface TimeBalanceRow {
   id: string;
@@ -28,6 +28,9 @@ const TimeBalancePage: React.FC = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [bankMovements, setBankMovements] = useState<
+    { date: string; hours_added: number; hours_removed: number; balance: number; source?: string }[]
+  >([]);
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
@@ -35,7 +38,7 @@ const TimeBalancePage: React.FC = () => {
     const load = async () => {
       setIsLoadingData(true);
       try {
-        const [balanceResult, recRows, wsRows, usRows] = await Promise.all([
+        const [balanceResult, recRows, wsRows, usRows, bankRows] = await Promise.all([
           db
             .select(
               'time_balance',
@@ -62,6 +65,14 @@ const TimeBalancePage: React.FC = () => {
             'user_schedules',
             [{ column: 'user_id', operator: 'eq', value: user.id }],
           ),
+          db
+            .select(
+              'bank_hours',
+              [{ column: 'employee_id', operator: 'eq', value: user.id }],
+              { column: 'date', ascending: false },
+              120,
+            )
+            .catch(() => [] as any[]),
         ]);
 
         const balanceRows = Array.isArray(balanceResult) ? balanceResult : [];
@@ -79,13 +90,27 @@ const TimeBalancePage: React.FC = () => {
           setSupabaseBalance(null);
         }
 
+        const mappedBank = (bankRows as any[] | undefined)?.map((b) => ({
+          date: (b.date || '').slice(0, 10),
+          hours_added: Number(b.hours_added ?? 0),
+          hours_removed: Number(b.hours_removed ?? 0),
+          balance: Number(b.balance ?? 0),
+          source: b.source,
+        }));
+        setBankMovements(mappedBank ?? []);
+
         const mappedRecords: TimeRecord[] =
           recRows?.map((r: any) => ({
             id: r.id,
             userId: r.user_id,
             companyId: r.company_id,
-            type: (r.type as LogType) ?? LogType.IN,
-            method: r.method,
+            type:
+              r.type === 'entrada' || r.type === LogType.IN
+                ? LogType.IN
+                : r.type === 'saída' || r.type === 'saida' || r.type === LogType.OUT
+                  ? LogType.OUT
+                  : LogType.BREAK,
+            method: (r.method as PunchMethod) || PunchMethod.MANUAL,
             photoUrl: r.photo_url ?? undefined,
             location: r.location ?? undefined,
             justification: r.justification ?? undefined,
@@ -160,7 +185,7 @@ const TimeBalancePage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Banco de Horas"
-        subtitle="Resumo mensal de saldo, extras e débitos"
+        subtitle="Saldo a partir das movimentações registradas; o resumo mensal complementa quando a folha foi fechada."
         icon={<Scale className="w-5 h-5" />}
       />
 
@@ -177,6 +202,42 @@ const TimeBalancePage: React.FC = () => {
         <LoadingState message="Carregando saldo..." />
       ) : (
         <>
+          {bankMovements.length > 0 && (
+            <div className="glass-card rounded-[2.25rem] p-6 space-y-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Movimentações do banco (crédito / débito)</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Crédito: horas extras ou acertos positivos. Débito: faltas ou compensações. O saldo é cumulativo até a data.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-left">
+                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400">Data</th>
+                      <th className="px-3 py-2 font-semibold text-emerald-600 text-right">Crédito (h)</th>
+                      <th className="px-3 py-2 font-semibold text-red-600 text-right">Débito (h)</th>
+                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 text-right">Saldo (h)</th>
+                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400">Origem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankMovements.slice(0, 40).map((m, i) => (
+                      <tr key={`${m.date}-${i}`} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2 tabular-nums">{m.date ? new Date(m.date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{m.hours_added > 0 ? `+${m.hours_added.toFixed(2)}` : '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-red-600">{m.hours_removed > 0 ? `−${m.hours_removed.toFixed(2)}` : '—'}</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">
+                          {m.balance >= 0 ? '+' : ''}
+                          {m.balance.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs">{m.source || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {supabaseBalance && (
             <div className="glass-card rounded-[2.25rem] p-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
@@ -189,7 +250,7 @@ const TimeBalancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Horas extras
+                  Horas extras (crédito)
                 </p>
                 <p className="text-xl font-extrabold text-emerald-600">
                   {supabaseBalance.extra_hours.toFixed(1)}h
@@ -197,7 +258,7 @@ const TimeBalancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Horas em débito
+                  Débito
                 </p>
                 <p className="text-xl font-extrabold text-red-600">
                   {supabaseBalance.debit_hours.toFixed(1)}h
@@ -212,6 +273,12 @@ const TimeBalancePage: React.FC = () => {
                   {supabaseBalance.final_balance.toFixed(1)}h
                 </p>
               </div>
+            </div>
+          )}
+
+          {!supabaseBalance && bankMovements.length === 0 && (
+            <div className="glass-card rounded-[2.25rem] p-6 text-sm text-slate-600 dark:text-slate-400">
+              Não há fechamento de folha nem movimentações de banco para o mês selecionado. O saldo passa a aparecer após o processamento diário ou fechamento pelo RH.
             </div>
           )}
 

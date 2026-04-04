@@ -5,11 +5,12 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
-import { Button, Input, LoadingState } from '../../components/UI';
+import { Button, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { NotificationService } from '../../services/notificationService';
 import { LoggingService } from '../../services/loggingService';
 import { LogSeverity } from '../../types';
+import { useToast } from '../components/ToastProvider';
 
 interface RequestRow {
   id: string;
@@ -20,11 +21,19 @@ interface RequestRow {
   user_id: string;
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  adjustment: 'Ajuste de ponto',
+  vacation: 'Férias',
+  shift_change: 'Mudança de turno',
+};
+
 const RequestsPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const toast = useToast();
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<{ type: string; reason: string }>({
     type: 'adjustment',
     reason: '',
@@ -76,17 +85,32 @@ const RequestsPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isSupabaseConfigured || !form.reason) return;
+    const reason = form.reason.trim();
+    if (!user || !isSupabaseConfigured) {
+      toast.addToast('error', 'Sistema indisponível. Tente novamente.');
+      return;
+    }
+    if (!reason || reason.length < 3) {
+      toast.addToast('error', 'Informe o motivo (mínimo 3 caracteres).');
+      return;
+    }
+    if (!user.companyId) {
+      toast.addToast('error', 'Seu cadastro está sem empresa. Contate o RH.');
+      return;
+    }
 
+    setSubmitting(true);
     try {
       const id = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
       await db.insert('requests', {
         id,
         user_id: user.id,
+        company_id: user.companyId,
         type: form.type,
         status: 'pending',
-        reason: form.reason,
-        created_at: new Date().toISOString(),
+        reason,
+        created_at: createdAt,
       });
 
       setRows((prev) => [
@@ -95,31 +119,49 @@ const RequestsPage: React.FC = () => {
           user_id: user.id,
           type: form.type,
           status: 'pending',
-          reason: form.reason,
-          created_at: new Date().toISOString(),
+          reason,
+          created_at: createdAt,
         },
         ...prev,
       ]);
 
-      await NotificationService.create({
-        userId: user.id,
-        type: 'info',
-        title: 'Solicitação enviada',
-        message: 'Sua solicitação foi registrada e aguarda aprovação.',
-      });
+      toast.addToast('success', 'Solicitação enviada com sucesso.');
 
-      await LoggingService.log({
-        severity: LogSeverity.INFO,
-        action: 'USER_CREATE_REQUEST',
-        userId: user.id,
-        userName: user.nome,
-        companyId: user.companyId,
-        details: { type: form.type },
-      });
+      try {
+        await NotificationService.create({
+          userId: user.id,
+          type: 'info',
+          title: 'Solicitação enviada',
+          message: 'Sua solicitação foi registrada e aguarda aprovação.',
+        });
+      } catch {
+        /* notificação opcional */
+      }
 
+      try {
+        await LoggingService.log({
+          severity: LogSeverity.INFO,
+          action: 'USER_CREATE_REQUEST',
+          userId: user.id,
+          userName: user.nome,
+          companyId: user.companyId,
+          details: { type: form.type },
+        });
+      } catch {
+        /* log opcional */
+      }
+
+      setForm({ type: 'adjustment', reason: '' });
       setIsModalOpen(false);
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: string }).message)
+          : 'Falha ao enviar solicitação.';
       console.error('Erro ao criar solicitação:', err);
+      toast.addToast('error', msg.includes('row-level') ? 'Permissão negada ao salvar. Verifique com o administrador.' : msg);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -190,7 +232,11 @@ const RequestsPage: React.FC = () => {
       ) : (
         <DataTable<RequestRow>
           columns={[
-            { key: 'type', header: 'Tipo' },
+            {
+              key: 'type',
+              header: 'Tipo',
+              render: (row) => TYPE_LABELS[row.type] ?? row.type,
+            },
             { key: 'status', header: 'Status' },
             {
               key: 'reason',
@@ -255,8 +301,8 @@ const RequestsPage: React.FC = () => {
             >
               Cancelar
             </Button>
-            <Button type="submit" size="sm" disabled={!form.reason}>
-              Enviar
+            <Button type="submit" size="sm" disabled={submitting || !form.reason.trim()}>
+              {submitting ? 'Enviando…' : 'Enviar'}
             </Button>
           </div>
         }

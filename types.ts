@@ -28,10 +28,22 @@ export interface GeoLocation {
   isWithinFence?: boolean;
 }
 
+/** Plano SaaS por tenant (empresa). */
+export type TenantPlan = 'free' | 'pro' | 'enterprise';
+
+/** Identificador do tenant no app: espelha `companies.id` / `users.company_id`. */
+export type TenantId = string;
+
 export interface Company {
   id: string;
   name: string;
   slug: string;
+  /** Mesmo valor que `id` (multi-tenant: empresa = tenant). */
+  tenantId?: string;
+  /** Plano contratado (persistido em `companies.plan`). */
+  plan?: TenantPlan;
+  /** Parâmetros de jornada por tenant (carga horária, tolerâncias, banco de horas, extras, intervalos). */
+  journeySettings?: Record<string, unknown>;
   /** Nome da empresa (persistido como nome no backend) */
   nome?: string;
   /** CNPJ da empresa ou CPF do responsável */
@@ -110,6 +122,8 @@ export interface TimeRecord {
   id: string;
   userId: string;
   companyId: string;
+  /** Espelho semântico de companyId para isolamento multi-tenant. */
+  tenantId?: string;
   type: LogType;
   method: PunchMethod;
   photoUrl?: string;
@@ -160,8 +174,15 @@ export interface User {
   role: UserRole;
   createdAt: Date;
   companyId: string;
+  /**
+   * Tenant (empresa) ao qual o usuário pertence — obrigatório para isolamento de dados.
+   * Espelha `companyId`; após migration DB, também `users.tenant_id` gerado.
+   */
+  tenantId: string;
   departmentId: string;
   schedule_id?: string;
+  /** Horário de trabalho cadastrado (work_shifts), distinto da escala (schedules). */
+  shift_id?: string;
   phone?: string;
   avatar?: string;
   permissions?: string[]; // Permissões customizadas (sobrescreve role)
@@ -296,6 +317,7 @@ export interface AuditLog {
   userId?: string;
   userName?: string;
   companyId: string;
+  tenantId?: string;
   details: any;
   ipAddress: string;
   userAgent: string;

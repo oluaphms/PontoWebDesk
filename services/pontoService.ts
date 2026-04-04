@@ -332,10 +332,10 @@ export const PontoService = {
     // Fallback para dados mock se Firestore não retornar nada
     if (allUsers.length === 0) {
       allUsers = [
-        { id: 'usr_1', nome: 'Ana Silva', email: 'ana@corp.com', cargo: 'Dev Senior', role: 'employee', createdAt: new Date(), companyId: 'comp_1', departmentId: 'dept_1', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
-        { id: 'usr_2', nome: 'Bruno Costa', email: 'bruno@corp.com', cargo: 'Product Designer', role: 'employee', createdAt: new Date(), companyId: 'comp_1', departmentId: 'dept_2', preferences: { notifications: true, theme: 'light', allowManualPunch: false } },
-        { id: 'usr_772', nome: 'Lucas Ferreira', email: 'lucas.f@smartponto.com', cargo: 'Eng. Software', role: 'employee', createdAt: new Date(), companyId: 'comp_1', departmentId: 'dept_1', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
-        { id: 'usr_3', nome: 'Marcos Tech', email: 'marcos@tech.com', cargo: 'Analista Tech', role: 'employee', createdAt: new Date(), companyId: 'comp_2', departmentId: 'dept_4', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
+        { id: 'usr_1', nome: 'Ana Silva', email: 'ana@corp.com', cargo: 'Dev Senior', role: 'employee', createdAt: new Date(), companyId: 'comp_1', tenantId: 'comp_1', departmentId: 'dept_1', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
+        { id: 'usr_2', nome: 'Bruno Costa', email: 'bruno@corp.com', cargo: 'Product Designer', role: 'employee', createdAt: new Date(), companyId: 'comp_1', tenantId: 'comp_1', departmentId: 'dept_2', preferences: { notifications: true, theme: 'light', allowManualPunch: false } },
+        { id: 'usr_772', nome: 'Lucas Ferreira', email: 'lucas.f@smartponto.com', cargo: 'Eng. Software', role: 'employee', createdAt: new Date(), companyId: 'comp_1', tenantId: 'comp_1', departmentId: 'dept_1', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
+        { id: 'usr_3', nome: 'Marcos Tech', email: 'marcos@tech.com', cargo: 'Analista Tech', role: 'employee', createdAt: new Date(), companyId: 'comp_2', tenantId: 'comp_2', departmentId: 'dept_4', preferences: { notifications: true, theme: 'light', allowManualPunch: true } },
       ];
     }
 

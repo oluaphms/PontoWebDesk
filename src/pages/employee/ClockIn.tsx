@@ -664,24 +664,23 @@ const EmployeeClockIn: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <Shield className="w-4 h-4 text-indigo-500 shrink-0" />
           <span>
-            <strong>Hoje:</strong>{' '}
-            {lastLabel ? (
+            {lastLabel && lastRecordAt ? (
               <>
-                última batida — <strong>{lastLabel}</strong>
-                {lastRecordAt && (
-                  <span className="text-slate-500 dark:text-slate-400">
-                    {' '}
-                    às{' '}
-                    {new Date(lastRecordAt).toLocaleTimeString('pt-BR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                  </span>
-                )}
+                <strong>Último registro hoje:</strong>{' '}
+                <span className="text-slate-900 dark:text-slate-100">{lastLabel}</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  {' '}
+                  às{' '}
+                  {new Date(lastRecordAt).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
               </>
             ) : (
-              'nenhuma batida ainda'
+              <>
+                <strong>Hoje:</strong> ainda não há registros. Use os botões abaixo para marcar ponto.
+              </>
             )}
           </span>
         </div>

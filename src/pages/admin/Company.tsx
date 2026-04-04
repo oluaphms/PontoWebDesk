@@ -329,6 +329,7 @@ const AdminCompany: React.FC = () => {
             if (stored) {
               const parsed = JSON.parse(stored);
               parsed.companyId = idToUse;
+              parsed.tenantId = idToUse;
               localStorage.setItem('current_user', JSON.stringify(parsed));
             }
           } catch {}

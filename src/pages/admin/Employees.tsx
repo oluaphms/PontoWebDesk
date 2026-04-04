@@ -133,6 +133,8 @@ interface EmployeeRow {
   department_name?: string;
   schedule_id?: string;
   schedule_name?: string;
+  shift_id?: string;
+  shift_label?: string;
   estrutura_id?: string;
   estrutura_name?: string;
   status: string;
@@ -156,6 +158,26 @@ interface EmployeeRow {
 interface ScheduleOption {
   id: string;
   name: string;
+}
+
+interface WorkShiftOption {
+  id: string;
+  label: string;
+}
+
+function formatWorkShiftLabel(s: {
+  number?: string;
+  description?: string;
+  name?: string;
+  start_time?: string;
+  end_time?: string;
+}): string {
+  const num = (s.number && String(s.number).trim()) || '';
+  const title = String(s.description || s.name || '').trim() || 'Horário';
+  const st = s.start_time != null ? String(s.start_time).slice(0, 5) : '';
+  const en = s.end_time != null ? String(s.end_time).slice(0, 5) : '';
+  const range = st && en ? `${st}–${en}` : '';
+  return [num ? `#${num}` : '', title, range].filter(Boolean).join(' · ');
 }
 
 const OUTRO_CARGO_VALUE = '__outro__';
@@ -196,6 +218,7 @@ const AdminEmployees: React.FC = () => {
   const scrollModalTopRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
+  const [workShifts, setWorkShifts] = useState<WorkShiftOption[]>([]);
   const [cargos, setCargos] = useState<{ id: string; name: string }[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [estruturas, setEstruturas] = useState<{ id: string; codigo: string; descricao: string }[]>([]);
@@ -268,10 +291,11 @@ const AdminEmployees: React.FC = () => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     setLoadingData(true);
     try {
-      const [usersRows, legacyEmployeesRows, schedRows, deptRows, jobTitlesRows, motivosRows, estruturasRows] = await Promise.all([
+      const [usersRows, legacyEmployeesRows, schedRows, shiftRows, deptRows, jobTitlesRows, motivosRows, estruturasRows] = await Promise.all([
         db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'created_at', ascending: false }) as Promise<any[]>,
         db.select('employees', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
         db.select('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+        db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
         db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         db.select('job_titles', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         db.select('motivo_demissao', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
@@ -279,6 +303,7 @@ const AdminEmployees: React.FC = () => {
       ]);
       const deptMap = new Map((deptRows ?? []).map((d: any) => [d.id, d.name]));
       const schedMap = new Map((schedRows ?? []).map((s: any) => [s.id, s.name]));
+      const shiftMap = new Map((shiftRows ?? []).map((ws: any) => [ws.id, formatWorkShiftLabel(ws)]));
       const motivoMap = new Map((motivosRows ?? []).map((m: any) => [m.id, m.name]));
       const estruturaMap = new Map((estruturasRows ?? []).map((e: any) => [e.id, e.descricao || e.codigo]));
       const listFromUsers: EmployeeRow[] = (usersRows ?? []).map((u: any) => {
@@ -301,6 +326,8 @@ const AdminEmployees: React.FC = () => {
           department_name: u.department_id ? deptMap.get(u.department_id) : undefined,
           schedule_id: u.schedule_id,
           schedule_name: u.schedule_id ? schedMap.get(u.schedule_id) : undefined,
+          shift_id: u.shift_id,
+          shift_label: u.shift_id ? shiftMap.get(u.shift_id) : undefined,
           estrutura_id: u.estrutura_id,
           estrutura_name: u.estrutura_id ? estruturaMap.get(u.estrutura_id) : undefined,
           status: u.status || 'active',
@@ -339,6 +366,7 @@ const AdminEmployees: React.FC = () => {
           const email = (e.email || '').toString().trim().toLowerCase();
           const deptId = e.department_id || e.departamento_id || null;
           const schedId = e.schedule_id || e.escala_id || null;
+          const legShiftId = e.shift_id || null;
           return {
             id: e.id || `legacy-${email}`,
             legacy_id: e.id || undefined,
@@ -351,6 +379,8 @@ const AdminEmployees: React.FC = () => {
             department_name: deptId ? deptMap.get(deptId) : undefined,
             schedule_id: schedId,
             schedule_name: schedId ? schedMap.get(schedId) : undefined,
+            shift_id: legShiftId || undefined,
+            shift_label: legShiftId ? shiftMap.get(legShiftId) : undefined,
             estrutura_id: e.estrutura_id || null,
             estrutura_name: (e.estrutura_id && estruturaMap.get(e.estrutura_id)) || undefined,
             status: e.status || 'active',
@@ -374,6 +404,12 @@ const AdminEmployees: React.FC = () => {
       const mergedList = [...listFromUsers, ...listFromLegacy];
       setRows(mergedList);
       setSchedules((schedRows ?? []).map((s: any) => ({ id: s.id, name: s.name })));
+      setWorkShifts(
+        (shiftRows ?? []).map((ws: any) => ({
+          id: ws.id,
+          label: formatWorkShiftLabel(ws),
+        })),
+      );
       setDepartments((deptRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
       setEstruturas((estruturasRows ?? []).map((e: any) => ({ id: e.id, codigo: e.codigo || '', descricao: e.descricao || e.codigo || '' })));
       setCargos((jobTitlesRows ?? []).map((j: any) => ({ id: j.id, name: j.name || '' })));
@@ -406,6 +442,7 @@ const AdminEmployees: React.FC = () => {
       department_id: '',
       estrutura_id: '',
       schedule_id: '',
+      shift_id: '',
       admissao: '',
       demissao: '',
       motivo_demissao_id: '',
@@ -456,6 +493,7 @@ const AdminEmployees: React.FC = () => {
       department_id: row.department_id || '',
       estrutura_id: row.estrutura_id || '',
       schedule_id: row.schedule_id || '',
+      shift_id: row.shift_id || '',
       admissao: row.admissao || '',
       demissao: row.demissao || '',
       motivo_demissao_id: row.motivo_demissao_id || '',
@@ -537,6 +575,7 @@ const AdminEmployees: React.FC = () => {
         department_id: form.department_id || null,
         estrutura_id: form.estrutura_id || null,
         schedule_id: form.schedule_id || null,
+        shift_id: form.shift_id || null,
         numero_folha: form.numero_folha?.trim() || null,
         pis_pasep: form.pis_pasep?.trim() || null,
         numero_identificador: form.numero_identificador?.trim() || null,
@@ -554,20 +593,31 @@ const AdminEmployees: React.FC = () => {
         let updated = false;
 
         if (!isLegacyRow) {
+          let lastErr: unknown = null;
           try {
             const resultRow = await db.update('users', editingId, payload);
             updated = !!resultRow;
-          } catch {
+          } catch (e) {
+            lastErr = e;
             updated = false;
           }
           if (!updated) {
-            // Compatibilidade: se o registro não estiver em users, tentar atualizar em employees.
             try {
               const legacyUpdated = await db.update('employees', editingId, payload);
               updated = !!legacyUpdated;
-            } catch {
+            } catch (e) {
+              lastErr = lastErr || e;
               updated = false;
             }
+          }
+          if (!updated) {
+            const msg =
+              lastErr && typeof lastErr === 'object' && 'message' in lastErr
+                ? String((lastErr as { message?: string }).message)
+                : '';
+            throw new Error(
+              msg || 'Não foi possível salvar as alterações. Verifique permissões da tabela users/employees e tente novamente.',
+            );
           }
         } else {
           // Linha legada (employees sem id estável na lista): localizar por id legado ou e-mail.
@@ -1161,6 +1211,7 @@ const AdminEmployees: React.FC = () => {
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Cargo</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Departamento</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Escala</th>
+                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Horário</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Confiabilidade</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Status</th>
                     <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
@@ -1175,6 +1226,9 @@ const AdminEmployees: React.FC = () => {
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.cargo}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.department_name || '—'}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.schedule_name || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 max-w-[200px] truncate" title={row.shift_label || undefined}>
+                        {row.shift_label || '—'}
+                      </td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                         {typeof row.reliability_score === 'number' ? (
                           <span
@@ -1319,11 +1373,22 @@ const AdminEmployees: React.FC = () => {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Horário</label>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Escala</label>
                         <select value={form.schedule_id} onChange={(e) => setForm({ ...form, schedule_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                          <option value="">Nenhum</option>
+                          <option value="">Nenhuma</option>
                           {schedules.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
+                        <p className="text-[10px] text-slate-500 mt-1">Dias da semana / ciclo (cadastro em Escalas).</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Horário</label>
+                        <select value={form.shift_id} onChange={(e) => setForm({ ...form, shift_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+                          <option value="">Nenhum</option>
+                          {workShifts.map((s) => (
+                            <option key={s.id} value={s.id}>{s.label}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1">Turno cadastrado em Horários (entrada/saída).</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Função <span className="text-red-500">*</span></label>

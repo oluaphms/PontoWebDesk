@@ -141,12 +141,17 @@ const AdminTimesheet: React.FC = () => {
       'Saída (final)',
       'Horas trabalhadas',
       'Localização',
+      'Métodos (batidas do dia)',
       'Status',
     ];
     const lines = [headers.join('\t')];
     buildRows.forEach((row) => {
       row.dates.forEach((d) => {
         const sum = row.byDate.get(d);
+        const dayRecs = filteredRecords.filter(
+          (r: any) => r.user_id === row.userId && (r.created_at || '').slice(0, 10) === d,
+        );
+        const methods = [...new Set(dayRecs.map((r: any) => (r.method || '—').toString()).filter(Boolean))].join(', ');
         lines.push(
           [
             row.userName,
@@ -157,6 +162,7 @@ const AdminTimesheet: React.FC = () => {
             sum?.saidaFinal ?? '',
             sum?.workedHours ?? '',
             sum?.location || '—',
+            methods || '—',
             sum?.status ?? '',
           ].join('\t'),
         );
@@ -290,11 +296,12 @@ const AdminTimesheet: React.FC = () => {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-x-auto print:border-0 print:shadow-none print:bg-transparent print:overflow-visible">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 print:border-0 print:shadow-none print:bg-transparent print:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0">
         {loadingData ? (
           <div className="p-12 text-center text-slate-500">Carregando...</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto overscroll-x-contain touch-pan-x rounded-xl border border-slate-100 dark:border-slate-800 md:border-0">
+          <table className="w-full text-xs sm:text-sm min-w-[1020px] md:min-w-0">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Funcionário</th>
@@ -305,6 +312,7 @@ const AdminTimesheet: React.FC = () => {
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Saída (final)</th>
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Horas trabalhadas</th>
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Localização</th>
+                <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Método</th>
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Status</th>
                 <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400 print:hidden">Ações</th>
               </tr>
@@ -317,6 +325,7 @@ const AdminTimesheet: React.FC = () => {
                     (r: any) => r.user_id === row.userId && (r.created_at || '').slice(0, 10) === d,
                   );
                   const rec = dayRecs[0];
+                  const methodSummary = [...new Set(dayRecs.map((r: any) => (r.method || '—').toString()).filter(Boolean))].join(', ') || '—';
                   return (
                     <tr key={`${row.userId}-${d}`} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="px-4 py-3 text-slate-900 dark:text-white">{row.userName}</td>
@@ -326,7 +335,8 @@ const AdminTimesheet: React.FC = () => {
                       <td className="px-4 py-3 tabular-nums">{sum?.voltaIntervalo || '—'}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.saidaFinal || '—'}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.workedHours || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs font-mono">{sum?.location ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs font-mono max-w-[140px] truncate" title={sum?.location ?? ''}>{sum?.location ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400 max-w-[120px] truncate" title={methodSummary}>{methodSummary}</td>
                       <td className="px-4 py-3">{sum?.status || 'OK'}</td>
                       <td className="px-4 py-3 text-right print:hidden">
                         {rec && (
@@ -346,6 +356,7 @@ const AdminTimesheet: React.FC = () => {
               )}
             </tbody>
           </table>
+          </div>
         )}
         {!loadingData && buildRows.length === 0 && (
           <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum registro no período.</p>
