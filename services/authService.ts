@@ -441,6 +441,8 @@ class AuthService {
         typeof msg === 'string' &&
         (msg.includes('Tempo esgotado ao carregar dados') ||
           msg.includes('Supabase timeout') ||
+          msg.includes('stole') ||
+          msg.includes('Lock broken') ||
           /timeout/i.test(msg));
       if (isTimeout) {
         if (typeof console !== 'undefined' && console.warn) {
@@ -809,7 +811,7 @@ class AuthService {
     if (!isSupabaseConfigured || !supabase) return { session: null };
     try {
       if (typeof supabase.auth.initialize === 'function') await supabase.auth.initialize();
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = await auth.getSession();
       if (session?.user?.id) return { session };
       if (typeof window === 'undefined' || !window.location?.hash) return { session: null };
       const hash = window.location.hash.replace(/^#/, '');
@@ -820,7 +822,7 @@ class AuthService {
       if (accessToken && refreshToken) {
         const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
         if (error) return { session: null };
-        const { data: { session: next } } = await supabase.auth.getSession();
+        const next = await auth.getSession();
         return { session: next ?? null };
       }
       const tokenHash = params.get('token_hash');
@@ -857,13 +859,18 @@ class AuthService {
     try {
       return await withTimeout(this.getCurrentUserResolved(), GET_CURRENT_USER_TIMEOUT_MS, 'carregar sessão');
     } catch (error: any) {
-      if (String(error?.message || '').includes('Tempo esgotado')) {
+      const errMsg = String(error?.message || '');
+      if (
+        errMsg.includes('Tempo esgotado') ||
+        errMsg.includes('stole') ||
+        errMsg.includes('Lock broken')
+      ) {
         try {
           if (typeof window !== 'undefined') {
             const stored = window.localStorage.getItem('current_user');
             if (stored) {
               if (import.meta.env?.DEV && typeof console !== 'undefined') {
-                console.warn('[Auth] getCurrentUser: timeout — usando perfil em cache');
+                console.warn('[Auth] getCurrentUser: timeout ou lock de sessão — usando perfil em cache');
               }
               return JSON.parse(stored) as User;
             }

@@ -258,13 +258,14 @@ const AppMain: React.FC = () => {
 
     const initApp = async () => {
       try {
-        // Timeout de segurança: máximo 5 segundos para inicializar
+        // Deve ser > tempo de getCurrentUser + db (rede lenta); senão força tela antes do perfil e dispara corrida no lock do Auth.
+        const INIT_APP_MAX_MS = 85000;
         timeoutId = setTimeout(() => {
           if (isMounted) {
             console.warn('Initialization timeout - forcing app to load');
             setIsInitialLoading(false);
           }
-        }, 5000);
+        }, INIT_APP_MAX_MS);
 
         // Verificar se Supabase está configurado
         if (!isSupabaseConfigured) {
@@ -750,9 +751,9 @@ const AppMain: React.FC = () => {
     if (!isInitialLoading) return;
 
     const safetyTimeout = setTimeout(() => {
-      console.error('Safety timeout triggered - forcing app to load');
+      console.warn('Safety timeout triggered - forcing app to load');
       setIsInitialLoading(false);
-    }, 6000);
+    }, 90000);
 
     return () => clearTimeout(safetyTimeout);
   }, [isInitialLoading]);

@@ -74,7 +74,7 @@ export const NotificationService = {
         const msg = String(e?.message ?? e ?? '');
         const isTimeout =
           msg.includes('Tempo esgotado ao carregar dados') || msg.includes('Supabase timeout') || /timeout/i.test(msg);
-        if (e?.name !== 'AbortError' && !msg.includes('Lock broken')) {
+        if (e?.name !== 'AbortError' && !msg.includes('Lock broken') && !msg.includes('stole')) {
           if (isTimeout) {
             if (typeof console !== 'undefined' && console.warn) {
               console.warn('[notifications] Lista indisponível (rede lenta); usando notificações locais se houver.');

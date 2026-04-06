@@ -77,6 +77,11 @@ let authExpiredEventPending = false;
 
 let client: SupabaseClient | null = null;
 
+/** Preenchido após createClient — serializa leituras e evita lock GoTrue "auth-token ... stolen". */
+const authReadCoalescers: {
+  getSession?: () => Promise<{ data: { session: unknown }; error: unknown }>;
+} = {};
+
 /** Instantâneo do carregamento da página: nas primeiras requisições o JWT pode ainda não estar anexado → 401 falso. */
 const PAGE_LOAD_AT = typeof window !== 'undefined' ? Date.now() : 0;
 /** Não disparar “sessão expirada” durante este intervalo (evita reload/flash ao iniciar). */
@@ -93,15 +98,16 @@ const fetchWithTimeout = (input: RequestInfo | URL, init?: RequestInit): Promise
             // Durante a hidratação da sessão (localStorage/IndexedDB), o primeiro GET pode ir sem Bearer → 401.
             if (Date.now() - PAGE_LOAD_AT < AUTH_401_GRACE_MS) return;
             try {
-              let {
-                data: { session },
-              } = await client!.auth.getSession();
+              const read =
+                authReadCoalescers.getSession?.() ??
+                client!.auth.getSession() as Promise<{ data: { session: unknown }; error: unknown }>;
+              let { data: { session } } = await read;
               if (session) return;
-              // Segunda tentativa após um tique: corrida com refresh do token.
               await new Promise((r) => setTimeout(r, 200));
-              ({
-                data: { session },
-              } = await client!.auth.getSession());
+              const read2 =
+                authReadCoalescers.getSession?.() ??
+                client!.auth.getSession() as Promise<{ data: { session: unknown }; error: unknown }>;
+              ({ data: { session } } = await read2);
               if (session) return;
             } catch {
               // segue: sessão inválida
@@ -124,6 +130,9 @@ const fetchWithTimeout = (input: RequestInfo | URL, init?: RequestInit): Promise
       setTimeout(() => reject(new Error('Supabase timeout')), SUPABASE_FETCH_TIMEOUT_MS),
     ),
   ]);
+/** Leitura coalescida de getUser — preenchido após createClient (evita lock "auth-token ... stolen"). */
+let authGetUserCoalescedImpl: (() => Promise<{ data: { user: unknown }; error: unknown }>) | null = null;
+
 if (configured) {
   client = createClient(supabaseUrl!, supabaseAnonKey!, {
     auth: {
@@ -136,7 +145,30 @@ if (configured) {
       fetch: fetchWithTimeout,
     },
   });
-  // Em desenvolvimento, confirma no console que o .env foi carregado (URL mascarada)
+
+  let inFlightSession: Promise<{ data: { session: unknown }; error: unknown }> | null = null;
+  let inFlightUser: Promise<{ data: { user: unknown }; error: unknown }> | null = null;
+
+  authReadCoalescers.getSession = () => {
+    if (!client) return Promise.resolve({ data: { session: null }, error: null });
+    if (!inFlightSession) {
+      inFlightSession = client.auth.getSession().finally(() => {
+        inFlightSession = null;
+      });
+    }
+    return inFlightSession;
+  };
+
+  authGetUserCoalescedImpl = () => {
+    if (!client) return Promise.resolve({ data: { user: null }, error: null });
+    if (!inFlightUser) {
+      inFlightUser = client.auth.getUser().finally(() => {
+        inFlightUser = null;
+      });
+    }
+    return inFlightUser;
+  };
+
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && typeof console !== 'undefined') {
     const u = (supabaseUrl || '').trim();
     console.log('[SmartPonto] Supabase configurado. URL:', u ? `${u.slice(0, 30)}...` : '(vazia)');
@@ -271,7 +303,8 @@ const realAuth = configured
           const { error } = await client!.auth.signOut(options);
           if (error) throw error;
         } catch (e: any) {
-          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
+          const msg = String(e?.message ?? '');
+          if (e?.name === 'AbortError' || msg.includes('Lock broken') || msg.includes('stole')) {
             try {
               await client!.auth.signOut(options);
             } catch {
@@ -284,15 +317,16 @@ const realAuth = configured
       },
       getUser: async () => {
         const run = async (): Promise<any> => {
-          const { data: { user }, error } = await client!.auth.getUser();
+          const { data: { user }, error } = await (authGetUserCoalescedImpl?.() ?? client!.auth.getUser());
           if (error) throw error;
           return user;
         };
         try {
           return await run();
         } catch (e: any) {
-          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
-            await new Promise((r) => setTimeout(r, 300));
+          const msg = String(e?.message ?? '');
+          if (e?.name === 'AbortError' || msg.includes('Lock broken') || msg.includes('stole')) {
+            await new Promise((r) => setTimeout(r, 400));
             return run();
           }
           throw e;
@@ -300,15 +334,17 @@ const realAuth = configured
       },
       getSession: async () => {
         const run = async (): Promise<any> => {
-          const { data: { session }, error } = await client!.auth.getSession();
+          const { data: { session }, error } = await (authReadCoalescers.getSession?.() ??
+            client!.auth.getSession());
           if (error) throw error;
           return session;
         };
         try {
           return await run();
         } catch (e: any) {
-          if (e?.name === 'AbortError' || e?.message?.includes('Lock broken')) {
-            await new Promise((r) => setTimeout(r, 300));
+          const msg = String(e?.message ?? '');
+          if (e?.name === 'AbortError' || msg.includes('Lock broken') || msg.includes('stole')) {
+            await new Promise((r) => setTimeout(r, 400));
             return run();
           }
           throw e;
