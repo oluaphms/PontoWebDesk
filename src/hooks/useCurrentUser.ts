@@ -3,7 +3,8 @@ import { User } from '../../types';
 import { authService } from '../../services/authService';
 import { isSupabaseConfigured } from '../../services/supabase';
 
-const HYDRATE_TIMEOUT_MS = 10000;
+/** Alinhado ao tempo de SELECT no Supabase (rede lenta); evita spinner eterno se getCurrentUser demorar. */
+const HYDRATE_TIMEOUT_MS = 32000;
 
 function getStoredUser(): User | null {
   try {

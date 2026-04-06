@@ -71,8 +71,17 @@ export const NotificationService = {
           metadata: r.metadata ?? {},
         }));
       } catch (e: any) {
-        if (e?.name !== 'AbortError' && !e?.message?.includes('Lock broken')) {
-          console.error('Get notifications Supabase failed:', e?.message ?? e);
+        const msg = String(e?.message ?? e ?? '');
+        const isTimeout =
+          msg.includes('Tempo esgotado ao carregar dados') || msg.includes('Supabase timeout') || /timeout/i.test(msg);
+        if (e?.name !== 'AbortError' && !msg.includes('Lock broken')) {
+          if (isTimeout) {
+            if (typeof console !== 'undefined' && console.warn) {
+              console.warn('[notifications] Lista indisponível (rede lenta); usando notificações locais se houver.');
+            }
+          } else {
+            console.error('Get notifications Supabase failed:', msg);
+          }
         }
       }
     }

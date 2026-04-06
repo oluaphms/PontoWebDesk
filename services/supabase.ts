@@ -148,6 +148,12 @@ export const supabase = client;
 /** Timeout padrão para testes de conexão e operações (ms). */
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 
+/**
+ * Timeout para `db.select` (REST). 10s gerava falhas frequentes em rede lenta ou cold start do Supabase.
+ * Mantém ainda um teto para não travar a UI indefinidamente.
+ */
+export const DB_SELECT_TIMEOUT_MS = 28000;
+
 /** Testa se o projeto Supabase está acessível (rede, URL e chave). Usa tabela users ou employees. */
 export async function testSupabaseConnection(
   timeoutMs: number = DEFAULT_CONNECTION_TIMEOUT_MS,
@@ -381,7 +387,6 @@ const realDb = configured
         orderBy?: { column: string; ascending?: boolean },
         limit?: number
       ) => {
-        const DB_SELECT_TIMEOUT_MS = 10000;
         const run = async () => {
           let query = client!.from(table).select('*');
           if (filters) {
@@ -403,7 +408,7 @@ const realDb = configured
                 () =>
                   reject(
                     new Error(
-                      `Tempo esgotado ao carregar dados (${DB_SELECT_TIMEOUT_MS / 1000}s). Verifique a rede ou tente novamente.`,
+                      `Tempo esgotado ao carregar dados (${Math.round(DB_SELECT_TIMEOUT_MS / 1000)}s). Verifique a rede ou tente novamente.`,
                     ),
                   ),
                 DB_SELECT_TIMEOUT_MS,

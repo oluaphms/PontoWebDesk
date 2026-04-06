@@ -5,7 +5,14 @@
  */
 
 import { getAppBaseUrl } from './appUrl';
-import { auth, clearLocalAuthSession, db, isSupabaseConfigured, supabase } from './supabase';
+import {
+  auth,
+  clearLocalAuthSession,
+  db,
+  isSupabaseConfigured,
+  supabase,
+  DB_SELECT_TIMEOUT_MS,
+} from './supabase';
 import { withTimeout } from '../src/utils/withTimeout';
 import { User } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';
@@ -18,6 +25,9 @@ export interface AuthResult {
 
 /** Evita chamadas repetidas a auth.updateUser (causavam lentidão, refresh em loop e logout falso). */
 const TENANT_META_SYNC_KEY = 'sp_tenant_meta_sync';
+
+/** Carregar perfil pode fazer 2× `db.select` em sequência; deve ser > 2× timeout do select para não abortar antes. */
+const GET_CURRENT_USER_TIMEOUT_MS = DB_SELECT_TIMEOUT_MS * 2 + 8000;
 
 class AuthService {
   /**
@@ -427,7 +437,20 @@ class AuthService {
       return newUser;
     } catch (error: any) {
       const msg = error?.message ?? error?.code ?? String(error);
-      console.error('Erro ao converter usuário Supabase:', msg);
+      const isTimeout =
+        typeof msg === 'string' &&
+        (msg.includes('Tempo esgotado ao carregar dados') ||
+          msg.includes('Supabase timeout') ||
+          /timeout/i.test(msg));
+      if (isTimeout) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(
+            '[Auth] Perfil em public.users demorou ou indisponível; usando dados mínimos do Auth. Próxima sincronização pode preencher empresa e permissões.',
+          );
+        }
+      } else {
+        console.error('Erro ao converter usuário Supabase:', msg);
+      }
       if (typeof msg === 'string' && (msg.includes('infinite recursion') || msg.includes('policy for relation'))) {
         console.warn('[Supabase RLS] Recursão nas políticas detectada. No Supabase (SQL Editor), execute a migration 20250329000000_fix_rls_users_recursion_definitive.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
       }
@@ -832,7 +855,7 @@ class AuthService {
    */
   async getCurrentUser(): Promise<User | null> {
     try {
-      return await withTimeout(this.getCurrentUserResolved(), 12000, 'carregar sessão');
+      return await withTimeout(this.getCurrentUserResolved(), GET_CURRENT_USER_TIMEOUT_MS, 'carregar sessão');
     } catch (error: any) {
       if (String(error?.message || '').includes('Tempo esgotado')) {
         try {
