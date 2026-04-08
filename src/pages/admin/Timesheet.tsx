@@ -49,6 +49,11 @@ const AdminTimesheet: React.FC = () => {
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   });
   const [closing, setClosing] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  const toggleExpandedRow = (key: string) => {
+    setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
@@ -328,9 +333,18 @@ const AdminTimesheet: React.FC = () => {
                   );
                   const rec = dayRecs[0];
                   const methodSummary = [...new Set(dayRecs.map((r: any) => (r.method || '—').toString()).filter(Boolean))].join(', ') || '—';
+                  const rowKey = `${row.userId}-${d}`;
+                  const isExpanded = expandedRows[rowKey] === true;
                   return (
-                    <tr key={`${row.userId}-${d}`} className="border-b border-slate-100 dark:border-slate-800">
-                      <td className="px-4 py-3 text-slate-900 dark:text-white">{row.userName}</td>
+                    <React.Fragment key={rowKey}>
+                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                      <td
+                        className="px-4 py-3 text-slate-900 dark:text-white cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-300"
+                        title={isExpanded ? 'Ocultar endereços das batidas' : 'Mostrar endereços das batidas'}
+                        onClick={() => toggleExpandedRow(rowKey)}
+                      >
+                        {row.userName}
+                      </td>
                       <td className="px-4 py-3">{d}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.entradaInicio || '—'}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.saidaIntervalo || '—'}</td>
@@ -359,6 +373,41 @@ const AdminTimesheet: React.FC = () => {
                         )}
                       </td>
                     </tr>
+                    {isExpanded && (
+                      <tr className="bg-slate-50/70 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+                        <td colSpan={11} className="px-4 py-3">
+                          <div className="text-xs text-slate-600 dark:text-slate-300">
+                            <p className="font-medium mb-2">Enderecos por batida do dia {d}:</p>
+                            <div className="space-y-1">
+                              {dayRecs
+                                .slice()
+                                .sort((a: any, b: any) => (a.created_at || '').localeCompare(b.created_at || ''))
+                                .map((r: any) => {
+                                  const ll = extractLatLng(r);
+                                  const when = r.created_at
+                                    ? new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    : '--:--';
+                                  return (
+                                    <div key={r.id || `${rowKey}-${when}`} className="flex flex-wrap gap-2">
+                                      <span className="font-mono text-slate-500">{when}</span>
+                                      <span className="uppercase text-[11px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                        {(r.type || '—').toString()}
+                                      </span>
+                                      <span className="text-slate-500">-</span>
+                                      {ll ? (
+                                        <StreetAddress lat={ll.lat} lng={ll.lng} />
+                                      ) : (
+                                        <span className="text-slate-500">Batida sem GPS</span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })
               )}

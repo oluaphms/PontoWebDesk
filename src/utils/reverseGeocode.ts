@@ -62,6 +62,27 @@ function formatPhotonProperties(p: Record<string, unknown>): string {
   return parts.filter(Boolean).join(' — ') || '';
 }
 
+function formatNominatimAddress(a: Record<string, unknown>): string {
+  const road = a.road != null ? String(a.road) : '';
+  const houseNumber = a.house_number != null ? String(a.house_number) : '';
+  const suburb = a.suburb != null ? String(a.suburb) : '';
+  const city =
+    (a.city as string) ||
+    (a.town as string) ||
+    (a.village as string) ||
+    (a.county as string) ||
+    '';
+  const state = a.state != null ? String(a.state) : '';
+
+  const streetLine = [road, houseNumber].filter(Boolean).join(', ').trim();
+  const parts: string[] = [];
+  if (streetLine) parts.push(streetLine);
+  if (suburb && !parts.join(' ').toLowerCase().includes(suburb.toLowerCase())) parts.push(suburb);
+  if (city && !parts.join(' ').toLowerCase().includes(city.toLowerCase())) parts.push(city);
+  if (state && !parts.join(' ').toLowerCase().includes(state.toLowerCase())) parts.push(state);
+  return parts.join(' — ').trim();
+}
+
 /**
  * Retorna texto de endereço (rua, bairro, cidade). Sem coordenadas.
  * Em falha ou área sem dados, mensagem neutra — não expõe lat/lng.
@@ -87,6 +108,25 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
     }
   } catch {
     text = '';
+  }
+
+  if (!text) {
+    try {
+      const nominatimUrl =
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&accept-language=pt-BR`;
+      const nomRes = await fetch(nominatimUrl, {
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+      if (nomRes.ok) {
+        const nomData = (await nomRes.json()) as { display_name?: string; address?: Record<string, unknown> };
+        const fromAddress = nomData.address ? formatNominatimAddress(nomData.address).trim() : '';
+        text = fromAddress || String(nomData.display_name || '').trim();
+      }
+    } catch {
+      text = '';
+    }
   }
 
   if (!text) {

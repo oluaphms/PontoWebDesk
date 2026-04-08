@@ -8,7 +8,7 @@ import Onboarding from './components/Onboarding';
 import { Button, Badge, LoadingState, SuccessOverlay, Input } from './components/UI';
 import { getWorkInsights } from './services/geminiService';
 import { PontoService } from './services/pontoService';
-import { useRecords } from './hooks/useRecords';
+import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { isSupabaseConfigured, testSupabaseConnection, resetSession, clearLocalAuthSession } from './services/supabase';
 import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
