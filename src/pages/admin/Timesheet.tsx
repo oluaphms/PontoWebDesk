@@ -7,11 +7,8 @@ import { LoadingState } from '../../../components/UI';
 import { FileDown, FileSpreadsheet, Pencil, Trash2, Lock } from 'lucide-react';
 import { closeTimesheet } from '../../services/timeProcessingService';
 import { buildDayMirrorSummary } from '../../utils/timesheetMirror';
-
-function formatLocation(loc: { lat?: number; lng?: number } | null | undefined): string {
-  if (!loc || loc.lat == null || loc.lng == null) return '—';
-  return `${Number(loc.lat).toFixed(4)}, ${Number(loc.lng).toFixed(4)}`;
-}
+import { extractLatLng, reverseGeocode } from '../../utils/reverseGeocode';
+import { StreetAddress } from '../../components/StreetAddress';
 
 type DaySummary = {
   date: string;
@@ -21,7 +18,7 @@ type DaySummary = {
   saidaFinal: string;
   workedHours: string;
   status: string;
-  location?: string;
+  locationCoords?: { lat: number; lng: number };
 };
 
 type TimesheetRow = {
@@ -104,7 +101,8 @@ const AdminTimesheet: React.FC = () => {
       datesSet.forEach((d) => {
         const dayRecs = data.recs.filter((r: any) => (r.created_at || '').slice(0, 10) === d);
         const mirror = buildDayMirrorSummary(dayRecs);
-        const locRow = dayRecs.find((r: any) => r.location);
+        const locRow = dayRecs.find((r: any) => extractLatLng(r));
+        const locationCoords = locRow ? extractLatLng(locRow) ?? undefined : undefined;
         byDate.set(d, {
           date: d,
           entradaInicio: mirror.entradaInicio,
@@ -113,7 +111,7 @@ const AdminTimesheet: React.FC = () => {
           saidaFinal: mirror.saidaFinal,
           workedHours: mirror.workedHours,
           status: mirror.status,
-          location: locRow?.location ? formatLocation(locRow.location) : undefined,
+          locationCoords,
         });
       });
       rows.push({
@@ -131,7 +129,7 @@ const AdminTimesheet: React.FC = () => {
     window.print();
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const headers = [
       'Funcionário',
       'Data',
@@ -145,13 +143,17 @@ const AdminTimesheet: React.FC = () => {
       'Status',
     ];
     const lines = [headers.join('\t')];
-    buildRows.forEach((row) => {
-      row.dates.forEach((d) => {
+    for (const row of buildRows) {
+      for (const d of row.dates) {
         const sum = row.byDate.get(d);
         const dayRecs = filteredRecords.filter(
           (r: any) => r.user_id === row.userId && (r.created_at || '').slice(0, 10) === d,
         );
         const methods = [...new Set(dayRecs.map((r: any) => (r.method || '—').toString()).filter(Boolean))].join(', ');
+        let locText = '—';
+        if (sum?.locationCoords) {
+          locText = await reverseGeocode(sum.locationCoords.lat, sum.locationCoords.lng);
+        }
         lines.push(
           [
             row.userName,
@@ -161,13 +163,13 @@ const AdminTimesheet: React.FC = () => {
             sum?.voltaIntervalo ?? '',
             sum?.saidaFinal ?? '',
             sum?.workedHours ?? '',
-            sum?.location || '—',
+            locText,
             methods || '—',
             sum?.status ?? '',
           ].join('\t'),
         );
-      });
-    });
+      }
+    }
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -335,7 +337,13 @@ const AdminTimesheet: React.FC = () => {
                       <td className="px-4 py-3 tabular-nums">{sum?.voltaIntervalo || '—'}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.saidaFinal || '—'}</td>
                       <td className="px-4 py-3 tabular-nums">{sum?.workedHours || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs font-mono max-w-[140px] truncate" title={sum?.location ?? ''}>{sum?.location ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs max-w-[220px]">
+                        {sum?.locationCoords ? (
+                          <StreetAddress lat={sum.locationCoords.lat} lng={sum.locationCoords.lng} />
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400 max-w-[120px] truncate" title={methodSummary}>{methodSummary}</td>
                       <td className="px-4 py-3">{sum?.status || 'OK'}</td>
                       <td className="px-4 py-3 text-right print:hidden">

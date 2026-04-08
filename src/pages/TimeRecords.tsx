@@ -7,12 +7,16 @@ import DataTable from '../components/DataTable';
 import { LoadingState, Input } from '../../components/UI';
 import { LogType } from '../../types';
 import { MapPin, MonitorSmartphone, ListOrdered } from 'lucide-react';
+import { extractLatLng } from '../utils/reverseGeocode';
+import { StreetAddress } from '../components/StreetAddress';
 
 interface TimeRecordRow {
   id: string;
   created_at: string;
   type: string;
   location: any;
+  latitude?: number | null;
+  longitude?: number | null;
   device_id?: string | null;
 }
 
@@ -51,6 +55,8 @@ const TimeRecordsPage: React.FC = () => {
             created_at: r.created_at,
             type: r.type,
             location: r.location,
+            latitude: r.latitude,
+            longitude: r.longitude,
             device_id: r.device_id,
           })),
         );
@@ -142,16 +148,17 @@ const TimeRecordsPage: React.FC = () => {
             {
               key: 'location',
               header: 'Localização',
-              render: (row) =>
-                row.location ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
-                    <MapPin className="w-3 h-3" />
-                    {row.location.lat.toFixed(4)},{' '}
-                    {row.location.lng.toFixed(4)}
+              render: (row) => {
+                const ll = extractLatLng(row);
+                return ll ? (
+                  <span className="inline-flex items-start gap-1 text-xs text-slate-600 dark:text-slate-300 max-w-[240px]">
+                    <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                    <StreetAddress lat={ll.lat} lng={ll.lng} />
                   </span>
                 ) : (
                   '-'
-                ),
+                );
+              },
             },
             {
               key: 'device_id',

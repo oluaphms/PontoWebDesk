@@ -6,11 +6,8 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { buildDayMirrorSummary } from '../../utils/timesheetMirror';
-
-function formatLocation(loc: { lat?: number; lng?: number } | null | undefined): string {
-  if (!loc || loc.lat == null || loc.lng == null) return '—';
-  return `${Number(loc.lat).toFixed(4)}, ${Number(loc.lng).toFixed(4)}`;
-}
+import { extractLatLng } from '../../utils/reverseGeocode';
+import { StreetAddress } from '../../components/StreetAddress';
 
 const EmployeeTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -55,7 +52,7 @@ const EmployeeTimesheet: React.FC = () => {
   const byDate = useMemo(() => {
     const map = new Map<
       string,
-      ReturnType<typeof buildDayMirrorSummary> & { location?: string }
+      ReturnType<typeof buildDayMirrorSummary> & { locationCoords?: { lat: number; lng: number } }
     >();
     const byDay = new Map<string, any[]>();
     records.forEach((r: any) => {
@@ -65,10 +62,11 @@ const EmployeeTimesheet: React.FC = () => {
     });
     byDay.forEach((arr, d) => {
       const mirror = buildDayMirrorSummary(arr);
-      const locRow = arr.find((x: any) => x.latitude || x.location);
+      const locRow = arr.find((x: any) => extractLatLng(x));
+      const locationCoords = locRow ? extractLatLng(locRow) ?? undefined : undefined;
       map.set(d, {
         ...mirror,
-        location: locRow ? formatLocation({ lat: locRow.latitude, lng: locRow.longitude }) : undefined,
+        locationCoords,
       });
     });
     return map;
@@ -127,7 +125,13 @@ const EmployeeTimesheet: React.FC = () => {
                     <td className="px-4 py-3 tabular-nums">{sum?.voltaIntervalo || '—'}</td>
                     <td className="px-4 py-3 tabular-nums">{sum?.saidaFinal || '—'}</td>
                     <td className="px-4 py-3 tabular-nums">{sum?.workedHours || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs font-mono">{sum?.location ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs max-w-[280px]">
+                      {sum?.locationCoords ? (
+                        <StreetAddress lat={sum.locationCoords.lat} lng={sum.locationCoords.lng} />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-4 py-3">{sum?.status || 'OK'}</td>
                   </tr>
                 );

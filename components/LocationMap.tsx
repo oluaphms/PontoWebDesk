@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
+import { reverseGeocode } from '../src/utils/reverseGeocode';
 
 // Importar CSS do Leaflet via CDN (será carregado dinamicamente)
 const LEAFLET_CSS_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
@@ -37,6 +38,17 @@ const defaultIcon = L.icon({
 const LocationMap: React.FC<LocationMapProps> = ({ lat, lng, accuracy, className = '', zoom = 16 }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
+    const [addressLine, setAddressLine] = useState('Carregando endereço…');
+
+    useEffect(() => {
+        let cancelled = false;
+        void reverseGeocode(lat, lng).then((t) => {
+            if (!cancelled) setAddressLine(t);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [lat, lng]);
 
     useEffect(() => {
         loadLeafletCSS();
@@ -76,13 +88,15 @@ const LocationMap: React.FC<LocationMapProps> = ({ lat, lng, accuracy, className
                 const marker = L.marker([lat, lng], { icon: defaultIcon }).addTo(map);
 
                 // Popup no marcador
+                const esc = (s: string) =>
+                    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 marker.bindPopup(
-                    `<div style="text-align:center;font-family:system-ui;padding:4px;">
-            <strong style="color:#6366f1;">📍 Sua Localização</strong><br/>
-            <span style="font-size:11px;color:#64748b;">
-              ${lat.toFixed(6)}, ${lng.toFixed(6)}
-              ${accuracy ? `<br/>Precisão: ~${Math.round(accuracy)}m` : ''}
+                    `<div style="text-align:left;font-family:system-ui;padding:6px;max-width:220px;">
+            <strong style="color:#6366f1;">📍 Local</strong><br/>
+            <span style="font-size:12px;color:#334155;line-height:1.35;">
+              ${esc(addressLine)}
             </span>
+            ${accuracy ? `<br/><span style="font-size:10px;color:#64748b;">Precisão GPS: ~${Math.round(accuracy)} m</span>` : ''}
           </div>`
                 ).openPopup();
 
@@ -142,7 +156,7 @@ const LocationMap: React.FC<LocationMapProps> = ({ lat, lng, accuracy, className
                 mapInstanceRef.current = null;
             }
         };
-    }, [lat, lng, accuracy, zoom]);
+    }, [lat, lng, accuracy, zoom, addressLine]);
 
     return (
         <div
