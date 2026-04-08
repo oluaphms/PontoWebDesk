@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { User, LogType, DailySummary, PunchMethod, Company } from './types';
 import Layout from './components/Layout';
-import { BrandLogo } from './components/BrandLogo';
+import { BRAND_IMAGE_1024 } from './components/BrandLogo';
 import Clock from './components/Clock';
 import PunchModal from './components/PunchModal';
 import Onboarding from './components/Onboarding';
@@ -822,11 +822,15 @@ const AppMain: React.FC = () => {
       );
     }
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 overflow-hidden relative font-sans transition-colors duration-300">
-        {/* Botão de modo escuro - canto superior direito */}
+      <div className="min-h-screen relative flex flex-col items-center justify-center px-4 py-10 sm:p-6 overflow-x-hidden overflow-y-auto font-sans transition-colors duration-300 bg-slate-50 dark:bg-slate-950">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <div className="absolute top-[-15%] right-[-20%] h-[50%] w-[55%] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[100px]" />
+          <div className="absolute bottom-[-20%] left-[-15%] h-[45%] w-[50%] rounded-full bg-blue-500/8 dark:bg-blue-500/10 blur-[90px]" />
+        </div>
+
         <button
           onClick={toggleTheme}
-          className="absolute top-6 right-6 z-20 p-3 bg-slate-200 dark:bg-slate-900/10 hover:bg-slate-300 dark:hover:bg-slate-900/20 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/50 transition-all group"
+          className="absolute top-5 right-5 z-20 p-3 bg-white/90 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-900 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all group shadow-sm"
           aria-label={getThemeLabel()}
           title={getThemeLabel()}
         >
@@ -835,24 +839,29 @@ const AppMain: React.FC = () => {
           </div>
         </button>
 
-        {/* Decorative elements */}
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-600/5 dark:bg-indigo-600/10 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/5 dark:bg-blue-600/10 rounded-full blur-[120px]"></div>
-
         <div className="w-full max-w-md relative z-10">
-          <header className="text-center mb-10">
-            <div className="inline-flex justify-center animate-in zoom-in duration-700">
-              <BrandLogo
-                size="hero"
-                className="shadow-2xl shadow-indigo-500/30"
-                alt={`${i18n.t('app.name')} — ${i18n.t('login.slogan')}`}
-              />
-            </div>
-          </header>
+          <h1 className="sr-only">
+            {i18n.t('app.name')} — {i18n.t('login.slogan')}
+          </h1>
 
-          <div className="bg-white dark:bg-slate-900/50 backdrop-blur-3xl p-2 rounded-[2.5rem] border border-slate-200 dark:border-slate-800/50 shadow-2xl overflow-hidden transition-colors">
+          {/* Um único painel: logo em cima, ações embaixo */}
+          <div className="rounded-[2.5rem] border border-slate-200/90 dark:border-slate-800/70 bg-white dark:bg-slate-900/90 backdrop-blur-xl shadow-2xl shadow-slate-900/12 dark:shadow-black/35 overflow-hidden transition-colors">
+            <div className="relative px-6 sm:px-8 pt-9 pb-8 sm:pb-10 flex flex-col items-center bg-gradient-to-br from-indigo-100/95 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950">
+              <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[2.5rem]" aria-hidden>
+                <div className="absolute -top-1/3 left-1/2 -translate-x-1/2 w-[140%] h-[70%] rounded-full bg-indigo-400/12 dark:bg-indigo-500/10 blur-[64px]" />
+              </div>
+              <img
+                src={BRAND_IMAGE_1024}
+                alt={`${i18n.t('app.name')} — ${i18n.t('login.slogan')}`}
+                className="relative z-10 w-[min(56vw,200px)] h-[min(56vw,200px)] sm:w-44 sm:h-44 md:w-48 md:h-48 object-contain rounded-[1.75rem] shadow-2xl shadow-indigo-500/35 ring-1 ring-white/60 dark:ring-white/10"
+                width={192}
+                height={192}
+                loading="eager"
+                decoding="async"
+              />
+
             {loginStep === 'choice' ? (
-              <div className="p-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="relative z-10 w-full mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <button
                   onClick={() => { setLoginRole('employee'); setLoginStep('form'); }}
                   className="w-full group p-6 bg-slate-50 dark:bg-white/5 hover:bg-indigo-600 dark:hover:bg-indigo-600 rounded-[2rem] border border-slate-200 dark:border-white/5 transition-all flex items-center justify-between text-left outline-none focus:ring-4 focus:ring-indigo-500/30"
@@ -886,7 +895,7 @@ const AppMain: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="p-8 animate-in fade-in slide-in-from-right-4 duration-500">
+              <div className="relative z-10 w-full mt-8 animate-in fade-in slide-in-from-right-4 duration-500">
                 <button
                   onClick={() => setLoginStep('choice')}
                   className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest mb-8"
@@ -1004,6 +1013,7 @@ const AppMain: React.FC = () => {
                 <ForgotPasswordModal isOpen={showForgotPassword} onClose={() => setShowForgotPassword(false)} />
               </div>
             )}
+            </div>
           </div>
 
           <p className="text-center text-slate-500 dark:text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-8 transition-colors">
