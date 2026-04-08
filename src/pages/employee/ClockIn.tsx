@@ -515,8 +515,10 @@ const EmployeeClockIn: React.FC = () => {
     }
   };
 
-  const handleConfirmProof = async () => {
+  /** Envia a batida; `biometricOverride` usa o valor recém-obtido no WebAuthn antes do React atualizar o estado. */
+  const submitProof = async (biometricOverride?: boolean) => {
     if (!user || pendingLogType == null) return;
+    const biometricOk = biometricOverride ?? hadBiometric;
     const manualBypass = manualBypassActive;
     if (globalSettings?.gps_required && (!geo?.latitude || !geo?.longitude) && !manualBypass) {
       toast.addToast('error', 'É necessário obter a localização antes de registrar.');
@@ -524,7 +526,7 @@ const EmployeeClockIn: React.FC = () => {
     }
     if (globalSettings?.photo_required && !manualBypass) {
       if (verificationMode === 'digital') {
-        if (!hadBiometric && !photoDataUrl) {
+        if (!biometricOk && !photoDataUrl) {
           toast.addToast('error', 'Valide a biometria ou capture a foto obrigatória.');
           return;
         }
@@ -535,7 +537,11 @@ const EmployeeClockIn: React.FC = () => {
         }
       }
     }
-    await executePunchRegistration(pendingLogType, geo, photoDataUrl, hadBiometric, { manualBypass });
+    await executePunchRegistration(pendingLogType, geo, photoDataUrl, biometricOk, { manualBypass });
+  };
+
+  const handleConfirmProof = async () => {
+    await submitProof();
   };
 
   const handleTryWebAuthnInModal = async () => {
@@ -560,6 +566,10 @@ const EmployeeClockIn: React.FC = () => {
           'success',
           hadKeyBefore ? 'Dispositivo validado com biometria.' : 'Biometria cadastrada neste aparelho.'
         );
+        // Após biometria válida no modo digital, registra o ponto automaticamente (sem segundo clique em "Confirmar").
+        if (verificationMode === 'digital') {
+          await submitProof(true);
+        }
       } else {
         setDigitalFallbackToPhoto(true);
         toast.addToast('info', 'Não foi possível validar. Use a foto.');
