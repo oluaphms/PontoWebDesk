@@ -91,11 +91,15 @@ const EmployeeClockIn: React.FC = () => {
   const [lastType, setLastType] = useState<string | null>(null);
   const [lastRecordAt, setLastRecordAt] = useState<string | null>(null);
   const [verificationMode, setVerificationMode] = useState<VerificationMode>('photo');
+  /** Cartão cujos botões de batida estão visíveis (null = só ícones de comprovação) */
+  const [expandedPunchMode, setExpandedPunchMode] = useState<VerificationMode | null>(null);
   /** Feedback de GPS para o usuário */
   const [geoLiveStatus, setGeoLiveStatus] = useState<'idle' | 'obtaining' | 'captured' | 'failed'>('idle');
   /** Modal de comprovação (GPS + câmera / digital) */
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [pendingLogType, setPendingLogType] = useState<LogType | null>(null);
+  /** Texto da batida escolhida no grid (ex.: "Registrar entrada") para título do modal */
+  const [pendingPunchLabel, setPendingPunchLabel] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [geo, setGeo] = useState<GeoPosition | null>(null);
   const [gpsFailReason, setGpsFailReason] = useState<GeolocationFailureReason | null>(null);
@@ -199,6 +203,7 @@ const EmployeeClockIn: React.FC = () => {
     stopCamera();
     setProofModalOpen(false);
     setPendingLogType(null);
+    setPendingPunchLabel('');
     setGeo(null);
     setGpsFailReason(null);
     setPhotoDataUrl(null);
@@ -592,7 +597,7 @@ const EmployeeClockIn: React.FC = () => {
     toast.addToast('success', 'Foto capturada.');
   };
 
-  const beginPunch = async (type: LogType, mode: VerificationMode) => {
+  const beginPunch = async (type: LogType, mode: VerificationMode, punchActionLabel: string) => {
     if (!user) return;
     if (!isSupabaseConfigured) {
       setError('Sistema de ponto indisponível. Tente mais tarde.');
@@ -616,6 +621,7 @@ const EmployeeClockIn: React.FC = () => {
     }
     setVerificationMode(mode);
     setPendingLogType(type);
+    setPendingPunchLabel(punchActionLabel);
     setGeo(null);
     setGpsFailReason(null);
     setPhotoDataUrl(null);
@@ -624,8 +630,8 @@ const EmployeeClockIn: React.FC = () => {
     setProofModalOpen(true);
   };
 
-  const handlePunch = (type: LogType, mode: VerificationMode) => {
-    void beginPunch(type, mode);
+  const handlePunch = (type: LogType, mode: VerificationMode, punchActionLabel: string) => {
+    void beginPunch(type, mode, punchActionLabel);
   };
 
   /** Em jornada: última batida do dia foi entrada (trabalhando ou após retorno de intervalo) */
@@ -708,7 +714,7 @@ const EmployeeClockIn: React.FC = () => {
 
       <div className="space-y-2">
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          Escolha o <strong>método de comprovação</strong> (Foto, Digital ou Manual) e o tipo de registro. A localização é obtida automaticamente.
+          Toque em <strong>Foto</strong>, <strong>Digital</strong> ou <strong>Manual</strong> para abrir as opções de registro. A localização é obtida automaticamente no envio.
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-500">
           {globalSettings?.photo_required
@@ -725,57 +731,66 @@ const EmployeeClockIn: React.FC = () => {
             ...(canUseManualPunch ? [{ mode: 'manual' as const, label: '⌨️ Manual', icon: Keyboard, color: 'amber' }] : []),
           ].map((card) => {
             const Icon = card.icon;
-            const isActive = verificationMode === card.mode;
+            const isExpanded = expandedPunchMode === card.mode;
             return (
-              <div key={card.mode} className={`rounded-3xl border-2 ${isActive ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'} p-6 transition-all hover:shadow-md`}>
+              <div key={card.mode} className={`rounded-3xl border-2 ${isExpanded ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'} p-6 transition-all hover:shadow-md`}>
                 <button
                   type="button"
                   disabled={saving}
+                  aria-expanded={isExpanded}
+                  aria-controls={`punch-actions-${card.mode}`}
+                  id={`comprovante-trigger-${card.mode}`}
                   onClick={() => {
                     setVerificationMode(card.mode);
                     if (card.mode === 'photo' || card.mode === 'manual') setDigitalFallbackToPhoto(false);
+                    setExpandedPunchMode((prev) => (prev === card.mode ? null : card.mode));
                   }}
                   className="w-full flex flex-col items-center gap-4"
                 >
-                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${isActive ? 'bg-indigo-100 dark:bg-indigo-900' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                    <Icon className={`w-8 h-8 ${isActive ? 'text-indigo-600' : 'text-slate-500 dark:text-slate-400'}`} />
+                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${isExpanded ? 'bg-indigo-100 dark:bg-indigo-900' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                    <Icon className={`w-8 h-8 ${isExpanded ? 'text-indigo-600' : 'text-slate-500 dark:text-slate-400'}`} />
                   </div>
                   <div>
                     <div className="font-semibold text-xl text-slate-800 dark:text-slate-100">{card.label}</div>
                     <div className="text-xs text-slate-500 mt-1">Comprovação</div>
+                    {!isExpanded && (
+                      <div className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-2 font-medium">Toque para ver as batidas</div>
+                    )}
                   </div>
                 </button>
 
-                <div className="mt-6 space-y-2">
+                {isExpanded && (
+                <div id={`punch-actions-${card.mode}`} className="mt-6 space-y-2" role="region" aria-labelledby={`comprovante-trigger-${card.mode}`}>
                   <button
-                    onClick={() => handlePunch(LogType.IN, card.mode)}
+                    onClick={() => handlePunch(LogType.IN, card.mode, 'Registrar entrada')}
                     disabled={saving || (isIn && !isBreak && card.mode !== 'manual')}
                     className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Registrar Entrada
                   </button>
                   <button
-                    onClick={() => handlePunch(LogType.BREAK, card.mode)}
+                    onClick={() => handlePunch(LogType.BREAK, card.mode, 'Início de intervalo')}
                     disabled={saving || !isIn || isBreak}
                     className="w-full py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Iniciar Intervalo
                   </button>
                   <button
-                    onClick={() => handlePunch(LogType.IN, card.mode)}
+                    onClick={() => handlePunch(LogType.IN, card.mode, 'Retorno do intervalo')}
                     disabled={saving || !isBreak}
                     className="w-full py-3 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Finalizar Intervalo
                   </button>
                   <button
-                    onClick={() => handlePunch(LogType.OUT, card.mode)}
+                    onClick={() => handlePunch(LogType.OUT, card.mode, 'Registrar saída')}
                     disabled={saving || !isIn}
                     className="w-full py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Registrar Saída
                   </button>
                 </div>
+                )}
               </div>
             );
           })}
@@ -794,119 +809,40 @@ const EmployeeClockIn: React.FC = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="proof-modal-title"
-            className="relative z-[101] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-5 md:p-6 space-y-5"
+            className={`relative z-[101] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-xl p-5 md:p-6 space-y-5 ${
+              verificationMode === 'digital'
+                ? 'border-2 border-indigo-400/90 dark:border-indigo-500 ring-2 ring-indigo-200/60 dark:ring-indigo-900/80'
+                : verificationMode === 'photo'
+                  ? 'border-2 border-sky-400/85 dark:border-sky-600 ring-2 ring-sky-200/50 dark:ring-sky-900/70'
+                  : verificationMode === 'manual'
+                    ? 'border-2 border-amber-400/85 dark:border-amber-600 ring-2 ring-amber-200/50 dark:ring-amber-900/60'
+                    : 'border border-slate-200 dark:border-slate-700'
+            }`}
           >
-            <h2 id="proof-modal-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Comprovar registro de ponto
-            </h2>
-
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
-                <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
-                Localização (automática)
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Ao confirmar, o sistema envia a posição junto com a batida (se obtida). Se falhar, use &quot;Tentar localização novamente&quot;.
-              </p>
-              {typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Em HTTP (sem HTTPS), o navegador pode bloquear GPS e câmera. Use HTTPS em produção ou teste em localhost.
+            <div className="space-y-1">
+              <h2 id="proof-modal-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                {pendingPunchLabel || 'Comprovar registro de ponto'}
+              </h2>
+              {verificationMode === 'photo' && (
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Capture a foto e confirme. GPS em paralelo.
                 </p>
               )}
-              {geoPermissionState !== 'unknown' && geoPermissionState !== 'unsupported' && (
-                <p className="text-xs text-slate-500 dark:text-slate-400" role="status">
-                  Permissão de localização no navegador:{' '}
-                  <strong>
-                    {geoPermissionState === 'granted'
-                      ? 'permitida'
-                      : geoPermissionState === 'denied'
-                        ? 'negada'
-                        : geoPermissionState === 'prompt'
-                          ? 'aguardando escolha'
-                          : geoPermissionState}
-                  </strong>
+              {verificationMode === 'manual' && (
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Confirmação auditada, sem biometria/foto quando permitido.
                 </p>
-              )}
-              {gpsLoading && (
-                <p className="text-sm text-slate-600 dark:text-slate-400" role="status">
-                  Obtendo localização…
-                </p>
-              )}
-              {!gpsLoading && geoLiveStatus === 'captured' && geo && (
-                <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status">
-                  Localização capturada (precisão ~{Math.round(geo.accuracy)} m).
-                </p>
-              )}
-              {!gpsLoading && geoLiveStatus === 'failed' && gpsFailReason && (
-                <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-950/30 p-3 space-y-2" role="alert">
-                  <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                    {gpsFailReason === 'denied' ? 'Localização bloqueada' : 'Não foi possível usar o GPS'}
-                  </p>
-                  <p className="text-sm text-red-700 dark:text-red-300">{geolocationReasonMessage(gpsFailReason)}</p>
-                  <p className="text-xs text-red-800/90 dark:text-red-200/90">{geolocationActionHint(gpsFailReason)}</p>
-                  {import.meta.env?.DEV && (
-                    <p className="text-[10px] font-mono text-slate-500 break-all">Debug: motivo={gpsFailReason}</p>
-                  )}
-                </div>
-              )}
-              <button
-                type="button"
-                disabled={gpsLoading || saving}
-                onClick={() => void retryGps()}
-                className="inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2.5 disabled:opacity-50 min-h-[44px]"
-              >
-                Tentar localização novamente
-              </button>
-              {canUseManualPunch && !manualBypassActive && geoLiveStatus === 'failed' && (
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-600">
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
-                    {globalSettings?.gps_required
-                      ? 'Se a política da empresa permitir registro sem GPS, use o modo manual abaixo.'
-                      : 'Você pode concluir o registro sem GPS usando o modo manual.'}
-                  </p>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => setVerificationMode('manual')}
-                    className="w-full rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 text-sm font-medium py-2.5"
-                  >
-                    Continuar em registro manual (sem localização automática)
-                  </button>
-                </div>
-              )}
-              {geo && geo.latitude != null && geo.longitude != null && (
-                <div className="h-52 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 mt-3 bg-slate-100 dark:bg-slate-800">
-                  <Suspense
-                    fallback={
-                      <div className="h-full flex items-center justify-center text-xs text-slate-500">Carregando mapa…</div>
-                    }
-                  >
-                    <LocationMap lat={geo.latitude} lng={geo.longitude} accuracy={geo.accuracy} className="rounded-xl" />
-                  </Suspense>
-                </div>
               )}
             </div>
 
-            {verificationMode === 'manual' && manualBypassActive && (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-900/20 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
-                  <Keyboard className="w-4 h-4 shrink-0" />
-                  Registro manual
-                </div>
-                <p className="text-xs text-amber-800 dark:text-amber-300">
-                  Confirme abaixo para registrar o ponto sem foto, biometria ou localização obrigatórios. O método será marcado como manual para auditoria.
-                </p>
-              </div>
-            )}
-
             {verificationMode === 'digital' && (
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
-                  <ScanLine className="w-4 h-4 text-indigo-500 shrink-0" />
-                  Comprovação digital (WebAuthn)
+              <div className="rounded-xl border-2 border-indigo-300/80 dark:border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <ScanLine className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  Validar biometria
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Na primeira vez, cadastre a biometria neste aparelho; depois, valide com Face ID, Windows Hello ou sensor. Se falhar, use &quot;Usar foto&quot;. Requer HTTPS (exceto localhost).
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Primeira vez: cadastro neste aparelho. Depois: Face ID, Windows Hello ou sensor. Em caso de falha, use foto ou registro manual.
                 </p>
                 <div className="flex flex-wrap gap-2 items-center">
                   <button
@@ -915,7 +851,7 @@ const EmployeeClockIn: React.FC = () => {
                     onClick={() => void handleTryWebAuthnInModal()}
                     className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium disabled:opacity-50 min-h-[44px]"
                   >
-                    {webAuthnBusy ? 'Aguardando…' : hadBiometric ? 'Dispositivo validado' : 'Tentar no dispositivo'}
+                    {webAuthnBusy ? 'Aguardando…' : hadBiometric ? 'Validado' : 'Validar no dispositivo'}
                   </button>
                   <button
                     type="button"
@@ -935,23 +871,125 @@ const EmployeeClockIn: React.FC = () => {
                       }}
                       className="px-4 py-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 text-sm font-medium min-h-[44px]"
                     >
-                      Registro manual
+                      Manual
                     </button>
                   )}
                 </div>
               </div>
             )}
 
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <MapPin className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Localização</p>
+                    {gpsLoading && (
+                      <p className="text-xs text-slate-500" role="status">
+                        Obtendo…
+                      </p>
+                    )}
+                    {!gpsLoading && geoLiveStatus === 'captured' && geo && (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300" role="status">
+                        OK (~{Math.round(geo.accuracy)} m)
+                      </p>
+                    )}
+                    {!gpsLoading && geoLiveStatus === 'failed' && gpsFailReason && (
+                      <p className="text-xs text-red-600 dark:text-red-400" role="status">
+                        Sem posição
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={gpsLoading || saving}
+                  onClick={() => void retryGps()}
+                  className="shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                >
+                  Atualizar
+                </button>
+              </div>
+              {typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  {verificationMode === 'digital' && 'Use HTTPS para GPS e biometria (ou localhost).'}
+                  {verificationMode === 'photo' && 'Use HTTPS para GPS e câmera (ou localhost).'}
+                  {verificationMode === 'manual' && 'Use HTTPS para GPS (ou localhost).'}
+                </p>
+              )}
+              {geoPermissionState === 'denied' && (
+                <p className="text-xs text-slate-600 dark:text-slate-400" role="status">
+                  Permissão de localização negada no navegador.
+                </p>
+              )}
+              {!gpsLoading && geoLiveStatus === 'failed' && gpsFailReason && (
+                <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-950/30 p-2.5 space-y-1" role="alert">
+                  <p className="text-xs font-medium text-red-800 dark:text-red-200">
+                    {gpsFailReason === 'denied' ? 'Localização bloqueada' : 'GPS indisponível'}
+                  </p>
+                  <p className="text-xs text-red-700 dark:text-red-300">{geolocationReasonMessage(gpsFailReason)}</p>
+                  <p className="text-[11px] text-red-800/90 dark:text-red-200/90">{geolocationActionHint(gpsFailReason)}</p>
+                  {import.meta.env?.DEV && (
+                    <p className="text-[10px] font-mono text-slate-500 break-all">Debug: motivo={gpsFailReason}</p>
+                  )}
+                </div>
+              )}
+              {canUseManualPunch && !manualBypassActive && geoLiveStatus === 'failed' && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setVerificationMode('manual')}
+                  className="w-full rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/30 py-2 text-xs font-medium text-amber-900 dark:text-amber-200"
+                >
+                  Sem GPS — continuar em manual
+                </button>
+              )}
+              {geo && geo.latitude != null && geo.longitude != null && (
+                <div className="h-28 sm:h-32 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800">
+                  <Suspense
+                    fallback={
+                      <div className="h-full flex items-center justify-center text-[11px] text-slate-500">Mapa…</div>
+                    }
+                  >
+                    <LocationMap lat={geo.latitude} lng={geo.longitude} accuracy={geo.accuracy} className="rounded-lg" />
+                  </Suspense>
+                </div>
+              )}
+            </div>
+
+            {verificationMode === 'manual' && manualBypassActive && (
+              <div className="rounded-lg border border-amber-300/90 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/25 p-3 space-y-1">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  <Keyboard className="w-4 h-4 shrink-0" />
+                  Registro manual
+                </div>
+                <p className="text-xs text-amber-800/95 dark:text-amber-300/95">
+                  Confirme abaixo. Método registrado como manual para auditoria.
+                </p>
+              </div>
+            )}
+
             {needsCameraPreview && (
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
-                  <Camera className="w-4 h-4 text-sky-500 shrink-0" />
+              <div
+                className={`rounded-xl p-4 space-y-3 ${
+                  verificationMode === 'photo'
+                    ? 'border-2 border-sky-300/80 dark:border-sky-700 bg-sky-50/40 dark:bg-sky-950/30'
+                    : 'border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <Camera className="w-5 h-5 text-sky-500 shrink-0" />
                   {globalSettings?.photo_required
-                    ? 'Imagem obrigatória'
+                    ? 'Foto obrigatória'
                     : verificationMode === 'photo'
-                      ? 'Foto (opcional)'
+                      ? 'Capturar foto'
                       : 'Foto de apoio'}
                 </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  {verificationMode === 'photo'
+                    ? 'Enquadre o rosto ou o ambiente solicitado pela empresa.'
+                    : 'Use se a biometria não estiver disponível.'}
+                </p>
                 <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-black">
                   {photoDataUrl ? (
                     <img
