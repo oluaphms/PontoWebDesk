@@ -6,6 +6,7 @@ import { i18n } from '../../../lib/i18n';
 import { useLanguage } from '../../contexts/LanguageContext';
 import type { User } from '../../../types';
 import { BrandLogo } from '../../../components/BrandLogo';
+import { prefetchPortalRoute } from '../../routes/routeChunks';
 
 const SIDEBAR_WIDTH_EXPANDED = 240;
 const SIDEBAR_WIDTH_COLLAPSED = 72;
@@ -45,6 +46,8 @@ export const AppSidebarNavContent = memo<AppSidebarNavContentProps>(function App
               navigate(item.route);
               onItemClick?.();
             }}
+            onMouseEnter={() => prefetchPortalRoute(item.route)}
+            onFocus={() => prefetchPortalRoute(item.route)}
             aria-current={isActive ? 'page' : undefined}
             className={`
               group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5

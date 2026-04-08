@@ -7,6 +7,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import type { User } from '../../../types';
 import { BrandLogo } from '../../../components/BrandLogo';
+import { prefetchPortalRoute } from '../../routes/routeChunks';
 
 const DOCK_WIDTH_COLLAPSED = 72;
 const DOCK_WIDTH_EXPANDED = 240;
@@ -74,6 +75,8 @@ const SidebarDock: React.FC<SidebarDockProps> = ({ user, onLogout }) => {
                 key={item.path}
                 type="button"
                 onClick={() => navigate(item.path)}
+                onMouseEnter={() => prefetchPortalRoute(item.path)}
+                onFocus={() => prefetchPortalRoute(item.path)}
                 title={!expanded ? i18n.t(item.nameKey) : undefined}
                 className={`
                   group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5

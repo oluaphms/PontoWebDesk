@@ -15,7 +15,6 @@ import { isSupabaseConfigured, testSupabaseConnection, resetSession, clearLocalA
 import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
-import ProfileView from './components/ProfileView';
 import {
   requestNotificationPermission,
   startReminderCheck,
@@ -48,23 +47,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { BiometricService } from './services/biometricService';
-import DashboardPage from './src/pages/Dashboard';
-import TimeClockPage from './src/pages/TimeClock';
-import TimeRecordsPage from './src/pages/TimeRecords';
-import EmployeesPage from './src/pages/Employees';
-import DepartmentsPage from './src/pages/Departments';
-import SchedulesPage from './src/pages/Schedules';
-import RealTimeInsightsPage from './src/pages/RealTimeInsights';
-import CompanyPage from './src/pages/Company';
-import ReportsPage from './src/pages/Reports';
-import SettingsPage from './src/pages/Settings';
-import TimeAttendancePage from './src/pages/TimeAttendance';
-import AdjustmentsPage from './src/pages/Adjustments';
-import AbsencesPage from './src/pages/Absences';
-import RequestsPage from './src/pages/Requests';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
-import ResetPasswordPage from './src/pages/ResetPassword';
-import AcceptInvitePage from './src/pages/AcceptInvite';
 import RoleGuard from './src/components/auth/RoleGuard';
 import ProtectedRoute from './src/components/auth/ProtectedRoute';
 import { useSettings, SettingsProvider } from './src/contexts/SettingsContext';
@@ -75,51 +58,69 @@ import { useSessionTimeout } from './src/hooks/useSessionTimeout';
 import { readCachedUser } from './src/hooks/useCurrentUser';
 import AdminLayout from './src/layouts/AdminLayout';
 import EmployeeLayout from './src/layouts/EmployeeLayout';
-import AdminDashboard from './src/pages/admin/Dashboard';
-import AdminEmployees from './src/pages/admin/Employees';
-import AdminTimesheet from './src/pages/admin/Timesheet';
-import AdminMonitoring from './src/pages/admin/Monitoring';
-import AdminSchedules from './src/pages/admin/Schedules';
-import AdminShifts from './src/pages/admin/Shifts';
-import AdminJobTitles from './src/pages/admin/JobTitles';
-import AdminCompany from './src/pages/admin/Company';
-import AdminReports from './src/pages/admin/Reports';
-import AdminBankHours from './src/pages/admin/BankHours';
-import ReportWorkHours from './src/pages/admin/reports/ReportWorkHours';
-import ReportOvertime from './src/pages/admin/reports/ReportOvertime';
-import ReportInconsistencies from './src/pages/admin/reports/ReportInconsistencies';
-import ReportBankHours from './src/pages/admin/reports/ReportBankHours';
-import AdminSettings from './src/pages/admin/Settings';
-import AdminEstruturas from './src/pages/admin/Estruturas';
-import AdminCidades from './src/pages/admin/Cidades';
-import AdminEstadosCivis from './src/pages/admin/EstadosCivis';
-import AdminEventos from './src/pages/admin/Eventos';
-import AdminMotivoDemissao from './src/pages/admin/MotivoDemissao';
-import AdminFeriados from './src/pages/admin/Feriados';
-import AdminCartaoPonto from './src/pages/admin/CartaoPonto';
-import AdminLancamentoEventos from './src/pages/admin/LancamentoEventos';
-import AdminJustificativas from './src/pages/admin/Justificativas';
-import AdminArquivarCalculos from './src/pages/admin/ArquivarCalculos';
-import AdminColunasMix from './src/pages/admin/ColunasMix';
-import AdminPontoDiario from './src/pages/admin/PontoDiario';
-import AdminArquivosFiscais from './src/pages/admin/ArquivosFiscais';
-import AdminFiscalizacao from './src/pages/admin/Fiscalizacao';
-import AdminSecurity from './src/pages/admin/Security';
-import ReportSecurity from './src/pages/admin/reports/ReportSecurity';
-import ImportEmployees from './src/pages/admin/ImportEmployees';
-import AdminRepDevices from './src/pages/admin/RepDevices';
-import AdminRepMonitor from './src/pages/admin/RepMonitor';
-import AdminImportRep from './src/pages/admin/ImportRep';
-import AdminAusencias from './src/pages/Ausencias';
-import AdminAjuda from './src/pages/admin/Ajuda';
-import EmployeeDashboard from './src/pages/employee/Dashboard';
-import EmployeeClockIn from './src/pages/employee/ClockIn';
-import EmployeeTimesheet from './src/pages/employee/Timesheet';
-import EmployeeMonitoring from './src/pages/employee/Monitoring';
-import EmployeeProfile from './src/pages/employee/Profile';
-import EmployeeSettings from './src/pages/employee/Settings';
-import MyWorkSchedule from './src/pages/employee/MyWorkSchedule';
-import TimeBalancePage from './src/pages/TimeBalance';
+import {
+  AbsencesPage,
+  AcceptInviteRoute,
+  AdjustmentsPage,
+  AdminAjuda,
+  AdminArquivarCalculos,
+  AdminAusencias,
+  AdminBankHours,
+  AdminCartaoPonto,
+  AdminCidades,
+  AdminColunasMix,
+  AdminCompany,
+  AdminDashboard,
+  AdminEmployees,
+  AdminEstruturas,
+  AdminEstadosCivis,
+  AdminEventos,
+  AdminFeriados,
+  AdminFiscalizacao,
+  AdminImportRep,
+  AdminJobTitles,
+  AdminJustificativas,
+  AdminLancamentoEventos,
+  AdminMonitoring,
+  AdminMotivoDemissao,
+  AdminPontoDiario,
+  AdminReports,
+  AdminRepDevices,
+  AdminRepMonitor,
+  AdminSchedules,
+  AdminSecurity,
+  AdminSettings,
+  AdminShifts,
+  AdminTimesheet,
+  CompanyPage,
+  DepartmentsPage,
+  EmployeeClockIn,
+  EmployeeDashboard,
+  EmployeeMonitoring,
+  EmployeeProfile,
+  EmployeeSettings,
+  EmployeeTimesheet,
+  EmployeesPage,
+  ImportEmployees,
+  MyWorkSchedule,
+  ProfileViewLazy,
+  RealTimeInsightsPage,
+  ReportBankHours,
+  ReportInconsistencies,
+  ReportOvertime,
+  ReportSecurity,
+  ReportsPage,
+  ReportWorkHours,
+  RequestsPage,
+  ResetPasswordRoute,
+  SchedulesPage,
+  SettingsPage,
+  TimeAttendancePage,
+  TimeBalancePage,
+  TimeClockPage,
+  TimeRecordsPage,
+  AdminArquivosFiscais,
+} from './src/routes/portalLazyPages';
 
 // Lazy loading of complex views
 const AdminView = React.lazy(() => import('./components/AdminView'));
@@ -805,11 +806,21 @@ const AppMain: React.FC = () => {
   }
 
   if (location.pathname === '/reset-password' || isRecoveryHash) {
-    return <ResetPasswordPage />;
+    return (
+      <React.Suspense fallback={<LoadingState message="Carregando..." />}>
+        <ResetPasswordRoute />
+      </React.Suspense>
+    );
   }
 
   if (!user) {
-    if (location.pathname === '/accept-invite') return <AcceptInvitePage />;
+    if (location.pathname === '/accept-invite') {
+      return (
+        <React.Suspense fallback={<LoadingState message="Carregando..." />}>
+          <AcceptInviteRoute />
+        </React.Suspense>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 overflow-hidden relative font-sans transition-colors duration-300">
         {/* Botão de modo escuro - canto superior direito */}
@@ -1053,7 +1064,7 @@ const AppMain: React.FC = () => {
   if (isPortalRoute) {
     return (
       <LayoutComponent user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
-        <React.Suspense fallback={<LoadingState message="Carregando módulo inteligente..." />}>
+        <React.Suspense fallback={<LoadingState message="Carregando página..." />}>
           <Routes>
             {/* Rotas Admin: /admin redireciona pelo index; não duplicar Route path="/admin" (quebra sub-rotas como /admin/bank-hours). */}
             <Route path="/admin" element={<ProtectedRoute user={user} allowedRoles={['admin', 'hr']}><Outlet /></ProtectedRoute>}>
@@ -1131,7 +1142,7 @@ const AppMain: React.FC = () => {
             <Route path="/time-clock" element={<TimeClockPage />} />
             <Route path="/time-records" element={<TimeRecordsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/profile" element={<ProfileView user={user} />} />
+            <Route path="/profile" element={<ProfileViewLazy user={user} />} />
             <Route
               path="/employees"
               element={
@@ -1183,7 +1194,7 @@ const AppMain: React.FC = () => {
       {showOnboarding && <Onboarding onComplete={() => { localStorage.setItem(`onboarding_${user.id}`, 'true'); setShowOnboarding(false); }} />}
       <SuccessOverlay visible={showCelebration} title="Ponto Registrado" message="Sua marcação foi validada e salva com sucesso." />
 
-      <React.Suspense fallback={<LoadingState message="Carregando módulo inteligente..." />}>
+      <React.Suspense fallback={<LoadingState message="Carregando..." />}>
         {activeTab === 'dashboard' && (
           <div className="space-y-10 animate-in slide-in-from-bottom-6 duration-700">
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -1392,7 +1403,7 @@ const AppMain: React.FC = () => {
 
         {activeTab === 'admin' && (user.role === 'admin' || user.role === 'hr') && <AdminView admin={user} />}
 
-        {activeTab === 'settings' && <ProfileView user={user} />}
+        {activeTab === 'settings' && <ProfileViewLazy user={user} />}
       </React.Suspense>
 
       {/* Diálogo de seleção de método de registro */}

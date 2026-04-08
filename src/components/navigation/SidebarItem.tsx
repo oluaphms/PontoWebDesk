@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
+import { useRoutePrefetch } from '../../hooks/useRoutePrefetch';
 
 export interface SidebarItemProps {
   path: string;
@@ -22,6 +23,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const isActive = location.pathname === path;
+  const prefetchHandlers = useRoutePrefetch(path);
 
   const handleClick = () => {
     navigate(path);
@@ -32,6 +34,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
     <button
       type="button"
       onClick={handleClick}
+      {...prefetchHandlers}
       aria-current={isActive ? 'page' : undefined}
       className={`
         group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5

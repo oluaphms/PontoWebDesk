@@ -70,6 +70,31 @@ const authStorage =
       }
     : undefined;
 
+/**
+ * Lock in-process (fila por nome) em vez do Web Locks API do navegador.
+ * O lock padrão (`navigator.locks`) + React 18 Strict Mode (mount duplo) gera
+ * locks órfãos → "steal" → AbortError em getSession/getUser. Ver:
+ * https://github.com/supabase/supabase-js — opção `auth.lock`.
+ *
+ * Nota: não coordena outras abas do mesmo site; risco baixo na prática; evita
+ * spam de erros e falhas em settings/records no primeiro paint.
+ */
+function createInProcessAuthLock() {
+  const tails = new Map<string, Promise<void>>();
+  return <R,>(name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => {
+    const prev = tails.get(name) ?? Promise.resolve();
+    const run: Promise<R> = prev.then(() => fn());
+    tails.set(
+      name,
+      run.then(
+        () => undefined as void,
+        () => undefined as void,
+      ),
+    );
+    return run;
+  };
+}
+
 // Timeout por requisição HTTP (auth + REST). 15s equilibra cold start e evita espera infinita.
 const SUPABASE_FETCH_TIMEOUT_MS = 15000;
 
@@ -140,6 +165,7 @@ if (configured) {
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storage: authStorage,
+      ...(typeof window !== 'undefined' ? { lock: createInProcessAuthLock() } : {}),
     },
     global: {
       fetch: fetchWithTimeout,

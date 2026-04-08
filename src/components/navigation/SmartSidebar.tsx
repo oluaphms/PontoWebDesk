@@ -23,6 +23,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import type { User } from '../../../types';
 import SidebarItem from './SidebarItem';
+import { prefetchPortalRoute } from '../../routes/routeChunks';
 import { BrandLogo } from '../../../components/BrandLogo';
 import SidebarGroup from './SidebarGroup';
 import { useNavigationBadges } from '../../hooks/useNavigationBadges';
@@ -176,6 +177,8 @@ const SmartSidebar: React.FC<SmartSidebarProps> = ({ user, onLogout, onCollapsed
               <button
                 type="button"
                 onClick={() => navigate('/time-clock')}
+                onMouseEnter={() => prefetchPortalRoute('/time-clock')}
+                onFocus={() => prefetchPortalRoute('/time-clock')}
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold text-sm shadow-lg shadow-indigo-600/25 hover:bg-indigo-700 transition-colors"
               >
                 <History size={18} /> Clock Now
@@ -184,6 +187,8 @@ const SmartSidebar: React.FC<SmartSidebarProps> = ({ user, onLogout, onCollapsed
               <button
                 type="button"
                 onClick={() => navigate('/time-clock')}
+                onMouseEnter={() => prefetchPortalRoute('/time-clock')}
+                onFocus={() => prefetchPortalRoute('/time-clock')}
                 title="Clock Now"
                 className="flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-700 transition-colors mx-auto"
               >

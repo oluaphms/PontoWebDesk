@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { User } from '../../types';
 import { BrandLogo } from '../../components/BrandLogo';
+import { prefetchPortalRoute } from '../routes/routeChunks';
 
 const SIDEBAR_WIDTH_EXPANDED = 240;
 const SIDEBAR_WIDTH_COLLAPSED = 72;
@@ -123,6 +124,8 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ user, onLogout, onCollapsed
                 key={item.path}
                 type="button"
                 onClick={() => navigate(item.path)}
+                onMouseEnter={() => prefetchPortalRoute(item.path)}
+                onFocus={() => prefetchPortalRoute(item.path)}
                 className={`
                   group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all
                   ${collapsed ? 'justify-center px-2' : ''}

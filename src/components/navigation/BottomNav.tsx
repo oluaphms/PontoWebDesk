@@ -11,6 +11,7 @@ import {
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import type { User } from '../../../types';
+import { prefetchPortalRoute } from '../../routes/routeChunks';
 
 const SvgMenu = ({ size = 24 }: { size?: number }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -84,6 +85,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
               key={item.path}
               type="button"
               onClick={() => navigate(item.path)}
+              onMouseEnter={() => prefetchPortalRoute(item.path)}
+              onFocus={() => prefetchPortalRoute(item.path)}
               className={`flex flex-col items-center justify-center flex-1 py-2.5 px-2 min-w-0 gap-1 transition-colors ${
                 isActive
                   ? 'text-indigo-600 dark:text-indigo-400'
@@ -179,6 +182,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                         navigate(item.path);
                         setDrawerOpen(false);
                       }}
+                      onMouseEnter={() => prefetchPortalRoute(item.path)}
+                      onFocus={() => prefetchPortalRoute(item.path)}
                       className={`
                         flex items-center gap-3 w-full rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors
                         ${
