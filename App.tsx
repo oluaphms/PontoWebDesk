@@ -12,6 +12,7 @@ import { PontoService } from './services/pontoService';
 import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import {
+  auth,
   isSupabaseConfigured,
   testSupabaseConnection,
   resetSession,
@@ -297,8 +298,31 @@ const AppMain: React.FC = () => {
           // Não loga falha aqui para não poluir o console; login mostrará erro se precisar.
         });
 
-        // Hidratar sessão: não usar timeout curto aqui — cortava o perfil em rede lenta e gerava oscilação.
-        const currentUser = await authService.getCurrentUser().catch((error) => {
+        // Sem JWT: abrir login imediatamente (getCurrentUser pode levar ~60s em rede/RLS lenta).
+        try {
+          const session = await auth.getSession();
+          if (!session?.user) {
+            if (isMounted) {
+              clearTimeout(timeoutId);
+              setIsInitialLoading(false);
+            }
+            return;
+          }
+        } catch (e) {
+          console.error('Error checking session:', e);
+          if (isMounted) {
+            clearTimeout(timeoutId);
+            setIsInitialLoading(false);
+          }
+          return;
+        }
+
+        // Hidratar perfil com teto — o listener onAuthStateChanged completa se ainda estiver carregando.
+        const INIT_HYDRATE_MS = 12000;
+        const currentUser = await Promise.race([
+          authService.getCurrentUser(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
+        ]).catch((error) => {
           console.error('Error getting current user:', error);
           return null;
         });
@@ -602,12 +626,8 @@ const AppMain: React.FC = () => {
     setLoginError(null);
 
     try {
-      // Evita estado de sessão travada após logout em alguns navegadores/PWA.
-      try {
-        await clearLocalAuthSession();
-      } catch {
-        // segue para login mesmo se falhar a limpeza
-      }
+      // Não chamar signOut aqui: o Supabase substitui a sessão no signIn e o signOut assíncrono
+      // gerava evento "sem sessão" depois do login (voltava para a tela de login) e atrasava o fluxo.
 
       // Delega a resolução do identificador (email, nome, CPF) para o AuthService,
       // que já trata e normaliza o valor (incluindo fallback de domínio quando necessário).

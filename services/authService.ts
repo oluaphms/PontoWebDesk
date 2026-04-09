@@ -957,15 +957,32 @@ class AuthService {
    */
   onAuthStateChanged(callback: (user: User | null) => void) {
     return auth.onAuthStateChange(async (event, session) => {
+      /**
+       * Corrida comum no login: `clearLocalAuthSession()` chama signOut e o listener pode receber
+       * `session === null` *depois* do signIn já ter concluído — isso apagava o usuário na UI.
+       * Se o storage ainda tiver sessão válida, recuperamos antes de deslogar.
+       */
+      let sess = session;
+      if (!sess?.user) {
+        try {
+          const { data } = await auth.getSession();
+          if (data.session?.user) {
+            sess = data.session;
+          }
+        } catch {
+          // ignora
+        }
+      }
+
       try {
-        if (session?.user) {
-          // Refresh de token: não recarrega public.users (evita lentidão e “piscar” estado).
+        if (sess?.user) {
+          // Refresh de token: usa cache do perfil quando possível; senão recarrega (evita return vazio).
           if (event === 'TOKEN_REFRESHED') {
             try {
               const raw = readCurrentUserFromProfileStore();
               if (raw) {
                 const cached = JSON.parse(raw) as User;
-                if (cached?.id === session.user.id) {
+                if (cached?.id === sess.user.id) {
                   callback(cached);
                   return;
                 }
@@ -973,17 +990,16 @@ class AuthService {
             } catch {
               // segue com carga normal
             }
-            return;
           }
 
           let appUser: User | null = null;
           try {
-            appUser = await this.supabaseUserToAppUser(session.user);
+            appUser = await this.supabaseUserToAppUser(sess.user);
           } catch {
             appUser = null;
           }
           if (!appUser) {
-            appUser = await this.buildMinimalAppUserFromAuthUser(session.user);
+            appUser = await this.buildMinimalAppUserFromAuthUser(sess.user);
           }
           persistCurrentUserToProfileStore(appUser!);
           callback(appUser);
@@ -997,9 +1013,9 @@ class AuthService {
           callback(null);
         }
       } catch (err) {
-        if (session?.user) {
+        if (sess?.user) {
           try {
-            const appUser = await this.buildMinimalAppUserFromAuthUser(session.user);
+            const appUser = await this.buildMinimalAppUserFromAuthUser(sess.user);
             persistCurrentUserToProfileStore(appUser);
             callback(appUser);
           } catch {

@@ -1,10 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DailySummary } from "../types";
-import { getGeminiApiKey } from "./geminiEnv";
-
-/** Modelo alinhado ao restante do projeto (mapsService). */
-const GEMINI_MODEL_INSIGHTS = "gemini-2.5-flash";
-const GEMINI_MODEL_CHAT = "gemini-2.5-flash";
+import { getGeminiApiKey, getGeminiModelId } from "./geminiEnv";
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -20,6 +16,27 @@ function isInvalidOrDeniedGeminiKey(error: unknown): boolean {
   return /API_KEY_INVALID|API key not valid|invalid api key|PERMISSION_DENIED|403/i.test(t);
 }
 
+/** 400: modelo indisponível, payload inválido ou recurso não habilitado para a chave. */
+function isLikelyModelOrPayloadError(error: unknown): boolean {
+  const t = errorText(error);
+  return /\b400\b|INVALID_ARGUMENT|not found|is not (found|supported)|does not exist|FAILED_PRECONDITION/i.test(t);
+}
+
+function parseInsightJsonFromText(text: string): { insight: string; score: number } | null {
+  const trimmed = text.trim();
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  try {
+    const o = JSON.parse(jsonMatch[0]) as { insight?: unknown; score?: unknown };
+    if (typeof o.insight === 'string' && typeof o.score === 'number') {
+      return { insight: o.insight, score: o.score };
+    }
+  } catch {
+    // ignora
+  }
+  return null;
+}
+
 // Analyze time tracking data to provide productivity and work-life balance insights
 export const getWorkInsights = async (summaries: DailySummary[]) => {
   const apiKey = getGeminiApiKey();
@@ -31,13 +48,14 @@ export const getWorkInsights = async (summaries: DailySummary[]) => {
     };
   }
   const ai = new GoogleGenAI({ apiKey });
-  
+  const model = getGeminiModelId();
+
   const prompt = `Analise os seguintes registros de ponto dos últimos dias e forneça um insight curto (máximo 3 frases) sobre produtividade, pontualidade e equilíbrio vida-trabalho para o funcionário. Retorne em formato JSON.
   Dados: ${JSON.stringify(summaries)}`;
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_MODEL_INSIGHTS,
+      model,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -52,14 +70,41 @@ export const getWorkInsights = async (summaries: DailySummary[]) => {
       }
     });
 
-    // Access the text property directly (not a method) as per SDK guidelines
     const jsonStr = response.text?.trim();
     if (!jsonStr) {
       throw new Error("Empty response text from Gemini API");
     }
-    
-    return JSON.parse(jsonStr);
-  } catch (error) {
+
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      const fallback = parseInsightJsonFromText(jsonStr);
+      if (fallback) return fallback;
+      throw new Error("Invalid JSON in structured response");
+    }
+  } catch (firstError) {
+    // Retry sem schema JSON (algumas contas/modelos retornam 400 com responseSchema).
+    if (!isInvalidOrDeniedGeminiKey(firstError)) {
+      try {
+        const plainPrompt = `${prompt}\n\nResponda apenas um objeto JSON válido neste formato exato: {"insight":"...","score":8} com score entre 0 e 10. Sem markdown.`;
+        const response = await ai.models.generateContent({
+          model,
+          contents: plainPrompt,
+        });
+        const jsonStr = response.text?.trim();
+        if (jsonStr) {
+          try {
+            return JSON.parse(jsonStr);
+          } catch {
+            const fallback = parseInsightJsonFromText(jsonStr);
+            if (fallback) return fallback;
+          }
+        }
+      } catch {
+        // segue para handler abaixo
+      }
+    }
+    const error = firstError;
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
         console.warn(
@@ -72,7 +117,12 @@ export const getWorkInsights = async (summaries: DailySummary[]) => {
         score: 8,
       };
     }
-    if (import.meta.env?.DEV) {
+    if (isLikelyModelOrPayloadError(error) && import.meta.env?.DEV && typeof console !== 'undefined') {
+      console.warn(
+        "[Gemini] Insights (400/modelo): verifique VITE_GEMINI_MODEL (ex.: gemini-2.0-flash ou gemini-2.5-flash) e a chave em Google AI Studio.",
+        errorText(error)
+      );
+    } else if (import.meta.env?.DEV) {
       console.warn("[Gemini] Insights:", errorText(error));
     }
     return { insight: "Continue mantendo o registro regular do seu ponto para análises futuras.", score: 8 };
@@ -92,6 +142,7 @@ export const sendHRChatMessage = async (userMessage: string, history: { role: 'u
   }
 
   const ai = new GoogleGenAI({ apiKey });
+  const model = getGeminiModelId();
 
   const contents = [
     HR_SYSTEM_PROMPT,
@@ -101,7 +152,7 @@ export const sendHRChatMessage = async (userMessage: string, history: { role: 'u
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_MODEL_CHAT,
+      model,
       contents: contents,
     });
 

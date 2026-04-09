@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { getGeminiApiKey } from "./geminiEnv";
+import { getGeminiApiKey, getGeminiModelId } from "./geminiEnv";
 
 export const getGeoInsight = async (latitude: number, longitude: number) => {
   const apiKey = getGeminiApiKey();
@@ -10,10 +10,11 @@ export const getGeoInsight = async (latitude: number, longitude: number) => {
     };
   }
   const ai = new GoogleGenAI({ apiKey });
-  
+  const model = getGeminiModelId();
+
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model,
       contents: `Analise as coordenadas (${latitude}, ${longitude}) e descreva o contexto urbano desta localização de trabalho. Identifique pontos de referência, facilidades de transporte e amenidades próximas. Forneça uma análise sobre a adequação do local para presença física de funcionários.`,
       config: {
         tools: [{ googleMaps: {} }],
