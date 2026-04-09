@@ -34,6 +34,7 @@ const AdminRepDevices: React.FC = () => {
   const [loadingList, setLoadingList] = useState(true);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -75,6 +76,21 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: (e as Error).message });
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const handleDelete = async (id: string, nome: string) => {
+    if (!window.confirm(`Excluir o relógio "${nome}"? Esta ação não pode ser desfeita.`)) return;
+    setDeletingId(id);
+    setMessage(null);
+    try {
+      await db.delete('rep_devices', id);
+      setMessage({ type: 'success', text: 'Dispositivo removido.' });
+      await loadDevices();
+    } catch (e) {
+      setMessage({ type: 'error', text: (e as Error).message });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -270,6 +286,15 @@ const AdminRepDevices: React.FC = () => {
                     <Button size="sm" variant="outline" className="min-w-[44px]" onClick={() => openEdit(d)}>
                       <Pencil size={14} />
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-w-[44px] text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30"
+                      disabled={deletingId === d.id}
+                      onClick={() => handleDelete(d.id, d.nome_dispositivo)}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
                   </div>
                 </div>
               ))
@@ -349,6 +374,15 @@ const AdminRepDevices: React.FC = () => {
                             )}
                             <Button size="sm" variant="outline" onClick={() => openEdit(d)}>
                               <Pencil size={14} />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30"
+                              disabled={deletingId === d.id}
+                              onClick={() => handleDelete(d.id, d.nome_dispositivo)}
+                            >
+                              <Trash2 size={14} />
                             </Button>
                           </div>
                         </td>

@@ -41,29 +41,33 @@ const AdminRepMonitor: React.FC = () => {
         startToday.setHours(0, 0, 0, 0);
         const endToday = new Date();
 
-        const [devList, logList, countRes] = await Promise.all([
-          db.select(
-            'rep_devices',
-            [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-            { column: 'nome_dispositivo', ascending: true },
-            100
-          ) as Promise<DeviceRow[]>,
-          db.select(
+        const devList = (await db.select(
+          'rep_devices',
+          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+          { column: 'nome_dispositivo', ascending: true },
+          100
+        )) as DeviceRow[];
+
+        const deviceIds = (devList || []).map((d) => d.id);
+        let logList: LogRow[] = [];
+        if (deviceIds.length > 0) {
+          logList = (await db.select(
             'rep_logs',
-            [],
+            [{ column: 'rep_device_id', operator: 'in', value: deviceIds }],
             { column: 'created_at', ascending: false },
             50
-          ) as Promise<LogRow[]>,
-          supabaseClient
-            ? supabaseClient
-                .from('rep_punch_logs')
-                .select('*', { count: 'exact', head: true })
-                .eq('company_id', user.companyId)
-                .gte('created_at', startToday.toISOString())
-                .lte('created_at', endToday.toISOString())
-                .then((r) => r.count ?? 0)
-            : Promise.resolve(0),
-        ]);
+          )) as LogRow[];
+        }
+
+        const countRes = supabaseClient
+          ? await supabaseClient
+              .from('rep_punch_logs')
+              .select('*', { count: 'exact', head: true })
+              .eq('company_id', user.companyId)
+              .gte('created_at', startToday.toISOString())
+              .lte('created_at', endToday.toISOString())
+              .then((r) => r.count ?? 0)
+          : 0;
 
         setDevices(devList || []);
         setLogs(logList || []);

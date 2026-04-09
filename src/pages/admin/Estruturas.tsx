@@ -258,39 +258,43 @@ const AdminEstruturas: React.FC = () => {
             <div className="p-12 text-center text-slate-500">Carregando...</div>
           ) : (
             <>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Código</th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Descrição</th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Dentro de</th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Responsáveis</th>
-                    <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                      <td className="px-4 py-3 font-mono text-slate-700 dark:text-slate-300">{row.codigo}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.descricao}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.parent_descricao || 'Início'}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                        {(row.responsaveis ?? []).length > 0
-                          ? (row.responsaveis ?? []).map((r) => r.nome).join(', ')
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => openEdit(row)} className="p-2 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg" title="Editar">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button type="button" onClick={() => handleDelete(row.id)} className="p-2 text-slate-500 hover:text-red-600 rounded-lg" title="Excluir">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Código</th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Descrição</th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Dentro de</th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Responsáveis</th>
+                      <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-mono text-slate-700 dark:text-slate-300">{row.codigo}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.descricao}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.parent_descricao || 'Início'}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          {(row.responsaveis ?? []).length > 0
+                            ? (row.responsaveis ?? []).map((r) => r.nome).join(', ')
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex items-center">
+                            <button type="button" onClick={() => openEdit(row)} className="p-2 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg" title="Editar">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button type="button" onClick={() => handleDelete(row.id)} className="p-2 text-slate-500 hover:text-red-600 rounded-lg" title="Excluir">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {!loadingData && rows.length === 0 && (
                 <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhuma estrutura cadastrada. Clique em &quot;Incluir&quot; para começar.</p>
               )}

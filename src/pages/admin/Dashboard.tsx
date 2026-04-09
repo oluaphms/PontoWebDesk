@@ -97,7 +97,11 @@ const AdminDashboard: React.FC = () => {
         }
         setWeeklyData(last7Days);
 
-        const userIds = [...new Set((records as any[]).slice(0, 100).map((r: any) => r.user_id))];
+        const latestToday = (records as any[])
+          .filter((r: any) => r.created_at?.slice(0, 10) === today)
+          .slice(0, 1);
+
+        const userIds = [...new Set(latestToday.map((r: any) => r.user_id))];
         const userMap = new Map<string, { nome: string }>();
         await Promise.all(
           userIds.map(async (uid) => {
@@ -105,7 +109,7 @@ const AdminDashboard: React.FC = () => {
             if (u) userMap.set(uid, { nome: u.nome || u.email || 'N/A' });
           })
         );
-        const last = (records as any[]).slice(0, 15).map((r: any) => ({
+        const last = latestToday.map((r: any) => ({
           employeeName: userMap.get(r.user_id)?.nome ?? r.user_id?.slice(0, 8) ?? '—',
           type: r.type,
           time: r.created_at ? new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—',

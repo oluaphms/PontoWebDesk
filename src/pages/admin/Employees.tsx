@@ -226,6 +226,14 @@ function normNameKey(s: string): string {
     .replace(/\p{M}/gu, '');
 }
 
+function getDisplayShortName(fullName: string): string {
+  const clean = String(fullName || '').trim();
+  if (!clean) return '—';
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length <= 2) return parts.join(' ');
+  return `${parts[0]} ${parts[1]}...`;
+}
+
 const AdminEmployees: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const navigate = useNavigate();
@@ -1318,7 +1326,7 @@ const AdminEmployees: React.FC = () => {
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
-            title="Funcionários"
+            title="Colaborador"
             subtitle="Cadastro trabalhista: tipo de vínculo, documentos e datas para conformidade, REP e exportação à folha."
           />
           <div className="flex flex-wrap items-center gap-2">
@@ -1327,14 +1335,14 @@ const AdminEmployees: React.FC = () => {
               onClick={openImportModal}
               className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
-              <Upload className="w-5 h-5" /> Importar funcionário
+              <Upload className="w-5 h-5" /> Importar colaborador
             </button>
             <button
               type="button"
               onClick={openCreate}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors"
             >
-              <UserPlus className="w-5 h-5" /> Cadastrar Funcionário
+              <UserPlus className="w-5 h-5" /> Cadastrar colaborador
             </button>
           </div>
         </div>
@@ -1361,13 +1369,6 @@ const AdminEmployees: React.FC = () => {
           )}
         </div>
 
-        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">
-          A lista mostra apenas quem está em <code className="text-[11px] bg-slate-100 dark:bg-slate-800 px-1 rounded">public.users</code> com o
-          mesmo <strong className="font-medium text-slate-600 dark:text-slate-300">company_id</strong> da empresa atual. Quem existe só no Auth ou com
-          empresa vazia/errada consegue entrar no app, mas não aparece aqui até o vínculo ser corrigido no Supabase (SQL Editor: atualizar{' '}
-          <code className="text-[11px] bg-slate-100 dark:bg-slate-800 px-1 rounded">company_id</code> para o ID da empresa).
-        </p>
-
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden">
           {loadingData ? (
             <div className="p-12 text-center text-slate-500">Carregando...</div>
@@ -1381,7 +1382,7 @@ const AdminEmployees: React.FC = () => {
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Vínculo</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Cidade</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Est. civil</th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">PIS/PASEP</th>
+                    <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[130px]">PIS/PASEP</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Cargo</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Departamento</th>
                     <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Escala</th>
@@ -1395,7 +1396,9 @@ const AdminEmployees: React.FC = () => {
                   {filteredRows.map((row) => (
                     <tr key={row.id} className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 ${row.invisivel ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.numero_folha || '—'}</td>
-                      <td className="px-4 py-3 text-slate-900 dark:text-white font-medium">{row.nome}</td>
+                      <td className="px-4 py-3 text-slate-900 dark:text-white font-medium max-w-[180px] truncate" title={row.nome}>
+                        {getDisplayShortName(row.nome)}
+                      </td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {TIPO_VINCULO_LABELS[normalizeTipoVinculo(row.tipo_vinculo)]}
                       </td>
@@ -1405,7 +1408,7 @@ const AdminEmployees: React.FC = () => {
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300 max-w-[120px] truncate" title={row.estado_civil_name || undefined}>
                         {row.estado_civil_name || '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.pis_pasep || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap tabular-nums">{row.pis_pasep || '—'}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.cargo}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.department_name || '—'}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.schedule_name || '—'}</td>

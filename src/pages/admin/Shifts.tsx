@@ -336,33 +336,41 @@ const AdminShifts: React.FC = () => {
         {loadingData ? (
           <div className="p-12 text-center text-slate-500">Carregando...</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Nº</th>
-                <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Descrição</th>
-                <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Entrada / Saída</th>
-                <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.number || '—'}</td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.description || row.name}</td>
-                  <td className="px-4 py-3 tabular-nums text-slate-600 dark:text-slate-300">
-                    {toTimeStr(row.start_time)} – {toTimeStr(row.end_time)}
-                    {row.break_start_time && row.break_end_time && ` (intervalo ${toTimeStr(row.break_start_time)}–${toTimeStr(row.break_end_time)})`}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button type="button" onClick={() => openDuplicate(row)} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg" title="Duplicar"><Copy className="w-4 h-4" /></button>
-                    <button type="button" onClick={() => openEdit(row)} className="p-2 text-slate-500 hover:text-indigo-600 rounded-lg" title="Editar"><Pencil className="w-4 h-4" /></button>
-                    <button type="button" onClick={() => handleDelete(row.id)} className="p-2 text-slate-500 hover:text-red-600 rounded-lg" title="Excluir"><Trash2 className="w-4 h-4" /></button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                  <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Nº</th>
+                  <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Descrição</th>
+                  <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Entrada / Saída</th>
+                  <th className="text-right px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.number || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.description || row.name}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-600 dark:text-slate-300">
+                      <div className="space-y-0.5 whitespace-nowrap">
+                        <div>{toTimeStr(row.start_time)} – {toTimeStr(row.end_time)}</div>
+                        {row.break_start_time && row.break_end_time && (
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            intervalo {toTimeStr(row.break_start_time)}–{toTimeStr(row.break_end_time)}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button type="button" onClick={() => openDuplicate(row)} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg" title="Duplicar"><Copy className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => openEdit(row)} className="p-2 text-slate-500 hover:text-indigo-600 rounded-lg" title="Editar"><Pencil className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => handleDelete(row.id)} className="p-2 text-slate-500 hover:text-red-600 rounded-lg" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {!loadingData && rows.length === 0 && (
           <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum horário cadastrado. Clique em &quot;Incluir horário&quot; para começar.</p>

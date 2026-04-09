@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, Download, Edit3, Plus } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
@@ -6,7 +6,8 @@ import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { auth, db, isSupabaseConfigured } from '../services/supabaseClient';
+import { resolveTenantId } from '../services/tenantScope';
 
 interface TimeLogRow {
   id: string;
@@ -51,23 +52,72 @@ const TimeAttendancePage: React.FC = () => {
   });
   const [saving, setSaving] = useState(false);
 
+  /** Mesma lógica de Colaboradores: perfil pode ter só tenantId ou company_id no JWT. */
+  const [companyIdFromSession, setCompanyIdFromSession] = useState('');
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) return;
+    let cancelled = false;
+    if (!isSupabaseConfigured) {
+      setCompanyIdFromSession('');
+      return;
+    }
+    void (async () => {
+      try {
+        const session = await auth.getSession();
+        const u = session?.user;
+        if (!u || cancelled) return;
+        const meta = (u.user_metadata || {}) as Record<string, unknown>;
+        const app = (u.app_metadata || {}) as Record<string, unknown>;
+        const pick = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+        const fromJwt =
+          pick(meta.tenant_id) ||
+          pick(meta.company_id) ||
+          pick(meta.companyId) ||
+          pick(app.company_id) ||
+          pick(app.tenant_id);
+        if (!cancelled) setCompanyIdFromSession(fromJwt);
+      } catch {
+        if (!cancelled) setCompanyIdFromSession('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const effectiveCompanyId = useMemo(() => {
+    const fromProfile = resolveTenantId(user);
+    if (fromProfile) return fromProfile;
+    return companyIdFromSession;
+  }, [user, companyIdFromSession]);
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured || !effectiveCompanyId) return;
 
     const load = async () => {
       setIsLoadingData(true);
       setError(null);
       try {
-        const [logRows, employeeRows] = await Promise.all([
-          db.select('time_logs', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+        const [logRows, employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
+          db.select('time_logs', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
+          db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
+          (db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>).catch(
+            () => [] as any[],
+          ),
         ]);
 
-        const empList: EmployeeRow[] =
-          (employeeRows ?? []).map((e: any) => ({
+        const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
+        const uniqueUsers = Array.from(new Map(employeeRows.map((e: any) => [e.id, e])).values());
+
+        const displayName = (e: any) =>
+          (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
+
+        const empList: EmployeeRow[] = uniqueUsers
+          .filter((e: any) => (e.role || '').toLowerCase() !== 'admin')
+          .map((e: any) => ({
             id: e.id,
-            nome: e.nome ?? e.email ?? 'Sem nome',
-          })) ?? [];
+            nome: displayName(e),
+          }));
+        empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
         setEmployees(empList);
 
         const mapped: TimeLogRow[] =
@@ -95,7 +145,7 @@ const TimeAttendancePage: React.FC = () => {
     };
 
     load();
-  }, [user]);
+  }, [user, effectiveCompanyId]);
 
   const filteredLogs = logs.filter((l) => {
     if (filterEmployeeId && l.employee_id !== filterEmployeeId) return false;
@@ -134,7 +184,7 @@ const TimeAttendancePage: React.FC = () => {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSupabaseConfigured || !user) return;
+    if (!isSupabaseConfigured || !user || !effectiveCompanyId) return;
     if (!form.employeeId || !form.date || !form.clockIn || !form.clockOut) return;
 
     setSaving(true);
@@ -146,7 +196,7 @@ const TimeAttendancePage: React.FC = () => {
 
       const payload = {
         employee_id: form.employeeId,
-        company_id: user.companyId,
+        company_id: effectiveCompanyId,
         clock_in: clockInIso,
         clock_out: clockOutIso,
         break_time: Number(form.breakMinutes || '0'),
@@ -236,15 +286,27 @@ const TimeAttendancePage: React.FC = () => {
         icon={<CalendarClock className="w-5 h-5" />}
       />
 
-      <section className="glass-card rounded-[2.25rem] p-6 space-y-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:flex-wrap">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 min-w-0 flex-1">
-            <div className="min-w-0">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Colaborador</label>
+      <section className="glass-card rounded-[2.25rem] p-4 sm:p-6 space-y-4">
+        {!effectiveCompanyId && (
+          <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
+            Empresa não identificada no perfil. Atualize a página, faça login novamente ou peça ao administrador para vincular sua conta (company_id / tenant).
+          </p>
+        )}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2 xl:grid-cols-4 flex-1">
+            <div className="min-w-0 w-full md:min-w-[200px]">
+              <label
+                htmlFor="time-attendance-filter-employee"
+                className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5"
+              >
+                Colaborador
+              </label>
               <select
-                className="mt-1 w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm"
+                id="time-attendance-filter-employee"
+                className="w-full min-h-11 min-w-0 px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
                 value={filterEmployeeId}
                 onChange={(e) => setFilterEmployeeId(e.target.value)}
+                disabled={!effectiveCompanyId}
               >
                 <option value="">Todos</option>
                 {employees.map((e) => (
@@ -254,21 +316,27 @@ const TimeAttendancePage: React.FC = () => {
                 ))}
               </select>
             </div>
-            <div className="min-w-0">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</label>
+            <div className="min-w-0 w-full md:min-w-[160px]">
+              <label
+                htmlFor="time-attendance-filter-date"
+                className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5"
+              >
+                Data
+              </label>
               <input
+                id="time-attendance-filter-date"
                 type="date"
-                className="mt-1 w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm"
+                className="w-full min-h-11 min-w-0 px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
                 value={filterDate}
                 onChange={(e) => setFilterDate(e.target.value)}
               />
             </div>
-            <div className="flex items-end sm:col-span-2 md:col-span-1">
+            <div className="flex items-end md:col-span-2 xl:col-span-1">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="w-full sm:w-auto"
+                className="w-full min-h-11 sm:w-auto"
                 onClick={() => {
                   setFilterEmployeeId('');
                   setFilterDate('');
@@ -278,16 +346,16 @@ const TimeAttendancePage: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 flex-shrink-0">
-            <Button type="button" size="sm" variant="outline" onClick={handleExport} className="w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 w-full lg:w-auto lg:max-w-md lg:justify-end flex-shrink-0">
+            <Button type="button" size="sm" variant="outline" onClick={handleExport} className="w-full min-h-11 sm:w-auto justify-center">
               <Download className="w-4 h-4" />
               Exportar
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={handleApproveHours} className="w-full sm:w-auto">
+            <Button type="button" size="sm" variant="outline" onClick={handleApproveHours} className="w-full min-h-11 sm:w-auto justify-center">
               <CheckCircle2 className="w-4 h-4" />
               Aprovar horas
             </Button>
-            <Button type="button" size="sm" onClick={openNewEntry} className="w-full sm:w-auto">
+            <Button type="button" size="sm" onClick={openNewEntry} className="w-full min-h-11 sm:w-auto justify-center" disabled={!effectiveCompanyId}>
               <Plus className="w-4 h-4" />
               Lançamento manual
             </Button>

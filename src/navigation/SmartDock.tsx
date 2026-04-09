@@ -16,7 +16,7 @@ const SmartDock: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   useLanguage();
-  const { groups, dockFloatingGroupKey, openDockGroup, setRadialOpen, onLogout } = useSmartNavigation();
+  const { user, groups, dockFloatingGroupKey, openDockGroup, setRadialOpen, onLogout } = useSmartNavigation();
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [cardStyle, setCardStyle] = useState<{ left: number; bottom: number; width: number } | null>(null);
@@ -76,10 +76,20 @@ const SmartDock: React.FC = () => {
 
   const handleItemClick = useCallback(
     (path: string) => {
-      navigate(path);
+      let targetPath = path;
+      const isAdminOrHr = user?.role === 'admin' || user?.role === 'hr';
+      // Fallback defensivo: garante Banco de Horas correto por perfil.
+      if (path === '/time-balance') {
+        targetPath = isAdminOrHr ? '/admin/bank-hours' : '/employee/time-balance';
+      } else if (path === '/employee/time-balance' && isAdminOrHr) {
+        targetPath = '/admin/bank-hours';
+      } else if (path === '/admin/bank-hours' && !isAdminOrHr) {
+        targetPath = '/employee/time-balance';
+      }
+      navigate(targetPath);
       openDockGroup(null);
     },
-    [navigate, openDockGroup]
+    [navigate, openDockGroup, user?.role]
   );
 
   /** Dashboard: navega direto para a página, sem abrir submenu */

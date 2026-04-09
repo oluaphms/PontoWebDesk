@@ -99,7 +99,7 @@ const AdminBankHours: React.FC = () => {
   const employeeName = (id: string) => employees.find((e) => e.id === id)?.nome || id?.slice(0, 8) || '—';
 
   return (
-    <RoleGuard allowedRoles={['admin', 'hr']}>
+    <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
       <div className="space-y-6">
         <PageHeader
           title="Banco de Horas"
