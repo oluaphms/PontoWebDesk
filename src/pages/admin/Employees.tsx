@@ -329,14 +329,6 @@ const AdminEmployees: React.FC = () => {
     demissao: '',
     motivo_demissao_id: '',
     observacoes: '',
-    assinatura_digital: '',
-    perifericos: 'padrao' as 'padrao' | 'habilitado' | 'desabilitado',
-    senha_web: '',
-    periodo_encerrado: '',
-    nao_alterar_dados_web: false,
-    nao_inclusao_ponto_manual: false,
-    bloquear_web: false,
-    controlar_solicitacoes: '' as '' | 'aceitar_local' | 'marcar_vistos',
     afastamento_inicio: '',
     afastamento_fim: '',
     afastamento_justificativa: '',
@@ -356,7 +348,6 @@ const AdminEmployees: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showSenhaWeb, setShowSenhaWeb] = useState(false);
   const [askInvisivel, setAskInvisivel] = useState<string | null>(null);
   const [settingPassword, setSettingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
@@ -551,14 +542,6 @@ const AdminEmployees: React.FC = () => {
       demissao: '',
       motivo_demissao_id: '',
       observacoes: '',
-      assinatura_digital: '',
-      perifericos: 'padrao' as const,
-      senha_web: '',
-      periodo_encerrado: '',
-      nao_alterar_dados_web: false,
-      nao_inclusao_ponto_manual: false,
-      bloquear_web: false,
-      controlar_solicitacoes: '' as const,
       afastamento_inicio: '',
       afastamento_fim: '',
       afastamento_justificativa: '',
@@ -588,7 +571,6 @@ const AdminEmployees: React.FC = () => {
     setPasswordMessage(null);
     const cargoCadastrado = cargos.some((c) => c.name === row.cargo);
     const cfg = row.employee_config || {};
-    const web = cfg.dados_web || {};
     setForm({
       numero_folha: row.numero_folha || '',
       salario_base: row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
@@ -610,14 +592,6 @@ const AdminEmployees: React.FC = () => {
       demissao: row.demissao || '',
       motivo_demissao_id: row.motivo_demissao_id || '',
       observacoes: row.observacoes || '',
-      assinatura_digital: '',
-      perifericos: (cfg.perifericos as any) || 'padrao',
-      senha_web: web.senha_web || '',
-      periodo_encerrado: web.periodo_encerrado || '',
-      nao_alterar_dados_web: !!web.nao_alterar_dados_web,
-      nao_inclusao_ponto_manual: !!web.nao_inclusao_ponto_manual,
-      bloquear_web: !!web.bloquear_web,
-      controlar_solicitacoes: (web.controlar_solicitacoes as any) || '',
       afastamento_inicio: cfg.afastamentos?.[0]?.periodo_inicio || '',
       afastamento_fim: cfg.afastamentos?.[0]?.periodo_fim || '',
       afastamento_justificativa: cfg.afastamentos?.[0]?.justificativa || '',
@@ -638,21 +612,13 @@ const AdminEmployees: React.FC = () => {
 
   const buildEmployeeConfig = (): EmployeeConfig => {
     const existingConfig = editingId ? (rows.find(r => r.id === editingId)?.employee_config || {}) : {};
-    const cfg: EmployeeConfig = {
-      ...existingConfig,
-      perifericos: form.perifericos,
-      dados_web: {
-        ...(existingConfig.dados_web || {}),
-        senha_web: form.senha_web || undefined,
-        periodo_encerrado: form.periodo_encerrado || undefined,
-        nao_alterar_dados_web: form.nao_alterar_dados_web,
-        nao_inclusao_ponto_manual: form.nao_inclusao_ponto_manual,
-        bloquear_web: form.bloquear_web,
-        controlar_solicitacoes: form.controlar_solicitacoes || undefined,
-      },
-    };
-    if (form.assinatura_digital.trim()) cfg.assinatura_digital = form.assinatura_digital;
+    const cfg: EmployeeConfig = { ...existingConfig };
+    delete cfg.assinatura_digital;
+    delete cfg.perifericos;
+    delete cfg.dados_web;
+
     if (form.photo_preview) cfg.photo_url = form.photo_preview;
+    else delete cfg.photo_url;
 
     if (form.afastamento_inicio && form.afastamento_fim) {
       cfg.afastamentos = [{
@@ -1548,6 +1514,38 @@ const AdminEmployees: React.FC = () => {
                     <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Dados Genéricos</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Cidade (naturalidade)</label>
+                        <select
+                          value={form.cidade_id}
+                          onChange={(e) => setForm({ ...form, cidade_id: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        >
+                          <option value="">Nenhuma</option>
+                          {cidades.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1">Cadastro em Cadastros → Cidades.</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Estado civil</label>
+                        <select
+                          value={form.estado_civil_id}
+                          onChange={(e) => setForm({ ...form, estado_civil_id: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        >
+                          <option value="">Nenhum</option>
+                          {estadosCivis.map((ec) => (
+                            <option key={ec.id} value={ec.id}>
+                              {ec.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1">Cadastro em Cadastros → Estados civis.</p>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Nº PIS/PASEP <span className="text-xs font-normal text-slate-500">(recomendado para REP/relatórios)</span></label>
                         <input type="text" value={form.pis_pasep} onChange={(e) => setForm({ ...form, pis_pasep: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Enviado ao REP e relatórios" />
                       </div>
@@ -1585,38 +1583,6 @@ const AdminEmployees: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Órgão emissor / UF</label>
                         <input type="text" value={form.rg_orgao} onChange={(e) => setForm({ ...form, rg_orgao: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Ex.: SSP/SP" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Cidade (naturalidade)</label>
-                        <select
-                          value={form.cidade_id}
-                          onChange={(e) => setForm({ ...form, cidade_id: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                        >
-                          <option value="">Nenhuma</option>
-                          {cidades.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-[10px] text-slate-500 mt-1">Cadastro em Cadastros → Cidades.</p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Estado civil</label>
-                        <select
-                          value={form.estado_civil_id}
-                          onChange={(e) => setForm({ ...form, estado_civil_id: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                        >
-                          <option value="">Nenhum</option>
-                          {estadosCivis.map((ec) => (
-                            <option key={ec.id} value={ec.id}>
-                              {ec.name}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-[10px] text-slate-500 mt-1">Cadastro em Cadastros → Estados civis.</p>
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Empresa <span className="text-xs font-normal text-blue-500">(Portaria 1510)</span></label>
@@ -1750,71 +1716,6 @@ const AdminEmployees: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Telefone</label>
                         <input type="text" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Telefone" />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Dados Adicionais */}
-                  <section>
-                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Dados Adicionais</h4>
-                    <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Assinatura Digital (senha para Lançamento de Eventos)</label>
-                        <input type="password" autoComplete="new-password" value={form.assinatura_digital} onChange={(e) => setForm({ ...form, assinatura_digital: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Senha para eventos (vales, transporte, etc.)" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Periféricos</label>
-                        <select value={form.perifericos} onChange={(e) => setForm({ ...form, perifericos: e.target.value as any })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                          <option value="padrao">Padrão (configuração do equipamento)</option>
-                          <option value="habilitado">Habilitado</option>
-                          <option value="desabilitado">Desabilitado</option>
-                        </select>
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Dados Módulo Web */}
-                  <section>
-                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Dados Módulo Web</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Senha Web</label>
-                        <div className="relative">
-                          <input
-                            type={showSenhaWeb ? 'text' : 'password'}
-                            autoComplete="new-password"
-                            value={form.senha_web}
-                            onChange={(e) => setForm({ ...form, senha_web: e.target.value })}
-                            className="w-full pl-3 pr-10 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                            placeholder="Senha de acesso no Módulo Web"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowSenhaWeb((p) => !p)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                            aria-label={showSenhaWeb ? 'Ocultar senha' : 'Mostrar senha'}
-                          >
-                            {showSenhaWeb ? <Eye size={18} /> : <EyeOff size={18} />}
-                          </button>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Salva em Supabase (employee_config). O login no app usa a senha do cadastro/importação (Supabase Auth), não esta Senha Web.</p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Período encerrado</label>
-                        <input type="date" value={form.periodo_encerrado} onChange={(e) => setForm({ ...form, periodo_encerrado: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" placeholder="Data limite solicitações web" />
-                      </div>
-                      <div className="sm:col-span-2 space-y-2">
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={form.nao_alterar_dados_web} onChange={(e) => setForm({ ...form, nao_alterar_dados_web: e.target.checked })} /> Não permitir alterar dados na Web</label>
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={form.nao_inclusao_ponto_manual} onChange={(e) => setForm({ ...form, nao_inclusao_ponto_manual: e.target.checked })} /> Não permitir inclusão de ponto manual</label>
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={form.bloquear_web} onChange={(e) => setForm({ ...form, bloquear_web: e.target.checked })} /> Bloquear funcionário na Web</label>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Permitir controlar solicitações via Web</label>
-                          <select value={form.controlar_solicitacoes} onChange={(e) => setForm({ ...form, controlar_solicitacoes: e.target.value as any })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                            <option value="">Nenhum</option>
-                            <option value="aceitar_local">Aceitar Solicitações (Somente Módulo Web Local)</option>
-                            <option value="marcar_vistos">Somente marcar vistos</option>
-                          </select>
-                        </div>
                       </div>
                     </div>
                   </section>
