@@ -41,7 +41,6 @@ export const adminNavigation: NavItem[] = [
   { name: 'Escalas', nameKey: 'menu.escalas', path: '/admin/schedules', icon: Calendar },
   { name: 'Horários', nameKey: 'menu.horarios', path: '/admin/shifts', icon: Clock },
   { name: 'Jornada de Trabalho', nameKey: 'menu.timeAttendance', path: '/admin/time-attendance', icon: CalendarClock },
-  { name: 'Ajustes de Ponto', nameKey: 'menu.adjustments', path: '/admin/adjustments', icon: Clock12 },
   { name: 'Banco de Horas', nameKey: 'menu.timeBalance', path: '/admin/bank-hours', icon: Scale },
   { name: 'Ausências', nameKey: 'menu.absences', path: '/admin/absences', icon: CircleOff },
   { name: 'Solicitações', nameKey: 'menu.requests', path: '/admin/requests', icon: ClipboardList },
