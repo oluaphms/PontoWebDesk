@@ -15,7 +15,6 @@ export const CompanyPage = React.lazy(ROUTE_LOADERS['/company']);
 export const ReportsPage = React.lazy(ROUTE_LOADERS['/reports']);
 export const SettingsPage = React.lazy(ROUTE_LOADERS['/settings']);
 export const TimeAttendancePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance']);
-export const AdjustmentsPage = React.lazy(ROUTE_LOADERS['/admin/adjustments']);
 export const AbsencesPage = React.lazy(ROUTE_LOADERS['/admin/absences']);
 export const RequestsPage = React.lazy(ROUTE_LOADERS['/admin/requests']);
 

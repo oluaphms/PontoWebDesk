@@ -107,7 +107,6 @@ export const NavMenuContent: React.FC<NavMenuContentProps> = memo(function NavMe
 
       <SidebarGroup title="Solicitações" collapsed={collapsed} defaultOpen>
         <Item path="/requests" label="Solicitações" icon={ClipboardList} badge={requestsCount} />
-        <Item path="/adjustments" label="Ajustes de Ponto" icon={Clock12} />
         <Item path="/vacations" label="Férias" icon={PlaneTakeoff} />
         <Item path="/absences" label="Ausências" icon={CircleOff} />
       </SidebarGroup>

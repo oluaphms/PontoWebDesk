@@ -69,7 +69,6 @@ import EmployeeLayout from './src/layouts/EmployeeLayout';
 import {
   AbsencesPage,
   AcceptInviteRoute,
-  AdjustmentsPage,
   AdminAjuda,
   AdminArquivarCalculos,
   AdminAusencias,
@@ -1085,7 +1084,6 @@ const AppMain: React.FC = () => {
     path === '/vacations' ||
     path === '/absences' ||
     path === '/notifications' ||
-    path === '/adjustments' ||
     path === '/ai-chat' ||
     path === '/locations' ||
     path === '/devices';
@@ -1184,7 +1182,6 @@ const AppMain: React.FC = () => {
               <Route path="lancamento-eventos" element={<AdminLancamentoEventos />} />
               <Route path="folha-pagamento" element={<AdminFolhaPagamento />} />
               <Route path="time-attendance" element={<TimeAttendancePage />} />
-              <Route path="adjustments" element={<AdjustmentsPage />} />
               <Route path="absences" element={<AbsencesPage />} />
               <Route path="ausencias" element={<AdminAusencias />} />
               <Route path="requests" element={<RequestsPage />} />

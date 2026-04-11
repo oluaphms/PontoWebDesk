@@ -12,7 +12,6 @@ export const ROUTE_LOADERS = {
   '/admin/lancamento-eventos': () => import('../pages/admin/LancamentoEventos'),
   '/admin/folha-pagamento': () => import('../pages/admin/FolhaPagamento'),
   '/admin/time-attendance': () => import('../pages/TimeAttendance'),
-  '/admin/adjustments': () => import('../pages/Adjustments'),
   '/admin/absences': () => import('../pages/Absences'),
   '/admin/ausencias': () => import('../pages/Ausencias'),
   '/admin/requests': () => import('../pages/Requests'),
