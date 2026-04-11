@@ -57,32 +57,60 @@ const NOMINATIM_HEADERS = {
 
 /**
  * Resolve coordenadas em texto de endereço (sem cache).
+ * Com timeout e retry logic.
  */
 export async function resolveAddressFromCoordinates(lat: number, lng: number): Promise<string> {
-  const url = `https://photon.komoot.io/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&lang=pt`;
+  const FETCH_TIMEOUT = 5000; // 5 segundos por API
+  const MAX_RETRIES = 2;
 
-  let text = '';
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    const data = (await res.json()) as {
-      features?: Array<{ properties?: Record<string, unknown> }>;
-    };
-    const props = data?.features?.[0]?.properties;
-    if (props) {
-      text = formatPhotonProperties(props).trim();
+  async function fetchWithTimeout(url: string, options: RequestInit = {}, retries = 0): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+    try {
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      return res;
+    } catch (e) {
+      if (retries < MAX_RETRIES && (e instanceof Error && e.name === 'AbortError')) {
+        // Retry on timeout
+        return fetchWithTimeout(url, options, retries + 1);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
     }
-  } catch {
-    text = '';
   }
 
+  let text = '';
+
+  // Tentar Photon
+  try {
+    const url = `https://photon.komoot.io/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&lang=pt`;
+    const res = await fetchWithTimeout(url, {
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        features?: Array<{ properties?: Record<string, unknown> }>;
+      };
+      const props = data?.features?.[0]?.properties;
+      if (props) {
+        text = formatPhotonProperties(props).trim();
+      }
+    }
+  } catch {
+    // Photon falhou, tenta Nominatim
+  }
+
+  // Fallback para Nominatim
   if (!text) {
     try {
       const nominatimUrl =
         `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&accept-language=pt-BR`;
-      const nomRes = await fetch(nominatimUrl, {
+      const nomRes = await fetchWithTimeout(nominatimUrl, {
         headers: NOMINATIM_HEADERS,
       });
       if (nomRes.ok) {
@@ -91,7 +119,7 @@ export async function resolveAddressFromCoordinates(lat: number, lng: number): P
         text = fromAddress || String(nomData.display_name || '').trim();
       }
     } catch {
-      text = '';
+      // Ambas APIs falharam
     }
   }
 
