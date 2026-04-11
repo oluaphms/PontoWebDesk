@@ -130,35 +130,43 @@ export const NotificationService = {
   },
 
   async markAsRead(userId: string, notificationId: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        // Use Supabase client directly to avoid automatic updated_at addition
-        const { error } = await supabase
-          .from('notifications')
-          .update({ read: true })
-          .eq('id', notificationId)
-          .eq('user_id', userId);
-        
-        if (error) {
-          console.error('Mark read Supabase failed:', error);
-        }
-      } catch (e) {
-        console.error('Mark read Supabase failed:', e);
-        // Continue with local storage fallback
-      }
-    }
-
+    // Atualizar localStorage primeiro (sempre funciona)
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const updated = parsed.map((n: any) =>
-        n.id === notificationId && n.userId === userId
-          ? { ...n, read: true, status: 'read' }
-          : n,
-      );
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch {}
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const updated = parsed.map((n: any) =>
+          n.id === notificationId && n.userId === userId
+            ? { ...n, read: true, status: 'read' }
+            : n,
+        );
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      }
+    } catch (e) {
+      console.error('localStorage update failed:', e);
+    }
+
+    // Tentar atualizar no Supabase (background, não bloqueia)
+    if (isSupabaseConfigured && supabase) {
+      try {
+        // Tentar usar RPC primeiro
+        await supabase.rpc('mark_notification_read', {
+          p_notification_id: notificationId,
+          p_user_id: userId,
+        });
+      } catch (rpcError) {
+        try {
+          // Fallback para update direto
+          await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('id', notificationId)
+            .eq('user_id', userId);
+        } catch (updateError) {
+          console.error('Mark read failed:', updateError);
+        }
+      }
+    }
   },
 
   async markAllAsRead(userId: string): Promise<void> {
@@ -189,34 +197,42 @@ export const NotificationService = {
   },
 
   async markAsResolved(userId: string, notificationId: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        // Use Supabase client directly to avoid automatic updated_at addition
-        const { error } = await supabase
-          .from('notifications')
-          .update({ read: true })
-          .eq('id', notificationId)
-          .eq('user_id', userId);
-        
-        if (error) {
-          console.error('Mark resolved Supabase failed:', error);
-        }
-      } catch (e) {
-        console.error('Mark resolved Supabase failed:', e);
-        // Continue with local storage fallback
-      }
-    }
-
+    // Atualizar localStorage primeiro (sempre funciona)
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const updated = parsed.map((n: any) =>
-        n.id === notificationId && n.userId === userId
-          ? { ...n, read: true, status: 'resolved' }
-          : n,
-      );
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch {}
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const updated = parsed.map((n: any) =>
+          n.id === notificationId && n.userId === userId
+            ? { ...n, read: true, status: 'resolved' }
+            : n,
+        );
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      }
+    } catch (e) {
+      console.error('localStorage update failed:', e);
+    }
+
+    // Tentar atualizar no Supabase (background, não bloqueia)
+    if (isSupabaseConfigured && supabase) {
+      try {
+        // Tentar usar RPC de delete
+        await supabase.rpc('delete_notification', {
+          p_notification_id: notificationId,
+          p_user_id: userId,
+        });
+      } catch (rpcError) {
+        try {
+          // Fallback para update direto
+          await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('id', notificationId)
+            .eq('user_id', userId);
+        } catch (updateError) {
+          console.error('Delete notification failed:', updateError);
+        }
+      }
+    }
   },
 };

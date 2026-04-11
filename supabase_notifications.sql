@@ -37,4 +37,11 @@ CREATE POLICY "Notifications select own"
 DROP POLICY IF EXISTS "Notifications update own" ON notifications;
 CREATE POLICY "Notifications update own"
   ON notifications FOR UPDATE TO authenticated
+  USING (auth.uid()::text = user_id)
+  WITH CHECK (auth.uid()::text = user_id);
+
+-- Delete: apenas próprias notificações
+DROP POLICY IF EXISTS "Notifications delete own" ON notifications;
+CREATE POLICY "Notifications delete own"
+  ON notifications FOR DELETE TO authenticated
   USING (auth.uid()::text = user_id);

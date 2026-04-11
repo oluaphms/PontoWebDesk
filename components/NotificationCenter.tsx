@@ -38,13 +38,14 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
   };
 
   const handleDeleteNotification = async (id: string) => {
-    // Delete the notification by marking it as resolved or removing it
-    // For now, we'll mark it as resolved which effectively removes it from view
     try {
+      console.log('Deletando notificação:', id);
       await NotificationService.markAsRead(userId, id);
+      console.log('Notificação deletada, recarregando lista...');
       await loadNotifications();
+      console.log('Lista recarregada');
     } catch (e) {
-      console.error('Error deleting notification:', e);
+      console.error('Erro ao deletar notificação:', e);
     }
   };
 
