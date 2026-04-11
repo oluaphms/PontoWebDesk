@@ -296,6 +296,15 @@ const AdminTimesheet: React.FC = () => {
         { column: 'company_id', operator: 'eq', value: user.companyId },
         { column: 'created_at', operator: 'gte', value: dateFilter }
       ], { column: 'created_at', ascending: false }, 500)) ?? [];
+      
+      // Debug: verificar se is_manual está sendo retornado
+      console.log('Records loaded:', recordsRows.slice(0, 3).map(r => ({ 
+        id: r.id, 
+        is_manual: r.is_manual, 
+        manual_reason: r.manual_reason,
+        created_at: r.created_at 
+      })));
+      
       setRecords(recordsRows);
 
       toast.addToast('success', 'Batida adicionada com sucesso.');
