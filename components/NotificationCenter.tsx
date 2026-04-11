@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { InAppNotification } from '../types';
 import { NotificationService } from '../services/notificationService';
+import { isSupabaseConfigured } from '../services/supabase';
 import { Bell, Check, X, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Button } from './UI';
 
@@ -18,12 +19,46 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
 
   const loadNotifications = useCallback(async () => {
     setIsLoading(true);
-    const all = await NotificationService.getAll(userId);
-    setNotifications(all);
-    const pending = all.filter((n) => n.status === 'pending').length;
-    setUnreadCount(pending);
-    onUnreadCountChange?.(pending);
-    setIsLoading(false);
+    try {
+      // Tentar carregar do Supabase primeiro
+      if (isSupabaseConfigured) {
+        try {
+          const all = await NotificationService.getAll(userId);
+          setNotifications(all);
+          const pending = all.filter((n) => n.status === 'pending').length;
+          setUnreadCount(pending);
+          onUnreadCountChange?.(pending);
+          setIsLoading(false);
+          return;
+        } catch (e) {
+          console.warn('Falha ao carregar notificações do Supabase, usando localStorage:', e);
+        }
+      }
+
+      // Fallback para localStorage
+      const raw = localStorage.getItem('smartponto_notifications');
+      if (raw) {
+        const parsed = JSON.parse(raw).map((n: any) => ({
+          ...n,
+          createdAt: new Date(n.createdAt),
+          status: n.status ?? (n.read ? 'read' : 'pending'),
+        }));
+        const filtered = parsed.filter((n: any) => n.userId === userId && n.status !== 'resolved');
+        setNotifications(filtered);
+        const pending = filtered.filter((n: any) => n.status === 'pending').length;
+        setUnreadCount(pending);
+        onUnreadCountChange?.(pending);
+      } else {
+        setNotifications([]);
+        setUnreadCount(0);
+        onUnreadCountChange?.(0);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar notificações:', e);
+      setNotifications([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, [userId, onUnreadCountChange]);
 
   useEffect(() => {
