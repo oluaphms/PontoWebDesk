@@ -6,7 +6,7 @@ CREATE OR REPLACE FUNCTION public.insert_time_record_for_user(
   p_user_id TEXT,
   p_company_id TEXT,
   p_type TEXT,
-  p_method TEXT,
+  p_method TEXT DEFAULT 'admin',
   p_location JSONB DEFAULT NULL,
   p_photo_url TEXT DEFAULT NULL,
   p_source TEXT DEFAULT 'admin',
@@ -68,7 +68,7 @@ BEGIN
     latitude, longitude, accuracy, device_id, device_type, ip_address,
     fraud_score, fraud_flags, created_at, updated_at
   ) VALUES (
-    v_record_id, p_user_id, p_company_id, p_type, p_method,
+    v_record_id, p_user_id, p_company_id, p_type, COALESCE(p_method, 'admin'),
     p_location, p_photo_url, p_source, v_ts,
     p_latitude, p_longitude, p_accuracy, p_device_id, p_device_type, p_ip_address,
     p_fraud_score, COALESCE(p_fraud_flags, '[]'::jsonb), v_ts, v_ts
@@ -85,4 +85,4 @@ $$;
 COMMENT ON FUNCTION public.insert_time_record_for_user(
   text, text, text, text, jsonb, text, text, timestamptz,
   numeric, numeric, numeric, text, text, text, numeric, jsonb
-) IS 'Insert time_record with admin/HR authorization. SET row_security=off for RLS bypass.';
+) IS 'Insert time_record with admin/HR authorization. SET row_security=off for RLS bypass. method defaults to admin.';

@@ -88,7 +88,7 @@ class SupabaseService {
           p_user_id: record.userId,
           p_company_id: record.companyId,
           p_type: record.type,
-          p_method: record.method,
+          p_method: record.method || 'admin',
           p_location: supabaseData.location,
           p_photo_url: supabaseData.photo_url,
           p_source: supabaseData.source || 'admin',
@@ -106,6 +106,7 @@ class SupabaseService {
         if (error) {
           // Se RPC falhar com "function does not exist", tentar insert direto
           if (error.code === '42883') {
+            supabaseData.method = supabaseData.method || 'admin';
             await db.insert('time_records', supabaseData);
           } else {
             throw error;
@@ -114,6 +115,7 @@ class SupabaseService {
       } catch (rpcError: any) {
         // Se RPC não existir ou falhar, tentar insert direto
         if (rpcError?.code === '42883' || rpcError?.message?.includes('does not exist')) {
+          supabaseData.method = supabaseData.method || 'admin';
           await db.insert('time_records', supabaseData);
         } else {
           throw rpcError;
@@ -124,10 +126,13 @@ class SupabaseService {
       // Tentar atualizar se já existir
       try {
         const supabaseData = timeRecordToSupabase(record);
+        supabaseData.method = supabaseData.method || 'admin';
         await db.update('time_records', record.id, supabaseData);
       } catch (updateError) {
         console.error('Erro ao atualizar registro:', updateError);
         throw error;
+      }
+    }
       }
     }
   }
