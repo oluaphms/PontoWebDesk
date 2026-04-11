@@ -24,6 +24,7 @@ type DaySummary = {
   workedHours: string;
   status: string;
   locationCoords?: { lat: number; lng: number };
+  isDayOff?: boolean;
 };
 
 type TimesheetRow = {
@@ -75,12 +76,29 @@ function lastPunchLocationCoords(dayRecs: any[]): { lat: number; lng: number } |
   return undefined;
 }
 
+/** Verifica se uma data é folga para um funcionário */
+function isDayOffForEmployee(date: string, employeeId: string, shiftSchedules: any[]): boolean {
+  try {
+    const dateObj = new Date(date);
+    const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    
+    const schedule = shiftSchedules.find(
+      (s: any) => s.employee_id === employeeId && s.day_of_week === dayOfWeek
+    );
+    
+    return schedule?.is_day_off === true;
+  } catch {
+    return false;
+  }
+}
+
 const AdminTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const toast = useToast();
   const [employees, setEmployees] = useState<{ id: string; nome: string; department_id?: string }[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [records, setRecords] = useState<any[]>([]);
+  const [shiftSchedules, setShiftSchedules] = useState<any[]>([]);
   const [filterUserId, setFilterUserId] = useState<string>('');
   const [filterDept, setFilterDept] = useState<string>('');
   const [periodStart, setPeriodStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
@@ -110,17 +128,19 @@ const AdminTimesheet: React.FC = () => {
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const dateFilter = thirtyDaysAgo.toISOString().slice(0, 10);
 
-        const [usersRows, recordsRows, departmentsRows] = await Promise.all([
+        const [usersRows, recordsRows, departmentsRows, shiftsRows] = await Promise.all([
           db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
           db.select('time_records', [
             { column: 'company_id', operator: 'eq', value: user.companyId },
             { column: 'created_at', operator: 'gte', value: dateFilter }
           ], { column: 'created_at', ascending: false }, 500) as Promise<any[]>,
           db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+          db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
         setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email, department_id: u.department_id })));
         setRecords(recordsRows ?? []);
         setDepartments((departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
+        setShiftSchedules(shiftsRows ?? []);
       } catch (e) {
         console.error(e);
       } finally {
@@ -162,6 +182,7 @@ const AdminTimesheet: React.FC = () => {
         const dayRecs = data.recs.filter((r: any) => (r.created_at || '').slice(0, 10) === d);
         const mirror = buildDayMirrorSummary(dayRecs);
         const locationCoords = lastPunchLocationCoords(dayRecs);
+        const isDayOff = isDayOffForEmployee(d, userId, shiftSchedules);
         byDate.set(d, {
           date: d,
           entradaInicio: mirror.entradaInicio,
@@ -171,6 +192,7 @@ const AdminTimesheet: React.FC = () => {
           workedHours: mirror.workedHours,
           status: mirror.status,
           locationCoords,
+          isDayOff,
         });
       });
       rows.push({
@@ -182,7 +204,7 @@ const AdminTimesheet: React.FC = () => {
       });
     });
     return rows.sort((a, b) => a.userName.localeCompare(b.userName));
-  }, [filteredRecords, employees]);
+  }, [filteredRecords, employees, shiftSchedules]);
 
   const handleExportPDF = () => {
     window.print();
@@ -420,8 +442,8 @@ const AdminTimesheet: React.FC = () => {
                         <ExpandableTextCell 
                           label="Entrada (início)" 
                           value={sum?.entradaInicio || ''} 
-                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
-                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : (sum?.hasLateEntry ? 'text-red-600 dark:text-red-400' : '')}
+                          empty={sum?.isDayOff ? 'FOLGA' : (sum?.hasAbsence ? 'FALTA' : '—')}
+                          className={sum?.isDayOff ? 'text-green-600 dark:text-green-400 font-bold' : (sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : (sum?.hasLateEntry ? 'text-red-600 dark:text-red-400' : ''))}
                         />
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[100px] align-top">
