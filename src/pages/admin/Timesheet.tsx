@@ -2,13 +2,17 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
-import { LoadingState } from '../../../components/UI';
-import { FileDown, FileSpreadsheet, Lock } from 'lucide-react';
+import { LoadingState, Button } from '../../../components/UI';
+import { FileDown, FileSpreadsheet, Lock, Plus } from 'lucide-react';
 import { closeTimesheet } from '../../services/timeProcessingService';
 import { buildDayMirrorSummary } from '../../utils/timesheetMirror';
 import { extractLatLng, reverseGeocode } from '../../utils/reverseGeocode';
 import { ExpandableStreetCell, ExpandableTextCell } from '../../components/ClickableFullContent';
+import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
+import { LoggingService } from '../../../services/loggingService';
+import { LogSeverity } from '../../../types';
 
 type DaySummary = {
   date: string;
@@ -72,6 +76,7 @@ function lastPunchLocationCoords(dayRecs: any[]): { lat: number; lng: number } |
 
 const AdminTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const toast = useToast();
   const [employees, setEmployees] = useState<{ id: string; nome: string; department_id?: string }[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [records, setRecords] = useState<any[]>([]);
@@ -87,6 +92,7 @@ const AdminTimesheet: React.FC = () => {
   });
   const [closing, setClosing] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   const toggleExpandedRow = (key: string) => {
     setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -235,6 +241,45 @@ const AdminTimesheet: React.FC = () => {
     }
   };
 
+  const handleAddTimeRecord = async (data: { user_id: string; created_at: string; type: string }) => {
+    if (!user) return;
+    try {
+      const id = crypto.randomUUID();
+      await db.insert('time_records', {
+        id,
+        user_id: data.user_id,
+        company_id: user.companyId,
+        created_at: data.created_at,
+        type: data.type,
+        is_manual: true,
+        manual_reason: 'Batida adicionada manualmente via Espelho de Ponto',
+      });
+
+      // Registrar auditoria
+      await LoggingService.log({
+        severity: LogSeverity.SECURITY,
+        action: 'ADMIN_ADD_TIME_RECORD',
+        userId: user.id,
+        userName: user.nome,
+        companyId: user.companyId,
+        details: {
+          timeRecordId: id,
+          employeeId: data.user_id,
+          createdAt: data.created_at,
+          type: data.type,
+        },
+      });
+
+      // Recarregar dados
+      const recordsRows = (await db.select('time_records', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'created_at', ascending: false }, 2000)) ?? [];
+      setRecords(recordsRows);
+
+      toast.addToast('success', 'Batida adicionada com sucesso.');
+    } catch (err: any) {
+      toast.addToast('error', err?.message || 'Erro ao adicionar batida.');
+    }
+  };
+
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
@@ -279,6 +324,9 @@ const AdminTimesheet: React.FC = () => {
           </button>
           <button type="button" onClick={handleExportExcel} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
             <FileSpreadsheet className="w-4 h-4" /> Exportar Excel
+          </button>
+          <button type="button" onClick={() => setIsAddModalOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <Plus className="w-4 h-4" /> Adicionar Batida
           </button>
           <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200 dark:border-slate-700">
             <input type="month" value={closeMonth} onChange={(e) => setCloseMonth(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm" />
@@ -411,6 +459,12 @@ const AdminTimesheet: React.FC = () => {
         )}
       </div>
 
+      <AddTimeRecordModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSubmit={handleAddTimeRecord}
+        employees={employees}
+      />
     </div>
   );
 };
