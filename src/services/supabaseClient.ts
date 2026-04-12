@@ -14,7 +14,7 @@ import { SupabaseClient, createClient } from '@supabase/supabase-js';
  * - `isSupabaseConfigured`: flag booleana de configuração
  */
 
-import { db, auth, storage, isSupabaseConfigured } from '../services/supabaseClient';
+import { db, auth, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 
 // Exporta o client principal já existente para manter uma única fonte de verdade
 export const supabase: SupabaseClient | null = isSupabaseConfigured
@@ -28,5 +28,5 @@ export {
   testSupabaseConnection,
   withSupabaseTimeout,
   resetSession,
-} from '../services/supabase';
+} from '../../services/supabase';
 
