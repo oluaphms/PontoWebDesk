@@ -22,7 +22,7 @@ import {
   resetSession,
   clearLocalAuthSession,
   clearCurrentUserFromAllStorages,
-} from './services/supabase';
+} from './services/supabaseClient';
 import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
