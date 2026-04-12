@@ -8,8 +8,19 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getAppBaseUrl } from './appUrl';
 
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
+// Tentar ler as variáveis de múltiplas fontes
+const supabaseUrl = (
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
+  (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_URL) ||
+  ''
+)?.trim() || '';
+
+const supabaseAnonKey = (
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_ANON_KEY) ||
+  ''
+)?.trim() || '';
+
 const configured = !!(supabaseUrl && supabaseAnonKey);
 
 export const isSupabaseConfigured = configured;
