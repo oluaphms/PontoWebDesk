@@ -7,20 +7,11 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getAppBaseUrl } from './appUrl';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabaseConfig';
 
-// Tentar ler as variáveis de múltiplas fontes
-const supabaseUrl = (
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
-  (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_URL) ||
-  ''
-)?.trim() || '';
-
-const supabaseAnonKey = (
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
-  (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_ANON_KEY) ||
-  ''
-)?.trim() || '';
-
+// ETAPA 1.2 - Verificar valores das variáveis
+const supabaseUrl = SUPABASE_URL.trim();
+const supabaseAnonKey = SUPABASE_ANON_KEY.trim();
 const configured = !!(supabaseUrl && supabaseAnonKey);
 
 export const isSupabaseConfigured = configured;
