@@ -97,8 +97,8 @@ const TimeAttendancePage: React.FC = () => {
       setIsLoadingData(true);
       setError(null);
       try {
-        const [logRows, employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
-          db.select('time_logs', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
+        // Carregar colaboradores
+        const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
           db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
           (db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>).catch(
             () => [] as any[],
@@ -120,6 +120,15 @@ const TimeAttendancePage: React.FC = () => {
         empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
         setEmployees(empList);
 
+        // Tentar carregar time_logs, mas não falhar se não existir
+        let logRows: any[] = [];
+        try {
+          logRows = (await db.select('time_logs', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }])) as Promise<any[]>;
+        } catch (e) {
+          console.warn('time_logs não disponível ou erro ao carregar:', e);
+          logRows = [];
+        }
+
         const mapped: TimeLogRow[] =
           (logRows ?? []).map((l: any) => {
             const emp = empList.find((e) => e.id === l.employee_id);
@@ -137,7 +146,7 @@ const TimeAttendancePage: React.FC = () => {
 
         setLogs(mapped);
       } catch (e) {
-        console.error('Erro ao carregar time_logs:', e);
+        console.error('Erro ao carregar dados de jornada:', e);
         setError('Não foi possível carregar os registros de jornada.');
       } finally {
         setIsLoadingData(false);

@@ -25,6 +25,8 @@ type DaySummary = {
   status: string;
   locationCoords?: { lat: number; lng: number };
   isDayOff?: boolean;
+  hasAbsence?: boolean;
+  hasLateEntry?: boolean;
 };
 
 type TimesheetRow = {
@@ -193,6 +195,8 @@ const AdminTimesheet: React.FC = () => {
           status: mirror.status,
           locationCoords,
           isDayOff,
+          hasAbsence: mirror.hasAbsence,
+          hasLateEntry: mirror.hasLateEntry,
         });
       });
       rows.push({
@@ -701,7 +705,7 @@ const AdminTimesheet: React.FC = () => {
                                   return (
                                     <div 
                                       key={r.id || `${rowKey}-${when}`} 
-                                      className={`flex flex-wrap gap-2 cursor-pointer p-2 rounded transition-colors ${
+                                      className={`flex items-center gap-3 cursor-pointer p-2 rounded transition-colors whitespace-nowrap overflow-x-auto ${
                                         isManual 
                                           ? 'bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30' 
                                           : 'hover:bg-slate-100 dark:hover:bg-slate-700/30'
@@ -716,21 +720,21 @@ const AdminTimesheet: React.FC = () => {
                                         }
                                       }}
                                     >
-                                      <span className={`font-mono ${isManual ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500'}`}>
+                                      <span className={`font-mono flex-shrink-0 ${isManual ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500'}`}>
                                         {when}{isManual ? ' ⚠' : ''}
                                       </span>
-                                      <span className={`uppercase text-[11px] px-1.5 py-0.5 rounded ${
+                                      <span className={`uppercase text-[11px] px-1.5 py-0.5 rounded flex-shrink-0 ${
                                         isManual
                                           ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200'
                                           : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
                                       }`}>
                                         {(r.type || '—').toString()}
                                       </span>
-                                      <span className="text-slate-500">-</span>
+                                      <span className="text-slate-500 flex-shrink-0">-</span>
                                       {ll ? (
                                         <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
                                       ) : (
-                                        <span className="text-slate-500">Batida sem GPS</span>
+                                        <span className="text-slate-500 flex-shrink-0">Batida sem GPS</span>
                                       )}
                                     </div>
                                   );
