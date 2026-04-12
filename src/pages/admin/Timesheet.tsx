@@ -81,15 +81,25 @@ function lastPunchLocationCoords(dayRecs: any[]): { lat: number; lng: number } |
 /** Verifica se uma data é folga para um funcionário */
 function isDayOffForEmployee(date: string, employeeId: string, shiftSchedules: any[]): boolean {
   try {
-    const dateObj = new Date(date);
-    const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    // Usar apenas a data sem timezone (YYYY-MM-DD)
+    const parts = date.split('-');
+    if (parts.length !== 3) return false;
+    
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-indexed
+    const day = parseInt(parts[2], 10);
+    
+    // Criar data em UTC para evitar problemas de timezone
+    const dateObj = new Date(Date.UTC(year, month, day));
+    const dayOfWeek = dateObj.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
     
     const schedule = shiftSchedules.find(
       (s: any) => s.employee_id === employeeId && s.day_of_week === dayOfWeek
     );
     
     return schedule?.is_day_off === true;
-  } catch {
+  } catch (e) {
+    console.warn('Error checking day off:', e);
     return false;
   }
 }
@@ -139,9 +149,17 @@ const AdminTimesheet: React.FC = () => {
           db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
           db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
+        
         setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email, department_id: u.department_id })));
         setRecords(recordsRows ?? []);
         setDepartments((departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
+        
+        // Debug: verificar dados de shift schedule
+        console.log('Shift schedules loaded:', shiftsRows?.length || 0, 'records');
+        if (shiftsRows && shiftsRows.length > 0) {
+          console.log('Sample shift schedule:', shiftsRows[0]);
+        }
+        
         setShiftSchedules(shiftsRows ?? []);
       } catch (e) {
         console.error(e);
@@ -184,6 +202,19 @@ const AdminTimesheet: React.FC = () => {
         datesSet.add((r.created_at || '').slice(0, 10));
       });
       
+      // Adicionar datas de folga do período mesmo sem registros
+      if (periodStart && periodEnd && shiftSchedules.length > 0) {
+        const start = new Date(periodStart);
+        const end = new Date(periodEnd);
+        
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().slice(0, 10);
+          if (isDayOffForEmployee(dateStr, userId, shiftSchedules)) {
+            datesSet.add(dateStr);
+          }
+        }
+      }
+      
       // Processar datas em ordem
       const sortedDates = Array.from(datesSet).sort();
       sortedDates.forEach((d) => {
@@ -191,6 +222,11 @@ const AdminTimesheet: React.FC = () => {
         const mirror = buildDayMirrorSummary(dayRecs);
         const locationCoords = lastPunchLocationCoords(dayRecs);
         const isDayOff = isDayOffForEmployee(d, userId, shiftSchedules);
+        
+        // Debug: log para verificar isDayOff
+        if (isDayOff) {
+          console.log(`Day off detected for ${userId} on ${d}`);
+        }
         
         byDate.set(d, {
           date: d,
@@ -217,7 +253,7 @@ const AdminTimesheet: React.FC = () => {
     });
     
     return rows.sort((a, b) => a.userName.localeCompare(b.userName));
-  }, [filteredRecords, employees, shiftSchedules]);
+  }, [filteredRecords, employees, shiftSchedules, periodStart, periodEnd]);
 
   const handleExportPDF = async () => {
     try {
