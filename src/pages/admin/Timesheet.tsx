@@ -135,17 +135,16 @@ const AdminTimesheet: React.FC = () => {
     const load = async () => {
       setLoadingData(true);
       try {
-        // Calcular data de 7 dias atrás (em vez de 30) para melhor performance
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const dateFilter = sevenDaysAgo.toISOString().slice(0, 10);
+        // Usar o periodStart como filtro de data (em vez de 7 dias atrás)
+        // Isso garante que todos os dados do período selecionado sejam carregados
+        const dateFilter = periodStart;
 
         const [usersRows, recordsRows, departmentsRows, shiftsRows] = await Promise.all([
           db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
           db.select('time_records', [
             { column: 'company_id', operator: 'eq', value: user.companyId },
             { column: 'created_at', operator: 'gte', value: dateFilter }
-          ], { column: 'created_at', ascending: false }, 1000) as Promise<any[]>,
+          ], { column: 'created_at', ascending: false }, 2000) as Promise<any[]>,
           db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
           db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
@@ -168,7 +167,7 @@ const AdminTimesheet: React.FC = () => {
       }
     };
     load();
-  }, [user?.companyId]);
+  }, [user?.companyId, periodStart]);
 
   const filteredRecords = useMemo(() => {
     let list = records;
