@@ -91,11 +91,21 @@ function isDayOffForEmployee(date: string, employeeId: string, shiftSchedules: a
     
     // Criar data em UTC para evitar problemas de timezone
     const dateObj = new Date(Date.UTC(year, month, day));
-    const dayOfWeek = dateObj.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
+    const utcDayOfWeek = dateObj.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    
+    // Converter para o mapeamento usado em employee_shift_schedule: 0 = Monday, 6 = Sunday
+    // getUTCDay: 0=Sunday, 1=Monday, ..., 6=Saturday
+    // employee_shift_schedule: 0=Monday, 1=Tuesday, ..., 6=Sunday
+    const dayOfWeek = utcDayOfWeek === 0 ? 6 : utcDayOfWeek - 1;
     
     const schedule = shiftSchedules.find(
       (s: any) => s.employee_id === employeeId && s.day_of_week === dayOfWeek
     );
+    
+    if (!schedule) {
+      console.warn(`No schedule found for employee ${employeeId} on day ${dayOfWeek} (UTC day: ${utcDayOfWeek})`);
+      return false;
+    }
     
     return schedule?.is_day_off === true;
   } catch (e) {
@@ -157,6 +167,19 @@ const AdminTimesheet: React.FC = () => {
         console.log('Shift schedules loaded:', shiftsRows?.length || 0, 'records');
         if (shiftsRows && shiftsRows.length > 0) {
           console.log('Sample shift schedule:', shiftsRows[0]);
+          // Agrupar por employee para debug
+          const byEmployee = new Map<string, any[]>();
+          shiftsRows.forEach((s: any) => {
+            if (!byEmployee.has(s.employee_id)) {
+              byEmployee.set(s.employee_id, []);
+            }
+            byEmployee.get(s.employee_id)!.push(s);
+          });
+          console.log('Employees with shift schedules:', byEmployee.size);
+          byEmployee.forEach((schedules, empId) => {
+            const offDays = schedules.filter((s: any) => s.is_day_off).map((s: any) => s.day_of_week);
+            console.log(`Employee ${empId.slice(0, 8)}: ${schedules.length} days, off days: [${offDays.join(', ')}]`);
+          });
         }
         
         setShiftSchedules(shiftsRows ?? []);
@@ -245,7 +268,9 @@ const AdminTimesheet: React.FC = () => {
         
         // Debug: log para verificar isDayOff
         if (isDayOff) {
-          console.log(`Day off detected for ${userId} on ${d}`);
+          console.log(`✅ Day off detected for ${userId.slice(0, 8)} on ${d}`);
+        } else if (dayRecs.length === 0) {
+          console.log(`⚠️ No records and not marked as off for ${userId.slice(0, 8)} on ${d}`);
         }
         
         byDate.set(d, {
