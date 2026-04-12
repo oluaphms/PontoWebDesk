@@ -10,9 +10,10 @@ export {
   clearCurrentUserFromAllStorages, 
   useSessionStorageForAuth,
   DB_SELECT_TIMEOUT_MS,
-  DEFAULT_CONNECTION_TIMEOUT_MS
+  DEFAULT_CONNECTION_TIMEOUT_MS,
+  clearLocalAuthSession
 } from './supabase';
-export { getSupabaseClient, getSupabaseClientOrThrow, testSupabaseConnection, withSupabaseTimeout } from '../src/lib/supabaseClient';
+export { getSupabaseClient, getSupabaseClientOrThrow, testSupabaseConnection, withSupabaseTimeout, resetSession } from '../src/lib/supabaseClient';
 
 // Criar aliases para db e storage (compatibilidade com código antigo)
 import { getSupabaseClient } from '../src/lib/supabaseClient';
