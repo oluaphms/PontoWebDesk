@@ -3,7 +3,8 @@
  * Responsável por consultar e exibir o histórico de mudanças
  */
 
-import { supabase, db, isSupabaseConfigured } from '../../services/supabase';
+import { supabase, isSupabaseConfigured } from '../../services/supabase';
+import { db } from '../../services/supabaseClient';
 
 export interface AdjustmentHistoryEntry {
   id: string;

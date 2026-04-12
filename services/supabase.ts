@@ -5,7 +5,10 @@
  * Usa getSupabaseClient() para lazy initialization
  */
 
-import { getSupabaseClient, getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
+import { getSupabaseClient, getSupabaseClientOrThrow, resetSession } from '../src/lib/supabaseClient';
+
+// Re-export resetSession para compatibilidade
+export { resetSession };
 
 // Exportar o cliente (será null até estar pronto)
 export const supabase = getSupabaseClient();
@@ -31,6 +34,28 @@ export function clearCurrentUserFromAllStorages(): void {
     window.sessionStorage.removeItem('current_user');
   } catch {
     // ignora
+  }
+}
+
+/**
+ * Limpa a sessão local de autenticação do Supabase (tokens sb-* no storage).
+ * Não faz signOut no servidor — apenas derruba o estado local imediatamente.
+ */
+export async function clearLocalAuthSession(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const clearSbKeys = (storage: Storage) => {
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith('sb-')) keys.push(k);
+      }
+      keys.forEach((k) => storage.removeItem(k));
+    };
+    clearSbKeys(window.sessionStorage);
+    clearSbKeys(window.localStorage);
+  } catch {
+    // ignora falha ao limpar storage
   }
 }
 

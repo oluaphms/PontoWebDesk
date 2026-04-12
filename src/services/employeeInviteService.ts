@@ -5,7 +5,7 @@
  */
 
 import { getAppBaseUrl } from '../../services/appUrl';
-import { db, isSupabaseConfigured } from '../../services/supabase';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 
 const INVITE_API_URL = import.meta.env.VITE_INVITE_API_URL as string | undefined;
 

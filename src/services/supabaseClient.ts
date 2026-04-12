@@ -27,6 +27,7 @@ export { db, auth, storage, isSupabaseConfigured, SupabaseClient, createClient }
 export {
   testSupabaseConnection,
   withSupabaseTimeout,
-  resetSession,
 } from '../../services/supabase';
+
+export { resetSession } from '../lib/supabaseClient';
 

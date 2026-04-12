@@ -8,9 +8,8 @@ import {
   isSupabaseConfigured,
   testSupabaseConnection,
   supabase,
-  auth,
-  storage,
 } from '../../services/supabase';
+import { auth, storage } from '../../services/supabaseClient';
 
 describe('Supabase connection', () => {
   beforeAll(() => {

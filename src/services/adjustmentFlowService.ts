@@ -7,7 +7,8 @@
  * - Notificar o colaborador em ambos os casos
  */
 
-import { supabase, db, isSupabaseConfigured } from '../../services/supabase';
+import { supabase, isSupabaseConfigured } from '../../services/supabase';
+import { db } from '../../services/supabaseClient';
 import { NotificationService } from '../../services/notificationService';
 import { LoggingService } from '../../services/loggingService';
 import { LogSeverity } from '../../types';
