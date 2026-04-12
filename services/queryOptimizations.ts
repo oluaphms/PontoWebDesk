@@ -9,12 +9,11 @@
  * 4. Parallelizar requisições
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || '',
-  process.env.VITE_SUPABASE_ANON_KEY || ''
-);
+// Lazy getter — resolve o cliente apenas quando uma query é executada,
+// garantindo que as variáveis de ambiente já foram carregadas.
+const getClient = () => getSupabaseClientOrThrow();
 
 // ============================================================================
 // OTIMIZAÇÕES DE QUERIES - REMOVER SELECT *
@@ -29,7 +28,7 @@ const supabase = createClient(
 export const timeRecordsQueries = {
   // Otimizado: Apenas colunas necessárias
   async getRecordsByUser(userId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('time_records')
       .select(
         'id, user_id, type, method, created_at, location, photo_url, fraud_flags, status, manual_reason'
@@ -41,7 +40,7 @@ export const timeRecordsQueries = {
 
   // Otimizado: Apenas colunas necessárias + filtro por empresa
   async getRecordsByCompany(companyId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('time_records')
       .select(
         'id, user_id, type, created_at, status, company_id'
@@ -58,7 +57,7 @@ export const timeRecordsQueries = {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    return supabase
+    return getClient()
       .from('time_records')
       .select(
         'id, user_id, type, created_at, location, method'
@@ -71,7 +70,7 @@ export const timeRecordsQueries = {
 
   // Otimizado: Contar registros sem carregar dados
   async countRecordsByUser(userId: string) {
-    return supabase
+    return getClient()
       .from('time_records')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId);
@@ -87,7 +86,7 @@ export const timeRecordsQueries = {
 export const usersQueries = {
   // Otimizado: Apenas colunas necessárias + paginação
   async getEmployeesByCompany(companyId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('users')
       .select(
         'id, nome, email, cpf, department_id, schedule_id, status, company_id'
@@ -101,7 +100,7 @@ export const usersQueries = {
 
   // Otimizado: Contar funcionários sem carregar dados
   async countEmployeesByCompany(companyId: string) {
-    return supabase
+    return getClient()
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId)
@@ -111,7 +110,7 @@ export const usersQueries = {
 
   // Otimizado: Buscar usuário por email (usa índice)
   async getUserByEmail(email: string) {
-    return supabase
+    return getClient()
       .from('users')
       .select('id, nome, email, role, company_id, status')
       .eq('email', email)
@@ -120,7 +119,7 @@ export const usersQueries = {
 
   // Otimizado: Buscar usuário por CPF (usa índice)
   async getUserByCPF(cpf: string) {
-    return supabase
+    return getClient()
       .from('users')
       .select('id, nome, email, cpf, role, company_id')
       .eq('cpf', cpf)
@@ -129,7 +128,7 @@ export const usersQueries = {
 
   // Otimizado: Buscar usuário por numero_identificador (usa índice)
   async getUserByIdentifier(identifier: string) {
-    return supabase
+    return getClient()
       .from('users')
       .select('id, nome, email, numero_identificador, role, company_id')
       .eq('numero_identificador', identifier)
@@ -146,7 +145,7 @@ export const usersQueries = {
 export const requestsQueries = {
   // Otimizado: Apenas colunas necessárias + filtro por status
   async getPendingRequests(userId: string) {
-    return supabase
+    return getClient()
       .from('requests')
       .select('id, user_id, type, status, created_at')
       .eq('user_id', userId)
@@ -156,7 +155,7 @@ export const requestsQueries = {
 
   // Otimizado: Contar requisições pendentes sem carregar dados
   async countPendingRequests(userId: string) {
-    return supabase
+    return getClient()
       .from('requests')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
@@ -165,7 +164,7 @@ export const requestsQueries = {
 
   // Otimizado: Requisições por empresa
   async getRequestsByCompany(companyId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('requests')
       .select('id, user_id, type, status, created_at')
       .eq('company_id', companyId)
@@ -183,7 +182,7 @@ export const requestsQueries = {
 export const auditLogsQueries = {
   // Otimizado: Apenas colunas necessárias + paginação
   async getAuditLogsByCompany(companyId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('audit_logs')
       .select('id, user_id, action, table, record_id, created_at')
       .eq('company_id', companyId)
@@ -193,7 +192,7 @@ export const auditLogsQueries = {
 
   // Otimizado: Contar logs sem carregar dados
   async countAuditLogsByCompany(companyId: string) {
-    return supabase
+    return getClient()
       .from('audit_logs')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId);
@@ -201,7 +200,7 @@ export const auditLogsQueries = {
 
   // Otimizado: Logs por usuário
   async getAuditLogsByUser(userId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('audit_logs')
       .select('id, action, table, record_id, created_at')
       .eq('user_id', userId)
@@ -219,7 +218,7 @@ export const auditLogsQueries = {
 export const notificationsQueries = {
   // Otimizado: Apenas notificações não lidas
   async getUnreadNotifications(userId: string) {
-    return supabase
+    return getClient()
       .from('notifications')
       .select('id, message, is_read, created_at')
       .eq('user_id', userId)
@@ -229,7 +228,7 @@ export const notificationsQueries = {
 
   // Otimizado: Contar notificações não lidas sem carregar dados
   async countUnreadNotifications(userId: string) {
-    return supabase
+    return getClient()
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
@@ -238,7 +237,7 @@ export const notificationsQueries = {
 
   // Otimizado: Todas as notificações com paginação
   async getNotifications(userId: string, limit = 50, offset = 0) {
-    return supabase
+    return getClient()
       .from('notifications')
       .select('id, message, is_read, created_at')
       .eq('user_id', userId)
@@ -256,7 +255,7 @@ export const notificationsQueries = {
 export const employeeShiftScheduleQueries = {
   // Otimizado: Apenas colunas necessárias
   async getScheduleByEmployee(employeeId: string) {
-    return supabase
+    return getClient()
       .from('employee_shift_schedule')
       .select('id, day_of_week, shift_id, is_day_off')
       .eq('employee_id', employeeId)
@@ -265,7 +264,7 @@ export const employeeShiftScheduleQueries = {
 
   // Otimizado: Escala por dia da semana
   async getScheduleByDay(employeeId: string, dayOfWeek: number) {
-    return supabase
+    return getClient()
       .from('employee_shift_schedule')
       .select('id, shift_id, is_day_off')
       .eq('employee_id', employeeId)
@@ -326,7 +325,7 @@ export async function loadCompanyDashboard(companyId: string) {
 export async function getUsersByIds(userIds: string[]) {
   if (userIds.length === 0) return [];
 
-  return supabase
+  return getClient()
     .from('users')
     .select('id, nome, email, role, company_id')
     .in('id', userIds);
@@ -338,7 +337,7 @@ export async function getUsersByIds(userIds: string[]) {
 export async function getRecordsByIds(recordIds: string[]) {
   if (recordIds.length === 0) return [];
 
-  return supabase
+  return getClient()
     .from('time_records')
     .select('id, user_id, type, created_at, status')
     .in('id', recordIds);
