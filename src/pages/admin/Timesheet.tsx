@@ -221,14 +221,17 @@ const AdminTimesheet: React.FC = () => {
       
       // Adicionar datas de folga do período mesmo sem registros
       if (periodStart && periodEnd && shiftSchedules.length > 0) {
-        const start = new Date(periodStart);
-        const end = new Date(periodEnd);
+        const start = new Date(periodStart + 'T00:00:00Z');
+        const end = new Date(periodEnd + 'T23:59:59Z');
         
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const dateStr = d.toISOString().slice(0, 10);
+        // Usar um loop seguro que não depende de comparação de datas mutáveis
+        let currentDate = new Date(start);
+        while (currentDate <= end) {
+          const dateStr = currentDate.toISOString().slice(0, 10);
           if (isDayOffForEmployee(dateStr, userId, shiftSchedules)) {
             datesSet.add(dateStr);
           }
+          currentDate.setDate(currentDate.getDate() + 1);
         }
       }
       
