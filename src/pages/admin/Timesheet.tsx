@@ -269,15 +269,25 @@ const AdminTimesheet: React.FC = () => {
         datesSet.add((r.created_at || '').slice(0, 10));
       });
       
-      // Adicionar datas de folga do período mesmo sem registros
-      // LIMITADO: só adiciona se o período for <= 31 dias para evitar performance ruim
-      if (periodStart && periodEnd && shiftSchedules.length > 0) {
+      // Adicionar datas do período mesmo sem registros
+      // Para períodos curtos (<=7 dias), sempre mostrar todas as datas
+      // Para períodos maiores (<=31 dias), mostrar apenas folgas
+      if (periodStart && periodEnd) {
         const start = new Date(periodStart + 'T00:00:00Z');
         const end = new Date(periodEnd + 'T23:59:59Z');
         const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
         
-        // Só adiciona folgas se período <= 31 dias
-        if (diffDays <= 31) {
+        // Para períodos curtos (1-7 dias), sempre adicionar todas as datas
+        if (diffDays <= 7) {
+          let currentDate = new Date(start);
+          while (currentDate <= end) {
+            const dateStr = currentDate.toISOString().slice(0, 10);
+            datesSet.add(dateStr);
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+        // Para períodos médios (8-31 dias), adicionar apenas folgas
+        else if (diffDays <= 31 && shiftSchedules.length > 0) {
           let currentDate = new Date(start);
           while (currentDate <= end) {
             const dateStr = currentDate.toISOString().slice(0, 10);
