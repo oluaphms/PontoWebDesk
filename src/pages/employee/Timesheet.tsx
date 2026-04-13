@@ -50,7 +50,7 @@ const EmployeeTimesheet: React.FC = () => {
   }, [user?.id, periodStart, periodEnd]);
 
   /** Registros agrupados por dia (ordenados por horário). */
-  const { byDate, recordsByDate } = useMemo(() => {
+  const { byDate, recordsByDate, dates } = useMemo(() => {
     const byDay = new Map<string, any[]>();
     records.forEach((r: any) => {
       const d = (r.created_at || '').slice(0, 10);
@@ -61,14 +61,43 @@ const EmployeeTimesheet: React.FC = () => {
     byDay.forEach((arr) => {
       arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     });
-    const summary = new Map<string, ReturnType<typeof buildDayMirrorSummary>>();
-    byDay.forEach((arr, d) => {
-      summary.set(d, buildDayMirrorSummary(arr));
-    });
-    return { byDate: summary, recordsByDate: byDay };
-  }, [records]);
 
-  const dates = useMemo(() => [...new Set(records.map((r: any) => (r.created_at || '').slice(0, 10)))].sort().reverse(), [records]);
+    // Gerar TODAS as datas do período (igual ao admin)
+    const allDates = new Set<string>();
+    if (periodStart && periodEnd) {
+      const start = new Date(periodStart + 'T00:00:00');
+      const end = new Date(periodEnd + 'T23:59:59');
+      const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Para períodos de até 31 dias, adicionar todas as datas
+      if (diffDays <= 31) {
+        let currentDate = new Date(start);
+        while (currentDate <= end) {
+          const dateStr = currentDate.toISOString().slice(0, 10);
+          allDates.add(dateStr);
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      }
+    }
+    
+    // Adicionar datas dos registros existentes (caso estejam fora do período calculado)
+    records.forEach((r: any) => {
+      const d = (r.created_at || '').slice(0, 10);
+      if (d) allDates.add(d);
+    });
+
+    const summary = new Map<string, ReturnType<typeof buildDayMirrorSummary>>();
+    // Gerar sumário para todas as datas (incluindo dias sem registro)
+    allDates.forEach((d) => {
+      const dayRecords = byDay.get(d) ?? [];
+      summary.set(d, buildDayMirrorSummary(dayRecords));
+    });
+
+    // Ordenar datas em ordem decrescente (mais recente primeiro)
+    const sortedDates = Array.from(allDates).sort().reverse();
+
+    return { byDate: summary, recordsByDate: byDay, dates: sortedDates };
+  }, [records, periodStart, periodEnd]);
 
   const toggleDayDetail = (dateKey: string) => {
     setDetailOpenByDate((prev) => ({ ...prev, [dateKey]: !prev[dateKey] }));
@@ -143,19 +172,44 @@ const EmployeeTimesheet: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[120px] align-top">
-                        <ExpandableTextCell label="Entrada (início)" value={sum?.entradaInicio || ''} empty="—" />
+                        <ExpandableTextCell 
+                          label="Entrada (início)" 
+                          value={sum?.entradaInicio || ''} 
+                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : (sum?.hasLateEntry ? 'text-amber-600 dark:text-amber-400' : '')}
+                        />
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[120px] align-top">
-                        <ExpandableTextCell label="Intervalo (pausa)" value={sum?.saidaIntervalo || ''} empty="—" />
+                        <ExpandableTextCell 
+                          label="Intervalo (pausa)" 
+                          value={sum?.saidaIntervalo || ''} 
+                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : ''}
+                        />
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[120px] align-top">
-                        <ExpandableTextCell label="Retorno" value={sum?.voltaIntervalo || ''} empty="—" />
+                        <ExpandableTextCell 
+                          label="Retorno" 
+                          value={sum?.voltaIntervalo || ''} 
+                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : ''}
+                        />
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[120px] align-top">
-                        <ExpandableTextCell label="Saída (final)" value={sum?.saidaFinal || ''} empty="—" />
+                        <ExpandableTextCell 
+                          label="Saída (final)" 
+                          value={sum?.saidaFinal || ''} 
+                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : ''}
+                        />
                       </td>
                       <td className="px-4 py-3 tabular-nums max-w-[120px] align-top">
-                        <ExpandableTextCell label="Horas trabalhadas" value={sum?.workedHours || ''} empty="—" />
+                        <ExpandableTextCell 
+                          label="Horas trabalhadas" 
+                          value={sum?.workedHours || ''} 
+                          empty={sum?.hasAbsence ? 'FALTA' : '—'}
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : ''}
+                        />
                       </td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-xs w-[min(100%,11rem)] max-w-[11rem] min-w-0 align-top">
                         {withGps.length > 0 ? (
@@ -168,11 +222,15 @@ const EmployeeTimesheet: React.FC = () => {
                         ) : dayRecs.length > 0 ? (
                           <span className="text-slate-500">Sem GPS nas batidas</span>
                         ) : (
-                          '—'
+                          <span className="text-red-500 dark:text-red-400 font-medium">Sem registros</span>
                         )}
                       </td>
                       <td className="px-4 py-3 max-w-[200px] align-top">
-                        <ExpandableTextCell label="Status" value={sum?.status || 'OK'} />
+                        <ExpandableTextCell 
+                          label="Status" 
+                          value={sum?.hasAbsence ? 'Falta' : (sum?.status || 'OK')} 
+                          className={sum?.hasAbsence ? 'text-red-600 dark:text-red-400 font-bold' : ''}
+                        />
                       </td>
                     </tr>
                     {dayRecs.length > 0 && detailOpenByDate[d] === true && (
