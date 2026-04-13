@@ -15,6 +15,7 @@ import {
   supabase,
   DB_SELECT_TIMEOUT_MS,
 } from './supabaseClient';
+import { clearLocalAuthSession } from './supabase';
 import { withTimeout } from '../src/utils/withTimeout';
 import { User } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';

@@ -14,8 +14,15 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
     // Verificar se as variáveis estão disponíveis
     const checkEnvironment = () => {
+      if (!mounted) return;
+      attempts++;
+      
       const supabaseUrl =
         (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
         (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_URL) ||
@@ -26,30 +33,28 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_ANON_KEY) ||
         (typeof window !== 'undefined' && (window as any).ENV?.SUPABASE_ANON_KEY);
 
-      console.log('[AppInitializer] Verificando variáveis de ambiente...');
-      console.log('  SUPABASE_URL:', supabaseUrl ? '✅ Definida' : '❌ Não definida');
-      console.log('  SUPABASE_ANON_KEY:', supabaseKey ? '✅ Definida' : '❌ Não definida');
-
-      if (!supabaseUrl || !supabaseKey) {
-        setError(
-          'Variáveis de ambiente não carregadas. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
-        );
+      if (supabaseUrl && supabaseKey) {
+        setIsReady(true);
         return;
       }
 
-      console.log('✅ [AppInitializer] Variáveis de ambiente carregadas com sucesso');
-      setIsReady(true);
+      // Se ainda não carregou e não atingiu máximo de tentativas, tentar novamente
+      if (attempts < maxAttempts) {
+        setTimeout(checkEnvironment, 300);
+      } else {
+        setError(
+          'Variáveis de ambiente não carregadas após várias tentativas. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
+        );
+      }
     };
 
     // Tentar imediatamente
     checkEnvironment();
 
-    // Se não estiver pronto, tentar novamente em 500ms
-    if (!isReady && !error) {
-      const timer = setTimeout(checkEnvironment, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isReady, error]);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (error) {
     return (

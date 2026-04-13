@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
@@ -150,63 +150,74 @@ const AdminTimesheet: React.FC = () => {
     setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured) return;
-    const load = async () => {
-      setLoadingData(true);
-      try {
-        // Usar o periodStart como filtro de data (em vez de 7 dias atrás)
-        // Isso garante que todos os dados do período selecionado sejam carregados
-        const dateFilter = periodStart;
+  // Ref para controlar debounce e evitar múltiplos carregamentos
+  const loadTimeoutRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
 
-        const [usersRows, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select('time_records', [
-            { column: 'company_id', operator: 'eq', value: user.companyId },
-            { column: 'created_at', operator: 'gte', value: dateFilter }
-          ], { column: 'created_at', ascending: false }, 2000) as Promise<any[]>,
-          db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
-          db.select('feriados', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
-        ]);
-        
-        setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email, department_id: u.department_id })));
-        setRecords(recordsRows ?? []);
-        setDepartments((departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
-        
-        // Debug: verificar dados de shift schedule
-        console.log('Shift schedules loaded:', shiftsRows?.length || 0, 'records');
-        if (shiftsRows && shiftsRows.length > 0) {
-          console.log('Sample shift schedule:', shiftsRows[0]);
-          // Agrupar por employee para debug
-          const byEmployee = new Map<string, any[]>();
-          shiftsRows.forEach((s: any) => {
-            if (!byEmployee.has(s.employee_id)) {
-              byEmployee.set(s.employee_id, []);
-            }
-            byEmployee.get(s.employee_id)!.push(s);
-          });
-          console.log('Employees with shift schedules:', byEmployee.size);
-          byEmployee.forEach((schedules, empId) => {
-            const offDays = schedules.filter((s: any) => s.is_day_off).map((s: any) => s.day_of_week);
-            console.log(`Employee ${empId.slice(0, 8)}: ${schedules.length} days, off days: [${offDays.join(', ')}]`);
-          });
-        }
-        
-        setShiftSchedules(shiftsRows ?? []);
-        setHolidays((holidaysRows ?? []).map((h: any) => ({
-          id: h.id,
-          date: (h.data || h.date || '').slice(0, 10),
-          name: h.descricao || h.name || 'Feriado',
-        })));
-      } catch (e) {
-        console.error(e);
-      } finally {
+  // Função de carregamento de dados com debounce
+  const loadData = useCallback(async (companyId: string, dateFilter: string) => {
+    if (!mountedRef.current) return;
+    setLoadingData(true);
+    try {
+      const [usersRows, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
+        db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }]) as Promise<any[]>,
+        db.select('time_records', [
+          { column: 'company_id', operator: 'eq', value: companyId },
+          { column: 'created_at', operator: 'gte', value: dateFilter }
+        ], { column: 'created_at', ascending: false }, 1000) as Promise<any[]>,
+        db.select('departments', [{ column: 'company_id', operator: 'eq', value: companyId }]) as Promise<any[]>,
+        db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: companyId }]).catch(() => []) as Promise<any[]>,
+        db.select('feriados', [{ column: 'company_id', operator: 'eq', value: companyId }]).catch(() => []) as Promise<any[]>,
+      ]);
+      
+      if (!mountedRef.current) return;
+      
+      setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email, department_id: u.department_id })));
+      setRecords(recordsRows ?? []);
+      setDepartments((departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
+      setShiftSchedules(shiftsRows ?? []);
+      setHolidays((holidaysRows ?? []).map((h: any) => ({
+        id: h.id,
+        date: (h.data || h.date || '').slice(0, 10),
+        name: h.descricao || h.name || 'Feriado',
+      })));
+    } catch (e) {
+      console.error('Erro ao carregar dados:', e);
+    } finally {
+      if (mountedRef.current) {
         setLoadingData(false);
       }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+      }
     };
-    load();
-  }, [user?.companyId, periodStart]);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.companyId || !isSupabaseConfigured) return;
+    
+    // Debounce de 300ms para evitar múltiplos carregamentos
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+    }
+    
+    loadTimeoutRef.current = window.setTimeout(() => {
+      loadData(user.companyId, periodStart);
+    }, 300);
+    
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+      }
+    };
+  }, [user?.companyId, periodStart, loadData]);
 
   const filteredRecords = useMemo(() => {
     let list = records;
@@ -259,18 +270,22 @@ const AdminTimesheet: React.FC = () => {
       });
       
       // Adicionar datas de folga do período mesmo sem registros
+      // LIMITADO: só adiciona se o período for <= 31 dias para evitar performance ruim
       if (periodStart && periodEnd && shiftSchedules.length > 0) {
         const start = new Date(periodStart + 'T00:00:00Z');
         const end = new Date(periodEnd + 'T23:59:59Z');
+        const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
         
-        // Usar um loop seguro que não depende de comparação de datas mutáveis
-        let currentDate = new Date(start);
-        while (currentDate <= end) {
-          const dateStr = currentDate.toISOString().slice(0, 10);
-          if (isDayOffForEmployee(dateStr, userId, shiftSchedules)) {
-            datesSet.add(dateStr);
+        // Só adiciona folgas se período <= 31 dias
+        if (diffDays <= 31) {
+          let currentDate = new Date(start);
+          while (currentDate <= end) {
+            const dateStr = currentDate.toISOString().slice(0, 10);
+            if (isDayOffForEmployee(dateStr, userId, shiftSchedules)) {
+              datesSet.add(dateStr);
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
           }
-          currentDate.setDate(currentDate.getDate() + 1);
         }
       }
       
@@ -281,13 +296,6 @@ const AdminTimesheet: React.FC = () => {
         const mirror = buildDayMirrorSummary(dayRecs);
         const locationCoords = lastPunchLocationCoords(dayRecs);
         const isDayOff = isDayOffForEmployee(d, userId, shiftSchedules);
-        
-        // Debug: log para verificar isDayOff
-        if (isDayOff) {
-          console.log(`✅ Day off detected for ${userId.slice(0, 8)} on ${d}`);
-        } else if (dayRecs.length === 0) {
-          console.log(`⚠️ No records and not marked as off for ${userId.slice(0, 8)} on ${d}`);
-        }
         
         byDate.set(d, {
           date: d,
@@ -654,14 +662,6 @@ const AdminTimesheet: React.FC = () => {
         { column: 'created_at', operator: 'gte', value: dateFilter }
       ], { column: 'created_at', ascending: false }, 500)) ?? [];
       
-      // Debug: verificar se is_manual está sendo retornado
-      console.log('Records loaded:', recordsRows.slice(0, 3).map(r => ({ 
-        id: r.id, 
-        is_manual: r.is_manual, 
-        manual_reason: r.manual_reason,
-        created_at: r.created_at 
-      })));
-      
       setRecords(recordsRows);
 
       toast.addToast('success', 'Batida adicionada com sucesso.');
@@ -934,9 +934,6 @@ const AdminTimesheet: React.FC = () => {
                                     ? new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                                     : '--:--';
                                   const isManual = r.is_manual === true;
-                                  if (isManual) {
-                                    console.log('Manual record found:', { id: r.id, is_manual: r.is_manual, manual_reason: r.manual_reason });
-                                  }
                                   return (
                                     <div 
                                       key={r.id || `${rowKey}-${when}`} 
@@ -1000,9 +997,17 @@ const AdminTimesheet: React.FC = () => {
           </table>
           </div>
         )}
-        {!loadingData && buildRows.length === 0 && (
-          <p className="p-8 text-center text-slate-500 dark:text-slate-400">Nenhum registro no período.</p>
-        )}
+        {!loadingData && (() => {
+          const hasAnyDateInPeriod = buildRows.some(row => row.dates.length > 0);
+          if (!hasAnyDateInPeriod) {
+            return (
+              <p className="p-8 text-center text-slate-500 dark:text-slate-400">
+                Não há registro para esse período.
+              </p>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {/* Resumo de Totais */}
