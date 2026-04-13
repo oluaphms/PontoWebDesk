@@ -44,22 +44,22 @@ export function clearCurrentUserFromAllStorages(): void {
 }
 
 /**
- * Limpa a sessão local de autenticação do Supabase (tokens sb-* e chrono-digital-auth no storage).
+ * Limpa a sessão local de autenticação do Supabase (tokens sb-* no storage).
  * Não faz signOut no servidor — apenas derruba o estado local imediatamente.
  */
 export async function clearLocalAuthSession(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    const clearAuthKeys = (storage: Storage) => {
+    const clearSbKeys = (storage: Storage) => {
       const keys: string[] = [];
       for (let i = 0; i < storage.length; i++) {
         const k = storage.key(i);
-        if (k && (k.startsWith('sb-') || k === 'chrono-digital-auth')) keys.push(k);
+        if (k && k.startsWith('sb-')) keys.push(k);
       }
       keys.forEach((k) => storage.removeItem(k));
     };
-    clearAuthKeys(window.sessionStorage);
-    clearAuthKeys(window.localStorage);
+    clearSbKeys(window.sessionStorage);
+    clearSbKeys(window.localStorage);
   } catch {
     // ignora falha ao limpar storage
   }

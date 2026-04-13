@@ -55,14 +55,12 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 
   try {
-    // Criar a instância com configuração compatível com v2.39+
+    // Criar a instância com configuração padrão (compatível com sessões existentes)
     supabaseInstance = createClient(url, key, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        flowType: 'pkce',
-        storageKey: 'chrono-digital-auth',
       },
     });
 
