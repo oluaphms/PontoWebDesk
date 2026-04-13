@@ -5,7 +5,7 @@
  * Mantém compatibilidade com localStorage como fallback
  */
 
-import { db, storage } from './supabaseClient';
+import { db, storage, supabase } from './supabaseClient';
 import { TimeRecord, Company, User, EmployeeSummary, CompanyKPIs } from '../types';
 
 // Verifica se Supabase está configurado
@@ -127,7 +127,7 @@ class SupabaseService {
       try {
         const supabaseData = timeRecordToSupabase(record);
         supabaseData.method = supabaseData.method || 'admin';
-        await db.update('time_records', record.id, supabaseData);
+        await db.update('time_records', supabaseData, [{ column: 'id', operator: 'eq', value: record.id }]);
       } catch (updateError) {
         console.error('Erro ao atualizar registro:', updateError);
         throw error;
@@ -242,7 +242,7 @@ class SupabaseService {
       if (updates.fraudScore !== undefined) supabaseData.fraud_score = updates.fraudScore;
       if (updates.adjustments) supabaseData.adjustments = updates.adjustments;
       
-      await db.update('time_records', recordId, supabaseData);
+      await db.update('time_records', supabaseData, [{ column: 'id', operator: 'eq', value: recordId }]);
     } catch (error) {
       console.error('Erro ao atualizar registro no Supabase:', error);
       throw error;
@@ -276,14 +276,14 @@ class SupabaseService {
       console.error('Erro ao salvar empresa no Supabase:', error);
       // Tentar atualizar se já existir
       try {
-        await db.update('companies', company.id, {
+        await db.update('companies', {
           nome: company.nome,
           cnpj: company.cnpj,
           endereco: company.endereco,
           geofence: company.geofence,
           settings: company.settings,
           updated_at: new Date().toISOString()
-        });
+        }, [{ column: 'id', operator: 'eq', value: company.id }]);
       } catch (updateError) {
         throw error;
       }
