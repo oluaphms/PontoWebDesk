@@ -23,7 +23,8 @@ import { withTimeout } from '../src/utils/withTimeout';
 import { DB_SELECT_TIMEOUT_MS } from './supabase';
 
 /** Evita REST com JWT ainda não hidratado do storage (sintoma: dados vazios até relogar). */
-const GET_SESSION_BEFORE_DB_MS = 12000;
+/** Sessão lenta (IndexedDB / lock do GoTrue) — evitar timeout prematuro antes do primeiro REST. */
+const GET_SESSION_BEFORE_DB_MS = 20000;
 
 /**
  * Uma única promessa de “aquecimento” por sessão de página.
@@ -191,8 +192,9 @@ export const db: DbInterface = {
       query = query.limit(finalLimit);
     }
 
+    // PostgREST builder é thenable; await explícito evita edge cases com Promise.resolve.
     const { data, error } = await withTimeout(
-      Promise.resolve(query) as Promise<{ data: any; error: any }>,
+      query as unknown as Promise<{ data: any; error: any }>,
       DB_SELECT_TIMEOUT_MS,
       `db.select(${table})`,
     );

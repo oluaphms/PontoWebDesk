@@ -56,6 +56,13 @@ class AuthService {
   private _isSigningOut = false;
 
   /**
+   * Uma conversão Supabase → app user por vez por `auth.users.id`.
+   * Evita N× `db.select(users)` em paralelo (hidratação + onAuthStateChange + TOKEN_REFRESHED),
+   * que disputam o lock de storage do GoTrue e estouram timeout.
+   */
+  private _supabaseUserToAppUserInflight = new Map<string, Promise<User | null>>();
+
+  /**
    * Sincroniza tenant_id no user_metadata (JWT) — só chama API se ainda não estiver no token/cache.
    * Evita updateUser repetido (principal causa de lentidão/instabilidade no login).
    */
@@ -315,9 +322,25 @@ class AuthService {
   }
 
   /**
-   * Converte Supabase User para User do sistema
+   * Converte Supabase User para User do sistema (com deduplicação por id de auth).
    */
   private async supabaseUserToAppUser(supabaseUser: any): Promise<User | null> {
+    const id = supabaseUser?.id as string | undefined;
+    if (!id) {
+      return this.supabaseUserToAppUserImpl(supabaseUser);
+    }
+    const existing = this._supabaseUserToAppUserInflight.get(id);
+    if (existing) return existing;
+    const p = this.supabaseUserToAppUserImpl(supabaseUser).finally(() => {
+      if (this._supabaseUserToAppUserInflight.get(id) === p) {
+        this._supabaseUserToAppUserInflight.delete(id);
+      }
+    });
+    this._supabaseUserToAppUserInflight.set(id, p);
+    return p;
+  }
+
+  private async supabaseUserToAppUserImpl(supabaseUser: any): Promise<User | null> {
     try {
       const email = (supabaseUser.email || '').trim().toLowerCase();
       if (!email) return null;
@@ -464,7 +487,8 @@ class AuthService {
       const msg = error?.message ?? error?.code ?? String(error);
       const isTimeout =
         typeof msg === 'string' &&
-        (msg.includes('Tempo esgotado ao carregar dados') ||
+        (msg.includes('Tempo esgotado') ||
+          msg.includes('Tempo esgotado ao carregar dados') ||
           msg.includes('Supabase timeout') ||
           msg.includes('stole') ||
           msg.includes('Lock broken') ||
@@ -700,6 +724,7 @@ class AuthService {
     const startedAt = Date.now();
     // Sinaliza para o listener onAuthStateChanged ignorar eventos de sessão nula durante o logout.
     this._isSigningOut = true;
+    this._supabaseUserToAppUserInflight.clear();
     try {
       // 1) Derruba a sessão local imediatamente (instantâneo).
       // Isso evita ficar preso num estado “meio logado” no PWA.

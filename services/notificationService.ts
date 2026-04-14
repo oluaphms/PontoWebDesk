@@ -93,6 +93,7 @@ export const NotificationService = {
       } catch (e: any) {
         const msg = String(e?.message ?? e ?? '');
         const isTimeout =
+          msg.includes('Tempo esgotado') ||
           msg.includes('Tempo esgotado ao carregar dados') ||
           msg.includes('Supabase timeout') ||
           /timeout/i.test(msg);
