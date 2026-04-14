@@ -752,50 +752,97 @@ const AdminTimesheet: React.FC = () => {
       {!filterListsHydrated ? (
         <SkeletonFiltro />
       ) : (
-      <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 print:hidden">
+      <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-4 sm:p-5 space-y-4 print:hidden">
         <div>
-          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Colaborador</label>
-          <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]">
-            <option value="">Selecione o colaborador</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>{e.nome}</option>
-            ))}
-          </select>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">Filtros</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 gap-y-3">
+            <div className="sm:col-span-2 lg:col-span-5">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Colaborador</label>
+              <select
+                value={filterUserId}
+                onChange={(e) => setFilterUserId(e.target.value)}
+                className="w-full min-w-0 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+              >
+                <option value="">Selecione o colaborador</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>{e.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div className="lg:col-span-3">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Período (início)</label>
+              <input
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Período (fim)</label>
+              <input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+              />
+            </div>
+          </div>
         </div>
+
+        <div className="h-px bg-slate-200/80 dark:bg-slate-600/50" aria-hidden />
+
         <div>
-          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Período (início)</label>
-          <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">Exportar e batidas</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
+            <button
+              type="button"
+              onClick={handleExportPDF}
+              disabled={!filterUserId}
+              title={!filterUserId ? 'Selecione um colaborador no filtro acima' : undefined}
+              className="inline-flex justify-center items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:pointer-events-none text-sm w-full sm:w-auto sm:min-w-[10rem]"
+            >
+              <FileDown className="w-4 h-4 shrink-0" /> Exportar PDF
+            </button>
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={!filterUserId}
+              title={!filterUserId ? 'Selecione um colaborador no filtro acima' : undefined}
+              className="inline-flex justify-center items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:pointer-events-none text-sm w-full sm:w-auto sm:min-w-[10rem]"
+            >
+              <FileSpreadsheet className="w-4 h-4 shrink-0" /> Exportar Excel
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex justify-center items-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-200 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-sm font-medium w-full sm:w-auto sm:min-w-[11rem]"
+            >
+              <Plus className="w-4 h-4 shrink-0" /> Adicionar Batida
+            </button>
+          </div>
         </div>
-        <div>
-          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Período (fim)</label>
-          <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={handleExportPDF}
-            disabled={!filterUserId}
-            title={!filterUserId ? 'Selecione um colaborador no filtro acima' : undefined}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:pointer-events-none"
-          >
-            <FileDown className="w-4 h-4" /> Exportar PDF
-          </button>
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={!filterUserId}
-            title={!filterUserId ? 'Selecione um colaborador no filtro acima' : undefined}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:pointer-events-none"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Exportar Excel
-          </button>
-          <button type="button" onClick={() => setIsAddModalOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <Plus className="w-4 h-4" /> Adicionar Batida
-          </button>
-          <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200 dark:border-slate-700">
-            <input type="month" value={closeMonth} onChange={(e) => setCloseMonth(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm" />
-            <button type="button" onClick={handleCloseTimesheet} disabled={closing} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50" title="Fechar folha do mês (calcula totais e marca como fechada)">
-              <Lock className="w-4 h-4" /> Fechar folha
+
+        <div className="rounded-lg border border-slate-200 dark:border-slate-600 bg-white/60 dark:bg-slate-900/30 p-3 sm:p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">Fechamento mensal</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
+            <div className="w-full sm:w-auto sm:min-w-[12rem]">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Mês a fechar</label>
+              <input
+                type="month"
+                value={closeMonth}
+                onChange={(e) => setCloseMonth(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseTimesheet}
+              disabled={closing}
+              className="inline-flex justify-center items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 text-sm font-medium w-full sm:w-auto shrink-0"
+              title="Fechar folha do mês (calcula totais e marca como fechada)"
+            >
+              <Lock className="w-4 h-4 shrink-0" /> Fechar folha
             </button>
           </div>
         </div>
@@ -1092,6 +1139,7 @@ const AdminTimesheet: React.FC = () => {
         onSubmit={handleAddTimeRecord}
         employees={employees}
         companyId={user?.companyId}
+        userId={filterUserId || undefined}
       />
 
       <ManualRecordModal
