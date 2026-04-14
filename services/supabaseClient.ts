@@ -17,7 +17,20 @@ export {
 export { getSupabaseClient, getSupabaseClientOrThrow, testSupabaseConnection, withSupabaseTimeout, resetSession } from '../src/lib/supabaseClient';
 
 // Criar aliases para db e storage (compatibilidade com código antigo)
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../src/lib/supabaseClient';
+import { withTimeout } from '../src/utils/withTimeout';
+
+/** Evita REST com JWT ainda não hidratado do storage (sintoma: dados vazios até relogar). */
+const GET_SESSION_BEFORE_DB_MS = 12000;
+
+async function ensureSupabaseAuthSessionReady(client: SupabaseClient): Promise<void> {
+  try {
+    await withTimeout(client.auth.getSession(), GET_SESSION_BEFORE_DB_MS, 'auth.getSession (db)');
+  } catch {
+    // segue: sem sessão o RLS pode retornar vazio
+  }
+}
 
 // Tipos para filtros
 type FilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in' | 'is' | 'contains';
@@ -67,6 +80,7 @@ export const db: DbInterface = {
   ): Promise<any[]> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     // Suporte a nova API com options object
     let columns = '*';
@@ -160,6 +174,7 @@ export const db: DbInterface = {
   insert: async (table: string, data: any): Promise<any> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     const { data: result, error } = await client.from(table).insert(data).select().single();
 
@@ -173,6 +188,7 @@ export const db: DbInterface = {
   update: async (table: string, idOrData: string | any, dataOrFilters?: any | Filter[]): Promise<any> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     // Suporte a duas sintaxes:
     // 1. update(table, id, data) - atualiza por ID
@@ -221,6 +237,7 @@ export const db: DbInterface = {
   delete: async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     let query = client.from(table).delete();
 
@@ -262,6 +279,7 @@ export const db: DbInterface = {
   findById: async (table: string, id: string, columns?: string): Promise<any | null> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     const { data, error } = await client
       .from(table)
@@ -293,6 +311,7 @@ export const db: DbInterface = {
   ): Promise<{ data: any[]; count: number | null }> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     const { columns = '*', filters, orderBy, limit = 50, offset = 0, count = false } = options;
 
@@ -338,6 +357,7 @@ export const db: DbInterface = {
   count: async (table: string, filters?: Filter[]): Promise<number> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
 
     let query = client.from(table).select('id', { count: 'exact', head: true });
 

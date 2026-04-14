@@ -1,10 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { User } from '../../types';
 import { authService } from '../../services/authService';
 import { getUserProfileStorage, checkSupabaseConfigured } from '../../services/supabase';
 
-/** Alinhado ao tempo de SELECT no Supabase (rede lenta); evita spinner eterno se getCurrentUser demorar. */
-const HYDRATE_TIMEOUT_MS = 32000;
+/** Se getCurrentUser travar, libera a UI (perfil em cache continua visível). */
+const HYDRATE_FALLBACK_MS = 35000;
 
 function getStoredUser(): User | null {
   try {
@@ -17,72 +17,116 @@ function getStoredUser(): User | null {
   }
 }
 
-/** Perfil em cache (mesmo storage da sessão) para estado inicial sem bloquear a UI. */
+/** Perfil em cache (mesmo storage da sessão). */
 export function readCachedUser(): User | null {
   return getStoredUser();
 }
 
+type CurrentUserStore = {
+  user: User | null;
+  loading: boolean;
+};
+
+function createInitialStore(): CurrentUserStore {
+  const u = getStoredUser();
+  return { user: u, loading: u === null };
+}
+
+let store: CurrentUserStore = createInitialStore();
+const listeners = new Set<() => void>();
+
+function emit() {
+  listeners.forEach((l) => l());
+}
+
+function setStore(next: Partial<CurrentUserStore>) {
+  store = { ...store, ...next };
+  emit();
+}
+
+/** Uma hidratação global — evita dezenas de getCurrentUser ao trocar de rota. */
+let hydratePromise: Promise<void> | null = null;
+
+async function runHydrate(): Promise<void> {
+  try {
+    if (!checkSupabaseConfigured()) {
+      setStore({ user: getStoredUser(), loading: false });
+      return;
+    }
+    const u = await authService.getCurrentUser();
+    setStore({ user: u ?? getStoredUser(), loading: false });
+  } catch {
+    setStore({ user: getStoredUser(), loading: false });
+  }
+}
+
+function ensureHydrateStarted(): void {
+  if (hydratePromise) return;
+  hydratePromise = runHydrate();
+}
+
+function resetHydrateLock(): void {
+  hydratePromise = null;
+}
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+function getSnapshot(): CurrentUserStore {
+  return store;
+}
+
+function getServerSnapshot(): CurrentUserStore {
+  return { user: null, loading: true };
+}
+
+function syncFromStorage(): void {
+  const next = getStoredUser();
+  if (!next) {
+    resetHydrateLock();
+    setStore({ user: null, loading: false });
+    return;
+  }
+  const prevId = store.user?.id;
+  setStore({ user: next, loading: false });
+  /** Novo login / troca de conta: nova hidratação. Mesmo usuário: cache já atualizado (evita spam em getCurrentUser). */
+  if (prevId !== next.id) {
+    resetHydrateLock();
+    ensureHydrateStarted();
+  }
+}
+
 /**
- * Perfil do usuário para páginas do portal: alinha com Supabase Auth + cache do perfil.
- * Com `current_user` em cache, não exibe spinner — hidrata em background.
+ * Perfil do usuário para páginas do portal — estado único compartilhado (sem N hidratações paralelas).
  */
 export function useCurrentUser() {
-  const [user, setUser] = useState<User | null>(() => getStoredUser());
-  const [loading, setLoading] = useState(() => getStoredUser() === null);
-  const hydratedRef = useRef(false);
+  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
-    let mounted = true;
+    ensureHydrateStarted();
+  }, []);
 
-    const applyStored = () => {
-      if (!mounted) return;
-      // Só aplica o usuário do storage se ele existir — nunca re-loga a partir de storage vazio.
-      const stored = getStoredUser();
-      setUser(stored);
-      setLoading(false);
-    };
-
-    const hydrate = async () => {
-      if (hydratedRef.current) return;
-      if (!checkSupabaseConfigured()) {
-        applyStored();
-        hydratedRef.current = true;
-        return;
-      }
-      try {
-        const u = await authService.getCurrentUser();
-        if (mounted) {
-          setUser(u);
-          setLoading(false);
-          hydratedRef.current = true;
-        }
-      } catch {
-        applyStored();
-        hydratedRef.current = true;
-      }
-    };
-
-    void hydrate();
-
-    window.addEventListener('storage', applyStored);
-    window.addEventListener('current_user_changed', applyStored);
-
-    const fallbackTimeout = window.setTimeout(() => {
-      if (mounted) {
-        setLoading(false);
-        if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.warn('[useCurrentUser] fallback: encerrando loading após', HYDRATE_TIMEOUT_MS, 'ms');
-        }
-      }
-    }, HYDRATE_TIMEOUT_MS);
-
+  useEffect(() => {
+    const onSync = () => syncFromStorage();
+    window.addEventListener('storage', onSync);
+    window.addEventListener('current_user_changed', onSync);
     return () => {
-      mounted = false;
-      window.clearTimeout(fallbackTimeout);
-      window.removeEventListener('storage', applyStored);
-      window.removeEventListener('current_user_changed', applyStored);
+      window.removeEventListener('storage', onSync);
+      window.removeEventListener('current_user_changed', onSync);
     };
   }, []);
 
-  return { user, loading };
+  useEffect(() => {
+    if (!state.loading) return;
+    const t = window.setTimeout(() => {
+      if (store.loading) {
+        setStore({ loading: false, user: getStoredUser() });
+      }
+    }, HYDRATE_FALLBACK_MS);
+    return () => window.clearTimeout(t);
+  }, [state.loading]);
+
+  return { user: state.user, loading: state.loading };
 }
