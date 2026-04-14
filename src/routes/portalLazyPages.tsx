@@ -28,6 +28,7 @@ export const AdminColaboradorJornada = React.lazy(ROUTE_LOADERS['/admin/colabora
 export const AdminJobTitles = React.lazy(ROUTE_LOADERS['/admin/job-titles']);
 export const AdminCompany = React.lazy(ROUTE_LOADERS['/admin/company']);
 export const AdminReports = React.lazy(ROUTE_LOADERS['/admin/reports']);
+export const ReportReadPage = React.lazy(ROUTE_LOADERS['/admin/reports/read/:slug']);
 export const AdminBankHours = React.lazy(ROUTE_LOADERS['/admin/bank-hours']);
 export const ReportWorkHours = React.lazy(ROUTE_LOADERS['/admin/reports/work-hours']);
 export const ReportOvertime = React.lazy(ROUTE_LOADERS['/admin/reports/overtime']);

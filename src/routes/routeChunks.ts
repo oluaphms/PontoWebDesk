@@ -40,6 +40,7 @@ export const ROUTE_LOADERS = {
   '/admin/security': () => import('../pages/admin/Security'),
   '/admin/company': () => import('../pages/admin/Company'),
   '/admin/reports': () => import('../pages/admin/Reports'),
+  '/admin/reports/read/:slug': () => import('../pages/admin/reports/ReportReadPage'),
   '/admin/reports/work-hours': () => import('../pages/admin/reports/ReportWorkHours'),
   '/admin/reports/overtime': () => import('../pages/admin/reports/ReportOvertime'),
   '/admin/reports/inconsistencies': () => import('../pages/admin/reports/ReportInconsistencies'),

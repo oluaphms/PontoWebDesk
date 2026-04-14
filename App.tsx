@@ -96,6 +96,7 @@ import {
   AdminMotivoDemissao,
   AdminPontoDiario,
   AdminReports,
+  ReportReadPage,
   AdminRepDevices,
   AdminRepMonitor,
   AdminSchedules,
@@ -1189,6 +1190,7 @@ const AppMain: React.FC = () => {
               <Route path="security" element={<AdminSecurity />} />
               <Route path="company" element={<AdminCompany />} />
               <Route path="reports" element={<AdminReports />} />
+              <Route path="reports/read/:slug" element={<ReportReadPage />} />
               <Route path="reports/work-hours" element={<ReportWorkHours />} />
               <Route path="reports/overtime" element={<ReportOvertime />} />
               <Route path="reports/inconsistencies" element={<ReportInconsistencies />} />
