@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { queryClient } from '../../lib/queryClient';
 import { Navigate } from 'react-router-dom';
-import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { buscarEspelhoAdmin, buscarEspelhoRegistros } from '../../../services/api';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
@@ -14,9 +15,10 @@ import { ExpandableStreetCell, ExpandableTextCell } from '../../components/Click
 import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
 import { ManualRecordModal } from '../../components/ManualRecordModal';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
-import { TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
+import { SkeletonFiltro, TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
 import { LoggingService } from '../../../services/loggingService';
 import { LogSeverity } from '../../../types';
+import { invalidateAfterTimesheetMonthClose, invalidateCompanyListCaches } from '../../services/queryCache';
 
 interface HolidayRow {
   id: string;
@@ -146,6 +148,9 @@ const AdminTimesheet: React.FC = () => {
   const [editingRecord, setEditingRecord] = useState<any | null>(null);
   const [editingEmployeeName, setEditingEmployeeName] = useState<string>('');
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  /** Evita mostrar selects só com "Todos" antes da primeira carga; não resetar ao mudar só o período. */
+  const [filterListsHydrated, setFilterListsHydrated] = useState(false);
+  const lastLoadedCompanyIdRef = useRef<string | null>(null);
 
   const toggleExpandedRow = (key: string) => {
     setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -165,6 +170,8 @@ const AdminTimesheet: React.FC = () => {
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) {
       setLoadingData(false);
+      setFilterListsHydrated(false);
+      lastLoadedCompanyIdRef.current = null;
       return;
     }
 
@@ -173,40 +180,26 @@ const AdminTimesheet: React.FC = () => {
     const loadData = async () => {
       if (cancelled || !mountedRef.current) return;
       setLoadingData(true);
+      if (lastLoadedCompanyIdRef.current !== user.companyId) {
+        lastLoadedCompanyIdRef.current = user.companyId;
+        setFilterListsHydrated(false);
+      }
       try {
-        const periodStartTs = `${periodStart}T00:00:00`;
-        const periodEndTs = `${periodEnd}T23:59:59.999`;
-
-        const [usersRows, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select(
-            'time_records',
-            [
-              { column: 'company_id', operator: 'eq', value: user.companyId },
-              { column: 'created_at', operator: 'gte', value: periodStartTs },
-              { column: 'created_at', operator: 'lte', value: periodEndTs },
-            ],
-            { column: 'created_at', ascending: false },
-            1000
-          ) as Promise<any[]>,
-          db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
-          db.select('feriados', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
-        ]);
+        const bundle = await buscarEspelhoAdmin(user.companyId, periodStart, periodEnd);
 
         if (cancelled || !mountedRef.current) return;
 
-        setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email, department_id: u.department_id })));
-        setRecords(recordsRows ?? []);
-        setDepartments((departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
-        setShiftSchedules(shiftsRows ?? []);
-        setHolidays((holidaysRows ?? []).map((h: any) => ({
-          id: h.id,
-          date: (h.data || h.date || '').slice(0, 10),
-          name: h.descricao || h.name || 'Feriado',
-        })));
+        setEmployees(bundle.employees);
+        setRecords(bundle.records);
+        setDepartments(bundle.departments);
+        setShiftSchedules(bundle.shiftSchedules);
+        setHolidays(bundle.holidays);
+        setFilterListsHydrated(true);
       } catch (e) {
         console.error('Erro ao carregar dados:', e);
+        if (!cancelled && mountedRef.current) {
+          setFilterListsHydrated(true);
+        }
       } finally {
         if (!cancelled && mountedRef.current) {
           setLoadingData(false);
@@ -604,6 +597,7 @@ const AdminTimesheet: React.FC = () => {
     try {
       const [year, month] = closeMonth.split('-').map(Number);
       const { closed, errors } = await closeTimesheet(user.companyId, month, year);
+      invalidateAfterTimesheetMonthClose(user.companyId);
       if (errors.length > 0) {
         setMessage({ type: 'error', text: `Fechado: ${closed}. Erros: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '...' : ''}` });
       } else {
@@ -618,20 +612,9 @@ const AdminTimesheet: React.FC = () => {
 
   const refetchTimesheetRecords = useCallback(async () => {
     if (!user?.companyId) return;
-    const periodStartTs = `${periodStart}T00:00:00`;
-    const periodEndTs = `${periodEnd}T23:59:59.999`;
-    const recordsRows =
-      (await db.select(
-        'time_records',
-        [
-          { column: 'company_id', operator: 'eq', value: user.companyId },
-          { column: 'created_at', operator: 'gte', value: periodStartTs },
-          { column: 'created_at', operator: 'lte', value: periodEndTs },
-        ],
-        { column: 'created_at', ascending: false },
-        1000
-      )) ?? [];
+    const recordsRows = await buscarEspelhoRegistros(user.companyId, periodStart, periodEnd);
     setRecords(recordsRows);
+    invalidateCompanyListCaches(user.companyId);
     await queryClient.invalidateQueries({ queryKey: ['records'] });
   }, [user?.companyId, periodStart, periodEnd]);
 
@@ -766,6 +749,9 @@ const AdminTimesheet: React.FC = () => {
           {message.text}
         </div>
       )}
+      {!filterListsHydrated ? (
+        <SkeletonFiltro />
+      ) : (
       <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 print:hidden">
         <div>
           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Colaborador</label>
@@ -811,6 +797,7 @@ const AdminTimesheet: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 print:border-0 print:shadow-none print:bg-transparent print:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0">
         {loadingData ? (

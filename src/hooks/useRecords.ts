@@ -4,6 +4,7 @@ import { TimeRecord, LogType, PunchMethod } from '../../types';
 import { PontoService } from '../../services/pontoService';
 import { OfflinePunchService } from '../../services/offlinePunchService';
 import { timeRecordsQueries } from '../../services/queryOptimizations';
+import { invalidateAfterPunch } from '../services/queryCache';
 
 export const useRecords = (userId: string | undefined, companyId: string | undefined) => {
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +53,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
         syncedIds.push(item.id);
         // ✅ OTIMIZADO: Invalidar cache após sincronizar
         queryClient.invalidateQueries({ queryKey: ['records', userId] });
+        invalidateAfterPunch(userId, companyId);
       } catch (err) {
         // Se falhar, mantém na fila para tentar depois
         console.warn('Falha ao sincronizar ponto offline, tentando novamente depois.', err);
@@ -84,6 +86,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
       );
       // ✅ OTIMIZADO: Invalidar cache após registrar ponto
       queryClient.invalidateQueries({ queryKey: ['records', userId] });
+      invalidateAfterPunch(userId, companyId);
       return newRecord;
     } catch (err: any) {
       // Modo offline básico: se estiver sem conexão, enfileirar o registro

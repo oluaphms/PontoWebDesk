@@ -17,8 +17,8 @@ export const queryClient = new QueryClient({
       // Tentar novamente 1 vez em caso de erro
       retry: 1,
       
-      // Não refetch quando a janela ganha foco
-      refetchOnWindowFocus: false,
+      // Recarrega ao voltar à aba — reduz dados “velhos” em cache (espelho, listas)
+      refetchOnWindowFocus: true,
       
       // Não refetch quando o componente é remontado
       refetchOnMount: false,

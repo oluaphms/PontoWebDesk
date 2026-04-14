@@ -6,6 +6,7 @@ import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { processEmployeeMonth } from '../../../engine/timeEngine';
 import { LoadingState } from '../../../../components/UI';
+import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 
 interface Row {
   employeeId: string;
@@ -28,37 +29,53 @@ const ReportWorkHours: React.FC = () => {
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     (async () => {
-      const list = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+      const cid = user.companyId!;
+      const list = (await queryCache.getOrFetch(
+        `users:${cid}`,
+        () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+        TTL.NORMAL,
+      )) as any[];
       setEmployees((list ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email })));
     })();
   }, [user?.companyId]);
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured || employees.length === 0) return;
+    const cid = user.companyId!;
     const [y, m] = month.split('-').map(Number);
     let cancelled = false;
     setLoadingData(true);
+    const cacheKey = adminReportCacheKey(cid, 'work_hours', month);
     (async () => {
-      const result: Row[] = [];
-      for (const emp of employees.slice(0, 100)) {
-        if (cancelled) break;
-        try {
-          const days = await processEmployeeMonth(emp.id, user!.companyId!, y, m);
-          const totalHours = days.reduce((s, d) => s + d.daily.total_worked_minutes / 60, 0);
-          const expectedHours = days.reduce((s, d) => s + d.daily.expected_minutes / 60, 0);
-          result.push({
-            employeeId: emp.id,
-            employeeName: emp.nome,
-            totalHours,
-            expectedHours,
-            balance: totalHours - expectedHours,
-          });
-        } catch {
-          result.push({ employeeId: emp.id, employeeName: emp.nome, totalHours: 0, expectedHours: 0, balance: 0 });
-        }
+      try {
+        const result = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const out: Row[] = [];
+            for (const emp of employees.slice(0, 100)) {
+              try {
+                const days = await processEmployeeMonth(emp.id, cid, y, m);
+                const totalHours = days.reduce((s, d) => s + d.daily.total_worked_minutes / 60, 0);
+                const expectedHours = days.reduce((s, d) => s + d.daily.expected_minutes / 60, 0);
+                out.push({
+                  employeeId: emp.id,
+                  employeeName: emp.nome,
+                  totalHours,
+                  expectedHours,
+                  balance: totalHours - expectedHours,
+                });
+              } catch {
+                out.push({ employeeId: emp.id, employeeName: emp.nome, totalHours: 0, expectedHours: 0, balance: 0 });
+              }
+            }
+            return out;
+          },
+          TTL.STATIC,
+        );
+        if (!cancelled) setRows(result);
+      } finally {
+        if (!cancelled) setLoadingData(false);
       }
-      if (!cancelled) setRows(result);
-      setLoadingData(false);
     })();
     return () => { cancelled = true; };
   }, [user?.companyId, month, employees]);

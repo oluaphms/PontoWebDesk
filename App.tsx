@@ -16,7 +16,6 @@ import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { queryCache } from './src/services/queryCache';
 import {
-  auth,
   isSupabaseConfigured,
   checkSupabaseConfigured,
   testSupabaseConnection,
@@ -25,7 +24,6 @@ import {
   clearCurrentUserFromAllStorages,
 } from './services/supabaseClient';
 import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
-import { withTimeout } from './src/utils/withTimeout';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
 import {
@@ -298,41 +296,10 @@ const AppMain: React.FC = () => {
           // Não loga falha aqui para não poluir o console; login mostrará erro se precisar.
         });
 
-        // Supabase retorna { data: { session } }; não usar session.user no objeto raiz.
-        // Timeout em getSession evita hang (IndexedDB/rede) que antes só era cortado aos 85s na Vercel.
-        try {
-          const sessionResult = await withTimeout(auth.getSession(), 15000, 'auth.getSession').catch(
-            (err: unknown) => {
-              console.warn('[App] auth.getSession lento ou indisponível:', err);
-              return null;
-            }
-          );
-          if (!sessionResult) {
-            if (isMounted) {
-              clearTimeout(timeoutId);
-              setIsInitialLoading(false);
-            }
-            return;
-          }
-          const jwtSession = sessionResult.data?.session ?? null;
-          if (!jwtSession?.user) {
-            if (isMounted) {
-              clearTimeout(timeoutId);
-              setIsInitialLoading(false);
-            }
-            return;
-          }
-        } catch (e) {
-          console.error('Error checking session:', e);
-          if (isMounted) {
-            clearTimeout(timeoutId);
-            setIsInitialLoading(false);
-          }
-          return;
-        }
-
-        // Hidratar perfil com teto — o listener onAuthStateChanged completa se ainda estiver carregando.
-        const INIT_HYDRATE_MS = 12000;
+        // Não usar getSession() isolado com timeout curto como “portão”: se IndexedDB/rede atrasarem,
+        // a app saía antes de hidratar e o usuário via tela presa / sem perfil em cache.
+        // getCurrentUser() já chama getSession internamente, aplica timeout próprio e usa perfil em storage.
+        const INIT_HYDRATE_MS = 22000;
         const currentUser = await Promise.race([
           authService.getCurrentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
@@ -381,11 +348,10 @@ const AppMain: React.FC = () => {
           if (!isMounted) return;
 
           if (authUser) {
-            // Só atualiza se o usuário React ainda estiver logado (evita re-login após logout).
-            setUser((current) => {
-              if (current === null) return null; // logout já ocorreu — não re-logar
-              return authUser;
-            });
+            // Sincroniza sempre com a sessão do Supabase (TOKEN_REFRESHED, SIGNED_IN, etc.).
+            // A flag de logout em authService evita corrida com signOut; não bloquear aqui —
+            // bloquear quando `current === null` impedia recuperar sessão válida após eventos tardios.
+            setUser(authUser);
             PontoService.getCompany(authUser.companyId).then(comp => {
               if (isMounted && comp) setCompany(comp);
             }).catch(error => {
@@ -728,8 +694,13 @@ const AppMain: React.FC = () => {
     setLoginError(null);
     navigate('/', { replace: true });
 
-    // Limpa o cache de queries para não vazar dados entre sessões
+    // Limpa caches para não vazar dados entre sessões (memória + React Query)
     queryCache.clear();
+    try {
+      queryClient.clear();
+    } catch {
+      // ignora
+    }
 
     try {
       await authService.signOut();
@@ -1227,8 +1198,15 @@ const AppMain: React.FC = () => {
               <Route path="ajuda" element={<AdminAjuda />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
-            {/* Rotas Funcionário: agrupadas sob /employee com Outlet para evitar loop de redirecionamento */}
-            <Route path="/employee" element={<Outlet />}>
+            {/* Rotas Funcionário: só colaborador/supervisor (admin já é redirecionado antes; reforço RBAC) */}
+            <Route
+              path="/employee"
+              element={
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                  <Outlet />
+                </RoleGuard>
+              }
+            >
               <Route index element={<Navigate to="/employee/dashboard" replace />} />
               <Route path="dashboard" element={<EmployeeDashboard />} />
               <Route path="work-schedule" element={<MyWorkSchedule />} />
@@ -1250,11 +1228,46 @@ const AppMain: React.FC = () => {
             />
             {/* Rotas legadas: /dashboard redireciona pela role para evitar confusão */}
             <Route path="/dashboard" element={<Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />} />
-            <Route path="/dashboard-admin" element={<AdminDashboard />} />
-            <Route path="/dashboard-employee" element={<EmployeeDashboard />} />
-            <Route path="/time-clock" element={<TimeClockPage />} />
-            <Route path="/time-records" element={<TimeRecordsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/dashboard-admin"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                  <AdminDashboard />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/dashboard-employee"
+              element={
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                  <EmployeeDashboard />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/time-clock"
+              element={
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                  <TimeClockPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/time-records"
+              element={
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                  <TimeRecordsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <RoleGuard user={user} allowedRoles={['admin', 'hr']} redirectTo="/employee/settings">
+                  <SettingsPage />
+                </RoleGuard>
+              }
+            />
             <Route path="/profile" element={<ProfileViewLazy user={user} />} />
             <Route
               path="/employees"

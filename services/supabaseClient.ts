@@ -20,16 +20,34 @@ export { getSupabaseClient, getSupabaseClientOrThrow, testSupabaseConnection, wi
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../src/lib/supabaseClient';
 import { withTimeout } from '../src/utils/withTimeout';
+import { DB_SELECT_TIMEOUT_MS } from './supabase';
 
 /** Evita REST com JWT ainda não hidratado do storage (sintoma: dados vazios até relogar). */
 const GET_SESSION_BEFORE_DB_MS = 12000;
 
+/**
+ * Uma única promessa de “aquecimento” por sessão de página.
+ * Vários `db.select` em paralelo (ex.: Promise.all no Espelho de Ponto) não devem cada um
+ * chamar `getSession` ao mesmo tempo — isso pode travar IndexedDB / auth e deixar a UI em loading infinito.
+ */
+let sessionAuthWarmup: Promise<void> | null = null;
+
+/** Após logout, permite novo `getSession` antes das queries (evita reuso da promessa antiga). */
+export function resetSessionAuthWarmup(): void {
+  sessionAuthWarmup = null;
+}
+
 async function ensureSupabaseAuthSessionReady(client: SupabaseClient): Promise<void> {
-  try {
-    await withTimeout(client.auth.getSession(), GET_SESSION_BEFORE_DB_MS, 'auth.getSession (db)');
-  } catch {
-    // segue: sem sessão o RLS pode retornar vazio
+  if (!sessionAuthWarmup) {
+    sessionAuthWarmup = (async () => {
+      try {
+        await withTimeout(client.auth.getSession(), GET_SESSION_BEFORE_DB_MS, 'auth.getSession (db)');
+      } catch {
+        // segue: sem sessão o RLS pode retornar vazio
+      }
+    })();
   }
+  await sessionAuthWarmup;
 }
 
 // Tipos para filtros
@@ -162,7 +180,11 @@ export const db: DbInterface = {
       query = query.limit(finalLimit);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await withTimeout(
+      Promise.resolve(query) as Promise<{ data: any; error: any }>,
+      DB_SELECT_TIMEOUT_MS,
+      `db.select(${table})`,
+    );
 
     if (error) {
       throw new Error(`Erro ao buscar dados de ${table}: ${error.message}`);
@@ -458,6 +480,7 @@ export const auth = {
   signOut: async (options?: { scope?: 'global' | 'local' | 'others' }) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
+    resetSessionAuthWarmup();
     return client.auth.signOut(options);
   },
   getSession: async () => {

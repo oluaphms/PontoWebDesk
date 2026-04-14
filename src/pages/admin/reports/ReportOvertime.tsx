@@ -6,6 +6,7 @@ import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { processEmployeeMonth } from '../../../engine/timeEngine';
 import { LoadingState } from '../../../../components/UI';
+import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 
 interface EmployeeOption {
   id: string;
@@ -49,7 +50,12 @@ const ReportOvertime: React.FC = () => {
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
     (async () => {
-      const list = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+      const cid = user.companyId!;
+      const list = (await queryCache.getOrFetch(
+        `users:${cid}`,
+        () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+        TTL.NORMAL,
+      )) as any[];
       setEmployees(
         (list ?? []).map((u: any) => ({
           id: u.id,
@@ -62,64 +68,77 @@ const ReportOvertime: React.FC = () => {
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured || employees.length === 0) return;
+    const cid = user.companyId!;
     const [y, m] = month.split('-').map(Number);
+    let cancelled = false;
     setLoadingData(true);
+    const cacheKey = adminReportCacheKey(cid, 'overtime', month);
     (async () => {
-      const result: Row[] = [];
-      // Processa todos os colaboradores para evitar corte silencioso do relatório.
-      for (const emp of employees) {
-        try {
-          const days = await processEmployeeMonth(emp.id, user!.companyId!, y, m);
-          let overtime50 = 0;
-          let overtime100 = 0;
-          let workDays = 0;
-          let overtimeDays = 0;
-          const daily: DailyOvertimeRow[] = [];
-          days.forEach((d) => {
-            if ((d.daily.total_worked_minutes ?? 0) > 0) workDays += 1;
-            if (d.overtime) {
-              const day50 = d.overtime.overtime_50_minutes / 60;
-              const day100 = d.overtime.overtime_100_minutes / 60;
-              overtime50 += day50;
-              overtime100 += day100;
-              if (day50 > 0 || day100 > 0) overtimeDays += 1;
-              daily.push({
-                date: d.date,
-                overtime50: day50,
-                overtime100: day100,
-                total: day50 + day100,
-                isHolidayOrOff: !!d.overtime.is_holiday_or_off,
-              });
+      try {
+        const result = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const out: Row[] = [];
+            for (const emp of employees) {
+              try {
+                const days = await processEmployeeMonth(emp.id, cid, y, m);
+                let overtime50 = 0;
+                let overtime100 = 0;
+                let workDays = 0;
+                let overtimeDays = 0;
+                const daily: DailyOvertimeRow[] = [];
+                days.forEach((d) => {
+                  if ((d.daily.total_worked_minutes ?? 0) > 0) workDays += 1;
+                  if (d.overtime) {
+                    const day50 = d.overtime.overtime_50_minutes / 60;
+                    const day100 = d.overtime.overtime_100_minutes / 60;
+                    overtime50 += day50;
+                    overtime100 += day100;
+                    if (day50 > 0 || day100 > 0) overtimeDays += 1;
+                    daily.push({
+                      date: d.date,
+                      overtime50: day50,
+                      overtime100: day100,
+                      total: day50 + day100,
+                      isHolidayOrOff: !!d.overtime.is_holiday_or_off,
+                    });
+                  }
+                });
+                out.push({
+                  employeeId: emp.id,
+                  employeeName: emp.nome,
+                  departmentId: emp.department_id || '',
+                  overtime50,
+                  overtime100,
+                  total: overtime50 + overtime100,
+                  workDays,
+                  overtimeDays,
+                  daily: daily.sort((a, b) => a.date.localeCompare(b.date)),
+                });
+              } catch {
+                out.push({
+                  employeeId: emp.id,
+                  employeeName: emp.nome,
+                  departmentId: emp.department_id || '',
+                  overtime50: 0,
+                  overtime100: 0,
+                  total: 0,
+                  workDays: 0,
+                  overtimeDays: 0,
+                  daily: [],
+                });
+              }
             }
-          });
-          result.push({
-            employeeId: emp.id,
-            employeeName: emp.nome,
-            departmentId: emp.department_id || '',
-            overtime50,
-            overtime100,
-            total: overtime50 + overtime100,
-            workDays,
-            overtimeDays,
-            daily: daily.sort((a, b) => a.date.localeCompare(b.date)),
-          });
-        } catch {
-          result.push({
-            employeeId: emp.id,
-            employeeName: emp.nome,
-            departmentId: emp.department_id || '',
-            overtime50: 0,
-            overtime100: 0,
-            total: 0,
-            workDays: 0,
-            overtimeDays: 0,
-            daily: [],
-          });
-        }
+            return out;
+          },
+          TTL.STATIC,
+        );
+        if (!cancelled) setRows(result);
+      } finally {
+        if (!cancelled) setLoadingData(false);
       }
-      setRows(result);
-      setLoadingData(false);
     })();
+    return () => { cancelled = true; };
   }, [user?.companyId, month, employees]);
 
   const filteredRows = useMemo(() => {

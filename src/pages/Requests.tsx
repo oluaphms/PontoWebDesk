@@ -14,6 +14,7 @@ import { LoggingService } from '../../services/loggingService';
 import { LogSeverity } from '../../types';
 import { useToast } from '../components/ToastProvider';
 import { ExpandableTextCell } from '../components/ClickableFullContent';
+import { invalidatePendingRequestsCachesForUsers } from '../services/queryCache';
 
 interface RequestRow {
   id: string;
@@ -129,6 +130,7 @@ const RequestsPage: React.FC = () => {
       ]);
 
       toast.addToast('success', 'Solicitação enviada com sucesso.');
+      invalidatePendingRequestsCachesForUsers([user.id]);
 
       try {
         // Notificar o colaborador
@@ -205,6 +207,8 @@ const RequestsPage: React.FC = () => {
         prev.map((r) => (r.id === row.id ? { ...r, status } : r)),
       );
 
+      invalidatePendingRequestsCachesForUsers([user.id, row.user_id]);
+
       // Deletar notificação da solicitação para o admin/RH
       try {
         // Buscar todas as notificações do admin sobre esta solicitação
@@ -255,6 +259,7 @@ const RequestsPage: React.FC = () => {
     try {
       await db.delete('requests', row.id);
       setRows((prev) => prev.filter((r) => r.id !== row.id));
+      invalidatePendingRequestsCachesForUsers([user.id, row.user_id]);
       toast.addToast('success', 'Solicitação excluída.');
       try {
         await LoggingService.log({

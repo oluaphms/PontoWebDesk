@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState } from '../../../../components/UI';
+import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 
 interface BankRow {
   employee_id: string;
@@ -20,32 +21,48 @@ const ReportBankHours: React.FC = () => {
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
+    const cid = user.companyId!;
     setLoadingData(true);
+    const cacheKey = adminReportCacheKey(cid, 'bank_hours_summary');
     (async () => {
-      const [bankRows, userRows] = await Promise.all([
-        db.select('bank_hours', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'date', ascending: false }, 2000) as Promise<any[]>,
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-      ]);
-      const empMap = new Map<string, string>();
-      (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
-      const byEmployee = new Map<string, { balance: number; last_date: string }>();
-      (bankRows ?? []).forEach((r: any) => {
-        if (!byEmployee.has(r.employee_id)) {
-          byEmployee.set(r.employee_id, { balance: r.balance ?? 0, last_date: r.date ?? '' });
-        }
-      });
-      const list: BankRow[] = [];
-      byEmployee.forEach((v, eid) => {
-        list.push({
-          employee_id: eid,
-          employee_name: empMap.get(eid) || eid?.slice(0, 8) || '—',
-          balance: v.balance,
-          last_date: v.last_date,
-        });
-      });
-      list.sort((a, b) => b.balance - a.balance);
-      setRows(list);
-      setLoadingData(false);
+      try {
+        const list = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const [bankRows, userRows] = await Promise.all([
+              db.select('bank_hours', [{ column: 'company_id', operator: 'eq', value: cid }], { column: 'date', ascending: false }, 2000) as Promise<any[]>,
+              queryCache.getOrFetch(
+                `users:${cid}`,
+                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+                TTL.NORMAL,
+              ),
+            ]);
+            const empMap = new Map<string, string>();
+            (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
+            const byEmployee = new Map<string, { balance: number; last_date: string }>();
+            (bankRows ?? []).forEach((r: any) => {
+              if (!byEmployee.has(r.employee_id)) {
+                byEmployee.set(r.employee_id, { balance: r.balance ?? 0, last_date: r.date ?? '' });
+              }
+            });
+            const out: BankRow[] = [];
+            byEmployee.forEach((v, eid) => {
+              out.push({
+                employee_id: eid,
+                employee_name: empMap.get(eid) || eid?.slice(0, 8) || '—',
+                balance: v.balance,
+                last_date: v.last_date,
+              });
+            });
+            out.sort((a, b) => b.balance - a.balance);
+            return out;
+          },
+          TTL.NORMAL,
+        );
+        setRows(list);
+      } finally {
+        setLoadingData(false);
+      }
     })();
   }, [user?.companyId]);
 

@@ -1,15 +1,16 @@
 /**
-import { Navigate } from 'react-router-dom';
  * Relatório de Segurança / Antifraude – registros suspeitos, funcionários, localização, score.
  */
 
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { ShieldAlert, FileDown } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState } from '../../../../components/UI';
 import { Button } from '../../../../components/UI';
+import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 
 const FLAG_LABELS: Record<string, string> = {
   location_violation: 'Local fora da área',
@@ -29,31 +30,45 @@ export default function ReportSecurity() {
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
+    const cid = user.companyId!;
+    const flag = onlySuspicious ? 'susp' : 'all';
+    const cacheKey = adminReportCacheKey(cid, 'security', periodStart, periodEnd, flag);
 
     const load = async () => {
       setLoadingData(true);
       try {
-        const [recs, usersRows] = await Promise.all([
-          db.select(
-            'time_records',
-            [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-            { column: 'created_at', ascending: false },
-            5000
-          ) as Promise<any[]>,
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        ]);
+        const { list, empMap } = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const [recs, usersRows] = await Promise.all([
+              db.select(
+                'time_records',
+                [{ column: 'company_id', operator: 'eq', value: cid }],
+                { column: 'created_at', ascending: false },
+                5000,
+              ) as Promise<any[]>,
+              queryCache.getOrFetch(
+                `users:${cid}`,
+                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+                TTL.NORMAL,
+              ),
+            ]);
 
-        const empMap = new Map<string, string>();
-        (usersRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email || u.id?.slice(0, 8)));
+            const empMap = new Map<string, string>();
+            (usersRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email || u.id?.slice(0, 8)));
+
+            let list = (recs ?? []).filter((r: any) => {
+              const d = (r.created_at || r.timestamp || '').toString().slice(0, 10);
+              return d >= periodStart && d <= periodEnd;
+            });
+            if (onlySuspicious) {
+              list = list.filter((r: any) => r.fraud_score != null && Number(r.fraud_score) > 50);
+            }
+            return { list, empMap };
+          },
+          TTL.NORMAL,
+        );
         setEmployees(empMap);
-
-        let list = (recs ?? []).filter((r: any) => {
-          const d = (r.created_at || r.timestamp || '').toString().slice(0, 10);
-          return d >= periodStart && d <= periodEnd;
-        });
-        if (onlySuspicious) {
-          list = list.filter((r: any) => r.fraud_score != null && Number(r.fraud_score) > 50);
-        }
         setRecords(list);
       } finally {
         setLoadingData(false);

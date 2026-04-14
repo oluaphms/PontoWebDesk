@@ -24,6 +24,46 @@ const EMPLOYEE_HEADERS = [
 ] as const;
 
 /**
+ * Placeholders para os filtros do espelho (colaborador, departamento, datas) antes dos dados chegarem.
+ */
+export function SkeletonFiltro() {
+  const bar = (w: string) => (
+    <div
+      className="h-9 rounded-lg bg-slate-200/90 dark:bg-slate-700/80 animate-pulse"
+      style={{ width: w }}
+    />
+  );
+  return (
+    <div
+      className="flex flex-wrap gap-4 items-end p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 print:hidden"
+      aria-busy="true"
+      aria-label="Carregando filtros"
+    >
+      <div className="space-y-2">
+        <div className="h-3 w-24 rounded bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+        {bar('180px')}
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-28 rounded bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+        {bar('180px')}
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-28 rounded bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+        {bar('150px')}
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-24 rounded bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+        {bar('150px')}
+      </div>
+      <div className="flex flex-wrap gap-2 items-center ml-auto">
+        <div className="h-9 w-28 rounded-xl bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+        <div className="h-9 w-32 rounded-xl bg-slate-200/80 dark:bg-slate-700/80 animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Skeleton com a mesma estrutura da tabela do espelho de ponto (evita salto de layout no carregamento).
  */
 export function TimesheetTableSkeleton({ variant }: { variant: 'admin' | 'employee' }) {

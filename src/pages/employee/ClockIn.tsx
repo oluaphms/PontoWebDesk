@@ -39,6 +39,7 @@ import { useToast } from '../../components/ToastProvider';
 import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { queryClient } from '../../lib/queryClient';
+import { invalidateAfterPunch } from '../../services/queryCache';
 
 const LocationMap = React.lazy(() => import('../../../components/LocationMap'));
 import {
@@ -498,6 +499,7 @@ const EmployeeClockIn: React.FC = () => {
 
       await loadTodayState();
       await queryClient.invalidateQueries({ queryKey: ['records'] });
+      invalidateAfterPunch(user.id, user.companyId);
       const label =
         typeStr === 'entrada'
           ? 'Entrada'

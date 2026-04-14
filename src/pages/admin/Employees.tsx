@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, auth, isSupabaseConfigured, resetSession } from '../../services/supabaseClient';
 import { resolveTenantId } from '../../services/tenantScope';
+import { invalidateCompanyListCaches } from '../../services/queryCache';
 
 /** Chama a API para confirmar o e-mail do funcionário no Auth (permite login sem clicar em link). */
 async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
@@ -817,6 +818,7 @@ const AdminEmployees: React.FC = () => {
           throw new Error('Não foi possível salvar as alterações. Verifique permissões da tabela users/employees e tente novamente.');
         }
         setSuccess('Funcionário atualizado com sucesso.');
+        if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
         setModalOpen(false);
         if (form.demissao?.trim()) {
           setAskInvisivel(editingId);
@@ -888,6 +890,7 @@ const AdminEmployees: React.FC = () => {
         );
         setModalOpen(false);
         setForm({ ...form, password: '' });
+        invalidateCompanyListCaches(effectiveCompanyId);
         loadData();
       }
     } catch (e: any) {
@@ -952,6 +955,7 @@ const AdminEmployees: React.FC = () => {
       await db.update('users', id, { invisivel: true, updated_at: new Date().toISOString() });
       setSuccess('Funcionário marcado como invisível (não aparecerá nos relatórios).');
       setAskInvisivel(null);
+      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
     } catch (e: any) {
       setError(e?.message || 'Erro ao atualizar');
@@ -963,6 +967,7 @@ const AdminEmployees: React.FC = () => {
     try {
       await db.update('users', id, { status: 'inactive', updated_at: new Date().toISOString() });
       setSuccess('Funcionário desativado.');
+      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
     } catch (e: any) {
       setError(e?.message || 'Erro ao desativar');
@@ -973,6 +978,7 @@ const AdminEmployees: React.FC = () => {
     try {
       await db.update('users', id, { status: 'active', updated_at: new Date().toISOString() });
       setSuccess('Funcionário reativado.');
+      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
     } catch (e: any) {
       setError(e?.message || 'Erro ao reativar');
@@ -1010,6 +1016,7 @@ const AdminEmployees: React.FC = () => {
     try {
       await db.delete('users', id);
       setSuccess('Funcionário excluído.');
+      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
     } catch (e: any) {
       setError(e?.message || 'Erro ao excluir');
@@ -1231,7 +1238,10 @@ const AdminEmployees: React.FC = () => {
     }
 
     setImportResult({ success, failed });
-    if (success > 0) loadData();
+    if (success > 0) {
+      invalidateCompanyListCaches(effectiveCompanyId);
+      loadData();
+    }
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {

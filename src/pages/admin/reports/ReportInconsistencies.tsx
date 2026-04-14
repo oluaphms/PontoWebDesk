@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState } from '../../../../components/UI';
+import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 
 interface InconsistencyRow {
   id: string;
@@ -34,20 +35,37 @@ const ReportInconsistencies: React.FC = () => {
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured) return;
+    const cid = user.companyId!;
     setLoadingData(true);
+    const cacheKey = adminReportCacheKey(cid, 'inconsistencies');
     (async () => {
-      const [incRows, userRows] = await Promise.all([
-        db.select('time_inconsistencies', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'date', ascending: false }, 500) as Promise<any[]>,
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-      ]);
-      const empMap = new Map<string, string>();
-      (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
-      setEmployees(empMap);
-      setRows((incRows ?? []).map((r: any) => ({
-        ...r,
-        employee_name: empMap.get(r.employee_id) || r.employee_id?.slice(0, 8) || '—',
-      })));
-      setLoadingData(false);
+      try {
+        const mapped = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const [incRows, userRows] = await Promise.all([
+              db.select('time_inconsistencies', [{ column: 'company_id', operator: 'eq', value: cid }], { column: 'date', ascending: false }, 500) as Promise<any[]>,
+              queryCache.getOrFetch(
+                `users:${cid}`,
+                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+                TTL.NORMAL,
+              ),
+            ]);
+            const empMap = new Map<string, string>();
+            (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
+            const rowsWithNames = (incRows ?? []).map((r: any) => ({
+              ...r,
+              employee_name: empMap.get(r.employee_id) || r.employee_id?.slice(0, 8) || '—',
+            }));
+            return { empMap, rowsWithNames };
+          },
+          TTL.NORMAL,
+        );
+        setEmployees(mapped.empMap);
+        setRows(mapped.rowsWithNames);
+      } finally {
+        setLoadingData(false);
+      }
     })();
   }, [user?.companyId]);
 

@@ -59,26 +59,35 @@ const AdminBankHours: React.FC = () => {
     const load = async () => {
       setLoadingData(true);
       try {
-        const filters: { column: string; operator: string; value: any }[] = [
-          { column: 'company_id', operator: 'eq', value: user.companyId },
-        ];
-        if (filterUserId) filters.push({ column: 'employee_id', operator: 'eq', value: filterUserId });
-        const userIds = filterUserId ? [filterUserId] : (employees.map((e) => e.id));
-        const bankRows = await db.select('bank_hours', filters, { column: 'date', ascending: false }, 500) as any[];
+        const cid = user.companyId;
+        // Chave alinhada a invalidateAfterTimesheetMonthClose (prefixo admin_bank_hours:${companyId})
+        const cacheKey = `admin_bank_hours:${cid}:${filterUserId || 'all'}:${monthFilter}:e${employees.length}`;
 
-        // Busca time_balance em uma única query filtrando pelo mês
-        // Nota: time_balance não tem company_id, usa user_id com operador 'in'
-        let balanceRows: any[] = [];
-        if (userIds.length > 0) {
-          const balanceFilters: { column: string; operator: string; value: any }[] = [
-            { column: 'month', operator: 'eq', value: monthFilter },
-            { column: 'user_id', operator: 'in', value: userIds },
-          ];
-          const allBalance = await db.select('time_balance', balanceFilters, undefined, 200) as any[];
-          balanceRows = allBalance ?? [];
-        }
+        const { bankRows, balanceRows } = await queryCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const filters: { column: string; operator: string; value: any }[] = [
+              { column: 'company_id', operator: 'eq', value: cid },
+            ];
+            if (filterUserId) filters.push({ column: 'employee_id', operator: 'eq', value: filterUserId });
+            const userIds = filterUserId ? [filterUserId] : employees.map((e) => e.id);
+            const bank = (await db.select('bank_hours', filters, { column: 'date', ascending: false }, 500)) as any[];
+
+            let balances: any[] = [];
+            if (userIds.length > 0) {
+              const balanceFilters: { column: string; operator: string; value: any }[] = [
+                { column: 'month', operator: 'eq', value: monthFilter },
+                { column: 'user_id', operator: 'in', value: userIds },
+              ];
+              balances = ((await db.select('time_balance', balanceFilters, undefined, 200)) as any[]) ?? [];
+            }
+            return { bankRows: bank ?? [], balanceRows: balances };
+          },
+          TTL.NORMAL,
+        );
+
         setRows(bankRows ?? []);
-        setTimeBalanceRows(balanceRows);
+        setTimeBalanceRows(balanceRows ?? []);
       } catch (e) {
         console.error(e);
       } finally {

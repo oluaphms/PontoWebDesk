@@ -76,3 +76,58 @@ export const queryCache = {
 };
 
 const inflightMap = new Map<string, Promise<unknown>>();
+
+/**
+ * Chave estável para cache de relatórios admin (prefixo invalidado com `admin_report:${companyId}`).
+ * Ex.: `adminReportCacheKey('co1', 'work_hours', '2026-04')` → `admin_report:co1:work_hours:2026-04`
+ */
+export function adminReportCacheKey(companyId: string, reportSlug: string, ...parts: string[]): string {
+  return ['admin_report', companyId, reportSlug, ...parts].join(':');
+}
+
+/** Listas e KPIs admin (Dashboard, BankHours) — `users:`, `time_records:week:` e relatórios `admin_report:`. */
+export function invalidateCompanyListCaches(companyId: string): void {
+  if (!companyId) return;
+  queryCache.invalidate(`users:${companyId}`);
+  queryCache.invalidate(`time_records:week:${companyId}`);
+  queryCache.invalidate(`admin_report:${companyId}`);
+}
+
+/**
+ * Após batida de ponto: admin dashboard + dashboard do colaborador (registros recentes / banco de horas).
+ */
+export function invalidateAfterPunch(userId: string, companyId: string | undefined): void {
+  if (!userId) return;
+  if (companyId) {
+    invalidateCompanyListCaches(companyId);
+  }
+  queryCache.invalidate(`time_records:user:${userId}`);
+  queryCache.invalidate(`time_balance:${userId}`);
+}
+
+/**
+ * Após fechar folha no Espelho de Ponto: atualiza saldos mensais, movimentos de banco de horas e KPIs admin.
+ * Invalida caches com prefixo `admin_bank_hours:${companyId}` (Bank Hours) e todos os `time_balance:` (dashboard colaborador).
+ */
+export function invalidateAfterTimesheetMonthClose(companyId: string): void {
+  if (!companyId) return;
+  invalidateCompanyListCaches(companyId);
+  queryCache.invalidate(`admin_bank_hours:${companyId}`);
+  queryCache.invalidate('time_balance:');
+}
+
+/** Dashboard colaborador usa `requests:pending:${userId}` (ver pages/Dashboard.tsx). */
+export function invalidatePendingRequestsCache(userId: string): void {
+  if (!userId) return;
+  queryCache.invalidate(`requests:pending:${userId}`);
+}
+
+/** Após criar/aprovar/excluir solicitação — invalida cache de todos os envolvidos (sem duplicar). */
+export function invalidatePendingRequestsCachesForUsers(userIds: string[]): void {
+  const seen = new Set<string>();
+  for (const id of userIds) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    invalidatePendingRequestsCache(id);
+  }
+}
