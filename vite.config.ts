@@ -139,10 +139,13 @@ export default defineConfig(({ mode }) => {
         'scheduler',
         'cookie',
         'set-cookie-parser',
+        // lucide-react: incluir no pre-bundle para o dev não servir cada ícone como /icons/fingerprint-*.js
+        // (alguns antivírus bloqueiam URLs com "fingerprint" → 499 / falha ao carregar o módulo).
+        'lucide-react',
       ],
       // recharts precisa passar pelo pre-bundle para que deps CJS (ex.: eventemitter3) tenham interop ESM correto
       // react-router-dom incluído no pre-bundle para alinhar React com o restante do app (evita useState null)
-      exclude: ['lucide-react', 'framer-motion'],
+      exclude: ['framer-motion'],
       esbuildOptions: {
         mainFields: ['module', 'main'],
       },

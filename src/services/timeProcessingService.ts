@@ -72,10 +72,11 @@ function parseTimeToMinutes(t: string): number {
 
 /** Normaliza tipo do banco (saída/entrada/pausa) para comparação */
 function normalizeType(type: string): PunchType {
-  const lower = (type || '').toLowerCase();
+  const lower = (type || '').toLowerCase().replace(/\s/g, '_');
   if (lower === 'saída' || lower === 'saida') return 'saída';
   if (lower === 'entrada') return 'entrada';
-  if (lower === 'pausa') return 'pausa';
+  if (lower === 'pausa' || lower === 'inicio_intervalo') return 'pausa';
+  if (lower === 'fim_intervalo') return 'entrada';
   return lower as PunchType;
 }
 
@@ -405,7 +406,9 @@ export function validatePunchSequence(records: RawTimeRecord[], newType: string)
     return { valid: true };
   }
   const sorted = [...records].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (a, b) =>
+      new Date(a.timestamp || a.created_at || 0).getTime() -
+      new Date(b.timestamp || b.created_at || 0).getTime()
   );
   const last = normalizeType(sorted[sorted.length - 1].type);
   if (last === type) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, MapPin, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { TIPOS_BATIDA, mapPunchTypeToDb } from '../constants/punchTypes';
 
 interface AddTimeRecordModalProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
     user_id: userId || '',
     date: date || new Date().toISOString().slice(0, 10),
     time: '09:00',
-    type: 'entrada',
+    type: 'ENTRADA' as string,
     manual_reason: '',
     justificativa_id: '',
   });
@@ -112,7 +113,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
       await onSubmit({
         user_id: form.user_id,
         created_at,
-        type: form.type,
+        type: mapPunchTypeToDb(form.type),
         manual_reason: reason,
         latitude: location.lat,
         longitude: location.lng,
@@ -121,7 +122,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
         user_id: userId || '',
         date: date || new Date().toISOString().slice(0, 10),
         time: '09:00',
-        type: 'entrada',
+        type: 'ENTRADA',
         manual_reason: '',
         justificativa_id: '',
       });
@@ -135,14 +136,24 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm"
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
+    >
       <div
-        className="flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-md max-h-[90vh]"
+        className="flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-[95vw] sm:max-w-md max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
           <h3 className="text-base font-bold text-slate-900 dark:text-white">Adicionar Batida de Ponto</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button
+            type="button"
+            onClick={() => !submitting && onClose()}
+            disabled={submitting}
+            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -204,9 +215,11 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
               >
-                <option value="entrada">Entrada</option>
-                <option value="saida">Saída</option>
-                <option value="pausa">Pausa (Intervalo)</option>
+                {TIPOS_BATIDA.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -326,7 +339,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
               variant="outline"
               size="sm"
               className="flex-1"
-              onClick={onClose}
+              onClick={() => !submitting && onClose()}
               disabled={submitting}
             >
               Cancelar

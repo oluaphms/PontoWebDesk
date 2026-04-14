@@ -32,7 +32,10 @@ const EmployeeSettings: React.FC = () => {
     if (!user) return;
     setLanguage(user.preferences?.language ?? 'pt-BR');
     setNotifications(user.preferences?.notifications ?? true);
-    const savedTheme = (user.preferences?.theme as Theme) ?? (typeof window !== 'undefined' ? (localStorage.getItem('smartponto_theme') as Theme) : null) ?? 'auto';
+    const savedTheme =
+      (user.preferences?.theme as Theme) ??
+      (typeof window !== 'undefined' ? ThemeService.readStoredTheme() : null) ??
+      'auto';
     setTheme(savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'auto' ? savedTheme : 'auto');
   }, [user]);
 
@@ -81,7 +84,6 @@ const EmployeeSettings: React.FC = () => {
         // user_settings pode não existir em todos os ambientes
       }
       ThemeService.applyTheme(theme);
-      if (typeof localStorage !== 'undefined') localStorage.setItem('smartponto_theme', theme);
       const lang = language === 'en-US' || language === 'pt-BR' ? language : 'pt-BR';
       setAppLanguage(lang);
       setMessage({ type: 'success', text: i18n.t('empSettings.prefsSaved') });

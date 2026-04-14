@@ -38,6 +38,7 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useToast } from '../../components/ToastProvider';
 import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
+import { queryClient } from '../../lib/queryClient';
 
 const LocationMap = React.lazy(() => import('../../../components/LocationMap'));
 import {
@@ -71,13 +72,13 @@ function waitForVideoReady(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-/** Normaliza tipo vindo do banco para comparação com a UI */
+/** Normaliza tipo vindo do banco para comparação com a UI (entrada | saída | pausa) */
 function normalizeLastType(raw: string | undefined | null): string | null {
   if (!raw) return null;
-  const lower = String(raw).toLowerCase();
+  const lower = String(raw).toLowerCase().replace(/\s/g, '_');
   if (lower === 'saída' || lower === 'saida') return 'saída';
-  if (lower === 'entrada') return 'entrada';
-  if (lower === 'pausa') return 'pausa';
+  if (lower === 'entrada' || lower === 'fim_intervalo') return 'entrada';
+  if (lower === 'pausa' || lower === 'inicio_intervalo') return 'pausa';
   return lower;
 }
 
@@ -496,6 +497,7 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       await loadTodayState();
+      await queryClient.invalidateQueries({ queryKey: ['records'] });
       const label =
         typeStr === 'entrada'
           ? 'Entrada'
@@ -808,7 +810,7 @@ const EmployeeClockIn: React.FC = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="proof-modal-title"
-            className={`relative z-[101] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-xl p-5 md:p-6 space-y-5 ${
+            className={`relative z-[101] w-full max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-xl p-5 md:p-6 space-y-5 ${
               verificationMode === 'digital'
                 ? 'border-2 border-indigo-400/90 dark:border-indigo-500 ring-2 ring-indigo-200/60 dark:ring-indigo-900/80'
                 : verificationMode === 'photo'

@@ -232,18 +232,12 @@ const AppMain: React.FC = () => {
   const [isResettingSession, setIsResettingSession] = useState(false);
   const [accountSwitchLogoutBusy, setAccountSwitchLogoutBusy] = useState(false);
 
-  // Theme State (para tela de login)
+  // Theme State (para tela de login) — alinhado a ThemeService (chave `theme` + legado)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('smartponto_theme');
-      // Se for 'auto' ou não existir, converte para o tema do sistema
-      if (saved === 'auto' || !saved || (saved !== 'light' && saved !== 'dark')) {
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        return systemTheme;
-      }
-      return saved as 'light' | 'dark';
-    }
-    return 'dark';
+    if (typeof window === 'undefined') return 'dark';
+    const saved = ThemeService.readStoredTheme();
+    if (saved === 'light' || saved === 'dark') return saved;
+    return ThemeService.getSystemTheme();
   });
 
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
@@ -470,19 +464,9 @@ const AppMain: React.FC = () => {
     return () => stopReminderCheck();
   }, [user?.id, user?.preferences?.notifications]);
 
-  // Theme effect (aplicar tema quando mudar)
   useEffect(() => {
     try {
-      // Aplicar tema diretamente (sem modo auto)
-      if (typeof window !== 'undefined') {
-        const root = document.documentElement;
-        if (theme === 'dark') {
-          root.classList.add('dark');
-        } else {
-          root.classList.remove('dark');
-        }
-        localStorage.setItem('smartponto_theme', theme);
-      }
+      ThemeService.applyTheme(theme);
     } catch (error) {
       console.error('Erro ao aplicar tema:', error);
     }

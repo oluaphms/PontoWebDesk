@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { queryClient } from '../../lib/queryClient';
 import { Navigate } from 'react-router-dom';
 import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
@@ -152,6 +153,7 @@ const AdminTimesheet: React.FC = () => {
 
   // Ref para controlar carregamento
   const mountedRef = useRef(true);
+  const addRecordInFlightRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -205,7 +207,7 @@ const AdminTimesheet: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.companyId, periodStart]);
+  }, [user?.companyId, periodStart, periodEnd]);
 
   const filteredRecords = useMemo(() => {
     let list = records;
@@ -602,10 +604,26 @@ const AdminTimesheet: React.FC = () => {
     }
   };
 
+  const refetchTimesheetRecords = useCallback(async () => {
+    if (!user?.companyId) return;
+    const recordsRows = (await db.select(
+      'time_records',
+      [
+        { column: 'company_id', operator: 'eq', value: user.companyId },
+        { column: 'created_at', operator: 'gte', value: periodStart },
+      ],
+      { column: 'created_at', ascending: false },
+      1000
+    )) ?? [];
+    setRecords(recordsRows);
+    await queryClient.invalidateQueries({ queryKey: ['records'] });
+  }, [user?.companyId, periodStart]);
+
   const handleAddTimeRecord = async (data: { user_id: string; created_at: string; type: string; manual_reason?: string; latitude?: number; longitude?: number }) => {
     if (!user || !supabase) return;
+    if (addRecordInFlightRef.current) return;
+    addRecordInFlightRef.current = true;
     try {
-      // Chamar RPC insert_time_record_for_user com bypass de RLS
       const { data: result, error } = await supabase.rpc('insert_time_record_for_user', {
         p_user_id: data.user_id,
         p_company_id: user.companyId,
@@ -625,7 +643,6 @@ const AdminTimesheet: React.FC = () => {
 
       const recordId = result?.record_id;
 
-      // Registrar auditoria
       await LoggingService.log({
         severity: LogSeverity.SECURITY,
         action: 'ADMIN_ADD_TIME_RECORD',
@@ -640,22 +657,14 @@ const AdminTimesheet: React.FC = () => {
         },
       });
 
-      // Recarregar dados com filtro de data
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const dateFilter = thirtyDaysAgo.toISOString().slice(0, 10);
-
-      const recordsRows = (await db.select('time_records', [
-        { column: 'company_id', operator: 'eq', value: user.companyId },
-        { column: 'created_at', operator: 'gte', value: dateFilter }
-      ], { column: 'created_at', ascending: false }, 500)) ?? [];
-      
-      setRecords(recordsRows);
+      await refetchTimesheetRecords();
 
       toast.addToast('success', 'Batida adicionada com sucesso.');
     } catch (err: any) {
       console.error('Error adding time record:', err);
       toast.addToast('error', err?.message || 'Erro ao adicionar batida.');
+    } finally {
+      addRecordInFlightRef.current = false;
     }
   };
 
@@ -684,11 +693,7 @@ const AdminTimesheet: React.FC = () => {
         details: { timeRecordId: id, ...data },
       });
 
-      const recordsRows = (await db.select('time_records', [
-        { column: 'company_id', operator: 'eq', value: user.companyId },
-        { column: 'created_at', operator: 'gte', value: periodStart }
-      ], { column: 'created_at', ascending: false }, 2000)) ?? [];
-      setRecords(recordsRows);
+      await refetchTimesheetRecords();
 
       toast.addToast('success', 'Batida atualizada com sucesso.');
     } catch (err: any) {
@@ -716,11 +721,7 @@ const AdminTimesheet: React.FC = () => {
         details: { timeRecordId: id },
       });
 
-      const recordsRows = (await db.select('time_records', [
-        { column: 'company_id', operator: 'eq', value: user.companyId },
-        { column: 'created_at', operator: 'gte', value: periodStart }
-      ], { column: 'created_at', ascending: false }, 2000)) ?? [];
-      setRecords(recordsRows);
+      await refetchTimesheetRecords();
 
       toast.addToast('success', 'Batida excluída com sucesso.');
     } catch (err: any) {
