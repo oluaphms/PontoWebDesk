@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { getAdapter } from '../adapters/factory';
 import type { DeviceConfig, NormalizedRecord } from '../adapters/types';
 import type { SupabaseRestConfig } from './supabaseRest';
+import { promoteClockEventsToEspelho, type PromoteEspelhoResult } from './clockEventPromote.service';
 import { restGet, restPatch, restPostBulk } from './supabaseRest';
 import { SyncLogger } from './syncLogger';
 
@@ -33,6 +34,8 @@ export interface SyncCycleOptions {
   syncLogsTable?: string;
   /** Quando true, não grava linhas em clock_sync_logs (apenas console). */
   skipPersistenceLogs?: boolean;
+  /** Quando true, não chama rep_ingest_punch após o sync (env CLOCK_SYNC_SKIP_ESPELHO=1). */
+  skipEspelhoPromote?: boolean;
   logger?: SyncLogger;
 }
 
@@ -42,6 +45,8 @@ export interface DeviceSyncResult {
   imported: number;
   skippedDuplicates: number;
   error?: string;
+  /** Promoção clock_event_logs → time_records (rep_ingest_punch). */
+  espelho?: PromoteEspelhoResult;
 }
 
 export interface SyncCycleResult {
@@ -136,8 +141,12 @@ export async function runSyncCycle(options: SyncCycleOptions): Promise<SyncCycle
     else logger.warn(`Dispositivo ignorado (dados incompletos ou marca inválida): ${row.id}`, row.id ?? undefined);
   }
 
+  const skipEspelho =
+    options.skipEspelhoPromote === true || (process.env.CLOCK_SYNC_SKIP_ESPELHO || '').trim() === '1';
   const results = await Promise.allSettled(
-    configs.map(({ row, config }) => syncOneDevice(cfg, row, config, timeLogsTable, syncLogsTable, skipLogTable, logger))
+    configs.map(({ row, config }) =>
+      syncOneDevice(cfg, row, config, timeLogsTable, syncLogsTable, skipLogTable, logger, skipEspelho)
+    )
   );
 
   const devices: DeviceSyncResult[] = results.map((r, i) => {
@@ -160,7 +169,8 @@ async function syncOneDevice(
   timeLogsTable: string,
   syncLogsTable: string,
   skipLogTable: boolean,
-  logger: SyncLogger
+  logger: SyncLogger,
+  skipEspelhoPromote: boolean
 ): Promise<DeviceSyncResult> {
   const deviceId = row.id;
   const lastSync = row.last_sync ?? undefined;
@@ -185,6 +195,27 @@ async function syncOneDevice(
     }
 
     await restPostBulk(cfg, timeLogsTable, rows);
+
+    let espelho: PromoteEspelhoResult | undefined;
+    if (!skipEspelhoPromote && row.company_id) {
+      try {
+        espelho = await promoteClockEventsToEspelho(cfg, {
+          timeLogsTable,
+          companyId: row.company_id,
+          deviceId,
+          batchSize: 200,
+          maxBatches: 150,
+        });
+        logger.sync(
+          `Espelho (time_records): processados=${espelho.processed} criados=${espelho.timeRecords} sem_user=${espelho.userNotFound} dup=${espelho.duplicate} err=${espelho.errors}`,
+          deviceId,
+          espelho
+        );
+      } catch (pe: unknown) {
+        const m = pe instanceof Error ? pe.message : String(pe);
+        logger.warn(`Promoção espelho ignorada ou falhou (aplique a migração clock_event_logs_espelho?): ${m}`, deviceId);
+      }
+    }
 
     let nextLastSync: string | undefined = row.last_sync ?? undefined;
     if (insertedRecords.length > 0) {
@@ -220,6 +251,7 @@ async function syncOneDevice(
       ok: true,
       imported: rows.length,
       skippedDuplicates,
+      espelho,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -53,6 +53,37 @@ export async function restPatch(cfg: SupabaseRestConfig, path: string, body: unk
   });
 }
 
+/** Invoca RPC PostgREST (ex.: rep_ingest_punch). */
+export async function restRpc<T = unknown>(
+  cfg: SupabaseRestConfig,
+  rpcName: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const base = cfg.url.replace(/\/$/, '');
+  const path = `rpc/${rpcName}`;
+  const res = await withRetry(async () => {
+    const r = await fetch(`${base}/rest/v1/${path}`, {
+      method: 'POST',
+      headers: headers(cfg, { Prefer: 'return=representation' }),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      const err = new Error(`RPC ${rpcName}: HTTP ${r.status} ${t.slice(0, 500)}`);
+      (err as Error & { status?: number }).status = r.status;
+      throw err;
+    }
+    return r;
+  });
+  const text = await res.text();
+  if (!text.trim()) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
+}
+
 export async function restPostBulk(
   cfg: SupabaseRestConfig,
   table: string,
