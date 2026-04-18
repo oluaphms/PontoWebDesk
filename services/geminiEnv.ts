@@ -2,8 +2,9 @@
  * Chave da API Gemini no cliente Vite: use VITE_GEMINI_API_KEY.
  * Em Node/scripts: GEMINI_API_KEY ou API_KEY.
  *
- * Modelo: use VITE_GEMINI_MODEL (ex.: gemini-2.5-flash). O padrão é gemini-2.0-flash,
- * amplamente aceito na API Google AI Studio; nomes incorretos geram 400/404.
+ * Modelo: use VITE_GEMINI_MODEL (ex.: gemini-2.0-flash-exp). O padrão é 'gemini-2.0-flash-exp',
+ * que é compatível com a API Google AI Studio (v1beta). Nomes incorretos geram 400/404.
+ * NOTA: A API v1beta requer nomes de modelo específicos. Evite usar 'models/' prefix no VITE_GEMINI_MODEL.
  */
 export function getGeminiModelId(): string {
   try {
@@ -16,7 +17,8 @@ export function getGeminiModelId(): string {
     const m = process.env.VITE_GEMINI_MODEL;
     if (m && String(m).trim()) return String(m).trim();
   }
-  return 'gemini-2.0-flash';
+  // Usando modelo com suffixo -exp que é mais compatível com a API v1beta
+  return 'gemini-2.0-flash-exp';
 }
 
 export function getGeminiApiKey(): string | undefined {

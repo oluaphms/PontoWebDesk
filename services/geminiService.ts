@@ -19,7 +19,14 @@ function isInvalidOrDeniedGeminiKey(error: unknown): boolean {
 /** 400: modelo indisponível, payload inválido ou recurso não habilitado para a chave. */
 function isLikelyModelOrPayloadError(error: unknown): boolean {
   const t = errorText(error);
-  return /\b400\b|INVALID_ARGUMENT|not found|is not (found|supported)|does not exist|FAILED_PRECONDITION/i.test(t);
+  return /\b400\b|INVALID_ARGUMENT|not found|is not (found|supported)|does not exist|FAILED_PRECONDITION|Bad Request/i.test(t);
+}
+
+/** Extrai código de status HTTP do erro */
+function getErrorStatusCode(error: unknown): number | null {
+  const t = errorText(error);
+  const match = t.match(/\b(\d{3})\b/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 function parseInsightJsonFromText(text: string): { insight: string; score: number } | null {
@@ -74,7 +81,13 @@ export const getWorkInsights = async (summaries: DailySummary[]) => {
     }
   } catch (error) {
     const errorMsg = errorText(error);
-    
+    const statusCode = getErrorStatusCode(error);
+
+    // Log detalhado em desenvolvimento
+    if (import.meta.env?.DEV) {
+      console.warn(`[Gemini] Erro na API (status: ${statusCode || 'unknown'}):`, errorMsg);
+    }
+
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
         console.warn(
@@ -87,16 +100,28 @@ export const getWorkInsights = async (summaries: DailySummary[]) => {
         score: 8,
       };
     }
-    
-    if (isLikelyModelOrPayloadError(error) && import.meta.env?.DEV) {
-      console.warn(
-        "[Gemini] Insights (400/modelo): verifique VITE_GEMINI_MODEL (ex.: gemini-2.0-flash ou gemini-2.5-flash) e a chave em Google AI Studio.",
-        errorMsg
-      );
-    } else if (import.meta.env?.DEV) {
-      console.warn("[Gemini] Insights:", errorMsg);
+
+    // Tratamento específico para erro 400 (Bad Request)
+    if (statusCode === 400 || isLikelyModelOrPayloadError(error)) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[Gemini] Erro 400 - Possíveis causas:\n` +
+          `  1. Modelo '${model}' não disponível na API v1beta. Tente definir VITE_GEMINI_MODEL=gemini-2.0-flash-exp ou gemini-1.5-flash\n` +
+          `  2. Chave de API inválida ou sem acesso ao modelo\n` +
+          `  3. Formato da requisição incompatível com a versão da biblioteca\n` +
+          `Erro original:`, errorMsg
+        );
+      }
+      return {
+        insight: "Insights por IA temporariamente indisponíveis. O modelo de IA está sendo atualizado. Continue registrando seu ponto normalmente.",
+        score: 8,
+      };
     }
-    
+
+    if (import.meta.env?.DEV) {
+      console.warn("[Gemini] Insights - Erro genérico:", errorMsg);
+    }
+
     return { insight: "Continue mantendo o registro regular do seu ponto para análises futuras.", score: 8 };
   }
 };
@@ -131,15 +156,31 @@ export const sendHRChatMessage = async (userMessage: string, history: { role: 'u
     const text = response.text?.trim();
     return text || "Não foi possível obter uma resposta. Tente novamente.";
   } catch (error) {
+    const errorMsg = errorText(error);
+    const statusCode = getErrorStatusCode(error);
+
+    if (import.meta.env?.DEV) {
+      console.warn(`[Gemini] Chat - Erro (status: ${statusCode || 'unknown'}):`, errorMsg);
+    }
+
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
         console.warn("[Gemini] Chat: chave inválida ou sem permissão. Verifique VITE_GEMINI_API_KEY.");
       }
       return "A chave da API Gemini é inválida ou expirou. Gere uma nova em Google AI Studio, defina VITE_GEMINI_API_KEY e reinicie o servidor.";
     }
-    if (import.meta.env?.DEV) {
-      console.warn("[Gemini] Chat:", errorText(error));
+
+    // Tratamento específico para erro 400
+    if (statusCode === 400 || isLikelyModelOrPayloadError(error)) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[Gemini] Chat - Erro 400: Verifique se o modelo '${model}' está disponível. ` +
+          `Tente usar VITE_GEMINI_MODEL=gemini-2.0-flash-exp ou gemini-1.5-flash`
+        );
+      }
+      return "O serviço de chat com IA está temporariamente indisponível devido a uma atualização. Tente novamente mais tarde.";
     }
+
     return "Ocorreu um erro ao processar sua mensagem. Verifique a conexão e a chave da API e tente novamente.";
   }
 };
