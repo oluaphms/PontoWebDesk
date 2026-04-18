@@ -149,7 +149,7 @@ const AcceptInvitePage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-8">
         <header className="text-center mb-8">
-          <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500">ChronoDigital</p>
+          <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500">PontoWebDesk</p>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white mt-2">Concluir cadastro</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Você foi convidado como <strong className="text-slate-900 dark:text-white">{roleLabel}</strong></p>
         </header>

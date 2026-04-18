@@ -2,7 +2,7 @@
 
 ## Problema Identificado
 
-O ChronoDigital estava importando todas as batidas do relógio de ponto como `'entrada'`, sem distribuir corretamente entre:
+O PontoWebDesk estava importando todas as batidas do relógio de ponto como `'entrada'`, sem distribuir corretamente entre:
 - Entrada (início do expediente)
 - Saída (intervalo)
 - Entrada (retorno do intervalo)

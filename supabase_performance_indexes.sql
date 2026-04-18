@@ -1,5 +1,5 @@
 -- ============================================================
--- Índices de Performance — ChronoDigital
+-- Índices de Performance — PontoWebDesk
 -- Execute no Supabase: SQL Editor → New query → Run
 -- ============================================================
 

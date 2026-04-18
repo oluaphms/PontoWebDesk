@@ -209,7 +209,7 @@ const AdminCalculos: React.FC = () => {
       const pageW = doc.internal.pageSize.getWidth();
       doc.setFontSize(14);
       doc.setFont(undefined, 'bold');
-      doc.text('ChronoDigital — Cálculos (diário)', pageW / 2, 12, { align: 'center' });
+      doc.text('PontoWebDesk — Cálculos (diário)', pageW / 2, 12, { align: 'center' });
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
       const sub = [
@@ -284,7 +284,7 @@ const AdminCalculos: React.FC = () => {
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden print:border-0 print:shadow-none print:overflow-visible">
         {/* Só impressão / Salvar como PDF no navegador: contexto do relatório */}
         <div className="hidden print:block px-4 py-3 border-b border-slate-900 text-center">
-          <p className="text-base font-bold">ChronoDigital — Cálculos</p>
+          <p className="text-base font-bold">PontoWebDesk — Cálculos</p>
           <p className="text-sm mt-1">
             {nomeColaborador ? `Colaborador: ${nomeColaborador}` : 'Colaborador: —'}
             {' · '}

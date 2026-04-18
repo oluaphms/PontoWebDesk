@@ -1,4 +1,4 @@
-# Segurança - Arquitetura Híbrida ChronoDigital
+# Segurança - Arquitetura Híbrida PontoWebDesk
 
 ## Princípios Fundamentais
 
@@ -125,7 +125,7 @@ Relógio físico → Agente Local → /api/punch → Validação → Supabase
 Requisições do agente incluem:
 ```
 Authorization: Bearer <CLOCK_AGENT_API_KEY>
-User-Agent: ChronoDigital-Agent/1.0
+User-Agent: PontoWebDesk-Agent/1.0
 X-Agent-Version: 1.0
 Content-Type: application/json
 ```

@@ -70,7 +70,7 @@ https://app.supabase.com
 ```
 
 ### Passo 2: Selecionar o Projeto
-- Clicar no projeto ChronoDigital
+- Clicar no projeto PontoWebDesk
 
 ### Passo 3: Ir para SQL Editor
 - Menu lateral → SQL Editor

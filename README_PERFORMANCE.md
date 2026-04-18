@@ -1,13 +1,13 @@
-# ⚡ OTIMIZAÇÃO DE PERFORMANCE - CHRONODIGITAL
+# ⚡ OTIMIZAÇÃO DE PERFORMANCE - PONTOWEBDESK
 
-> **Diagnóstico e otimização completa do sistema ChronoDigital**  
+> **Diagnóstico e otimização completa do sistema PontoWebDesk**  
 > Redução de 75% no tempo de carregamento (5-8s → 1-2s)
 
 ---
 
 ## 🎯 OBJETIVO
 
-Identificar e corrigir problemas de lentidão, instabilidade e falhas de carregamento no sistema ChronoDigital (Frontend + Backend + Banco de Dados).
+Identificar e corrigir problemas de lentidão, instabilidade e falhas de carregamento no sistema PontoWebDesk (Frontend + Backend + Banco de Dados).
 
 **Meta**: Tempo de carregamento < 2 segundos  
 **Status**: ✅ 50% Completo (Etapas 1-4 de 8)

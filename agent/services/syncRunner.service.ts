@@ -69,7 +69,7 @@ function createApiPunchSender(cfg: AgentConfig): ApiPunchSender | undefined {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${cfg.apiKey}`,
-          'User-Agent': 'ChronoDigital-Agent/1.0',
+          'User-Agent': 'PontoWebDesk-Agent/1.0',
           'X-Agent-Version': '1.0',
         },
         body: JSON.stringify({

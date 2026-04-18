@@ -2048,7 +2048,7 @@ const AdminEmployees: React.FC = () => {
               {importStep === 'upload' && (
                 <>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Envie uma planilha em qualquer formato. O ChronoDigital detecta as colunas e importa automaticamente usando o modelo padrão.
+                    Envie uma planilha em qualquer formato. O PontoWebDesk detecta as colunas e importa automaticamente usando o modelo padrão.
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Aceitos: CSV, TXT, Excel (XLSX/XLS), PDF, Word (DOC/DOCX). Cabeçalhos mínimos: nome, e-mail, cargo, etc. Colunas opcionais: tipo_vinculo, admissao, contrato_fim, data_nascimento, rg, rg_orgao, cidade (texto) e estado_civil (Solteiro(a), Casado(a), União estável ou variações reconhecidas na importação). Datas: AAAA-MM-DD ou DD/MM/AAAA.

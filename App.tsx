@@ -297,7 +297,7 @@ const AppMain: React.FC = () => {
         if (!isOfflineDevMode) {
           testSupabaseConnection(connectionTimeoutMs).then((result) => {
             if (result.ok && import.meta.env?.DEV) {
-              console.log('[ChronoDigital] Conexão Supabase OK');
+              console.log('[PontoWebDesk] Conexão Supabase OK');
             }
             // Não loga falha aqui para não poluir o console; login mostrará erro se precisar.
           });

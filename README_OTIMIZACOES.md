@@ -1,4 +1,4 @@
-# 🚀 OTIMIZAÇÕES DE PERFORMANCE - CHRONODIGITAL
+# 🚀 OTIMIZAÇÕES DE PERFORMANCE - PONTOWEBDESK
 
 **Status**: ✅ Concluído | **Impacto**: 85% redução | **Data**: 12 de Abril de 2026
 

@@ -8,7 +8,7 @@
 
 ## 🎯 OBJETIVO
 
-Reduzir tempo de carregamento do ChronoDigital em 75% através de otimizações de performance.
+Reduzir tempo de carregamento do PontoWebDesk em 75% através de otimizações de performance.
 
 **Resultado**: ✅ ALCANÇADO
 

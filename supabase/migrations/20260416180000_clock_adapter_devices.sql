@@ -1,4 +1,4 @@
--- ChronoDigital — dispositivos multi-marca + eventos normalizados + logs do agente
+-- PontoWebDesk — dispositivos multi-marca + eventos normalizados + logs do agente
 -- REST típico: /rest/v1/devices, /rest/v1/clock_event_logs, /rest/v1/clock_sync_logs
 -- (A tabela clock_event_logs evita colidir com possíveis esquemas legados de time_logs no app.)
 

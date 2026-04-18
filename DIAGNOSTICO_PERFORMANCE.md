@@ -1,4 +1,4 @@
-# 🔍 DIAGNÓSTICO DE PERFORMANCE - CHRONODIGITAL
+# 🔍 DIAGNÓSTICO DE PERFORMANCE - PONTOWEBDESK
 
 **Data**: 12 de Abril de 2026  
 **Status**: ⚠️ CRÍTICO - Múltiplos gargalos identificados  

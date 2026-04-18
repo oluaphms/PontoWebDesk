@@ -90,7 +90,7 @@ const EmployeeHolerite: React.FC = () => {
     try {
       const doc = new jsPDF({ orientation: 'landscape' });
       doc.setFontSize(16);
-      doc.text('ChronoDigital — Contracheque (resumo)', 14, 14);
+      doc.text('PontoWebDesk — Contracheque (resumo)', 14, 14);
       doc.setFontSize(10);
       doc.text(`Colaborador: ${user?.nome || user?.email || '—'}`, 14, 22);
       doc.text(`Períodos fechados: ${rows.length}`, 14, 28);

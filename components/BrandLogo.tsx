@@ -31,7 +31,7 @@ const SIZE_CONFIG: Record<
 };
 
 /**
- * Logotipo ChronoDigital a partir dos arquivos em `/public`
+ * Logotipo PontoWebDesk a partir dos arquivos em `/public`
  * (favicon.svg, 1024.png).
  */
 function imgDimensions(size: BrandLogoSize): { w: number; h: number } {
@@ -42,7 +42,7 @@ function imgDimensions(size: BrandLogoSize): { w: number; h: number } {
   return { w: 176, h: 176 };
 }
 
-export function BrandLogo({ size = 'sm', className = '', alt = 'ChronoDigital' }: BrandLogoProps) {
+export function BrandLogo({ size = 'sm', className = '', alt = 'PontoWebDesk' }: BrandLogoProps) {
   const cfg = SIZE_CONFIG[size];
   const eager = size === 'hero' || size === 'lg';
   const { w, h } = imgDimensions(size);

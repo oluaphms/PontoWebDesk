@@ -1,5 +1,5 @@
 /**
- * Ponto de entrada do agente local ChronoDigital: fila offline + sync periódico → Supabase.
+ * Ponto de entrada do agente local PontoWebDesk: fila offline + sync periódico → Supabase.
  *
  * Variáveis: `.env` / `.env.local` na raiz do projeto (ver `agent/config`).
  * Uso: npm run clock-sync-agent

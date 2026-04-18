@@ -1,4 +1,4 @@
-# Arquitetura Híbrida ChronoDigital - Visão Geral
+# Arquitetura Híbrida PontoWebDesk - Visão Geral
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -26,7 +26,7 @@
 │  ─────────────────────────────────────────────────                                      │
 │                                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐  │
-│  │                    AGENTE CHRONODIGITAL (npm run clock-sync-agent)              │  │
+│  │                    AGENTE PONTOWEBDESK (npm run clock-sync-agent)              │  │
 │  │                                                                                  │  │
 │  │  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐      │  │
 │  │  │   Adapter    │   │   Adapter    │   │   Adapter    │   │    API       │      │  │

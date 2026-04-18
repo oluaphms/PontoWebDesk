@@ -1,5 +1,5 @@
 // ============================================================
-// Tipos para Relatórios Padronizados do ChronoDigital
+// Tipos para Relatórios Padronizados do PontoWebDesk
 // ============================================================
 
 // ============================================================

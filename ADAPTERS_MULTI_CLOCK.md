@@ -1,4 +1,4 @@
-# Adapters Multi-Relógio — ChronoDigital Agent
+# Adapters Multi-Relógio — PontoWebDesk Agent
 
 ## Estrutura
 

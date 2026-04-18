@@ -1,4 +1,4 @@
-# Sistema de Logs - ChronoDigital Agent
+# Sistema de Logs - PontoWebDesk Agent
 
 ## Formato Padrão
 
@@ -172,12 +172,12 @@ npm run clock-sync-agent | npx logtail
 
 ### Datadog
 ```bash
-npm run clock-sync-agent 2>&1 | jq -c '{service:"chronodigital-agent", ...}' | npx datadog-ci
+npm run clock-sync-agent 2>&1 | jq -c '{service:"pontowebdesk-agent", ...}' | npx datadog-ci
 ```
 
 ### Arquivo
 ```bash
-npm run clock-sync-agent > /var/log/chronodigital/agent.log 2>&1
+npm run clock-sync-agent > /var/log/pontowebdesk/agent.log 2>&1
 ```
 
 ## Depuração

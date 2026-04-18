@@ -1,6 +1,6 @@
 # 🎯 PLANO DE EXECUÇÃO - OTIMIZAÇÃO DE PERFORMANCE
 
-**Projeto**: ChronoDigital  
+**Projeto**: PontoWebDesk  
 **Data**: 12 de Abril de 2026  
 **Objetivo**: Reduzir tempo de carregamento em 75% (5-8s → 1-2s)  
 **Prioridade**: 🔴 CRÍTICA

@@ -1,6 +1,6 @@
 # ⚡ RESUMO EXECUTIVO - OTIMIZAÇÕES DE PERFORMANCE
 
-**ChronoDigital Performance Optimization**  
+**PontoWebDesk Performance Optimization**  
 **Data**: 12 de Abril de 2026  
 **Status**: 🟢 Etapas 1-4 Completas | 🟡 Etapas 5-8 Planejadas
 

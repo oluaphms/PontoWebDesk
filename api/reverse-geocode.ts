@@ -70,7 +70,7 @@ async function resolveAddressFromCoordinates(lat: number, lng: number): Promise<
   const NOMINATIM_MS = 4500;
   const NOMINATIM_HEADERS = {
     Accept: 'application/json',
-    'User-Agent': `ChronoDigital/1.0 (reverse-geocode; ${CONTACT_HINT})`,
+    'User-Agent': `PontoWebDesk/1.0 (reverse-geocode; ${CONTACT_HINT})`,
   } as const;
 
   const tryOnce = async (): Promise<string> => {

@@ -65,7 +65,7 @@ export async function registerPlatformPasskey(
   const cred = (await navigator.credentials.create({
     publicKey: {
       challenge,
-      rp: { name: 'ChronoDigital', id: window.location.hostname },
+      rp: { name: 'PontoWebDesk', id: window.location.hostname },
       user: {
         id: uid,
         name: email || userId,

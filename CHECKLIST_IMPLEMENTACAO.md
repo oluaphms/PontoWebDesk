@@ -1,6 +1,6 @@
 # ✅ CHECKLIST DE IMPLEMENTAÇÃO - PERFORMANCE
 
-**ChronoDigital Performance Optimization**  
+**PontoWebDesk Performance Optimization**  
 **Data**: 12 de Abril de 2026  
 **Status**: 50% Completo (Etapas 1-4 de 8)
 

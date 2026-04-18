@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRAÇÃO COMPLETA: HORÁRIOS E ESCALAS (CHRONODIGITAL)
+-- MIGRAÇÃO COMPLETA: HORÁRIOS E ESCALAS (PONTOWEBDESK)
 -- Alinhamento com especificação técnica de jornada e escala
 -- ============================================================
 

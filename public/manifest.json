@@ -1,6 +1,6 @@
 {
-  "name": "ChronoDigital - Ponto Eletrônico",
-  "short_name": "ChronoDigital",
+  "name": "PontoWebDesk - Ponto Eletrônico",
+  "short_name": "PontoWebDesk",
   "description": "Sistema de controle de ponto moderno e seguro com análise de produtividade via IA",
   "start_url": "/",
   "display": "standalone",

@@ -46,7 +46,7 @@ const AdminReports: React.FC = () => {
 
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = 'ChronoDigital | Relatórios';
+    document.title = 'PontoWebDesk | Relatórios';
     return () => {
       document.title = prevTitle;
     };

@@ -4,9 +4,9 @@
 -- Execute no Supabase: SQL Editor → colar e rodar.
 -- Idempotente: ON CONFLICT atualiza os campos principais.
 --
--- ID da empresa: comp_teste_chronodigital
+-- ID da empresa: comp_teste_pontowebdesk
 -- Para vincular um usuário existente:
---   UPDATE public.users SET company_id = 'comp_teste_chronodigital' WHERE email = 'seu@email.com';
+--   UPDATE public.users SET company_id = 'comp_teste_pontowebdesk' WHERE email = 'seu@email.com';
 -- ============================================================
 
 INSERT INTO public.companies (
@@ -41,14 +41,14 @@ INSERT INTO public.companies (
   updated_at
 )
 VALUES (
-  'comp_teste_chronodigital',
-  'ChronoDigital Empresa Teste LTDA',
-  'ChronoDigital Empresa Teste LTDA',
-  'chronodigital-empresa-teste',
+  'comp_teste_pontowebdesk',
+  'PontoWebDesk Empresa Teste LTDA',
+  'PontoWebDesk Empresa Teste LTDA',
+  'pontowebdesk-empresa-teste',
   '12.345.678/0001-90',
   'Av. Paulista, 1578, Conj. 123',
   '(11) 3000-0000',
-  'rh.teste@chronodigital.local',
+  'rh.teste@pontowebdesk.local',
   'America/Sao_Paulo',
   '{"lat": -23.5614, "lng": -46.6559, "radius": 150}'::jsonb,
   '{
@@ -70,10 +70,10 @@ VALUES (
   '123.456.789.110',
   'Maria Teste Silva',
   'Responsável pelo RH',
-  'maria.teste@chronodigital.local',
+  'maria.teste@pontowebdesk.local',
   '["data", "hora", "tipo", "empresa"]'::jsonb,
   true,
-  'Documento gerado em ambiente de testes – ChronoDigital.',
+  'Documento gerado em ambiente de testes – PontoWebDesk.',
   NOW(),
   NOW()
 )
@@ -108,4 +108,4 @@ ON CONFLICT (id) DO UPDATE SET
 
 SELECT id, nome, name, cnpj
 FROM public.companies
-WHERE id = 'comp_teste_chronodigital';
+WHERE id = 'comp_teste_pontowebdesk';
