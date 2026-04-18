@@ -1,132 +1,112 @@
-import { useEffect, useSyncExternalStore } from 'react';
-import { User } from '../../types';
-import { authService } from '../../services/authService';
-import { getUserProfileStorage, checkSupabaseConfigured } from '../../services/supabase';
+import { useEffect, useState, useCallback } from 'react';
+import { supabase, isSupabaseConfigured } from '../services/supabaseClient';
 
-/** Se getCurrentUser travar, libera a UI (perfil em cache continua visível). */
-const HYDRATE_FALLBACK_MS = 35000;
-
-function getStoredUser(): User | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    const raw = getUserProfileStorage().getItem('current_user');
-    if (!raw) return null;
-    return JSON.parse(raw) as User;
-  } catch {
-    return null;
-  }
+export interface User {
+  id: string;
+  email?: string;
+  nome?: string;
+  role: 'admin' | 'hr' | 'employee';
+  company_id?: string;
+  department_id?: string;
 }
 
-/** Perfil em cache (mesmo storage da sessão). */
+// Cache simples em memória
+let cachedUser: User | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
+/**
+ * Lê o usuário do cache (usado por componentes que não precisam de reatividade)
+ */
 export function readCachedUser(): User | null {
-  return getStoredUser();
-}
-
-type CurrentUserStore = {
-  user: User | null;
-  loading: boolean;
-};
-
-function createInitialStore(): CurrentUserStore {
-  const u = getStoredUser();
-  return { user: u, loading: u === null };
-}
-
-let store: CurrentUserStore = createInitialStore();
-const listeners = new Set<() => void>();
-
-function emit() {
-  listeners.forEach((l) => l());
-}
-
-function setStore(next: Partial<CurrentUserStore>) {
-  store = { ...store, ...next };
-  emit();
-}
-
-/** Uma hidratação global — evita dezenas de getCurrentUser ao trocar de rota. */
-let hydratePromise: Promise<void> | null = null;
-
-async function runHydrate(): Promise<void> {
-  try {
-    if (!checkSupabaseConfigured()) {
-      setStore({ user: getStoredUser(), loading: false });
-      return;
-    }
-    const u = await authService.getCurrentUser();
-    setStore({ user: u ?? getStoredUser(), loading: false });
-  } catch {
-    setStore({ user: getStoredUser(), loading: false });
+  if (cachedUser && Date.now() - cacheTimestamp < CACHE_DURATION) {
+    return cachedUser;
   }
-}
-
-function ensureHydrateStarted(): void {
-  if (hydratePromise) return;
-  hydratePromise = runHydrate();
-}
-
-function resetHydrateLock(): void {
-  hydratePromise = null;
-}
-
-function subscribe(cb: () => void) {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
-
-function getSnapshot(): CurrentUserStore {
-  return store;
-}
-
-function getServerSnapshot(): CurrentUserStore {
-  return { user: null, loading: true };
-}
-
-function syncFromStorage(): void {
-  const next = getStoredUser();
-  if (!next) {
-    resetHydrateLock();
-    setStore({ user: null, loading: false });
-    return;
-  }
-  const prevId = store.user?.id;
-  setStore({ user: next, loading: false });
-  /** Novo login / troca de conta: nova hidratação. Mesmo usuário: cache já atualizado (evita spam em getCurrentUser). */
-  if (prevId !== next.id) {
-    resetHydrateLock();
-    ensureHydrateStarted();
-  }
+  return null;
 }
 
 /**
- * Perfil do usuário para páginas do portal — estado único compartilhado (sem N hidratações paralelas).
+ * Hook para obter o usuário atual com reatividade
  */
 export function useCurrentUser() {
-  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    ensureHydrateStarted();
-  }, []);
+  const loadUser = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      console.log('[useCurrentUser] Supabase não configurado');
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    const onSync = () => syncFromStorage();
-    window.addEventListener('storage', onSync);
-    window.addEventListener('current_user_changed', onSync);
-    return () => {
-      window.removeEventListener('storage', onSync);
-      window.removeEventListener('current_user_changed', onSync);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!state.loading) return;
-    const t = window.setTimeout(() => {
-      if (store.loading) {
-        setStore({ loading: false, user: getStoredUser() });
+    try {
+      console.log('[useCurrentUser] Buscando sessão...');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('[useCurrentUser] Erro ao buscar sessão:', error);
+        setUser(null);
+        cachedUser = null;
+        setLoading(false);
+        return;
       }
-    }, HYDRATE_FALLBACK_MS);
-    return () => window.clearTimeout(t);
-  }, [state.loading]);
+      
+      if (!session?.user) {
+        console.log('[useCurrentUser] Sem sessão ativa');
+        setUser(null);
+        cachedUser = null;
+        setLoading(false);
+        return;
+      }
 
-  return { user: state.user, loading: state.loading };
+      console.log('[useCurrentUser] Usuário autenticado:', session.user.id);
+      
+      // Busca o perfil do usuário
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileError) {
+        console.error('[useCurrentUser] Erro ao buscar perfil:', profileError);
+        setUser(null);
+        cachedUser = null;
+      } else {
+        console.log('[useCurrentUser] Perfil carregado:', profile);
+        setUser(profile);
+        cachedUser = profile;
+        cacheTimestamp = Date.now();
+      }
+    } catch (err) {
+      console.error('[useCurrentUser] Erro inesperado:', err);
+      setUser(null);
+      cachedUser = null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUser();
+
+    if (isSupabaseConfigured) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        console.log('[useCurrentUser] Auth state changed:', _event);
+        if (session?.user) {
+          loadUser();
+        } else {
+          setUser(null);
+          cachedUser = null;
+          setLoading(false);
+        }
+      });
+
+      return () => subscription.unsubscribe();
+    }
+  }, [loadUser]);
+
+  return { user, loading, refresh: loadUser };
 }
+
+export default useCurrentUser;

@@ -8,7 +8,7 @@ import { LoadingState, Button } from '../../../components/UI';
 import { Plus, FileDown } from 'lucide-react';
 import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
 import { ManualRecordModal } from '../../components/ManualRecordModal';
-import { buildDayMirrorSummary, DayMirror, isManualRecord, formatMinutes } from '../../utils/timesheetMirror';
+import { buildDayMirrorSummary, DayMirror, isManualRecord, formatMinutes, getDayStatus } from '../../utils/timesheetMirror';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
 
 interface Employee {
@@ -40,7 +40,8 @@ const AdminTimesheet: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [records, setRecords] = useState<TimeRecord[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
+  const [loadingData, setLoadingData] = useState(false);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
   
   const [filterUserId, setFilterUserId] = useState<string>('');
   const [filterDepartmentId, setFilterDepartmentId] = useState<string>('');
@@ -60,9 +61,13 @@ const AdminTimesheet: React.FC = () => {
   
   // Carrega funcionários e departamentos
   useEffect(() => {
-    if (!user?.company_id || !isSupabaseConfigured) return;
-    
+    if (!user?.company_id || !isSupabaseConfigured) {
+      setLoadingEmployees(false);
+      return;
+    }
+
     const loadData = async () => {
+      setLoadingEmployees(true);
       try {
         // Carrega funcionários
         const { data: users, error: usersError } = await supabase
@@ -85,9 +90,11 @@ const AdminTimesheet: React.FC = () => {
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
         toast.addToast('error', 'Erro ao carregar funcionários');
+      } finally {
+        setLoadingEmployees(false);
       }
     };
-    
+
     loadData();
   }, [user?.company_id, toast]);
   
@@ -158,14 +165,20 @@ const AdminTimesheet: React.FC = () => {
   // Gera datas do período
   const periodDates = useMemo(() => {
     const dates: string[] = [];
-    const start = new Date(periodStart);
-    const end = new Date(periodEnd);
+    const start = new Date(periodStart + 'T00:00:00');
+    const end = new Date(periodEnd + 'T00:00:00');
     
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       dates.push(d.toISOString().slice(0, 10));
     }
     return dates;
   }, [periodStart, periodEnd]);
+  
+  // Formata data para exibição (sem problemas de fuso)
+  const formatDateBR = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  };
   
   // Adiciona nova batida
   const handleAddRecord = async (data: {
@@ -228,6 +241,27 @@ const AdminTimesheet: React.FC = () => {
     link.click();
   };
   
+  // Renderiza badge de status do dia
+  const renderDayStatus = (day: DayMirror) => {
+    const { label, color } = getDayStatus(day);
+    
+    if (!label) return null;
+    
+    const colorClasses: Record<string, string> = {
+      green: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-300',
+      red: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-300',
+      orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 border-orange-300',
+      purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-300',
+      indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300 border-indigo-300',
+    };
+    
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border ${colorClasses[color] || colorClasses.red}`}>
+        {label}
+      </span>
+    );
+  };
+  
   // Renderiza célula de horário (azul com * se manual)
   const renderTimeCell = (time: string | null, record?: TimeRecord) => {
     const isManual = record && isManualRecord(record);
@@ -255,13 +289,13 @@ const AdminTimesheet: React.FC = () => {
       </span>
     );
   };
-  
+
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
   if (user.role !== 'admin' && user.role !== 'hr') {
     return <Navigate to="/dashboard" replace />;
   }
-  
+
   return (
     <div className="space-y-6">
       <PageHeader title="Espelho de Ponto" />
@@ -269,28 +303,28 @@ const AdminTimesheet: React.FC = () => {
       {/* Filtros */}
       <div className="glass-card p-4 rounded-2xl">
         <div className="flex flex-wrap gap-4 items-end">
-          <div>
+        <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Período Inicial
             </label>
-            <input
-              type="date"
-              value={periodStart}
-              onChange={(e) => setPeriodStart(e.target.value)}
+              <input
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
               className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-            />
-          </div>
+              />
+            </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Período Final
             </label>
-            <input
-              type="date"
-              value={periodEnd}
-              onChange={(e) => setPeriodEnd(e.target.value)}
+              <input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
               className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-            />
-          </div>
+              />
+            </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Funcionário
@@ -298,10 +332,13 @@ const AdminTimesheet: React.FC = () => {
             <select
               value={filterUserId}
               onChange={(e) => setFilterUserId(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              disabled={loadingEmployees}
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm min-w-[200px]"
             >
-              <option value="">Todos</option>
-              {employees.map(emp => (
+              <option value="">
+                {loadingEmployees ? 'Carregando...' : 'Selecione o colaborador'}
+              </option>
+              {filteredEmployees.map(emp => (
                 <option key={emp.id} value={emp.id}>{emp.nome}</option>
               ))}
             </select>
@@ -312,20 +349,35 @@ const AdminTimesheet: React.FC = () => {
             </label>
             <select
               value={filterDepartmentId}
-              onChange={(e) => setFilterDepartmentId(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              onChange={(e) => {
+                setFilterDepartmentId(e.target.value);
+                setFilterUserId(''); // Limpa usuário quando muda departamento
+              }}
+              disabled={loadingEmployees}
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm min-w-[150px]"
             >
-              <option value="">Todos</option>
+              <option value="">{loadingEmployees ? 'Carregando...' : 'Todos'}</option>
               {departments.map(dept => (
                 <option key={dept.id} value={dept.id}>{dept.name}</option>
               ))}
             </select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => filterUserId && loadRecords()}
+              disabled={!filterUserId || loadingData}
+              className="flex items-center gap-2"
+            >
+              {loadingData ? 'Buscando...' : 'Buscar'}
+            </Button>
           </div>
           <div className="flex gap-2 ml-auto">
             <Button
               variant="outline"
               size="sm"
               onClick={handleExportCSV}
+              disabled={!filterUserId || records.length === 0}
               className="flex items-center gap-2"
             >
               <FileDown className="w-4 h-4" />
@@ -340,9 +392,9 @@ const AdminTimesheet: React.FC = () => {
               Adicionar Batida
             </Button>
           </div>
+          </div>
         </div>
-      </div>
-      
+
       {/* Legenda */}
       <div className="flex items-center gap-4 text-sm">
         <div className="flex items-center gap-2">
@@ -350,21 +402,27 @@ const AdminTimesheet: React.FC = () => {
           <span className="text-slate-600 dark:text-slate-400">
             Batida manual (com *)
           </span>
-        </div>
+            </div>
         <div className="flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full border border-slate-400"></span>
           <span className="text-slate-600 dark:text-slate-400">
             Batida normal
           </span>
+          </div>
         </div>
-      </div>
-      
+
       {/* Tabela */}
-      {loadingData ? (
+      {!filterUserId ? (
+        <div className="glass-card rounded-2xl p-12 text-center">
+          <p className="text-slate-500 dark:text-slate-400">
+            {loadingEmployees ? 'Carregando funcionários...' : 'Selecione um funcionário para visualizar o espelho de ponto'}
+          </p>
+        </div>
+      ) : loadingData ? (
         <LoadingState message="Carregando espelho..." />
       ) : (
         <div className="space-y-6">
-          {filteredEmployees.map(employee => {
+          {filteredEmployees.filter(emp => emp.id === filterUserId).map(employee => {
             const empMirror = timesheetData.get(employee.id);
             if (!empMirror) return null;
             
@@ -378,12 +436,13 @@ const AdminTimesheet: React.FC = () => {
                     {departments.find(d => d.id === employee.department_id)?.name || 'Sem departamento'}
                   </p>
                 </div>
-                
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/50">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Data</th>
+                        <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Status</th>
                         <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Entrada</th>
                         <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Saída Int.</th>
                         <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Volta Int.</th>
@@ -413,7 +472,10 @@ const AdminTimesheet: React.FC = () => {
                         return (
                           <tr key={date} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                             <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                              {new Date(date).toLocaleDateString('pt-BR')}
+                              {formatDateBR(date)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {renderDayStatus(day)}
                             </td>
                             <td className="px-3 py-2">
                               {renderTimeCell(day.entradaInicio, entradaRecord)}
@@ -441,7 +503,7 @@ const AdminTimesheet: React.FC = () => {
           })}
         </div>
       )}
-      
+
       {/* Modais */}
       <AddTimeRecordModal
         isOpen={showAddModal}
@@ -450,7 +512,7 @@ const AdminTimesheet: React.FC = () => {
         employees={employees}
         companyId={user?.company_id}
       />
-      
+
       <ManualRecordModal
         isOpen={showManualModal}
         onClose={() => {
@@ -461,7 +523,7 @@ const AdminTimesheet: React.FC = () => {
         timestamp={selectedManualRecord?.created_at}
         type={selectedManualRecord?.type}
       />
-      
+
       <EditTimeRecordModal
         isOpen={showEditModal}
         onClose={() => {

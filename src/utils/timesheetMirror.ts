@@ -153,9 +153,9 @@ export function buildDayMirrorSummary(
   const byDate = groupRecordsByDate(records);
   const result = new Map<string, DayMirror>();
   
-  // Preenche todos os dias no período
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  // Preenche todos os dias no período (sem problemas de fuso)
+  const start = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
   
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const dateStr = d.toISOString().slice(0, 10);
@@ -194,4 +194,30 @@ export function formatMinutes(minutes: number): string {
  */
 export function hasManualRecord(dayMirror: DayMirror): boolean {
   return dayMirror.records.some(isManualRecord);
+}
+
+/**
+ * Retorna o status do dia (FOLGA, FERIADO, FALTA, etc.)
+ */
+export function getDayStatus(day: DayMirror): { status: string; label: string; color: string } {
+  // Verifica se é feriado
+  // TODO: Implementar verificação de feriado quando tiver dados de feriados
+  
+  // Verifica se é dia de folga (fim de semana)
+  // Usa T12:00:00 para evitar problemas de fuso horário
+  const date = new Date(day.date + 'T12:00:00');
+  const dayOfWeek = date.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  
+  if (isWeekend) {
+    return { status: 'folga', label: 'FOLGA', color: 'green' };
+  }
+  
+  // Se não tem registros em dia útil = FALTA
+  if (!day.records || day.records.length === 0) {
+    return { status: 'falta', label: 'FALTA', color: 'red' };
+  }
+  
+  // Dia normal com registros
+  return { status: 'normal', label: '', color: 'slate' };
 }
