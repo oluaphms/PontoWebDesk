@@ -89,7 +89,19 @@ function mapToStandardTypes(records: RawTimeRecord[]): ParsedSegment[] {
   let lastWasPausa = false;
   for (const r of sorted) {
     const at = new Date(r.timestamp || r.created_at);
+    const raw = (r.type || '').toLowerCase();
     const type = normalizeType(r.type);
+    // Tipos do banco (Portaria / app web)
+    if (raw === 'intervalo_saida') {
+      out.push({ type: 'inicio_intervalo', at, recordId: r.id });
+      lastWasPausa = true;
+      continue;
+    }
+    if (raw === 'intervalo_volta') {
+      out.push({ type: 'fim_intervalo', at, recordId: r.id });
+      lastWasPausa = false;
+      continue;
+    }
     if (type === 'entrada') {
       if (lastWasPausa) {
         out.push({ type: 'fim_intervalo', at, recordId: r.id });
