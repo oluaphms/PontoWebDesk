@@ -194,6 +194,12 @@ const AdminCartaoPonto: React.FC = () => {
     }
   }, [user?.companyId, selectedEmployee?.id, periodStart, periodEnd]);
 
+  // Garante que o período esteja limpo na montagem (evita restauração de estado)
+  useEffect(() => {
+    setPeriodStart('');
+    setPeriodEnd('');
+  }, []);
+
   useEffect(() => {
     loadEmployees();
   }, [loadEmployees]);
@@ -341,6 +347,8 @@ const AdminCartaoPonto: React.FC = () => {
               type="date"
               value={periodStart}
               onChange={(e) => setPeriodStart(e.target.value)}
+              autoComplete="off"
+              placeholder="dd/mm/aaaa"
               className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
@@ -350,9 +358,23 @@ const AdminCartaoPonto: React.FC = () => {
               type="date"
               value={periodEnd}
               onChange={(e) => setPeriodEnd(e.target.value)}
+              autoComplete="off"
+              placeholder="dd/mm/aaaa"
               className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
+          {(periodStart || periodEnd) && (
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => { setPeriodStart(''); setPeriodEnd(''); }}
+                className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                title="Limpar período"
+              >
+                Limpar
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Controles: Nº Folha, Nome, navegação, Atualizar, Opções */}
