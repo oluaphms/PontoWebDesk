@@ -29,10 +29,12 @@ export interface AuthResult {
 const TENANT_META_SYNC_KEY = 'sp_tenant_meta_sync';
 
 /**
- * Timeout do envelope `getCurrentUser` (sessão + perfil). Não pode ser ~64s: bloqueia refresh e
- * parece “sessão morta”. Perfil pesado já tem retries/timeouts dentro de `db.select` / fallback mínimo.
+ * Timeout por tentativa em `getCurrentUser` (sessão + perfil). Após deploy / cold start do Supabase
+ * (free tier) ou IndexedDB lento, 18s falhava sem motivo. Há **2ª tentativa** após pequeno atraso.
+ * O `App.tsx` usa `INIT_HYDRATE_MS` ≥ pior caso (2× timeout + delay).
  */
-const GET_CURRENT_USER_TIMEOUT_MS = 18_000;
+const GET_CURRENT_USER_TIMEOUT_MS = 30_000;
+const GET_CURRENT_USER_RETRY_DELAY_MS = 750;
 
 function persistCurrentUserToProfileStore(u: User): void {
   if (typeof window === 'undefined') return;
@@ -1005,9 +1007,27 @@ class AuthService {
     if (this._getCurrentUserInflight) return this._getCurrentUserInflight;
     const p = (async () => {
       try {
-        return await withTimeout(this.getCurrentUserResolved(), GET_CURRENT_USER_TIMEOUT_MS, 'carregar sessão');
-      } catch (error: any) {
-        const errMsg = String(error?.message || '');
+        let error: unknown;
+        try {
+          return await withTimeout(this.getCurrentUserResolved(), GET_CURRENT_USER_TIMEOUT_MS, 'carregar sessão');
+        } catch (e1) {
+          error = e1;
+          const msg1 = String((e1 as { message?: string })?.message || '');
+          if (msg1.includes('Tempo esgotado')) {
+            await new Promise((r) => setTimeout(r, GET_CURRENT_USER_RETRY_DELAY_MS));
+            try {
+              return await withTimeout(
+                this.getCurrentUserResolved(),
+                GET_CURRENT_USER_TIMEOUT_MS,
+                'carregar sessão (2ª tentativa)',
+              );
+            } catch (e2) {
+              error = e2;
+            }
+          }
+        }
+
+        const errMsg = String((error as { message?: string })?.message || error || '');
         if (
           errMsg.includes('Tempo esgotado') ||
           errMsg.includes('stole') ||
@@ -1024,8 +1044,17 @@ class AuthService {
           } catch {
             // ignora
           }
+          if (errMsg.includes('Tempo esgotado')) {
+            if (typeof console !== 'undefined') {
+              console.warn(
+                '[Auth] getCurrentUser: tempo esgotado após 2 tentativas; sem perfil em cache (rede lenta ou Supabase a iniciar).',
+              );
+            }
+            return null;
+          }
         }
-        if (error?.message?.includes('Refresh Token') || error?.message?.includes('Auth session missing')) {
+        const err = error as { message?: string } | undefined;
+        if (err?.message?.includes('Refresh Token') || err?.message?.includes('Auth session missing')) {
           try {
             await auth.signOut();
           } catch {
@@ -1033,7 +1062,9 @@ class AuthService {
           }
           return null;
         }
-        console.error('Erro ao obter usuário atual:', error);
+        if (error !== undefined) {
+          console.error('Erro ao obter usuário atual:', error);
+        }
         return null;
       } finally {
         if (this._getCurrentUserInflight === p) {

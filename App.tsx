@@ -276,7 +276,8 @@ const AppMain: React.FC = () => {
     const initApp = async () => {
       try {
         // Rede de segurança: getSession + getCurrentUser têm timeouts próprios; isto evita spinner eterno se algo travar.
-        const INIT_APP_MAX_MS = 60000;
+        /** Deve ser ≥ pior caso de `getCurrentUser` (2×30s + retry) + margem. */
+        const INIT_APP_MAX_MS = 95_000;
         timeoutId = setTimeout(() => {
           if (isMounted) {
             console.warn('Initialization timeout - forcing app to load');
@@ -309,8 +310,8 @@ const AppMain: React.FC = () => {
 
         // Não usar getSession() isolado com timeout curto como “portão”: se IndexedDB/rede atrasarem,
         // a app saía antes de hidratar e o usuário via tela presa / sem perfil em cache.
-        // getCurrentUser() já chama getSession internamente, aplica timeout próprio e usa perfil em storage.
-        const INIT_HYDRATE_MS = 22000;
+        // getCurrentUser(): até 2×30s + retry delay — não cortar antes (cold start / deploy).
+        const INIT_HYDRATE_MS = 68_000;
         const currentUser = await Promise.race([
           authService.getCurrentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
@@ -661,8 +662,8 @@ const AppMain: React.FC = () => {
       // Delega a resolução do identificador (email, nome, CPF) para o AuthService,
       // que já trata e normaliza o valor (incluindo fallback de domínio quando necessário).
       const loginPromise = authService.signInWithEmail(loginData.identifier, loginData.password);
-      /** Teto para não segurar o botão "Entrar" quase 1 minuto; login já tem fallback de perfil em ~20s no AuthService. */
-      const LOGIN_TIMEOUT_MS = 30_000;
+      /** Teto alinhado a rede lenta + cold start do Supabase após deploy. */
+      const LOGIN_TIMEOUT_MS = 55_000;
       const timeoutPromise = new Promise<{ user: any; error: string | null }>((_, reject) =>
         setTimeout(
           () =>
