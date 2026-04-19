@@ -23,6 +23,11 @@ import { invalidateAfterPunch, invalidateAfterTimesheetMonthClose } from '../../
 import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
 import { sameUserId } from '../../utils/userIdMatch';
 
+/** Filtros do espelho por utilizador — sobrevivem a novo login na mesma aba/navegador. */
+function adminTimesheetFiltersKey(userId: string) {
+  return `pontowebdesk:admin-timesheet-filters:${userId}`;
+}
+
 /** Data local YYYY-MM-DD (evita UTC deslocar o “hoje” no max do input). */
 function localDateKey(d = new Date()): string {
   const y = d.getFullYear();
@@ -78,6 +83,9 @@ const AdminTimesheet: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [recordToEdit, setRecordToEdit] = useState<TimeRecord | null>(null);
 
+  /** Evita `loadEspelho` com período vazio antes de ler sessionStorage (caso típico: novo login → batidas “sumiam”). */
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
+
   const holidayDates = useMemo(() => new Set(holidays.map((h) => h.date).filter(Boolean)), [holidays]);
 
   /** Catálogo (colaboradores + departamentos) — não depende do período; evita selects vazios. */
@@ -99,6 +107,50 @@ const AdminTimesheet: React.FC = () => {
   useEffect(() => {
     void loadFiltrosEspelho();
   }, [loadFiltrosEspelho]);
+
+  /** Restaura período/colaborador após sair e voltar ao sistema (estado React começa vazio). */
+  useEffect(() => {
+    if (!user?.id) {
+      setFiltersHydrated(false);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(adminTimesheetFiltersKey(user.id));
+      if (raw) {
+        const s = JSON.parse(raw) as {
+          periodStart?: string;
+          periodEnd?: string;
+          filterUserId?: string;
+          filterDepartmentId?: string;
+        };
+        if (typeof s.periodStart === 'string' && s.periodStart) setPeriodStart(s.periodStart);
+        if (typeof s.periodEnd === 'string' && s.periodEnd) setPeriodEnd(s.periodEnd);
+        if (typeof s.filterUserId === 'string') setFilterUserId(s.filterUserId);
+        if (typeof s.filterDepartmentId === 'string') setFilterDepartmentId(s.filterDepartmentId);
+      }
+    } catch {
+      /* ignore */
+    }
+    setFiltersHydrated(true);
+  }, [user?.id]);
+
+  /** Persiste filtros para o próximo acesso. */
+  useEffect(() => {
+    if (!user?.id || !filtersHydrated) return;
+    try {
+      sessionStorage.setItem(
+        adminTimesheetFiltersKey(user.id),
+        JSON.stringify({
+          periodStart,
+          periodEnd,
+          filterUserId,
+          filterDepartmentId,
+        }),
+      );
+    } catch {
+      /* quota / privado */
+    }
+  }, [user?.id, filtersHydrated, periodStart, periodEnd, filterUserId, filterDepartmentId]);
 
   const loadEspelho = useCallback(async () => {
     if (!companyId || !isSupabaseConfigured()) {
@@ -127,8 +179,9 @@ const AdminTimesheet: React.FC = () => {
   }, [companyId, periodStart, periodEnd, periodValid, toast]);
 
   useEffect(() => {
+    if (!filtersHydrated) return;
     void loadEspelho();
-  }, [loadEspelho]);
+  }, [loadEspelho, filtersHydrated]);
 
   const filteredEmployees = useMemo(() => {
     return employees.filter((emp) => {
