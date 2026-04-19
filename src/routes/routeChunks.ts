@@ -2,7 +2,30 @@
  * Mapa path → mesmo `import()` usado em React.lazy (portal).
  * Permite prefetch no hover/foco do menu antes do clique.
  */
-export const ROUTE_LOADERS = {
+type RouteLoader = () => Promise<unknown>;
+
+const ROUTE_CHUNK_TIMEOUT_MS = 20000;
+
+function withTimeout(loader: RouteLoader, path: string): RouteLoader {
+  return () => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`[ROUTE] Timeout ao carregar rota: ${path}`));
+      }, ROUTE_CHUNK_TIMEOUT_MS);
+    });
+
+    return Promise.race([
+      loader().then((mod) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        return mod;
+      }),
+      timeoutPromise,
+    ]);
+  };
+}
+
+const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/dashboard': () => import('../pages/admin/Dashboard'),
   '/admin/employees': () => import('../pages/admin/Employees'),
   '/admin/import-employees': () => import('../pages/admin/ImportEmployees'),
@@ -76,6 +99,10 @@ export const ROUTE_LOADERS = {
   '/reset-password': () => import('../pages/ResetPassword'),
   '/accept-invite': () => import('../pages/AcceptInvite'),
 } as const;
+
+export const ROUTE_LOADERS: Record<string, RouteLoader> = Object.fromEntries(
+  Object.entries(RAW_ROUTE_LOADERS).map(([path, loader]) => [path, withTimeout(loader, path)])
+);
 
 const prefetched = new Set<string>();
 
