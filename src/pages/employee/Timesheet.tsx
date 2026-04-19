@@ -17,6 +17,11 @@ import { extractLatLng } from '../../utils/reverseGeocode';
 import { ExpandableStreetCell } from '../../components/ClickableFullContent';
 import { TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
 import { readSpecialBarsPref, SPECIAL_BARS_CHANGED } from '../../utils/timesheetLayoutPrefs';
+import {
+  enumerateLocalCalendarDays,
+  localCalendarDayEndUtc,
+  localCalendarDayStartUtc,
+} from '../../utils/localDateTimeToIso';
 
 /** Data local YYYY-MM-DD (evita UTC deslocar o “hoje” no max do input). */
 function localDateKey(d = new Date()): string {
@@ -84,8 +89,8 @@ const EmployeeTimesheet: React.FC = () => {
           'time_records',
           [
             { column: 'user_id', operator: 'eq', value: user.id },
-            { column: 'created_at', operator: 'gte', value: `${startDate}T00:00:00` },
-            { column: 'created_at', operator: 'lte', value: `${endDate}T23:59:59.999` },
+            { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(startDate) },
+            { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(endDate) },
           ],
           { column: 'created_at', ascending: false },
           2000,
@@ -151,13 +156,7 @@ const EmployeeTimesheet: React.FC = () => {
 
   const periodDates = useMemo(() => {
     if (!periodValid) return [];
-    const dates: string[] = [];
-    const start = new Date(periodStart + 'T00:00:00');
-    const end = new Date(periodEnd + 'T00:00:00');
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      dates.push(d.toISOString().slice(0, 10));
-    }
-    return dates;
+    return enumerateLocalCalendarDays(periodStart, periodEnd);
   }, [periodStart, periodEnd, periodValid]);
 
   const recordsByDate = useMemo(() => {

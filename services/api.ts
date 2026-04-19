@@ -4,6 +4,10 @@
  */
 
 import { db } from './supabaseClient';
+import {
+  localCalendarDayEndUtc,
+  localCalendarDayStartUtc,
+} from '../src/utils/localDateTimeToIso';
 
 export type AdminTimesheetEmployee = { id: string; nome: string; department_id?: string; role?: string };
 export type AdminTimesheetDepartment = { id: string; name: string };
@@ -89,8 +93,8 @@ export async function buscarEspelhoRegistros(
   periodStart: string,
   periodEnd: string,
 ): Promise<any[]> {
-  const periodStartTs = `${periodStart}T00:00:00`;
-  const periodEndTs = `${periodEnd}T23:59:59.999`;
+  const periodStartTs = localCalendarDayStartUtc(periodStart);
+  const periodEndTs = localCalendarDayEndUtc(periodEnd);
   return (
     (await db.select(
       'time_records',
@@ -117,8 +121,8 @@ export async function buscarEspelhoAdmin(
   shiftSchedules: any[];
   holidays: AdminHolidayRow[];
 }> {
-  const periodStartTs = `${periodStart}T00:00:00`;
-  const periodEndTs = `${periodEnd}T23:59:59.999`;
+  const periodStartTs = localCalendarDayStartUtc(periodStart);
+  const periodEndTs = localCalendarDayEndUtc(periodEnd);
 
   const [usersRows, recordsRows, departmentsRows, legacyEmployeesRows, shiftsRows, holidaysRows] = await Promise.all([
     db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }]) as Promise<any[]>,

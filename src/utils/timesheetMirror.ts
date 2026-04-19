@@ -3,6 +3,8 @@
  * Processa time_records e organiza por dia/funcionário
  */
 
+import { localCalendarYmd } from './localDateTimeToIso';
+
 export interface TimeRecord {
   id: string;
   user_id: string;
@@ -34,10 +36,14 @@ function extractTime(isoString: string): string {
 }
 
 /**
- * Extrai a data (YYYY-MM-DD) de uma string ISO
+ * Data civil local (YYYY-MM-DD) a partir de um instante ISO — alinha com filtros em UTC e com batidas gravadas via horário local.
  */
 function extractDate(isoString: string): string {
-  return isoString.slice(0, 10);
+  const date = new Date(isoString);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /**
@@ -158,7 +164,7 @@ export function buildDayMirrorSummary(
   const end = new Date(endDate + 'T00:00:00');
   
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localCalendarYmd(d);
     const dayRecords = byDate.get(dateStr) || [];
     
     if (dayRecords.length > 0) {
