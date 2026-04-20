@@ -32,15 +32,27 @@ const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
 /** Recuo em `since` para não perder batidas por desvio de relógio ou ordem de atualização da última sync. */
 const SINCE_SYNC_GRACE_MS = 3 * 60 * 1000;
+/** Piso para download / outras etapas; ingestão usa também `ingestStepTimeoutMs`. */
 const SYNC_STEP_TIMEOUT_MS = (() => {
   const raw =
     typeof process !== 'undefined' && process.env?.REP_SYNC_STEP_TIMEOUT_MS
       ? String(process.env.REP_SYNC_STEP_TIMEOUT_MS).trim()
       : '';
   const n = parseInt(raw, 10);
-  if (Number.isFinite(n) && n >= 30_000) return Math.min(15 * 60_000, n);
+  if (Number.isFinite(n) && n >= 30_000) return Math.min(4 * 60 * 60_000, n);
   return 6 * 60_000;
 })();
+
+/** ~120 ms por batida (RPC em lotes), com teto 4 h — evita timeout a meio de históricos grandes. */
+const REP_INGEST_MS_PER_PUNCH = 120;
+const REP_INGEST_TIMEOUT_MAX_MS = 4 * 60 * 60_000;
+
+function ingestStepTimeoutMs(punchCount: number): number {
+  const floor = SYNC_STEP_TIMEOUT_MS;
+  if (!Number.isFinite(punchCount) || punchCount <= 0) return floor;
+  const scaled = punchCount * REP_INGEST_MS_PER_PUNCH;
+  return Math.min(REP_INGEST_TIMEOUT_MAX_MS, Math.max(floor, scaled));
+}
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -112,9 +124,10 @@ export async function syncRepDevice(
       punches = filterPunchesToLocalToday(punches);
     }
 
+    const ingestMs = ingestStepTimeoutMs(punches.length);
     const result = await withTimeout(
       ingestPunchesFromDevice(supabase, merged, punches, ingestOptions),
-      SYNC_STEP_TIMEOUT_MS,
+      ingestMs,
       'gravação das batidas'
     );
     await updateDeviceLastSync(supabase, deviceId, 'ativo');

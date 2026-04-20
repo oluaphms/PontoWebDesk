@@ -39,7 +39,14 @@ export async function ingestPunch(
     /** Se definido, todas as batidas desta chamada gravam neste utilizador (importação AFD / reatribuição). */
     force_user_id?: string | null;
   }
-): Promise<{ success: boolean; time_record_id?: string; user_not_found?: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  time_record_id?: string;
+  user_not_found?: boolean;
+  /** NSR já existia em rep_punch_logs para este relógio. */
+  duplicate?: boolean;
+  error?: string;
+}> {
   const { data, error } = await supabase.rpc('rep_ingest_punch', {
     p_company_id: params.company_id,
     p_rep_device_id: params.rep_device_id ?? null,
@@ -59,14 +66,20 @@ export async function ingestPunch(
   if (error) {
     return { success: false, error: error.message };
   }
-  const result = data as { success?: boolean; time_record_id?: string; user_not_found?: boolean; error?: string; duplicate?: boolean };
+  const result = data as {
+    success?: boolean;
+    time_record_id?: string;
+    user_not_found?: boolean;
+    error?: string;
+    duplicate?: boolean;
+  };
   if (result.duplicate) {
-    return { success: true, error: 'NSR já importado' };
+    return { success: true, duplicate: true, error: 'NSR já importado' };
   }
   return {
     success: result.success === true,
     time_record_id: result.time_record_id,
-    user_not_found: result.user_not_found,
+    user_not_found: result.user_not_found === true,
     error: result.error,
   };
 }
@@ -103,7 +116,7 @@ export async function ingestAfdRecords(
       force_user_id: forceUserId ?? null,
     });
 
-    if (!r.success && r.error?.includes('já importado')) {
+    if (r.duplicate || (r.error && r.error.includes('já importado'))) {
       result.duplicated += 1;
     } else if (r.success && r.user_not_found) {
       result.userNotFound += 1;
@@ -152,9 +165,11 @@ function foldIngestPunchRow(
   onlyStaging: boolean,
   result: IngestResult
 ): void {
-  if (!r.success && r.error?.includes('já importado')) {
+  if (r.duplicate || (r.error && r.error.includes('já importado'))) {
     result.duplicated += 1;
-  } else if (r.success && r.user_not_found) {
+    return;
+  }
+  if (r.success && r.user_not_found) {
     /** Com fila temporária, «sem usuário» é esperado: conta só em staged, não duplicar em userNotFound. */
     if (onlyStaging) {
       result.staged = (result.staged ?? 0) + 1;
@@ -274,7 +289,14 @@ export async function promotePendingRepPunchLogs(
   companyId: string,
   repDeviceId: string,
   options?: PromotePendingRepPunchLogsOptions
-): Promise<{ success: boolean; promoted?: number; skippedNoUser?: number; error?: string }> {
+): Promise<{
+  success: boolean;
+  promoted?: number;
+  skippedNoUser?: number;
+  /** Com filtro por colaborador: batidas que casa(m) com outro utilizador. */
+  skippedOtherUser?: number;
+  error?: string;
+}> {
   const win = options?.localWindow;
   const onlyUid = options?.onlyUserId?.trim();
   const { data, error } = await supabase.rpc('rep_promote_pending_rep_punch_logs', {
@@ -287,11 +309,17 @@ export async function promotePendingRepPunchLogs(
   if (error) {
     return { success: false, error: error.message };
   }
-  const row = data as { success?: boolean; promoted?: number; skipped_no_user?: number };
+  const row = data as {
+    success?: boolean;
+    promoted?: number;
+    skipped_no_user?: number;
+    skipped_other_user?: number;
+  };
   return {
     success: row.success === true,
     promoted: row.promoted,
     skippedNoUser: row.skipped_no_user,
+    skippedOtherUser: row.skipped_other_user,
   };
 }
 

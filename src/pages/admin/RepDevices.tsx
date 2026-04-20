@@ -99,7 +99,8 @@ const TIPOS_CONEXAO = [
 
 const LS_REP_ALLOCATE = 'chrono_rep_receive_allocate';
 const LS_REP_SKIP_BLOCKED = 'chrono_rep_receive_skip_blocked';
-const REP_RECEIVE_UI_TIMEOUT_MS = 8 * 60 * 1000;
+/** Deve ser ≥ ao timeout máx. de «gravação das batidas» no sync (até ~4 h para históricos enormes). */
+const REP_RECEIVE_UI_TIMEOUT_MS = (4 * 60 + 20) * 60 * 1000;
 
 function readLsBool(key: string, defaultVal: boolean): boolean {
   if (typeof window === 'undefined') return defaultVal;
@@ -517,6 +518,7 @@ const AdminRepDevices: React.FC = () => {
       if (r.ok) {
         let imp = r.imported ?? 0;
         let stillInQueueOnly = 0;
+        let stillInQueueOtherUser = 0;
         const dup = r.duplicated ?? 0;
         const unf = r.userNotFound ?? 0;
         const received = r.received ?? 0;
@@ -544,10 +546,17 @@ const AdminRepDevices: React.FC = () => {
           if (pr.success) {
             const promoted = pr.promoted ?? 0;
             const skipped = pr.skippedNoUser ?? 0;
+            const skippedOther = pr.skippedOtherUser ?? 0;
             imp += promoted;
             stillInQueueOnly = skipped;
+            stillInQueueOtherUser = skippedOther;
             if (promoted > 0) {
               appendSrLog(`${promoted} marcação(ões) extra(s) na folha a partir da fila (consolidadas agora).`);
+            }
+            if (onlyUid && skippedOther > 0) {
+              appendSrLog(
+                `${skippedOther} batida(s) com cadastro noutro colaborador (não é o selecionado no filtro); não foram gravadas no espelho nesta consolidação.`
+              );
             }
             if (skipped > 0) {
               const backlogHint =
@@ -559,9 +568,12 @@ const AdminRepDevices: React.FC = () => {
               appendSrLog(
                 `${skipped} batida(s) deste relógio ainda só em rep_punch_logs (sem PIS/CPF/nº folha/nº identificador (crachá) que bata com o cadastro).${backlogHint} Corrija utilizadores e use «Consolidar» se precisar. Se o cadastro já estiver certo: confirme migrações REP no Supabase (20260420200000–20260420260000) e build recente da app — senão o servidor não normaliza PIS/CPF AFD (11 dígitos), deriva crachá nem casa folha/crachá.`
               );
+            }
+            if (skipped > 0 || (onlyUid && skippedOther > 0)) {
               await appendRepPendingQueueDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
                 localWindow: localDay,
-                filteredByUserOnly: Boolean(onlyUid),
+                /** Só quando houve batidas com cadastro doutro — evita nota enganosa se o problema for só «sem match». */
+                filteredByUserOnly: Boolean(onlyUid) && skippedOther > 0,
               });
             }
           } else {
@@ -581,12 +593,21 @@ const AdminRepDevices: React.FC = () => {
                 : `${stillInQueueOnly} ainda só em rep_punch_logs (sem cadastro)`;
           parts.push(qHint);
         }
+        if (stillInQueueOtherUser > 0) {
+          parts.push(
+            `${stillInQueueOtherUser} batida(s) na fila com cadastro noutro colaborador (filtro «só este» — não gravadas nesta consolidação)`
+          );
+        }
         if (unf) {
           parts.push(
             `${unf} recebida(s) sem funcionário correspondente no sistema (alinhe PIS/CPF ou número de folha com o cadastro)`
           );
         }
-        if (dup) parts.push(`${dup} ignorada(s) (NSR já importado)`);
+        if (dup) {
+          parts.push(
+            `nesta descarga: ${dup} batida(s) repetem NSR já na base (reenvio do relógio; não há insert duplicado — independente da fila «sem cadastro»)`
+          );
+        }
         let summary: string;
         if (parts.length) {
           summary = parts.join('; ');
@@ -604,8 +625,10 @@ const AdminRepDevices: React.FC = () => {
         setMessage({
           type: 'success',
           text:
-            stillInQueueOnly && !imp
+            stillInQueueOnly && !imp && !stillInQueueOtherUser
               ? `${stillInQueueOnly} marcação(ões) só na fila (sem cadastro para consolidar). Ajuste PIS/CPF, nº folha ou nº identificador (crachá) e use «Consolidar».`
+              : stillInQueueOtherUser > 0 && !stillInQueueOnly && !imp
+                ? `Nenhuma marcação gravada nesta consolidação: ${stillInQueueOtherUser} batida(s) na fila casa(m) com outro colaborador que não o filtrado. Limpe o filtro em «Fila → folha» ou escolha o colaborador certo.`
               : imp && stillInQueueOnly
                 ? receiveScope === 'today_only'
                   ? `Espelho: ${imp} registro(s) — cada um no nome do colaborador cujo PIS/CPF/nº folha bateu com o AFD. Atenção: ${stillInQueueOnly} batida(s) na fila sem cadastro na janela de hoje (outros dias não entram nesta operação «só hoje»).`
@@ -668,16 +691,37 @@ const AdminRepDevices: React.FC = () => {
       }
       const promoted = pr.promoted ?? 0;
       const skipped = pr.skippedNoUser ?? 0;
-      appendSrLog(`Consolidado: ${promoted} registro(s) na folha; ${skipped} pendente(s) sem funcionário identificado.`);
-      if (skipped > 0) {
+      const skippedOther = pr.skippedOtherUser ?? 0;
+      const partsLog: string[] = [
+        `Consolidado: ${promoted} registro(s) na folha; ${skipped} pendente(s) sem funcionário identificado`,
+      ];
+      if (onlyUid && skippedOther > 0) {
+        partsLog.push(`${skippedOther} com cadastro noutro colaborador (filtro «só este»)`);
+      }
+      appendSrLog(`${partsLog.join('; ')}.`);
+      if (onlyUid && skippedOther > 0) {
+        appendSrLog(
+          'Essas batidas não são «sem cadastro»: resolvem para outro utilizador. Limpe o filtro de colaborador para gravá-las no espelho.'
+        );
+      }
+      if (skipped > 0 || (onlyUid && skippedOther > 0)) {
         await appendRepPendingQueueDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
           localWindow: localDay,
-          filteredByUserOnly: Boolean(onlyUid),
+          filteredByUserOnly: Boolean(onlyUid) && skippedOther > 0,
         });
       }
       setMessage({
         type: 'success',
-        text: `${promoted} marcação(ões) gravadas na folha.${skipped ? ` ${skipped} ignorada(s) (sem cadastro).` : ''}`,
+        text: (() => {
+          const bits: string[] = [];
+          if (promoted > 0) bits.push(`${promoted} marcação(ões) gravadas na folha`);
+          if (skipped > 0) bits.push(`${skipped} ignorada(s) sem cadastro`);
+          if (onlyUid && skippedOther > 0) {
+            bits.push(`${skippedOther} não gravada(s): cadastro noutro colaborador (filtro «só este»)`);
+          }
+          if (bits.length === 0) return 'Nada a consolidar na janela/filtro escolhido(s).';
+          return `${bits.join('. ')}.`;
+        })(),
       });
       invalidateCompanyListCaches(user.companyId);
       await loadDevices();
