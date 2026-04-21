@@ -74,7 +74,6 @@ export function getSupabaseClient(): SupabaseClient | null {
         autoRefreshToken: true,
         detectSessionInUrl: false,
         lock: createInProcessAuthLock(),
-        lockAcquireTimeout: 20000,
       },
       global: {
         fetch: async (input, init) => {

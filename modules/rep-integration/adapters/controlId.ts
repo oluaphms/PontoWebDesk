@@ -531,7 +531,7 @@ const ControlIdAdapter: RepVendorAdapter = {
       }
     }
 
-    if (isPisFormatRejection(attempt.addHint, attempt.updHint)) {
+    if (!attempt.ok && isPisFormatRejection(attempt.addHint, attempt.updHint)) {
       let altAdd: Record<string, unknown>;
       let altUpd: Record<string, unknown>;
       try {
@@ -553,7 +553,8 @@ const ControlIdAdapter: RepVendorAdapter = {
 
     return {
       ok: false,
-      message: `Control iD: inclusão falhou (${attempt.addHint}). Atualização também falhou (${attempt.updHint}).${hint671}`,
+      message: `Control iD: inclusão falhou (${!attempt.ok ? attempt.addHint : ''}).` +
+        ` Atualização também falhou (${!attempt.ok ? attempt.updHint : ''}).${hint671}`,
     };
   },
 
