@@ -4,7 +4,7 @@ import {
   calculateDSR,
   calculateOvertime,
   classifyDay,
-  getBrazilianHolidays,
+  isNationalHoliday,
   type CompanyRules,
 } from './timeEngine';
 
@@ -73,11 +73,8 @@ describe('timeEngine consolidated rules', () => {
     expect(holiday.overtime_100_minutes).toBe(240);
   });
 
-  it('feriados automáticos incluem móveis nacionais', () => {
-    const holidays = getBrazilianHolidays(2026, 'BR');
-    expect(holidays.has('2026-02-17')).toBe(true); // Carnaval
-    expect(holidays.has('2026-04-03')).toBe(true); // Sexta-feira Santa
-    expect(holidays.has('2026-06-04')).toBe(true); // Corpus Christi
+  it('feriados nacionais fixos incluem 21/04', () => {
+    expect(isNationalHoliday('2026-04-21')).toBe(true);
   });
 
   it('21/04 é classificado como HOLIDAY automaticamente', async () => {

@@ -21,6 +21,7 @@ import {
   calculateNightHours,
   calculateOvertime,
   detectInconsistencies,
+  isNationalHoliday,
   parseTimeRecords,
   type OvertimeResult,
   type TimeInconsistency,
@@ -241,7 +242,7 @@ const AdminCalculos: React.FC = () => {
       );
       const parsed = parseTimeRecords(records);
 
-      const isHoliday = holidayDates.has(dateStr);
+      const isHoliday = holidayDates.has(dateStr) || isNationalHoliday(dateStr);
       const isDayOff = dailyBase.scheduled_day_off || isHoliday;
 
       let workedMinutes = dailyBase.total_worked_minutes;

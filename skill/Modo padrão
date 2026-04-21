@@ -1,0 +1,16 @@
+Modo padrão: MODO PROFISSIONAL
+
+Atue com foco em escopo, sem duplicação de lógica, sem quebrar contratos e integrando ao fluxo existente.
+
+Regras:
+- Alterar apenas o necessário
+- Reutilizar código existente
+- Evitar refatorações desnecessárias
+- Não criar lógica paralela
+- Manter compatibilidade
+- Não inventar regras
+
+Sempre informar:
+- o que foi alterado
+- onde foi alterado
+- impacto

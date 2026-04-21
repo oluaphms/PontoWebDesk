@@ -91,6 +91,29 @@ export function getBrazilianFixedHolidays(): string[] {
   return ['01-01', '04-21', '05-01', '09-07', '10-12', '11-02', '11-15', '12-25'];
 }
 
+export function isNationalHoliday(date: string): boolean {
+  const dateStr = date.slice(0, 10);
+  const md = dateStr.slice(5);
+  return getBrazilianFixedHolidays().includes(md);
+}
+
+export function getNationalHolidayDatesForPeriod(startDate: string, endDate: string): Set<string> {
+  const startYear = Number(startDate.slice(0, 4));
+  const endYear = Number(endDate.slice(0, 4));
+  const out = new Set<string>();
+  if (!Number.isFinite(startYear) || !Number.isFinite(endYear)) return out;
+  const fixed = getBrazilianFixedHolidays();
+  for (let year = startYear; year <= endYear; year++) {
+    for (const md of fixed) {
+      const dateStr = `${year}-${md}`;
+      if (dateStr >= startDate && dateStr <= endDate) {
+        out.add(dateStr);
+      }
+    }
+  }
+  return out;
+}
+
 const DEFAULT_COMPANY_RULES: CompanyRules = {
   work_on_saturday: false,
   saturday_overtime_type: '100',
@@ -215,10 +238,8 @@ async function getManualHolidayDates(companyId: string, year: number): Promise<S
 export async function isHoliday(date: string, company: { id?: string; city?: string; state?: string }): Promise<boolean> {
   const dateStr = date.slice(0, 10);
   const year = Number(dateStr.slice(0, 4));
-  const location = company.city || company.state || 'BR';
-  const automatic = getBrazilianHolidays(year, location);
   const manual = await getManualHolidayDates(company.id || '', year);
-  return automatic.has(dateStr) || manual.has(dateStr);
+  return isNationalHoliday(dateStr) || manual.has(dateStr);
 }
 
 export async function classifyDay(input: DayClassificationInput): Promise<DayType> {
@@ -586,20 +607,30 @@ export async function processEmployeeDay(
   const dayType = await classifyDay({ date: dateStr, company: { id: companyId } });
   const resolved = await resolveEmployeeScheduleForDate(employeeId, companyId, dateStr);
   const records = await getDayRecords(employeeId, dateStr);
-  const daily = await processDailyTime(employeeId, companyId, dateStr);
+  const dailyBase = await processDailyTime(employeeId, companyId, dateStr);
+  const isHolidayDay = dayType === 'HOLIDAY';
+  const daily = isHolidayDay
+    ? {
+        ...dailyBase,
+        expected_minutes: 0,
+        overtime_minutes: dailyBase.total_worked_minutes,
+        late_minutes: 0,
+      }
+    : dailyBase;
+  const explicitIsWorkDay = isHolidayDay ? false : resolved.schedule ? undefined : false;
   const inconsistencies = detectInconsistencies(
     employeeId,
     dateStr,
     records,
     resolved.schedule,
-    resolved.schedule ? undefined : false
+    explicitIsWorkDay
   );
   const night_minutes = calculateNightHours(records);
   let overtime = calculateOvertime({
     date: dateStr,
     dayType,
     workedMinutes: daily.total_worked_minutes,
-    expectedMinutes: daily.expected_minutes,
+    expectedMinutes: isHolidayDay ? 0 : daily.expected_minutes,
     companyRules,
     schedule: resolved.schedule,
   });

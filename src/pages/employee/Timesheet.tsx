@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { fetchTimeRecordsForMirrorWindow } from '../../../services/api';
+import { getNationalHolidayDatesForPeriod } from '../../engine/timeEngine';
 import { LoadingState } from '../../../components/UI';
 import {
   buildDayMirrorSummary,
@@ -163,6 +164,9 @@ const EmployeeTimesheet: React.FC = () => {
             .map((h: any) => String(h.date || h.data || '').slice(0, 10))
             .filter(Boolean),
         );
+        for (const date of getNationalHolidayDatesForPeriod(startDate, endDate)) {
+          holSet.add(date);
+        }
         if (!cancelled) {
           setRecords(rows ?? []);
           setHolidayDates(holSet);

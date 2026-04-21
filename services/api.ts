@@ -8,6 +8,7 @@ import {
   localCalendarDayEndUtc,
   localCalendarDayStartUtc,
 } from '../src/utils/localDateTimeToIso';
+import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 
 /**
  * Espelho de ponto: priorizar o instante da batida (`timestamp`) no intervalo civil local.
@@ -224,6 +225,17 @@ export async function buscarEspelhoAdmin(
     date: String(h.date || h.data || '').slice(0, 10),
     name: h.name || h.descricao || 'Feriado',
   }));
+  const holidayDates = new Set(holidays.map((h) => h.date));
+  for (const date of getNationalHolidayDatesForPeriod(periodStart, periodEnd)) {
+    if (!holidayDates.has(date)) {
+      holidays.push({
+        id: `national-${date}`,
+        date,
+        name: 'Feriado nacional',
+      });
+      holidayDates.add(date);
+    }
+  }
 
   return {
     employees,
