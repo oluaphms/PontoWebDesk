@@ -104,7 +104,12 @@ const REP_RECEIVE_UI_TIMEOUT_MS = (4 * 60 + 20) * 60 * 1000;
 
 function readLsBool(key: string, defaultVal: boolean): boolean {
   if (typeof window === 'undefined') return defaultVal;
-  const v = localStorage.getItem(key);
+  let v: string | null = null;
+  try {
+    v = localStorage.getItem(key);
+  } catch (err) {
+    console.warn('[RepDevices] Falha ao ler storage:', err);
+  }
   if (v === null) return defaultVal;
   return v === '1';
 }
@@ -1650,8 +1655,8 @@ const AdminRepDevices: React.FC = () => {
                       setSrAllocate(v);
                       try {
                         localStorage.setItem(LS_REP_ALLOCATE, v ? '1' : '0');
-                      } catch {
-                        /* ignore */
+                      } catch (err) {
+                        console.warn('[RepDevices] Falha ao salvar alocacao:', err);
                       }
                     }}
                     className="mt-0.5 rounded border-slate-300"
@@ -1673,8 +1678,8 @@ const AdminRepDevices: React.FC = () => {
                       setSrSkipBlocked(v);
                       try {
                         localStorage.setItem(LS_REP_SKIP_BLOCKED, v ? '1' : '0');
-                      } catch {
-                        /* ignore */
+                      } catch (err) {
+                        console.warn('[RepDevices] Falha ao salvar opcao de bloqueados:', err);
                       }
                     }}
                     className="mt-0.5 rounded border-slate-300"
@@ -1697,8 +1702,8 @@ const AdminRepDevices: React.FC = () => {
                       try {
                         localStorage.setItem(LS_TIMESHEET_SPECIAL_BARS, v ? '1' : '0');
                         window.dispatchEvent(new Event(SPECIAL_BARS_CHANGED));
-                      } catch {
-                        /* ignore */
+                      } catch (err) {
+                        console.warn('[RepDevices] Falha ao salvar barras especiais:', err);
                       }
                     }}
                     className="mt-0.5 rounded border-slate-300"

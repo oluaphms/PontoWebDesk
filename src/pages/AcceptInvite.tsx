@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { getAppBaseUrl } from '../../services/appUrl';
+import { validatePassword } from '../utils/passwordRules';
 
 const API_BASE = getAppBaseUrl();
 
@@ -48,14 +49,6 @@ const AcceptInvitePage: React.FC = () => {
       })
       .finally(() => setLoading(false));
   }, []);
-
-  const validatePassword = (pwd: string): string | null => {
-    if (!pwd || pwd.length < 6) return 'Senha deve ter no mínimo 6 caracteres.';
-    if (pwd.length > 32) return 'Senha deve ter no máximo 32 caracteres.';
-    if (!/^[A-Za-z0-9]+$/.test(pwd)) return 'Use apenas letras e números (sem espaços ou símbolos).';
-    if (!/[A-Za-z]/.test(pwd) || !/[0-9]/.test(pwd)) return 'A senha deve conter letras e números.';
-    return null;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

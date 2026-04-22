@@ -54,10 +54,19 @@ const INITIAL_COMPANIES: Company[] = [
 export const PontoService = {
 
   getDeviceId(): string {
-    let id = localStorage.getItem('smartponto_device_id');
+    let id: string | null = null;
+    try {
+      id = localStorage.getItem('smartponto_device_id');
+    } catch (err) {
+      console.warn('[PontoService] Falha ao ler device_id do storage:', err);
+    }
     if (!id) {
       id = 'dev_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-      localStorage.setItem('smartponto_device_id', id);
+      try {
+        localStorage.setItem('smartponto_device_id', id);
+      } catch (err) {
+        console.warn('[PontoService] Falha ao salvar device_id no storage:', err);
+      }
     }
     return id;
   },
@@ -73,14 +82,35 @@ export const PontoService = {
     }
 
     // Fallback para localStorage
-    const stored = localStorage.getItem(`company_${companyId}`);
-    const company = stored ? JSON.parse(stored) : INITIAL_COMPANIES.find(c => c.id === companyId);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(`company_${companyId}`);
+    } catch (err) {
+      console.warn('[PontoService] Falha ao ler empresa do storage:', err);
+    }
+    let company: Company | undefined;
+    if (stored) {
+      try {
+        company = JSON.parse(stored);
+      } catch (err) {
+        console.warn('[PontoService] Falha ao parsear empresa do storage:', err);
+      }
+    }
+    if (!company) {
+      company = INITIAL_COMPANIES.find(c => c.id === companyId);
+    }
     if (company) {
       cache.companies.set(companyId, company);
       if (!stored) {
-        localStorage.setItem(`company_${companyId}`, JSON.stringify(company));
+        try {
+          localStorage.setItem(`company_${companyId}`, JSON.stringify(company));
+        } catch (err) {
+          console.warn('[PontoService] Falha ao salvar empresa no storage:', err);
+        }
         // Salvar no Firestore também (se configurado)
-        await firestoreService.saveCompany(company).catch(() => { });
+        await firestoreService.saveCompany(company).catch((err) => {
+          console.warn('[PontoService] Falha ao salvar empresa no Firestore:', err);
+        });
       }
     }
     return company;
@@ -110,8 +140,8 @@ export const PontoService = {
             window.dispatchEvent(new Event('current_user_changed'));
           }
         }
-      } catch {
-        // ignora
+      } catch (err) {
+        console.warn('[PontoService] Falha ao atualizar cache local de usuário:', err);
       }
     } catch (error) {
       console.error('Erro ao atualizar perfil:', error);
@@ -128,7 +158,9 @@ export const PontoService = {
     localStorage.setItem(`company_${companyId}`, JSON.stringify(updated));
 
     // Salvar no Firestore também
-    await firestoreService.saveCompany(updated).catch(() => { });
+    await firestoreService.saveCompany(updated).catch((err) => {
+      console.warn('[PontoService] Falha ao atualizar empresa no Firestore:', err);
+    });
 
     // Monitoramento: Log de alteração de configuração
     LoggingService.log({
@@ -178,7 +210,9 @@ export const PontoService = {
     this.saveAllRecords(allRecords);
 
     // Atualizar no Firestore também
-    await firestoreService.updateTimeRecord(recordId, updatedRecord).catch(() => { });
+    await firestoreService.updateTimeRecord(recordId, updatedRecord).catch((err) => {
+      console.warn('[PontoService] Falha ao atualizar registro no Firestore:', err);
+    });
 
     // Monitoramento: Log de ação administrativa sensível
     LoggingService.log({
@@ -275,7 +309,11 @@ export const PontoService = {
     // Manter cache local também
     const updatedUserRecords = [newRecord, ...userRecords];
     cache.records.set(userId, updatedUserRecords);
-    localStorage.setItem(`records_${userId}`, JSON.stringify(updatedUserRecords));
+    try {
+      localStorage.setItem(`records_${userId}`, JSON.stringify(updatedUserRecords));
+    } catch (err) {
+      console.warn('[PontoService] Falha ao salvar registros no storage:', err);
+    }
 
     const allRecords = await this.loadAllRecords();
     allRecords.unshift(newRecord);
@@ -300,15 +338,25 @@ export const PontoService = {
     }
 
     // Fallback para localStorage
-    const stored = localStorage.getItem(`records_${userId}`);
-    if (!stored) return [];
-    const records = JSON.parse(stored).map((rec: any) => ({
-      ...rec,
-      createdAt: new Date(rec.createdAt),
-      adjustments: rec.adjustments?.map((a: any) => ({ ...a, timestamp: new Date(a.timestamp), previousCreatedAt: new Date(a.previousCreatedAt), newCreatedAt: new Date(a.newCreatedAt) }))
-    }));
-    cache.records.set(userId, records);
-    return records;
+    let storedRecords: string | null = null;
+    try {
+      storedRecords = localStorage.getItem(`records_${userId}`);
+    } catch (err) {
+      console.warn('[PontoService] Falha ao ler registros do storage:', err);
+    }
+    if (!storedRecords) return [];
+    try {
+      const records = JSON.parse(storedRecords).map((rec: any) => ({
+        ...rec,
+        createdAt: new Date(rec.createdAt),
+        adjustments: rec.adjustments?.map((a: any) => ({ ...a, timestamp: new Date(a.timestamp), previousCreatedAt: new Date(a.previousCreatedAt), newCreatedAt: new Date(a.newCreatedAt) }))
+      }));
+      cache.records.set(userId, records);
+      return records;
+    } catch (err) {
+      console.warn('[PontoService] Falha ao parsear registros do storage:', err);
+      return [];
+    }
   },
 
   async loadAllRecords(): Promise<TimeRecord[]> {
@@ -316,16 +364,30 @@ export const PontoService = {
 
     // Tentar buscar do Firestore (precisa de companyId, então vamos usar localStorage como fallback)
     // Em produção, isso seria uma query mais complexa
-    const stored = localStorage.getItem('all_time_records');
-    if (!stored) return [];
-    const records = JSON.parse(stored).map((rec: any) => ({ ...rec, createdAt: new Date(rec.createdAt) }));
-    cache.allRecords = records;
-    return records;
+    let storedAll: string | null = null;
+    try {
+      storedAll = localStorage.getItem('all_time_records');
+    } catch (err) {
+      console.warn('[PontoService] Falha ao ler registros globais do storage:', err);
+    }
+    if (!storedAll) return [];
+    try {
+      const records = JSON.parse(storedAll).map((rec: any) => ({ ...rec, createdAt: new Date(rec.createdAt) }));
+      cache.allRecords = records;
+      return records;
+    } catch (err) {
+      console.warn('[PontoService] Falha ao parsear registros globais do storage:', err);
+      return [];
+    }
   },
 
   saveAllRecords(records: TimeRecord[]) {
     cache.allRecords = records;
-    localStorage.setItem('all_time_records', JSON.stringify(records));
+    try {
+      localStorage.setItem('all_time_records', JSON.stringify(records));
+    } catch (err) {
+      console.warn('[PontoService] Falha ao salvar registros globais no storage:', err);
+    }
   },
 
   async getAllEmployees(companyId: string): Promise<EmployeeSummary[]> {

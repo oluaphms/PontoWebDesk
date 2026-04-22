@@ -47,8 +47,12 @@ export class Reconciler {
   start() {
     if (this._timer) return;
     // Primeiro ciclo após 30s (deixar o worker principal estabilizar)
-    const firstRun = setTimeout(() => this._run().catch(() => {}), 30_000);
-    this._timer = setInterval(() => this._run().catch(() => {}), this._interval);
+    const firstRun = setTimeout(() => this._run().catch((err) => {
+      this._queue.log(LOG_LEVEL.WARN, 'reconciler', 'Primeira reconciliação falhou', { error: String(err) });
+    }), 30_000);
+    this._timer = setInterval(() => this._run().catch((err) => {
+      this._queue.log(LOG_LEVEL.WARN, 'reconciler', 'Reconciliação periódica falhou', { error: String(err) });
+    }), this._interval);
     this._queue.log(LOG_LEVEL.INFO, 'reconciler', `Reconciliador iniciado (intervalo: ${this._interval / 1000}s)`);
     return this;
   }

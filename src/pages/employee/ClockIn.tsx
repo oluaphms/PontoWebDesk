@@ -41,14 +41,14 @@ import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { queryClient } from '../../lib/queryClient';
 import { invalidateAfterPunch } from '../../services/queryCache';
-
-const LocationMap = React.lazy(() => import('../../../components/LocationMap'));
 import {
   hasStoredPasskey,
   isWebAuthnSupported,
   registerPlatformPasskey,
   verifyPlatformPasskey,
 } from '../../services/webAuthnPunchService';
+
+const LocationMap = React.lazy(() => import('../../../components/LocationMap'));
 /** Comprovação explícita: foto, biometria ou registro manual (quando a política permitir). */
 type VerificationMode = 'photo' | 'digital' | 'manual';
 
@@ -358,7 +358,7 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       if (globalSettings?.gps_required && !manualBypass) {
-        if (!geoPos?.latitude || !geoPos?.longitude) {
+        if (geoPos?.latitude == null || geoPos?.longitude == null) {
           setError('O registro de ponto exige localização. Ative o GPS e tente novamente.');
           toast.addToast('error', 'Ative o GPS para registrar o ponto.');
           return;
@@ -533,7 +533,7 @@ const EmployeeClockIn: React.FC = () => {
     if (!user || pendingLogType == null) return;
     const biometricOk = biometricOverride ?? hadBiometric;
     const manualBypass = manualBypassActive;
-    if (globalSettings?.gps_required && (!geo?.latitude || !geo?.longitude) && !manualBypass) {
+    if (globalSettings?.gps_required && (geo?.latitude == null || geo?.longitude == null) && !manualBypass) {
       toast.addToast('error', 'É necessário obter a localização antes de registrar.');
       return;
     }
@@ -1065,7 +1065,7 @@ const EmployeeClockIn: React.FC = () => {
                   saving ||
                   (gpsLoading && !manualBypassActive && globalSettings?.gps_required === true) ||
                   (globalSettings?.gps_required === true &&
-                    (!geo?.latitude || !geo?.longitude) &&
+                    (geo?.latitude == null || geo?.longitude == null) &&
                     !manualBypassActive) ||
                   (globalSettings?.photo_required === true &&
                     !manualBypassActive &&

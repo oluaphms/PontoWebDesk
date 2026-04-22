@@ -14,7 +14,12 @@ export interface LanguageContextValue {
 
 export function getDefaultLanguage(): Language {
   if (typeof window === 'undefined') return 'pt-BR';
-  const saved = localStorage.getItem('smartponto_language') as Language;
+  let saved: Language | null = null;
+  try {
+    saved = localStorage.getItem('smartponto_language') as Language;
+  } catch (err) {
+    console.warn('[LanguageContext] Falha ao ler idioma salvo:', err);
+  }
   return saved === 'pt-BR' || saved === 'en-US' ? saved : 'pt-BR';
 }
 
@@ -40,7 +45,9 @@ function setLanguageStore(next: Language) {
   i18n.setLanguage(next);
   try {
     localStorage.setItem('smartponto_language', next);
-  } catch {}
+  } catch (err) {
+    console.warn('[LanguageContext] Falha ao salvar idioma:', err);
+  }
   listeners.forEach((l) => l());
 }
 

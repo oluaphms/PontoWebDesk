@@ -149,9 +149,19 @@ self.addEventListener('sync', (event) => {
 async function syncPunchRecords() {
   try {
     // Buscar registros pendentes do IndexedDB ou localStorage
-    const pendingRecords = JSON.parse(
-      localStorage.getItem('pending_punch_records') || '[]'
-    );
+    if (typeof localStorage === 'undefined') {
+      console.warn('[SW] localStorage indisponível no service worker.');
+      return;
+    }
+    let pendingRecords = [];
+    try {
+      pendingRecords = JSON.parse(
+        localStorage.getItem('pending_punch_records') || '[]'
+      );
+    } catch (error) {
+      console.warn('[SW] Falha ao ler pendentes:', error);
+      return;
+    }
 
     if (pendingRecords.length === 0) {
       return;
@@ -165,7 +175,11 @@ async function syncPunchRecords() {
         
         // Remover do array de pendentes após sucesso
         const updated = pendingRecords.filter((r) => r.id !== record.id);
-        localStorage.setItem('pending_punch_records', JSON.stringify(updated));
+        try {
+          localStorage.setItem('pending_punch_records', JSON.stringify(updated));
+        } catch (error) {
+          console.warn('[SW] Falha ao salvar pendentes:', error);
+        }
       } catch (error) {
         console.error('[SW] Erro ao sincronizar registro:', error);
       }

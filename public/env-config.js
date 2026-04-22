@@ -8,9 +8,17 @@
 (function() {
   'use strict';
   const fromWindow = window.ENV || {};
-  const envFromStorage = localStorage.getItem('VITE_ENVIRONMENT') || 'dev';
-  const urlFromStorage = localStorage.getItem('VITE_SUPABASE_URL') || '';
-  const keyFromStorage = localStorage.getItem('VITE_SUPABASE_ANON_KEY') || '';
+  const safeGet = (key, fallback) => {
+    try {
+      return localStorage.getItem(key) || fallback;
+    } catch (e) {
+      console.warn('[env-config] Falha ao ler storage:', e);
+      return fallback;
+    }
+  };
+  const envFromStorage = safeGet('VITE_ENVIRONMENT', 'dev');
+  const urlFromStorage = safeGet('VITE_SUPABASE_URL', '');
+  const keyFromStorage = safeGet('VITE_SUPABASE_ANON_KEY', '');
 
   // env-config.js é fallback opcional em runtime.
   // Fonte principal no dev é import.meta.env (arquivo .env do Vite).
@@ -27,7 +35,7 @@
   // Injetar no window apenas quando existir valor.
   if (supabaseUrl) window.__VITE_SUPABASE_URL = supabaseUrl;
   if (supabaseAnonKey) window.__VITE_SUPABASE_ANON_KEY = supabaseAnonKey;
-  window.__VITE_GEMINI_API_KEY = localStorage.getItem('VITE_GEMINI_API_KEY') || '';
+  window.__VITE_GEMINI_API_KEY = safeGet('VITE_GEMINI_API_KEY', '');
   window.ENV.SUPABASE_URL = supabaseUrl;
   window.ENV.SUPABASE_ANON_KEY = supabaseAnonKey;
 

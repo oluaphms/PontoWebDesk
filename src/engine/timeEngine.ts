@@ -216,7 +216,11 @@ async function getManualHolidayDates(companyId: string, year: number): Promise<S
       const d = normalize(h.date);
       if (d) out.add(d);
     }
-  } catch {}
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn('[timeEngine] Falha ao buscar feriados (holidays):', err);
+    }
+  }
 
   try {
     const legacyRows = (await db.select(
@@ -231,7 +235,11 @@ async function getManualHolidayDates(companyId: string, year: number): Promise<S
       const d = normalize(h.data);
       if (d) out.add(d);
     }
-  } catch {}
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn('[timeEngine] Falha ao buscar feriados (feriados):', err);
+    }
+  }
   return out;
 }
 
@@ -264,19 +272,31 @@ export async function getCompanyRules(companyId: string): Promise<CompanyRules> 
   try {
     const rows = (await db.select('company_rules', [{ column: 'company_id', operator: 'eq', value: companyId }], undefined, 1)) as any[];
     fromCompanyRules = rows?.[0] ?? null;
-  } catch {}
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn('[timeEngine] Falha ao buscar company_rules:', err);
+    }
+  }
 
   let overtimeRules: any = null;
   try {
     const rows = (await db.select('overtime_rules', [{ column: 'company_id', operator: 'eq', value: companyId }], undefined, 1)) as any[];
     overtimeRules = rows?.[0] ?? null;
-  } catch {}
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn('[timeEngine] Falha ao buscar overtime_rules:', err);
+    }
+  }
 
   let globalSettings: any = null;
   try {
     const rows = (await db.select('global_settings', [], undefined, 1)) as any[];
     globalSettings = rows?.[0] ?? null;
-  } catch {}
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn('[timeEngine] Falha ao buscar global_settings:', err);
+    }
+  }
 
   const workOnSaturday = Boolean(
     fromCompanyRules?.work_on_saturday ??
@@ -765,7 +785,11 @@ export async function saveInconsistencies(
       type: inc.type,
       description: inc.description,
       resolved: false,
-    }).catch(() => {});
+    }).catch((err) => {
+      if (import.meta.env?.DEV) {
+        console.warn('[timeEngine] Falha ao salvar inconsistência:', err);
+      }
+    });
   }
 }
 
@@ -883,6 +907,10 @@ export async function saveTimeAlerts(
       description: a.description,
       severity: a.severity,
       resolved: false,
-    }).catch(() => {});
+    }).catch((err) => {
+      if (import.meta.env?.DEV) {
+        console.warn('[timeEngine] Falha ao salvar alerta:', err);
+      }
+    });
   }
 }

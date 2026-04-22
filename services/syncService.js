@@ -696,7 +696,9 @@ export function startSyncService(opts) {
 
   const syncInterval        = setInterval(() => tick().catch(e => console.error('[SYNC]', e instanceof Error ? e.message : e)), intervalMs);
   const maintenanceInterval = setInterval(runMaintenance, MAINTENANCE_INTERVAL);
-  const auditInterval       = setInterval(() => runAuditCheck().catch(() => {}), AUDIT_INTERVAL_MS);
+  const auditInterval       = setInterval(() => runAuditCheck().catch((err) => {
+    console.warn('[SYNC] Falha no audit check:', err instanceof Error ? err.message : err);
+  }), AUDIT_INTERVAL_MS);
 
   // Primeiro ciclo imediato
   void tick().catch(e => console.error('[SYNC] Primeiro ciclo:', e instanceof Error ? e.message : e));
@@ -724,7 +726,9 @@ export function startSyncService(opts) {
       dailyAudit.stop();
       sloTracker.stop();
       bizMetrics.stop();
-      distLock.release(LOCK_NAME).catch(() => {});
+      distLock.release(LOCK_NAME).catch((err) => {
+        console.warn('[SYNC] Falha ao liberar lock distribuído:', err instanceof Error ? err.message : err);
+      });
       try { rawDb.close(); } catch { /* ignore */ }
       console.log('[SYNC] Worker parado');
     },

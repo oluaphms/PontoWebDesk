@@ -11,6 +11,34 @@ import { TimeRecord, Company, User, EmployeeSummary, CompanyKPIs } from '../type
 /** Uma busca por companyId por vez evita N× db.select(companies) em paralelo (timeout 28s). */
 const getCompanyInflight = new Map<string, Promise<Company | null>>();
 
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    console.warn('[firestoreService] Falha ao ler storage:', err);
+    return null;
+  }
+}
+
+function safeGetJson<T>(key: string, fallback: T): T {
+  const raw = safeGetItem(key);
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    console.warn('[firestoreService] Falha ao parsear JSON do storage:', err);
+    return fallback;
+  }
+}
+
+function safeSetJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn('[firestoreService] Falha ao salvar no storage:', err);
+  }
+}
+
 // Converte TimeRecord para formato Supabase
 const timeRecordToSupabase = (record: TimeRecord): any => {
   return {
@@ -63,17 +91,13 @@ class SupabaseService {
   async saveTimeRecord(record: TimeRecord): Promise<void> {
     if (!isSupabaseConfigured()) {
       // Fallback para localStorage
-      const userRecords = JSON.parse(
-        localStorage.getItem(`records_${record.userId}`) || '[]'
-      );
+      const userRecords = safeGetJson<TimeRecord[]>(`records_${record.userId}`, []);
       userRecords.unshift(record);
-      localStorage.setItem(`records_${record.userId}`, JSON.stringify(userRecords));
+      safeSetJson(`records_${record.userId}`, userRecords);
       
-      const allRecords = JSON.parse(
-        localStorage.getItem('all_time_records') || '[]'
-      );
+      const allRecords = safeGetJson<TimeRecord[]>('all_time_records', []);
       allRecords.unshift(record);
-      localStorage.setItem('all_time_records', JSON.stringify(allRecords));
+      safeSetJson('all_time_records', allRecords);
       return;
     }
 
@@ -139,9 +163,9 @@ class SupabaseService {
   async getTimeRecords(userId: string): Promise<TimeRecord[]> {
     if (!isSupabaseConfigured()) {
       // Fallback para localStorage
-      const stored = localStorage.getItem(`records_${userId}`);
-      if (!stored) return [];
-      return JSON.parse(stored).map((rec: any) => ({
+      const stored = safeGetJson<any[]>(`records_${userId}`, []);
+      if (!stored.length) return [];
+      return stored.map((rec: any) => ({
         ...rec,
         createdAt: new Date(rec.createdAt),
         adjustments: rec.adjustments?.map((a: any) => ({
@@ -177,9 +201,7 @@ class SupabaseService {
   async getCompanyRecords(companyId: string): Promise<TimeRecord[]> {
     if (!isSupabaseConfigured()) {
       // Fallback para localStorage
-      const allRecords = JSON.parse(
-        localStorage.getItem('all_time_records') || '[]'
-      );
+      const allRecords = safeGetJson<any[]>('all_time_records', []);
       return allRecords
         .filter((r: any) => r.companyId === companyId)
         .map((rec: any) => ({
@@ -208,23 +230,19 @@ class SupabaseService {
   async updateTimeRecord(recordId: string, updates: Partial<TimeRecord>): Promise<void> {
     if (!isSupabaseConfigured()) {
       // Fallback para localStorage
-      const allRecords = JSON.parse(
-        localStorage.getItem('all_time_records') || '[]'
-      );
+      const allRecords = safeGetJson<any[]>('all_time_records', []);
       const index = allRecords.findIndex((r: any) => r.id === recordId);
       if (index !== -1) {
         allRecords[index] = { ...allRecords[index], ...updates };
-        localStorage.setItem('all_time_records', JSON.stringify(allRecords));
+        safeSetJson('all_time_records', allRecords);
         
         // Atualizar também no localStorage do usuário
         const userId = allRecords[index].userId;
-        const userRecords = JSON.parse(
-          localStorage.getItem(`records_${userId}`) || '[]'
-        );
+        const userRecords = safeGetJson<any[]>(`records_${userId}`, []);
         const userIndex = userRecords.findIndex((r: any) => r.id === recordId);
         if (userIndex !== -1) {
           userRecords[userIndex] = { ...userRecords[userIndex], ...updates };
-          localStorage.setItem(`records_${userId}`, JSON.stringify(userRecords));
+          safeSetJson(`records_${userId}`, userRecords);
         }
       }
       return;
@@ -252,7 +270,7 @@ class SupabaseService {
    */
   async saveCompany(company: Company): Promise<void> {
     if (!isSupabaseConfigured()) {
-      localStorage.setItem(`company_${company.id}`, JSON.stringify(company));
+      safeSetJson(`company_${company.id}`, company);
       return;
     }
     const createdAtIso =
@@ -295,9 +313,8 @@ class SupabaseService {
     if (!companyId || !companyId.trim()) return null;
     const id = companyId.trim();
     if (!isSupabaseConfigured()) {
-      const stored = localStorage.getItem(`company_${id}`);
-      if (!stored) return null;
-      const c = JSON.parse(stored);
+      const c = safeGetJson<any>(`company_${id}`, null);
+      if (!c) return null;
       const nome = c.nome ?? c.name ?? '';
       return {
         ...c,
@@ -415,14 +432,11 @@ class SupabaseService {
     if (!isSupabaseConfigured()) {
       // Fallback: polling do localStorage
       const interval = setInterval(() => {
-        const stored = localStorage.getItem(`records_${userId}`);
-        if (stored) {
-          const records = JSON.parse(stored).map((rec: any) => ({
-            ...rec,
-            createdAt: new Date(rec.createdAt)
-          }));
-          callback(records);
-        }
+        const records = safeGetJson<any[]>(`records_${userId}`, []).map((rec: any) => ({
+          ...rec,
+          createdAt: new Date(rec.createdAt)
+        }));
+        if (records.length) callback(records);
       }, 5000);
       
       return () => clearInterval(interval);

@@ -165,14 +165,18 @@ export class TimestampAnchor {
         INSERT OR IGNORE INTO timestamp_anchors (id, date, merkle_root, hash_count, anchored_at)
         VALUES (?, ?, ?, ?, ?)
       `).run(anchorId, today, merkleRoot, hashes.length, anchoredAt);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[ANCHOR] Falha ao salvar âncora local:', err);
+    }
 
     // Salvar no Supabase
     if (this._supabase) {
       await this._supabase.from('timestamp_anchors').upsert({
         id: anchorId, date: today, merkle_root: merkleRoot,
         hash_count: hashes.length, anchored_at: anchoredAt,
-      }, { onConflict: 'date', ignoreDuplicates: false }).catch(() => {});
+      }, { onConflict: 'date', ignoreDuplicates: false }).catch((err) => {
+        console.warn('[ANCHOR] Falha ao salvar âncora no Supabase:', err);
+      });
     }
 
     // Publicar em serviço externo (opcional)

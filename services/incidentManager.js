@@ -109,7 +109,9 @@ export class IncidentManager {
         title:   `[${id}] ${params.severity}: ${params.title}`,
         message: params.impact ?? params.cause ?? 'Incidente aberto',
         context: { id, severity: params.severity, affectedTenants: params.affectedTenants },
-      }).catch(() => {});
+      }).catch((err) => {
+        this._queue.log(LOG_LEVEL.WARN, 'incident', 'Falha ao disparar alerta de incidente', { error: String(err) });
+      });
     }
 
     return id;

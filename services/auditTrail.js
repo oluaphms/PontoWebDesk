@@ -156,7 +156,9 @@ export class AuditTrail {
 
     // Replicar para Supabase de forma assíncrona (best-effort)
     if (this._supabase) {
-      this._replicateToCloud(id, entry, hash, now).catch(() => {});
+      this._replicateToCloud(id, entry, hash, now).catch((err) => {
+        console.warn('[AUDIT] Falha ao replicar para cloud:', err instanceof Error ? err.message : err);
+      });
     }
 
     return id;

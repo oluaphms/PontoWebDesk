@@ -7,7 +7,13 @@ import TimeClockButtons from '../components/TimeClockButtons';
 import { useToast } from '../components/ToastProvider';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
-import { registerPunch } from '../rep/repEngine';
+import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
+import {
+  getCurrentLocationResult,
+  geolocationReasonMessage,
+  geolocationActionHint,
+  logGeolocationDebug,
+} from '../services/locationService';
 import { LogType, PunchMethod, LogSeverity } from '../../types';
 import { LoggingService } from '../../services/loggingService';
 import { NotificationService } from '../../services/notificationService';
@@ -58,28 +64,36 @@ const TimeClockPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error('Geolocalização não suportada pelo navegador.'));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-        });
+      const locationResult = await getCurrentLocationResult({
+        enableHighAccuracy: true,
+        timeout: 10000,
       });
+      if (!locationResult.ok) {
+        logGeolocationDebug('timeclock_location_error', {
+          reason: locationResult.reason,
+          apiMessage: locationResult.apiMessage,
+        });
+        const message = geolocationReasonMessage(locationResult.reason);
+        const hint = geolocationActionHint(locationResult.reason);
+        toast.addToast('error', `${message} ${hint}`.trim());
+        return;
+      }
+      const position = locationResult.position;
 
-      const result = await registerPunch({
+      const result = await registerPunchSecure({
         userId: user.id,
         companyId: user.companyId,
         type: type as string,
         method: PunchMethod.GPS,
         location: {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
+          lat: position.latitude,
+          lng: position.longitude,
+          accuracy: position.accuracy,
         },
         source: PUNCH_SOURCE_WEB,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
       });
 
       setLastRecord({
@@ -107,7 +121,8 @@ const TimeClockPage: React.FC = () => {
       toast.addToast('success', 'Registro de ponto criado com sucesso.');
     } catch (e: any) {
       console.error('Erro ao registrar ponto:', e);
-      toast.addToast('error', e?.message || 'Erro ao registrar ponto.');
+      const err = normalizePunchRegistrationError(e);
+      toast.addToast('error', err?.message || 'Erro ao registrar ponto.');
     } finally {
       setIsSaving(false);
     }

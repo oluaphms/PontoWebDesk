@@ -41,7 +41,9 @@ export class LatencyTracker {
 
   start() {
     if (this._timer) return this;
-    this._timer = setInterval(() => this._check().catch(() => {}), this._interval);
+    this._timer = setInterval(() => this._check().catch((err) => {
+      console.warn('[latencyTracker] Falha ao medir latência:', err);
+    }), this._interval);
     return this;
   }
 

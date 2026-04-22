@@ -599,7 +599,11 @@ export const i18n = {
   setLanguage(lang: Language) {
     currentLanguage = lang;
     document.documentElement.lang = lang;
-    localStorage.setItem('smartponto_language', lang);
+    try {
+      localStorage.setItem('smartponto_language', lang);
+    } catch (err) {
+      console.warn('[i18n] Falha ao salvar idioma:', err);
+    }
   },
 
   getLanguage(): Language {
@@ -611,7 +615,12 @@ export const i18n = {
   },
 
   init() {
-    const saved = localStorage.getItem('smartponto_language') as Language;
+    let saved: Language | null = null;
+    try {
+      saved = localStorage.getItem('smartponto_language') as Language;
+    } catch (err) {
+      console.warn('[i18n] Falha ao ler idioma salvo:', err);
+    }
     if (saved && (saved === 'pt-BR' || saved === 'en-US')) {
       currentLanguage = saved;
     } else {

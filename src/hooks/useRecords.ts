@@ -5,7 +5,9 @@ import { PontoService } from '../../services/pontoService';
 import { OfflinePunchService } from '../../services/offlinePunchService';
 import { timeRecordsQueries } from '../../services/queryOptimizations';
 import { invalidateAfterPunch } from '../services/queryCache';
-import { supabase } from '../../services/supabase';
+import { isSupabaseConfigured, supabase } from '../../services/supabase';
+import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
+import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
 
 export const useRecords = (userId: string | undefined, companyId: string | undefined) => {
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,16 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
   const lastPunchAt = useRef<number>(0);
   const THROTTLE_MS = 5000;
 
+  const isBase64Photo = (photo?: string) =>
+    typeof photo === 'string' && photo.startsWith('data:image');
+
+  const canUseSecurePunch = (method: PunchMethod, data: any) =>
+    isSupabaseConfigured() &&
+    (typeof navigator === 'undefined' || navigator.onLine !== false) &&
+    method !== PunchMethod.MANUAL &&
+    !data?.justification &&
+    !isBase64Photo(data?.photo);
+
   const syncOfflineQueue = useCallback(async () => {
     if (!userId || !companyId) return;
     const queue = OfflinePunchService.getQueue();
@@ -70,15 +82,36 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
 
     for (const item of toSync) {
       try {
-        await PontoService.registerPunch(
-          item.userId,
-          item.companyId,
-          item.type,
-          item.method,
-          item.data.location,
-          item.data.photo,
-          item.data.justification
-        );
+        if (canUseSecurePunch(item.method, item.data)) {
+          await registerPunchSecure({
+            userId: item.userId,
+            companyId: item.companyId,
+            type: item.type as string,
+            method: item.method,
+            location: item.data.location
+              ? {
+                  lat: item.data.location.lat,
+                  lng: item.data.location.lng,
+                  accuracy: item.data.location.accuracy,
+                }
+              : undefined,
+            photoUrl: item.data.photo || undefined,
+            source: PUNCH_SOURCE_WEB,
+            latitude: item.data.location?.lat ?? null,
+            longitude: item.data.location?.lng ?? null,
+            accuracy: item.data.location?.accuracy ?? null,
+          });
+        } else {
+          await PontoService.registerPunch(
+            item.userId,
+            item.companyId,
+            item.type,
+            item.method,
+            item.data.location,
+            item.data.photo,
+            item.data.justification
+          );
+        }
         syncedIds.push(item.id);
         // ✅ OTIMIZADO: Invalidar cache após sincronizar
         queryClient.invalidateQueries({ queryKey: ['records', userId] });
@@ -104,15 +137,34 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
     lastPunchAt.current = now;
     setError(null);
     try {
-      const newRecord = await PontoService.registerPunch(
-        userId,
-        companyId,
-        type,
-        method,
-        data.location,
-        data.photo,
-        data.justification
-      );
+      const newRecord = canUseSecurePunch(method, data)
+        ? await registerPunchSecure({
+            userId,
+            companyId,
+            type: type as string,
+            method,
+            location: data.location
+              ? {
+                  lat: data.location.lat,
+                  lng: data.location.lng,
+                  accuracy: data.location.accuracy,
+                }
+              : undefined,
+            photoUrl: data.photo || undefined,
+            source: PUNCH_SOURCE_WEB,
+            latitude: data.location?.lat ?? null,
+            longitude: data.location?.lng ?? null,
+            accuracy: data.location?.accuracy ?? null,
+          })
+        : await PontoService.registerPunch(
+            userId,
+            companyId,
+            type,
+            method,
+            data.location,
+            data.photo,
+            data.justification
+          );
       // ✅ OTIMIZADO: Invalidar cache após registrar ponto
       queryClient.invalidateQueries({ queryKey: ['records', userId] });
       invalidateAfterPunch(userId, companyId);
@@ -128,8 +180,8 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
         setError('Sem conexão. Seu ponto foi salvo offline e será sincronizado depois.');
         return;
       }
-
-      setError(err.message || 'Erro desconhecido ao registrar ponto.');
+      const normalized = normalizePunchRegistrationError(err);
+      setError(normalized.message || 'Erro desconhecido ao registrar ponto.');
       throw err;
     }
   };

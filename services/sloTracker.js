@@ -68,11 +68,17 @@ export class SLOTracker {
   }
 
   _ensureSchema() {
-    try { this._db.exec(SCHEMA); } catch { /* ignore */ }
+    try {
+      this._db.exec(SCHEMA);
+    } catch (err) {
+      console.warn('[sloTracker] Falha ao garantir schema:', err);
+    }
   }
 
   start() {
-    this._timer = setInterval(() => this._measure().catch(() => {}), MEASURE_INTERVAL);
+    this._timer = setInterval(() => this._measure().catch((err) => {
+      console.warn('[sloTracker] Falha ao medir SLO:', err);
+    }), MEASURE_INTERVAL);
     return this;
   }
 

@@ -71,7 +71,9 @@ export const LoggingService = {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[loggingService] Falha ao persistir log local:', err);
+    }
   },
 
   async getLogs(companyId: string): Promise<AuditLog[]> {

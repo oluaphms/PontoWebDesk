@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react';
 import { authService } from '../../services/authService';
 import { Button } from '../../components/UI';
+import { validatePassword } from '../utils/passwordRules';
 
 const ResetPasswordPage: React.FC = () => {
   const [step, setStep] = useState<'check' | 'form' | 'success' | 'expired'>('check');
@@ -22,14 +23,6 @@ const ResetPasswordPage: React.FC = () => {
       setStep(session?.user ? 'form' : 'expired');
     });
   }, []);
-
-  const validatePassword = (pwd: string): string | null => {
-    if (!pwd || pwd.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
-    if (pwd.length > 32) return 'A senha deve ter no máximo 32 caracteres.';
-    if (!/^[A-Za-z0-9]+$/.test(pwd)) return 'Use apenas letras e números (sem espaços ou símbolos).';
-    if (!/[A-Za-z]/.test(pwd) || !/[0-9]/.test(pwd)) return 'A senha deve conter letras e números.';
-    return null;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

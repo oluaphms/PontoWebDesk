@@ -126,7 +126,9 @@ export class TenantLimits {
           title:   'Limite de batidas excedido',
           message: `Empresa ${companyId}: ${newCount} batidas (limite: ${limits.maxPunchesPerDay}/dia)`,
           context: { companyId, current: newCount, limit: limits.maxPunchesPerDay },
-        }).catch(() => {});
+        }).catch((err) => {
+          this._queue.log(LOG_LEVEL.WARN, 'tenant_limits', 'Falha ao emitir alerta', { error: String(err) });
+        });
       }
     }
 

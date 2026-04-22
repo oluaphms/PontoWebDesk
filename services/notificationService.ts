@@ -85,7 +85,9 @@ export const NotificationService = {
       const existing = raw ? JSON.parse(raw) : [];
       const updated = [notif, ...existing].slice(0, MAX_LOCAL);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[notificationService] Falha ao persistir notificação local:', err);
+    }
   },
 
   /**
@@ -108,7 +110,8 @@ export const NotificationService = {
             status: n.status ?? (n.read ? 'read' : 'pending'),
           })) as InAppNotification[];
           return parsed.filter((n) => n.userId === userId && !n.read);
-        } catch {
+        } catch (err) {
+          console.warn('[notificationService] Falha ao ler notificações locais:', err);
           return [];
         }
       };

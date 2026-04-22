@@ -15,6 +15,21 @@ export interface AdminWeeklyChartPoint {
   /** YYYY-MM-DD (data civil local do instante da batida) */
   day: string;
   count: number;
+  inCount: number;
+  outCount: number;
+  breakCount: number;
+  repCount: number;
+  appCount: number;
+  adminCount: number;
+}
+
+export interface AdminWeeklySummary {
+  total: number;
+  averagePerDay: number;
+  peakDay: string;
+  peakCount: number;
+  lowDay: string;
+  lowCount: number;
 }
 
 export interface AdminDashboardLastRecord {
@@ -33,6 +48,8 @@ export interface AdminDashboardPayload {
   users: any[];
   /** Série dos últimos 7 dias (incluindo hoje), já agregada */
   weeklyChart: AdminWeeklyChartPoint[];
+  weeklySummary: AdminWeeklySummary;
+  previousWeekTotal: number;
   lastRecords: AdminDashboardLastRecord[];
 }
 
@@ -77,7 +94,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
   try {
     const todayLocal = localTodayYmd();
     const startChart = new Date();
-    startChart.setDate(startChart.getDate() - 6);
+    startChart.setDate(startChart.getDate() - 13);
     startChart.setHours(0, 0, 0, 0);
     const minInstantMs = startChart.getTime() - 36e6; // margem TZ
 
@@ -97,7 +114,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
               { column: 'created_at', operator: 'gte', value: new Date(minInstantMs).toISOString() },
             ],
             { column: 'created_at', ascending: false },
-            2500,
+            5000,
           ) as Promise<any[]>,
         TTL.REALTIME,
       ),
@@ -137,13 +154,74 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       weekDays.push(`${y}-${m}-${day}`);
     }
 
+    const previousWeekDays: string[] = [];
+    for (let i = 13; i >= 7; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      previousWeekDays.push(`${y}-${m}-${day}`);
+    }
+
+    const normalizeType = (raw: unknown): string =>
+      String(raw ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '');
+
+    const statsByDay = new Map<string, Omit<AdminWeeklyChartPoint, 'day'>>();
+    for (const r of records) {
+      const day = extractLocalCalendarDateFromIso(recordPunchInstantIso(r));
+      const cur = statsByDay.get(day) ?? {
+        count: 0,
+        inCount: 0,
+        outCount: 0,
+        breakCount: 0,
+        repCount: 0,
+        appCount: 0,
+        adminCount: 0,
+      };
+      cur.count += 1;
+      const t = normalizeType(r?.type);
+      if (t === 'entrada') cur.inCount += 1;
+      else if (t === 'saida') cur.outCount += 1;
+      else if (t === 'pausa') cur.breakCount += 1;
+
+      const origin = resolvePunchOrigin(r).kind;
+      if (origin === 'rep') cur.repCount += 1;
+      else if (origin === 'admin') cur.adminCount += 1;
+      else cur.appCount += 1;
+      statsByDay.set(day, cur);
+    }
+
     const weeklyChart: AdminWeeklyChartPoint[] = weekDays.map((day) => {
-      const count = records.filter((r: any) => {
-        const iso = recordPunchInstantIso(r);
-        return extractLocalCalendarDateFromIso(iso) === day;
-      }).length;
-      return { day, count };
+      const s = statsByDay.get(day);
+      return {
+        day,
+        count: s?.count ?? 0,
+        inCount: s?.inCount ?? 0,
+        outCount: s?.outCount ?? 0,
+        breakCount: s?.breakCount ?? 0,
+        repCount: s?.repCount ?? 0,
+        appCount: s?.appCount ?? 0,
+        adminCount: s?.adminCount ?? 0,
+      };
     });
+
+    const previousWeekTotal = previousWeekDays.reduce((acc, day) => acc + (statsByDay.get(day)?.count ?? 0), 0);
+    const weeklyTotal = weeklyChart.reduce((acc, d) => acc + d.count, 0);
+    const peak = weeklyChart.reduce((best, cur) => (cur.count > best.count ? cur : best), weeklyChart[0]);
+    const low = weeklyChart.reduce((best, cur) => (cur.count < best.count ? cur : best), weeklyChart[0]);
+    const weeklySummary: AdminWeeklySummary = {
+      total: weeklyTotal,
+      averagePerDay: weeklyTotal / 7,
+      peakDay: peak.day,
+      peakCount: peak.count,
+      lowDay: low.day,
+      lowCount: low.count,
+    };
 
     const sortedNewest = [...records].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
     const lastFive = sortedNewest.slice(0, 5);
@@ -165,7 +243,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       };
     });
 
-    return { cards, users, weeklyChart, lastRecords };
+    return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
   } catch (e) {
     handleError(e, 'getAdminDashboardData');
     return null;

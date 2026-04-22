@@ -17,7 +17,9 @@ export function initSentry() {
 export function captureException(error: Error, context?: Record<string, unknown>) {
   try {
     Sentry.captureException(error, { extra: context });
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[sentry] Falha ao enviar exceção:', err);
+  }
 }
 
 export { Sentry };

@@ -216,16 +216,20 @@ const AdminCompany: React.FC = () => {
         };
 
         await firestoreService.saveCompany(company);
-        localStorage.setItem(
-          `company_${idToUse}`,
-          JSON.stringify({
-            id: idToUse,
-            name: company.nome,
-            slug: (company.nome || 'empresa').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
-            ...company,
-            settings: baseSettings,
-          } as Company),
-        );
+        try {
+          localStorage.setItem(
+            `company_${idToUse}`,
+            JSON.stringify({
+              id: idToUse,
+              name: company.nome,
+              slug: (company.nome || 'empresa').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+              ...company,
+              settings: baseSettings,
+            } as Company),
+          );
+        } catch (err) {
+          console.warn('[Company] Falha ao salvar empresa no storage:', err);
+        }
       } else {
         const payload: Record<string, any> = {
           name: form.name,
@@ -335,7 +339,9 @@ const AdminCompany: React.FC = () => {
               parsed.tenantId = idToUse;
               store.setItem('current_user', JSON.stringify(parsed));
             }
-          } catch {}
+          } catch (err) {
+            console.warn('[Company] Falha ao atualizar cache local de usuário:', err);
+          }
           clearTenantMetadataSyncCache();
         }
       }

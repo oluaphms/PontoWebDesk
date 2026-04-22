@@ -36,7 +36,8 @@ export function isWebAuthnSupported(): boolean {
 export function hasStoredPasskey(userId: string): boolean {
   try {
     return !!localStorage.getItem(STORAGE_KEY(userId));
-  } catch {
+  } catch (err) {
+    console.warn('[webAuthn] Falha ao ler passkey:', err);
     return false;
   }
 }
@@ -44,8 +45,8 @@ export function hasStoredPasskey(userId: string): boolean {
 export function clearStoredPasskey(userId: string): void {
   try {
     localStorage.removeItem(STORAGE_KEY(userId));
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.warn('[webAuthn] Falha ao remover passkey:', err);
   }
 }
 
@@ -88,7 +89,8 @@ export async function registerPlatformPasskey(
   if (!cred || cred.type !== 'public-key') return false;
   try {
     localStorage.setItem(STORAGE_KEY(userId), base64UrlEncode(cred.rawId));
-  } catch {
+  } catch (err) {
+    console.warn('[webAuthn] Falha ao salvar passkey:', err);
     return false;
   }
   return true;
@@ -102,7 +104,8 @@ export async function verifyPlatformPasskey(userId: string): Promise<boolean> {
   let stored: string | null = null;
   try {
     stored = localStorage.getItem(STORAGE_KEY(userId));
-  } catch {
+  } catch (err) {
+    console.warn('[webAuthn] Falha ao ler passkey para verificação:', err);
     return false;
   }
   if (!stored) return false;

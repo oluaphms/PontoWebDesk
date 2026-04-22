@@ -109,7 +109,12 @@ export const BiometricService = {
      */
     hasRegisteredCredential(userId: string): boolean {
         const key = `smartponto_biometric_${userId}`;
-        return !!localStorage.getItem(key);
+        try {
+            return !!localStorage.getItem(key);
+        } catch (err) {
+            console.warn('[biometricService] Falha ao ler credencial biométrica:', err);
+            return false;
+        }
     },
 
     /**
@@ -117,11 +122,17 @@ export const BiometricService = {
      */
     getCredentialInfo(userId: string): BiometricCredentialInfo | null {
         const key = `smartponto_biometric_${userId}`;
-        const stored = localStorage.getItem(key);
+        let stored: string | null = null;
+        try {
+            stored = localStorage.getItem(key);
+        } catch (err) {
+            console.warn('[biometricService] Falha ao ler info biométrica:', err);
+        }
         if (!stored) return null;
         try {
             return JSON.parse(stored);
-        } catch {
+        } catch (err) {
+            console.warn('[biometricService] Falha ao parsear info biométrica:', err);
             return null;
         }
     },
@@ -202,7 +213,11 @@ export const BiometricService = {
                 deviceName
             };
 
-            localStorage.setItem(`smartponto_biometric_${userId}`, JSON.stringify(credInfo));
+            try {
+                localStorage.setItem(`smartponto_biometric_${userId}`, JSON.stringify(credInfo));
+            } catch (err) {
+                console.warn('[biometricService] Falha ao salvar credencial biométrica:', err);
+            }
 
             console.log('✅ Biometria registrada com sucesso:', deviceName);
 

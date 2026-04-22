@@ -48,7 +48,11 @@ export class BusinessMetrics {
     this._queue    = opts.queue;
     this._supabase = opts.supabase ?? null;
     this._timer    = null;
-    try { this._db.exec(SCHEMA); } catch { /* ignore */ }
+    try {
+      this._db.exec(SCHEMA);
+    } catch (err) {
+      console.warn('[businessMetrics] Falha ao garantir schema:', err);
+    }
   }
 
   start() {
@@ -67,7 +71,9 @@ export class BusinessMetrics {
     next.setHours(0, 5, 0, 0); // 00:05 para pegar o dia anterior completo
     if (next <= now) next.setDate(next.getDate() + 1);
     this._timer = setTimeout(() => {
-      this._aggregateDaily().catch(() => {});
+      this._aggregateDaily().catch((err) => {
+        console.warn('[businessMetrics] Falha ao agregar métricas diárias:', err);
+      });
       this._scheduleDaily();
     }, next.getTime() - now.getTime());
   }

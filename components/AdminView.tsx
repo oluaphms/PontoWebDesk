@@ -101,7 +101,12 @@ const AdminView: React.FC<AdminViewProps> = ({ admin }) => {
   }, [admin.companyId]);
 
   const [adminTheme, setAdminTheme] = useState<'system' | 'light' | 'dark'>(() => {
-    return (localStorage.getItem('smartponto_admin_theme_mode') as any) || 'system';
+    try {
+      return (localStorage.getItem('smartponto_admin_theme_mode') as any) || 'system';
+    } catch (err) {
+      console.warn('[AdminView] Falha ao ler tema admin:', err);
+      return 'system';
+    }
   });
 
   const applyTheme = useCallback((theme: 'system' | 'light' | 'dark') => {
@@ -116,7 +121,11 @@ const AdminView: React.FC<AdminViewProps> = ({ admin }) => {
 
   const handleThemeChange = (newTheme: 'system' | 'light' | 'dark') => {
     setAdminTheme(newTheme);
-    localStorage.setItem('smartponto_admin_theme_mode', newTheme);
+    try {
+      localStorage.setItem('smartponto_admin_theme_mode', newTheme);
+    } catch (err) {
+      console.warn('[AdminView] Falha ao salvar tema admin:', err);
+    }
     applyTheme(newTheme);
     LoggingService.log({
       severity: LogSeverity.INFO,

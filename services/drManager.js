@@ -55,8 +55,16 @@ export class DRManager {
     if (!DR_ENABLED) return this;
     mkdirSync(DR_LOCAL_DIR, { recursive: true });
     // Primeiro checkpoint imediato
-    void this._checkpoint().catch(() => {});
-    this._timer = setInterval(() => this._checkpoint().catch(() => {}), CHECKPOINT_MS);
+    void this._checkpoint().catch((err) => {
+      this._queue.log(LOG_LEVEL.WARN, 'dr', 'Checkpoint inicial falhou', { error: String(err) });
+    });
+    this._timer = setInterval(
+      () =>
+        this._checkpoint().catch((err) => {
+          this._queue.log(LOG_LEVEL.WARN, 'dr', 'Checkpoint periódico falhou', { error: String(err) });
+        }),
+      CHECKPOINT_MS
+    );
     // Teste de restore mensal (1º do mês às 04:00)
     this._scheduleRestoreTest();
     this._queue.log(LOG_LEVEL.INFO, 'dr', `DR Manager iniciado (checkpoint: ${CHECKPOINT_MS / 1000}s, RPO alvo: 5min)`);
@@ -94,7 +102,9 @@ export class DRManager {
         await this._supabase.storage
           .from(DR_BUCKET)
           .upload(`wal/${filename}`, content, { contentType: 'application/octet-stream', upsert: true })
-          .catch(() => {});
+          .catch((err) => {
+            this._queue.log(LOG_LEVEL.WARN, 'dr', 'Upload do checkpoint falhou', { error: String(err) });
+          });
       }
 
       // Limpar checkpoints antigos

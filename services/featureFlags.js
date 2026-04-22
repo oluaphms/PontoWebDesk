@@ -62,7 +62,9 @@ export class FeatureFlags {
   start() {
     if (!this._supabase) return this;
     void this._refresh();
-    this._timer = setInterval(() => this._refresh().catch(() => {}), this._refreshMs);
+    this._timer = setInterval(() => this._refresh().catch((err) => {
+      console.warn('[featureFlags] Falha ao atualizar flags:', err);
+    }), this._refreshMs);
     return this;
   }
 
@@ -83,8 +85,8 @@ export class FeatureFlags {
         data.map(r => [r.name, Boolean(r.enabled)])
       );
       this._lastRefreshedAt = new Date().toISOString();
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      console.warn('[featureFlags] Falha ao buscar flags remotas:', err);
     }
   }
 

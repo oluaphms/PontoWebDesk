@@ -198,7 +198,10 @@ export function startRepSyncInterval(
   supabase: SupabaseClient,
   companyId?: string
 ): () => void {
-  const run = () => syncRepDevices(supabase, companyId).catch(() => {});
+  const run = () =>
+    syncRepDevices(supabase, companyId).catch((err) => {
+      console.warn('[repSyncJob] Falha ao sincronizar REP:', err);
+    });
   const id = setInterval(run, SYNC_INTERVAL_MS);
   run(); // primeira execução imediata
   return () => clearInterval(id);

@@ -17,14 +17,20 @@ function getConfig(): PushReminderConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch {}
+  } catch (err) {
+    console.warn('[pushReminderService] Falha ao ler config:', err);
+  }
   return { enabled: true, times: DEFAULT_TIMES };
 }
 
 export function setReminderConfig(config: Partial<PushReminderConfig>) {
   const curr = getConfig();
   const next = { ...curr, ...config };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.warn('[pushReminderService] Falha ao salvar config:', err);
+  }
 }
 
 export function getReminderConfig(): PushReminderConfig {
@@ -45,14 +51,23 @@ function isWithinWindow(now: Date, target: string): boolean {
 
 function remindedToday(target: string): boolean {
   const key = `smartponto_reminded_${target.replace(':', '-')}`;
-  const val = localStorage.getItem(key);
+  let val: string | null = null;
+  try {
+    val = localStorage.getItem(key);
+  } catch (err) {
+    console.warn('[pushReminderService] Falha ao ler marcador diário:', err);
+  }
   const today = new Date().toDateString();
   return val === today;
 }
 
 function markReminded(target: string) {
   const key = `smartponto_reminded_${target.replace(':', '-')}`;
-  localStorage.setItem(key, new Date().toDateString());
+  try {
+    localStorage.setItem(key, new Date().toDateString());
+  } catch (err) {
+    console.warn('[pushReminderService] Falha ao gravar marcador diário:', err);
+  }
 }
 
 function showReminder(title: string, body: string) {
@@ -67,7 +82,9 @@ function showReminder(title: string, body: string) {
       n.close();
       window.focus();
     };
-  } catch {}
+  } catch (err) {
+    console.warn('[pushReminderService] Falha ao mostrar notificação:', err);
+  }
 }
 
 export function startReminderCheck() {

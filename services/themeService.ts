@@ -21,7 +21,8 @@ export const ThemeService = {
       const v = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY);
       if (v === 'light' || v === 'dark' || v === 'auto') return v;
       return null;
-    } catch {
+    } catch (err) {
+      console.warn('[themeService] Falha ao ler tema salvo:', err);
       return null;
     }
   },
@@ -40,8 +41,8 @@ export const ThemeService = {
     try {
       localStorage.setItem(THEME_KEY, theme);
       localStorage.setItem(LEGACY_THEME_KEY, theme);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[themeService] Falha ao salvar tema:', err);
     }
   },
 

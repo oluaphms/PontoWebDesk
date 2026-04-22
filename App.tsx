@@ -18,7 +18,6 @@ import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { queryCache } from './src/services/queryCache';
 import {
-  isSupabaseConfigured,
   checkSupabaseConfigured,
   testSupabaseConnection,
   resetSession,
@@ -29,7 +28,6 @@ import { checkSupabaseConnection } from './src/services/checkSupabaseConnection'
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
 import {
-  requestNotificationPermission,
   startReminderCheck,
   stopReminderCheck,
   getReminderConfig,
@@ -52,7 +50,6 @@ import {
   ExternalLink,
   Sun,
   Moon,
-  Monitor,
   Camera,
   Keyboard,
   MapPin,
@@ -60,7 +57,6 @@ import {
   EyeOff,
   UserCog,
 } from 'lucide-react';
-import { BiometricService } from './services/biometricService';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
 import RoleGuard from './src/components/auth/RoleGuard';
 import ProtectedRoute from './src/components/auth/ProtectedRoute';
@@ -268,7 +264,15 @@ const AppMain: React.FC = () => {
 
   // Aplicar idioma padrão das configurações quando não houver preferência no navegador
   useEffect(() => {
-    if (globalSettings?.language && typeof window !== 'undefined' && !localStorage.getItem('smartponto_language')) {
+    let hasLangPref = false;
+    if (typeof window !== 'undefined') {
+      try {
+        hasLangPref = !!localStorage.getItem('smartponto_language');
+      } catch (err) {
+        console.warn('[App] Falha ao ler idioma salvo:', err);
+      }
+    }
+    if (globalSettings?.language && typeof window !== 'undefined' && !hasLangPref) {
       const lang = globalSettings.language === 'en-US' || globalSettings.language === 'pt-BR' ? globalSettings.language : 'pt-BR';
       setLanguage(lang);
     }
@@ -338,7 +342,12 @@ const AppMain: React.FC = () => {
             console.error('Error loading company:', error);
           }
 
-          const hasSeenOnboarding = localStorage.getItem(`onboarding_${currentUser.id}`);
+          let hasSeenOnboarding = null;
+          try {
+            hasSeenOnboarding = localStorage.getItem(`onboarding_${currentUser.id}`);
+          } catch (err) {
+            console.warn('[App] Falha ao ler onboarding:', err);
+          }
           if (!hasSeenOnboarding && isMounted) setShowOnboarding(true);
         }
 
@@ -536,11 +545,18 @@ const AppMain: React.FC = () => {
       try {
         const audio = new Audio('/sounds/punch-success.mp3');
         audio.volume = 0.5;
-        audio.play().catch(() => {});
+        audio.play().catch((err) => {
+          if (import.meta.env?.DEV) {
+            console.warn('[App] Falha ao tocar som de confirmação:', err);
+          }
+        });
       } catch {
         // silencioso se falhar
       }
-    } catch (err) { }
+    } catch (err) {
+      console.error('Erro ao registrar ponto:', err);
+      setError('Falha ao registrar o ponto. Tente novamente.');
+    }
   };
 
   const isWorking = useMemo(() => records[0]?.type === LogType.IN, [records]);
@@ -833,7 +849,11 @@ const AppMain: React.FC = () => {
   const handleClearSessionAndRetry = async () => {
     setLoginError(null);
     setIsResettingSession(true);
-    await resetSession();
+    try {
+      await resetSession();
+    } finally {
+      setIsResettingSession(false);
+    }
   };
 
   /** Voltar à tela de login sem recarregar (útil se a reconexão automática já tiver restaurado). */
@@ -975,7 +995,11 @@ const AppMain: React.FC = () => {
   if (connectionUnavailable) {
     const onClearSession = async () => {
       setIsResettingSession(true);
-      await resetSession();
+      try {
+        await resetSession();
+      } finally {
+        setIsResettingSession(false);
+      }
     };
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -1519,7 +1543,18 @@ const AppMain: React.FC = () => {
 
   return (
     <Layout user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
-      {showOnboarding && <Onboarding onComplete={() => { localStorage.setItem(`onboarding_${user.id}`, 'true'); setShowOnboarding(false); }} />}
+      {showOnboarding && (
+        <Onboarding
+          onComplete={() => {
+            try {
+              localStorage.setItem(`onboarding_${user.id}`, 'true');
+            } catch (err) {
+              console.warn('[App] Falha ao salvar onboarding:', err);
+            }
+            setShowOnboarding(false);
+          }}
+        />
+      )}
       <SuccessOverlay visible={showCelebration} title="Ponto Registrado" message="Sua marcação foi validada e salva com sucesso." />
 
       <React.Suspense

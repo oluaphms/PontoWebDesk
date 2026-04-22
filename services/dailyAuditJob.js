@@ -144,7 +144,9 @@ export class DailyAuditJob {
         report:     report,
         overall:    report.overall,
         created_at: runAt,
-      }, { onConflict: 'date' }).catch(() => {});
+      }, { onConflict: 'date' }).catch((err) => {
+        console.warn('[DAILY_AUDIT] Falha ao salvar relatório no Supabase:', err);
+      });
     }
 
     console.log(`[DAILY_AUDIT] ${report.overall} — ${runAt}`);
@@ -159,7 +161,10 @@ export class DailyAuditJob {
         ORDER BY created_at DESC LIMIT 1
       `).get(`${date}T00:00:00.000Z`, `${date}T23:59:59.999Z`);
       return row?.integrity_hash ?? '';
-    } catch { return ''; }
+    } catch (err) {
+      console.warn('[DAILY_AUDIT] Falha ao ler hash do dia:', err);
+      return '';
+    }
   }
 
   getLastReport() { return this._lastReport; }

@@ -21,7 +21,8 @@ const loadQueue = (): OfflinePunchPayload[] => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return [];
     return JSON.parse(stored) as OfflinePunchPayload[];
-  } catch {
+  } catch (err) {
+    console.warn('[offlinePunchService] Falha ao ler fila offline:', err);
     return [];
   }
 };
@@ -29,8 +30,8 @@ const loadQueue = (): OfflinePunchPayload[] => {
 const saveQueue = (queue: OfflinePunchPayload[]) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[offlinePunchService] Falha ao salvar fila offline:', err);
   }
 };
 

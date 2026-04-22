@@ -53,7 +53,9 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
           const videoDevices = devices.filter(d => d.kind === 'videoinput');
           console.log('📹 Verificação inicial - dispositivos encontrados:', videoDevices.length);
           setAvailableDevices(videoDevices);
-        }).catch(() => { });
+        }).catch((err) => {
+          console.warn('Falha ao enumerar dispositivos de vídeo:', err);
+        });
       }
     }
   }, [method, hasCamera]);
@@ -200,7 +202,9 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         tempStream.getTracks().forEach(track => track.stop());
-      } catch (e) { }
+      } catch (e) {
+        console.warn('Falha ao testar câmera (pré-check):', e);
+      }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       videoDevices = devices.filter(d => d.kind === 'videoinput');
@@ -512,7 +516,9 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     try {
       const cameraPermission = await navigator.permissions.query({ name: 'camera' as PermissionName });
       (diagnostics as any).cameraPermission = cameraPermission.state;
-    } catch (e) { }
+    } catch (e) {
+      console.warn('Falha ao consultar permissão de câmera:', e);
+    }
 
     console.log('=== DIAGNÓSTICO DA CÂMERA ===', JSON.stringify(diagnostics, null, 2));
     setError(`Diagnóstico executado. Verifique o console (F12).`);
@@ -581,7 +587,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     if (method === PunchMethod.BIOMETRIC && !biometricVerified) return false;
 
     // Location check - OBRIGATÓRIA para TODOS os métodos (foto, GPS, biométrico, manual)
-    if (!location || !location.lat) return false;
+    if (!location || location.lat == null || location.lng == null) return false;
 
     return true;
   }, [company, photoRequired, isPhotoValid, method, justification, location, biometricVerified]);
@@ -604,7 +610,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     }
 
     // Localização OBRIGATÓRIA para TODOS os métodos (foto, GPS, biométrico, manual)
-    if (!location || !location.lat) {
+    if (!location || location.lat == null || location.lng == null) {
       setError("Localização não identificada. Verifique seu GPS. Todos os registros de ponto requerem localização.");
       return;
     }
