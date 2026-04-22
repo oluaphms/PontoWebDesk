@@ -125,6 +125,18 @@ export class SyncQueue {
     }
   }
 
+  /**
+   * Reutiliza uma conexão SQLite já aberta (ex.: mesma instância que `time_records`)
+   * e aplica o schema da fila (`sync_jobs`, `system_logs`, …).
+   * Sem isso, `open()` nunca roda e consultas à fila falham com "no such table".
+   * @param {import('better-sqlite3').Database} db
+   */
+  attachDatabase(db) {
+    this._db = db;
+    db.exec(SCHEMA);
+    return this;
+  }
+
   // ── Enqueue ──────────────────────────────────────────────────────────────────
 
   /**

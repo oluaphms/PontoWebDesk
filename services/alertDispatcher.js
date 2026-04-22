@@ -31,7 +31,9 @@ export class AlertDispatcher {
   constructor(opts = {}) {
     this._webhookUrl    = opts.webhookUrl    ?? (process.env.ALERT_WEBHOOK_URL    || '').trim();
     this._webhookSecret = opts.webhookSecret ?? (process.env.ALERT_WEBHOOK_SECRET || '').trim();
-    this._minInterval   = opts.minIntervalMs ?? parseInt(process.env.ALERT_MIN_INTERVAL_MS || '0', 10) || DEFAULT_MIN_INTERVAL_MS;
+    const envIntervalMs = parseInt(process.env.ALERT_MIN_INTERVAL_MS || '0', 10);
+    const envIntervalOk = Number.isFinite(envIntervalMs) && envIntervalMs > 0;
+    this._minInterval   = opts.minIntervalMs ?? (envIntervalOk ? envIntervalMs : DEFAULT_MIN_INTERVAL_MS);
     this._queue         = opts.queue ?? null;
     this._lastSent      = new Map(); // tipo → timestamp
   }

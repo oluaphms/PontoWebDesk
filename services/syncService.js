@@ -203,8 +203,7 @@ export function startSyncService(opts) {
   ensureLocalSchema(rawDb);
 
   // ── Módulos de confiabilidade ─────────────────────────────────────────────────
-  const queue = new SyncQueue(opts.sqliteDbPath);
-  queue._db   = rawDb; // reusar conexão para atomicidade
+  const queue = new SyncQueue(opts.sqliteDbPath).attachDatabase(rawDb); // mesma conexão + schema da fila
 
   const cb = new CircuitBreaker({
     name: 'supabase',
