@@ -1059,11 +1059,7 @@ const AppMain: React.FC = () => {
       );
     }
     return (
-      <div className="min-h-screen relative flex flex-col items-center justify-center px-4 py-10 sm:p-6 overflow-x-hidden overflow-y-auto font-sans transition-colors duration-300 bg-slate-50 dark:bg-slate-950">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-          <div className="absolute top-[-15%] right-[-20%] h-[50%] w-[55%] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[100px]" />
-          <div className="absolute bottom-[-20%] left-[-15%] h-[45%] w-[50%] rounded-full bg-blue-500/8 dark:bg-blue-500/10 blur-[90px]" />
-        </div>
+      <div className="min-h-screen relative flex flex-col items-center justify-center px-4 py-10 sm:p-6 overflow-x-hidden overflow-y-auto font-sans transition-colors duration-300 bg-[#d1d5db] dark:bg-[#1f2937]">
 
         <div className="w-full max-w-md relative z-10">
           <h1 className="sr-only">
@@ -1071,7 +1067,7 @@ const AppMain: React.FC = () => {
           </h1>
 
           {/* Um único painel: logo em cima, ações embaixo */}
-          <div className="relative rounded-[2.5rem] border border-slate-200/90 dark:border-slate-800/70 bg-white dark:bg-slate-900/90 backdrop-blur-xl shadow-2xl shadow-slate-900/12 dark:shadow-black/35 overflow-hidden transition-colors">
+          <div className="relative rounded-[2.5rem] border border-slate-400/70 dark:border-slate-700/70 bg-[#d1d5db] dark:bg-[#1f2937] overflow-hidden transition-colors">
             <button
               onClick={toggleTheme}
               className="absolute top-5 right-5 z-20 p-3 bg-white/90 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-900 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all group shadow-sm"
@@ -1082,14 +1078,11 @@ const AppMain: React.FC = () => {
                 {getThemeIcon()}
               </div>
             </button>
-            <div className="relative px-6 sm:px-8 pt-9 pb-8 sm:pb-10 flex flex-col items-center bg-gradient-to-br from-indigo-100/95 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950">
-              <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[2.5rem]" aria-hidden>
-                <div className="absolute -top-1/3 left-1/2 -translate-x-1/2 w-[140%] h-[70%] rounded-full bg-indigo-400/12 dark:bg-indigo-500/10 blur-[64px]" />
-              </div>
+            <div className="relative px-6 sm:px-8 pt-9 pb-8 sm:pb-10 flex flex-col items-center bg-[#d1d5db] dark:bg-[#1f2937]">
               <img
                 src={BRAND_IMAGE_1024}
                 alt={`${i18n.t('app.name')} — ${i18n.t('login.slogan')}`}
-                className="relative z-10 w-[min(56vw,200px)] h-[min(56vw,200px)] sm:w-44 sm:h-44 md:w-48 md:h-48 object-contain rounded-[1.75rem] shadow-2xl shadow-indigo-500/35 ring-1 ring-white/60 dark:ring-white/10"
+                className="relative z-10 w-[min(56vw,200px)] h-[min(56vw,200px)] sm:w-44 sm:h-44 md:w-48 md:h-48 object-contain rounded-[1.75rem]"
                 width={192}
                 height={192}
                 loading="eager"
