@@ -16,6 +16,14 @@ export interface GetCurrentLocationOptions {
   maximumAge?: number;
 }
 
+export interface RobustLocationOptions {
+  /**
+   * Quando true, prioriza leitura fresca (maximumAge=0 na primeira tentativa).
+   * Útil para botão "Atualizar".
+   */
+  forceFresh?: boolean;
+}
+
 const DEFAULT_OPTIONS: GetCurrentLocationOptions = {
   enableHighAccuracy: true,
   timeout: 20000,
@@ -162,6 +170,43 @@ export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}
       }
     );
   });
+}
+
+/**
+ * Captura robusta de GPS:
+ * 1) alta precisão (rápida)
+ * 2) baixa precisão com cache recente (mais estável indoor)
+ * 3) alta precisão com timeout maior (última tentativa)
+ */
+export async function getCurrentLocationRobustResult(
+  options: RobustLocationOptions = {}
+): Promise<LocationResult> {
+  const first = await getCurrentLocationResult({
+    enableHighAccuracy: true,
+    timeout: 12000,
+    maximumAge: options.forceFresh ? 0 : 15000,
+  });
+  if (first.ok) return first;
+  if (first.reason === 'denied' || first.reason === 'unsupported' || first.reason === 'insecure_context') {
+    return first;
+  }
+
+  const second = await getCurrentLocationResult({
+    enableHighAccuracy: false,
+    timeout: 15000,
+    maximumAge: options.forceFresh ? 10000 : 120000,
+  });
+  if (second.ok) return second;
+  if (second.reason === 'denied' || second.reason === 'unsupported' || second.reason === 'insecure_context') {
+    return second;
+  }
+
+  const third = await getCurrentLocationResult({
+    enableHighAccuracy: true,
+    timeout: 30000,
+    maximumAge: 0,
+  });
+  return third.ok ? third : second;
 }
 
 /**

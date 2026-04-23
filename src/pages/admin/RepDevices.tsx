@@ -91,6 +91,18 @@ function isEmployeeEligibleForRepPush(e: EmployeeForRep): boolean {
   return (e.status || 'active').toLowerCase() === 'active';
 }
 
+function canonicalRepDeviceName(name: string | null | undefined): string {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\(agente local\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isAgentLocalDevice(name: string | null | undefined): boolean {
+  return /\(agente local\)/i.test(String(name || ''));
+}
+
 const TIPOS_CONEXAO = [
   { value: 'rede', label: 'Rede (IP)' },
   { value: 'arquivo', label: 'Importação de arquivo' },
@@ -284,6 +296,7 @@ const AdminRepDevices: React.FC = () => {
   /** Sub-modal: enviar / status / funcionários / config */
   const [srSendDialogOpen, setSrSendDialogOpen] = useState(false);
   const [srPushAllRunning, setSrPushAllRunning] = useState(false);
+  const [showInactiveDevices, setShowInactiveDevices] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [configExtraBaseline, setConfigExtraBaseline] = useState<Record<string, unknown>>({});
   const [form, setForm] = useState({
@@ -399,6 +412,15 @@ const AdminRepDevices: React.FC = () => {
     return { total: devices.length, rede: redeDevices.length, ativos, erros, sinc };
   }, [devices, redeDevices.length]);
 
+  const visibleDevices = useMemo(
+    () =>
+      showInactiveDevices
+        ? devices
+        : devices.filter((d) => d.ativo !== false && (d.status || '').toLowerCase() !== 'inativo'),
+    [devices, showInactiveDevices]
+  );
+  const hiddenDevicesCount = Math.max(0, devices.length - visibleDevices.length);
+
   const hubStats = useMemo(() => {
     const linked = hubDevices.filter((h) => h.rep_device_id).length;
     return { total: hubDevices.length, linked };
@@ -475,8 +497,145 @@ const AdminRepDevices: React.FC = () => {
     setDeletingId(id);
     setMessage(null);
     try {
+      const current = devices.find((d) => d.id === id) ?? null;
+      const others = devices.filter((d) => d.id !== id);
+      const normalizedCurrent = canonicalRepDeviceName(current?.nome_dispositivo || nome);
+      const sameLogical = others.filter(
+        (d) => canonicalRepDeviceName(d.nome_dispositivo) === normalizedCurrent
+      );
+      const rankedTargets = [...(sameLogical.length ? sameLogical : others)].sort((a, b) => {
+        const aAgent = isAgentLocalDevice(a.nome_dispositivo) ? 1 : 0;
+        const bAgent = isAgentLocalDevice(b.nome_dispositivo) ? 1 : 0;
+        if (aAgent !== bAgent) return bAgent - aAgent;
+        const aActive = a.ativo ? 1 : 0;
+        const bActive = b.ativo ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+      });
+      const target = rankedTargets[0] ?? null;
+
+      const client = getSupabaseClient();
+      let movedCount = 0;
+      let dedupedCount = 0;
+      if (client && user?.companyId) {
+        const { count, error: countErr } = await client
+          .from('rep_punch_logs')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', user.companyId)
+          .eq('rep_device_id', id);
+        if (countErr) {
+          throw new Error(`Erro ao verificar histórico do relógio: ${countErr.message}`);
+        }
+        const logsCount = Number(count || 0);
+        if (logsCount > 0) {
+          if (!target) {
+            await db.update('rep_devices', id, { ativo: false, status: 'inativo' });
+            setMessage({
+              type: 'success',
+              text: `Dispositivo desativado (não removido), pois possui ${logsCount} batida(s) no histórico sem destino seguro para migração.`,
+            });
+            await loadDevices();
+            await loadHubDevices();
+            return;
+          }
+
+          const { data: sourceRows, error: sourceErr } = await client
+            .from('rep_punch_logs')
+            .select('id, nsr, time_record_id, data_hora')
+            .eq('company_id', user.companyId)
+            .eq('rep_device_id', id);
+          if (sourceErr) {
+            throw new Error(`Erro ao ler histórico do dispositivo origem: ${sourceErr.message}`);
+          }
+
+          const nsrList = Array.from(
+            new Set(
+              (sourceRows || [])
+                .map((r) => (r.nsr == null ? null : Number(r.nsr)))
+                .filter((n): n is number => Number.isFinite(n))
+            )
+          );
+
+          const targetByNsr = new Map<number, { id: string; nsr: number | null; time_record_id: string | null }>();
+          if (nsrList.length > 0) {
+            const { data: targetRows, error: targetErr } = await client
+              .from('rep_punch_logs')
+              .select('id, nsr, time_record_id')
+              .eq('company_id', user.companyId)
+              .eq('rep_device_id', target.id)
+              .in('nsr', nsrList);
+            if (targetErr) {
+              throw new Error(`Erro ao ler histórico do dispositivo destino: ${targetErr.message}`);
+            }
+            for (const row of targetRows || []) {
+              if (row.nsr != null && !targetByNsr.has(Number(row.nsr))) {
+                targetByNsr.set(Number(row.nsr), row);
+              }
+            }
+          }
+
+          const conflictSourceIds: string[] = [];
+          for (const s of sourceRows || []) {
+            if (s.nsr == null) continue;
+            const targetRow = targetByNsr.get(Number(s.nsr));
+            if (!targetRow) continue;
+            // Se o destino ainda não tem vínculo com time_record e a origem tem, preserva o vínculo.
+            if (!targetRow.time_record_id && s.time_record_id) {
+              const { error: upErr } = await client
+                .from('rep_punch_logs')
+                .update({ time_record_id: s.time_record_id })
+                .eq('id', targetRow.id);
+              if (upErr) {
+                throw new Error(`Erro ao consolidar duplicidade de NSR ${s.nsr}: ${upErr.message}`);
+              }
+            }
+            conflictSourceIds.push(s.id);
+          }
+
+          if (conflictSourceIds.length > 0) {
+            const { error: delDupErr } = await client
+              .from('rep_punch_logs')
+              .delete()
+              .in('id', conflictSourceIds);
+            if (delDupErr) {
+              throw new Error(`Erro ao remover duplicidades de histórico: ${delDupErr.message}`);
+            }
+            dedupedCount = conflictSourceIds.length;
+          }
+
+          const { data: movedRows, error: moveErr } = await client
+            .from('rep_punch_logs')
+            .update({ rep_device_id: target.id })
+            .eq('company_id', user.companyId)
+            .eq('rep_device_id', id)
+            .select('id');
+
+          if (moveErr) {
+            await db.update('rep_devices', id, { ativo: false, status: 'inativo' });
+            setMessage({
+              type: 'error',
+              text: `Não foi possível migrar o histórico para "${target.nome_dispositivo}" (${moveErr.message}). O relógio foi apenas desativado para evitar perda/duplicidade.`,
+            });
+            await loadDevices();
+            await loadHubDevices();
+            return;
+          }
+          movedCount = movedRows?.length ?? 0;
+        }
+      }
+
       await db.delete('rep_devices', id);
-      setMessage({ type: 'success', text: 'Dispositivo removido.' });
+      setMessage({
+        type: 'success',
+        text:
+          movedCount > 0
+            ? `Dispositivo removido. ${movedCount} batida(s) históricas migradas para "${target?.nome_dispositivo}"${
+                dedupedCount > 0 ? ` e ${dedupedCount} duplicidade(s) por NSR consolidadas` : ''
+              }.`
+            : dedupedCount > 0
+              ? `Dispositivo removido. ${dedupedCount} duplicidade(s) por NSR consolidadas em "${target?.nome_dispositivo}".`
+              : 'Dispositivo removido.',
+      });
       await loadDevices();
       await loadHubDevices();
     } catch (e) {
@@ -1357,11 +1516,24 @@ const AdminRepDevices: React.FC = () => {
                 funcionário.
               </p>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowInactiveDevices((v) => !v)}
+              title={showInactiveDevices ? 'Ocultar relógios inativos' : 'Mostrar relógios inativos'}
+            >
+              {showInactiveDevices
+                ? 'Ocultar inativos'
+                : hiddenDevicesCount > 0
+                  ? `Mostrar inativos (${hiddenDevicesCount})`
+                  : 'Mostrar inativos'}
+            </Button>
           </div>
 
           {/* Mobile: layout em cards (stack) para evitar overflow horizontal */}
           <div className="md:hidden space-y-3">
-            {devices.length === 0 ? (
+            {visibleDevices.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-900/20 px-4 py-10 text-center">
                 <Clock className="mx-auto mb-3 text-slate-300 dark:text-slate-600" size={36} aria-hidden />
                 <p className="text-slate-600 dark:text-slate-300 font-medium">Nenhum relógio ainda</p>
@@ -1370,7 +1542,7 @@ const AdminRepDevices: React.FC = () => {
                 </p>
               </div>
             ) : (
-              devices.map((d) => (
+              visibleDevices.map((d) => (
                 <div key={d.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1453,7 +1625,7 @@ const AdminRepDevices: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {devices.length === 0 ? (
+                  {visibleDevices.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
                         <Clock className="mx-auto mb-2 text-slate-300 dark:text-slate-600" size={28} aria-hidden />
@@ -1461,7 +1633,7 @@ const AdminRepDevices: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    devices.map((d) => (
+                    visibleDevices.map((d) => (
                       <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{d.nome_dispositivo}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">

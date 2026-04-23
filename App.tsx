@@ -1065,24 +1065,23 @@ const AppMain: React.FC = () => {
           <div className="absolute bottom-[-20%] left-[-15%] h-[45%] w-[50%] rounded-full bg-blue-500/8 dark:bg-blue-500/10 blur-[90px]" />
         </div>
 
-        <button
-          onClick={toggleTheme}
-          className="absolute top-5 right-5 z-20 p-3 bg-white/90 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-900 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all group shadow-sm"
-          aria-label={getThemeLabel()}
-          title={getThemeLabel()}
-        >
-          <div className="text-slate-700 dark:text-white group-hover:scale-110 transition-transform">
-            {getThemeIcon()}
-          </div>
-        </button>
-
         <div className="w-full max-w-md relative z-10">
           <h1 className="sr-only">
             {i18n.t('app.name')} — {i18n.t('login.slogan')}
           </h1>
 
           {/* Um único painel: logo em cima, ações embaixo */}
-          <div className="rounded-[2.5rem] border border-slate-200/90 dark:border-slate-800/70 bg-white dark:bg-slate-900/90 backdrop-blur-xl shadow-2xl shadow-slate-900/12 dark:shadow-black/35 overflow-hidden transition-colors">
+          <div className="relative rounded-[2.5rem] border border-slate-200/90 dark:border-slate-800/70 bg-white dark:bg-slate-900/90 backdrop-blur-xl shadow-2xl shadow-slate-900/12 dark:shadow-black/35 overflow-hidden transition-colors">
+            <button
+              onClick={toggleTheme}
+              className="absolute top-5 right-5 z-20 p-3 bg-white/90 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-900 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all group shadow-sm"
+              aria-label={getThemeLabel()}
+              title={getThemeLabel()}
+            >
+              <div className="text-slate-700 dark:text-white group-hover:scale-110 transition-transform">
+                {getThemeIcon()}
+              </div>
+            </button>
             <div className="relative px-6 sm:px-8 pt-9 pb-8 sm:pb-10 flex flex-col items-center bg-gradient-to-br from-indigo-100/95 via-slate-50 to-slate-100 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950">
               <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[2.5rem]" aria-hidden>
                 <div className="absolute -top-1/3 left-1/2 -translate-x-1/2 w-[140%] h-[70%] rounded-full bg-indigo-400/12 dark:bg-indigo-500/10 blur-[64px]" />

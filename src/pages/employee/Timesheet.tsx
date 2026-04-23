@@ -440,6 +440,10 @@ const EmployeeTimesheet: React.FC = () => {
                   const voltaIntRecord = pick(day.voltaIntervalo, 'intervalo_volta');
                   const saidaRecord = pick(day.saidaFinal, 'saida');
                   const withGps = dayRecs.filter((r: any) => extractLatLng(r));
+                  const repWithoutGpsCount = dayRecs.filter((r: any) => {
+                    const origin = resolvePunchOrigin(r);
+                    return origin.kind === 'rep' && !extractLatLng(r);
+                  }).length;
 
                   const renderMirrorSlot = (t: string | null, rec?: MirrorTimeRecord) => {
                     const hasTime = t != null && String(t).trim() !== '';
@@ -534,6 +538,8 @@ const EmployeeTimesheet: React.FC = () => {
                                   <MapPin className="w-3.5 h-3.5 text-indigo-500" aria-hidden />
                                   {withGps.length} com GPS
                                 </span>
+                              ) : repWithoutGpsCount === dayRecs.length && dayRecs.length > 0 ? (
+                                <span className="ml-2 font-normal normal-case text-slate-500">GPS não se aplica às batidas do relógio (REP)</span>
                               ) : (
                                 <span className="ml-2 font-normal normal-case text-slate-500">Sem GPS nas batidas</span>
                               )}
@@ -565,6 +571,8 @@ const EmployeeTimesheet: React.FC = () => {
                                     <div className="min-w-0 flex-1 basis-[min(100%,18rem)] max-w-xl">
                                       {ll ? (
                                         <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
+                                      ) : resolvePunchOrigin(r).kind === 'rep' ? (
+                                        <span className="text-slate-500 dark:text-slate-400">GPS não se aplica (Relógio REP)</span>
                                       ) : (
                                         <span className="text-slate-500 dark:text-slate-400">Batida sem GPS</span>
                                       )}

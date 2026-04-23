@@ -3,7 +3,7 @@
  */
 
 import { Navigate } from 'react-router-dom';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ShieldAlert, MapPin, AlertTriangle, User, Clock, FileText } from 'lucide-react';
@@ -41,6 +41,27 @@ const FLAG_LABELS: Record<string, string> = {
   behavior_anomaly: 'Anomalia comportamental',
 };
 
+function reasonFromFlag(flag: string): string {
+  if (flag === 'behavior_anomaly') return 'Comportamento fora do padrão do colaborador.';
+  if (flag === 'location_violation') return 'Registro fora da área autorizada.';
+  if (flag === 'device_unknown') return 'Dispositivo não reconhecido para o colaborador.';
+  if (flag === 'face_mismatch') return 'Biometria/foto não conferiu com o cadastro.';
+  return FLAG_LABELS[flag] || flag;
+}
+
+function normalizeFraudFlags(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((x) => String(x));
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export default function AdminSecurity() {
   const { user, loading } = useCurrentUser();
   const [suspiciousRecords, setSuspiciousRecords] = useState<TimeRecordWithFraud[]>([]);
@@ -50,6 +71,19 @@ export default function AdminSecurity() {
   const [loadingData, setLoadingData] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+
+  const alertReasonsByRecord = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const a of alerts) {
+      const tr = String(a.time_record_id || '').trim();
+      if (!tr) continue;
+      const msg = String(a.description || '').trim() || reasonFromFlag(a.type);
+      if (!out.has(tr)) out.set(tr, []);
+      const arr = out.get(tr)!;
+      if (!arr.includes(msg)) arr.push(msg);
+    }
+    return out;
+  }, [alerts]);
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
@@ -73,7 +107,10 @@ export default function AdminSecurity() {
         setEmployees(empMap);
 
         const recs = (records ?? []) as TimeRecordWithFraud[];
-        const withFlags = Array.isArray(recs[0]?.fraud_flags) ? recs : recs.map((r) => ({ ...r, fraud_flags: (r.fraud_flags as any) ? (typeof r.fraud_flags === 'string' ? JSON.parse(r.fraud_flags || '[]') : r.fraud_flags) : [] }));
+        const withFlags = recs.map((r) => ({
+          ...r,
+          fraud_flags: normalizeFraudFlags(r.fraud_flags),
+        }));
         setSuspiciousRecords(withFlags.filter((r) => r.fraud_score != null && Number(r.fraud_score) > 50));
         setAllRecordsWithLocation(withFlags.filter((r) => r.latitude != null && r.longitude != null));
 
@@ -282,6 +319,7 @@ export default function AdminSecurity() {
                     <th className="text-left p-3">Tipo</th>
                     <th className="text-right p-3">Score</th>
                     <th className="text-left p-3">Flags</th>
+                    <th className="text-left p-3">Motivos da anomalia</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -293,6 +331,15 @@ export default function AdminSecurity() {
                       <td className="p-3 text-right font-mono">{r.fraud_score}</td>
                       <td className="p-3">
                         {(Array.isArray(r.fraud_flags) ? r.fraud_flags : []).map((f) => FLAG_LABELS[f] || f).join(', ') || '—'}
+                      </td>
+                      <td className="p-3 text-slate-700 dark:text-slate-300">
+                        {(() => {
+                          const fromAlerts = alertReasonsByRecord.get(r.id) || [];
+                          if (fromAlerts.length) return fromAlerts.join(' | ');
+                          const fromFlags = (Array.isArray(r.fraud_flags) ? r.fraud_flags : []).map((f) => reasonFromFlag(f));
+                          if (fromFlags.length) return fromFlags.join(' | ');
+                          return 'Score elevado sem motivo textual vinculado.';
+                        })()}
                       </td>
                     </tr>
                   ))}

@@ -9,7 +9,7 @@ import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
 import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
 import {
-  getCurrentLocationResult,
+  getCurrentLocationRobustResult,
   geolocationReasonMessage,
   geolocationActionHint,
   logGeolocationDebug,
@@ -64,10 +64,7 @@ const TimeClockPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const locationResult = await getCurrentLocationResult({
-        enableHighAccuracy: true,
-        timeout: 10000,
-      });
+      const locationResult = await getCurrentLocationRobustResult();
       if (!locationResult.ok) {
         logGeolocationDebug('timeclock_location_error', {
           reason: locationResult.reason,

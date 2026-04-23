@@ -95,6 +95,7 @@ export interface ValidatePunchResult {
 }
 
 const EARTH_RADIUS_M = 6371000;
+const DEVICE_ID_STORAGE_KEY = 'smartponto.device_id.v1';
 
 /**
  * Distância em metros entre dois pontos (fórmula de Haversine).
@@ -179,7 +180,21 @@ export function generateDeviceFingerprint(): DeviceFingerprint {
     hash = (hash << 5) - hash + c;
     hash = hash & hash;
   }
-  const deviceId = `fp_${Math.abs(hash).toString(36)}_${Date.now().toString(36)}`;
+  const baseId = `fp_${Math.abs(hash).toString(36)}`;
+  let stableSuffix = '';
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      stableSuffix = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY) || '';
+      if (!stableSuffix) {
+        const rnd = Math.random().toString(36).slice(2, 10);
+        stableSuffix = rnd || 'local';
+        window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, stableSuffix);
+      }
+    } catch {
+      stableSuffix = 'fallback';
+    }
+  }
+  const deviceId = stableSuffix ? `${baseId}_${stableSuffix}` : baseId;
 
   return {
     deviceId,
@@ -230,7 +245,27 @@ export function detectAnomaly(_input: {
   location?: ValidationLocationInput | null;
   deviceId?: string | null;
 }): AnomalyResult {
-  return { isAnomaly: false };
+  const input = _input;
+  const reasons: string[] = [];
+  const h = input.timestamp.getHours();
+
+  // Heurística de horário extremo (fora de jornada padrão).
+  if (h >= 0 && h < 4) {
+    reasons.push('Registro em horário atípico (madrugada)');
+  }
+
+  // Precisão muito ruim tende a indicar GPS instável/spoofing por app externo.
+  if (input.location?.accuracy != null && input.location.accuracy > 1000) {
+    reasons.push('Precisão de geolocalização muito baixa');
+  }
+
+  // Dispositivo ausente quando esperado para web/mobile.
+  if (!input.deviceId || String(input.deviceId).trim() === '') {
+    reasons.push('Dispositivo não identificado');
+  }
+
+  if (reasons.length === 0) return { isAnomaly: false };
+  return { isAnomaly: true, flag: FRAUD_FLAGS.BEHAVIOR_ANOMALY, reasons };
 }
 
 /**

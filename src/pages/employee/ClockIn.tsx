@@ -13,7 +13,7 @@ import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getDayRecords, getLocalDateString, validatePunchSequence } from '../../services/timeProcessingService';
 import {
-  getCurrentLocationResult,
+  getCurrentLocationRobustResult,
   geolocationReasonMessage,
   geolocationActionHint,
   queryGeolocationPermission,
@@ -227,7 +227,7 @@ const EmployeeClockIn: React.FC = () => {
     const perm = await queryGeolocationPermission();
     setGeoPermissionState(perm);
     logGeolocationDebug('retryGps:permission', { permission: perm });
-    const r = await getCurrentLocationResult({ timeout: 20000, maximumAge: 0 });
+    const r = await getCurrentLocationRobustResult({ forceFresh: true });
     setGpsLoading(false);
     if (r.ok === false) {
       setGeo(null);
@@ -255,7 +255,7 @@ const EmployeeClockIn: React.FC = () => {
         setGeoPermissionState(perm);
         logGeolocationDebug('modal:permission', { permission: perm });
       }
-      const r = await getCurrentLocationResult({ timeout: 20000, maximumAge: 0 });
+      const r = await getCurrentLocationRobustResult();
       if (cancelled) return;
       setGpsLoading(false);
       if (r.ok === false) {
