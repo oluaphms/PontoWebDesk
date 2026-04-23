@@ -213,4 +213,43 @@ describe('buildDayMirrorSummary — prioridade relógio (rep)', () => {
     expect(dm?.voltaIntervalo).toBeNull();
     expect(dm?.saidaFinal).toBe('12:09');
   });
+
+  it('com 3 batidas REP (entrada, saída int., volta) mantém 3ª em Volta int. e não em Saída', () => {
+    const day = '2026-04-23';
+    const records: TimeRecord[] = [
+      tr({
+        id: 'r1',
+        user_id: 'u',
+        created_at: `${day}T10:14:00.000Z`,
+        timestamp: `${day}T07:14:00.000-03:00`,
+        type: 'entrada',
+        source: 'rep',
+        method: 'rep',
+      }),
+      tr({
+        id: 'r2',
+        user_id: 'u',
+        created_at: `${day}T15:09:00.000Z`,
+        timestamp: `${day}T12:09:00.000-03:00`,
+        type: 'saída',
+        source: 'rep',
+        method: 'rep',
+      }),
+      tr({
+        id: 'r3',
+        user_id: 'u',
+        created_at: `${day}T17:04:00.000Z`,
+        timestamp: `${day}T14:04:00.000-03:00`,
+        type: 'saída',
+        source: 'rep',
+        method: 'rep',
+      }),
+    ];
+    const map = buildDayMirrorSummary(records, day, day);
+    const dm = map.get(day);
+    expect(dm?.entradaInicio).toBe('07:14');
+    expect(dm?.saidaIntervalo).toBe('12:09');
+    expect(dm?.voltaIntervalo).toBe('14:04');
+    expect(dm?.saidaFinal).toBeNull();
+  });
 });

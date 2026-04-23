@@ -307,6 +307,9 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
         if (entradaInicio && !saidaIntervalo && !voltaIntervalo) {
           // Possível saída para intervalo ou saída final
           saidaIntervalo = time;
+        } else if (entradaInicio && saidaIntervalo && !voltaIntervalo) {
+          // REP pode emitir a 3ª batida como "saída"; para espelho operacional, trata como volta de intervalo
+          voltaIntervalo = time;
         } else if (voltaIntervalo || (!saidaIntervalo && entradaInicio)) {
           // Saída final
           saidaFinal = time;
@@ -338,7 +341,8 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
   const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
   const middle = times.slice(1, -1);
   if (!entradaInicio && times.length > 0) entradaInicio = times[0];
-  if (!saidaFinal && times.length > 1) saidaFinal = times[times.length - 1];
+  if (!saidaFinal && times.length === 2) saidaFinal = times[times.length - 1];
+  if (!saidaFinal && times.length >= 4) saidaFinal = times[times.length - 1];
   if (!saidaIntervalo && middle.length > 0) saidaIntervalo = middle[0];
   if (!voltaIntervalo && middle.length > 1) voltaIntervalo = middle[middle.length - 1];
 
@@ -536,7 +540,7 @@ export function getDayStatus(
     return { status: 'falta', label: 'FALTA', color: 'red' };
   }
 
-  // Dia útil: exige as quatro marcações do espelho (entrada, saída int., volta int., saída final)
+  // Dia útil: completo só com as quatro marcações (entrada, saída int., volta int., saída final)
   const fourComplete =
     !!day.entradaInicio &&
     !!day.saidaIntervalo &&
@@ -544,7 +548,7 @@ export function getDayStatus(
     !!day.saidaFinal;
 
   if (!fourComplete) {
-    return { status: 'falta', label: 'FALTA', color: 'red' };
+    return { status: 'incomplete', label: 'INCOMPLETO', color: 'amber' };
   }
 
   if (expectedWindow) {
