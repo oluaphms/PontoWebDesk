@@ -267,11 +267,11 @@ const AdminPontoDiario: React.FC = () => {
 
         {/* Filtros e controles */}
         <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
               Data
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => changeDay(-1)}
@@ -283,7 +283,7 @@ const AdminPontoDiario: React.FC = () => {
                 type="date"
                 value={data}
                 onChange={(e) => setData(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white flex-1 sm:flex-none"
               />
               <button
                 type="button"
@@ -294,14 +294,14 @@ const AdminPontoDiario: React.FC = () => {
               </button>
             </div>
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
               Departamento
             </label>
             <select
               value={filterDept}
               onChange={(e) => setFilterDept(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[160px]"
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[160px]"
             >
               <option value="">Todos</option>
               {[...new Set(employees.map((e) => e.department_id).filter(Boolean))].map((id) => (
@@ -311,7 +311,7 @@ const AdminPontoDiario: React.FC = () => {
               ))}
             </select>
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
               Função
             </label>
@@ -320,17 +320,17 @@ const AdminPontoDiario: React.FC = () => {
               value={filterCargo}
               onChange={(e) => setFilterCargo(e.target.value)}
               placeholder="Filtrar por cargo"
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[160px]"
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[160px]"
             />
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
               Horário
             </label>
             <select
               value={filterHorarioId}
               onChange={(e) => setFilterHorarioId(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[140px]"
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[140px]"
             >
               <option value="">Todos</option>
               {[...new Set(employees.map((e) => e.schedule_id).filter(Boolean))].map((id) => (
@@ -340,21 +340,21 @@ const AdminPontoDiario: React.FC = () => {
               ))}
             </select>
           </div>
-          <div className="flex items-center gap-2 ml-auto text-xs text-slate-500 dark:text-slate-400">
-            <Filter className="w-3 h-3" /> Filtros especiais básicos como &quot;Dia em branco&quot; e
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto text-xs text-slate-500 dark:text-slate-400 mt-2 sm:mt-0">
+            <Filter className="w-3 h-3 flex-shrink-0" /> Filtros especiais básicos como &quot;Dia em branco&quot; e
             &quot;Com movimento&quot; poderão ser adicionados aqui em versões futuras.
           </div>
         </div>
 
         {/* Aviso de salvar (somente acesso completo) */}
         {!readOnly && Object.keys(diasDirty).length > 0 && (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
-            Existem ajustes (Comp, Ref, Ajuste) pendentes de salvar para este dia.
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
+            <span className="flex-1">Existem ajustes (Comp, Ref, Ajuste) pendentes de salvar para este dia.</span>
             <button
               type="button"
               onClick={handleSaveMeta}
               disabled={savingMeta}
-              className="ml-auto inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
             >
               {savingMeta ? 'Salvando...' : 'Salvar ajustes'}
             </button>

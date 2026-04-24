@@ -1704,7 +1704,7 @@ const AdminRepDevices: React.FC = () => {
           onClick={() => setSendReceiveOpen(false)}
         >
           <div
-            className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] md:max-h-[82vh] overflow-y-auto flex flex-col p-4 sm:p-6"
+            className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] md:max-h-[86vh] overflow-y-auto flex flex-col p-4 sm:p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <header className="flex items-start justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
@@ -2000,7 +2000,7 @@ const AdminRepDevices: React.FC = () => {
                 </div>
               </details>
 
-              <div className="rounded-xl border border-slate-200 dark:border-slate-600 p-4 flex flex-col flex-1 min-h-[140px]">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-600 p-4 flex flex-col flex-1 min-h-[280px]">
                 <label
                   htmlFor="rep-sr-log"
                   className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2"
@@ -2010,10 +2010,10 @@ const AdminRepDevices: React.FC = () => {
                 <textarea
                   id="rep-sr-log"
                   readOnly
-                  rows={7}
+                  rows={12}
                   value={srLog}
                   placeholder="As mensagens da comunicação aparecem aqui. Receber muitas batidas pode levar vários minutos."
-                  className="w-full flex-1 min-h-[120px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 text-xs font-mono leading-relaxed resize-y"
+                  className="w-full flex-1 min-h-[220px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 text-xs font-mono leading-relaxed resize-y"
                 />
               </div>
             </div>
