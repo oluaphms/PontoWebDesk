@@ -36,6 +36,8 @@ export interface AdminDashboardLastRecord {
   id: string;
   employeeName: string;
   type: string;
+  /** YYYY-MM-DD */
+  date: string;
   /** HH:mm */
   time: string;
   location: string;
@@ -232,11 +234,15 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       const timeStr = Number.isFinite(t.getTime())
         ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         : '—';
+      const dateStr = Number.isFinite(t.getTime())
+        ? t.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : '—';
       return {
         id: String(r.id ?? ''),
         userId: String(r.user_id ?? ''),
         employeeName: nameMap.get(String(r.user_id)) ?? String(r.user_id ?? '').slice(0, 8) ?? '—',
         type: String(r.type ?? ''),
+        date: dateStr,
         time: timeStr,
         location: formatLatLng(r),
         originLabel: resolvePunchOrigin(r).label,

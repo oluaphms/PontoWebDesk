@@ -153,6 +153,9 @@ const AdminDashboard: React.FC = () => {
                         {i18n.t('dashboard.type')}
                       </th>
                       <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
+                        Data
+                      </th>
+                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
                         {i18n.t('dashboard.time')}
                       </th>
                       <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">Origem</th>
@@ -174,6 +177,7 @@ const AdminDashboard: React.FC = () => {
                                 ? i18n.t('punch.typeBreak')
                                 : r.type}
                         </td>
+                        <td className="py-2 tabular-nums">{r.date}</td>
                         <td className="py-2 tabular-nums">{r.time}</td>
                         <td className="py-2 text-slate-600 dark:text-slate-300 text-xs">{r.originLabel}</td>
                         <td className="py-2 text-slate-500 dark:text-slate-400 text-xs">{r.location}</td>
