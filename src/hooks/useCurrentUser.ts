@@ -184,6 +184,25 @@ export function useCurrentUser() {
       return;
     }
 
+    // Verificar sessão no localStorage primeiro (mais rápido que getSession em mobile)
+    const checkLocalSession = () => {
+      try {
+        const sessionStr = localStorage.getItem('sb-' + supabase.supabaseUrl + '-auth-token');
+        if (sessionStr) {
+          const session = JSON.parse(sessionStr);
+          if (session?.user) {
+            // Sessão existe, carregar rapidamente
+            const minimal = minimalUserFromAuthSession(session.user);
+            setUser(minimal);
+          }
+        }
+      } catch {
+        // Ignora erro, vai tentar via API normal
+      }
+    };
+    
+    checkLocalSession();
+
     const loadingCap = window.setTimeout(() => {
       setLoading(false);
     }, PROFILE_LOADING_MAX_MS);
@@ -195,8 +214,7 @@ export function useCurrentUser() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // INITIAL_SESSION já coberto pelo loadUser() acima — evita 2× getSession + 2× select em users
-      if (event === 'INITIAL_SESSION') return;
+      // Agora processamos INITIAL_SESSION também para mobile ficar mais rápido
       if (event === 'SIGNED_OUT') {
         setUser(null);
         cachedUser = null;

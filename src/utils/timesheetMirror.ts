@@ -338,13 +338,29 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
   }
 
   // Fallback por ordem cronológica (caso tipos estejam incompletos ou inconsistentes)
+  // CORREÇÃO: Evitar duplicação de horários entre colunas
   const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
-  const middle = times.slice(1, -1);
-  if (!entradaInicio && times.length > 0) entradaInicio = times[0];
-  if (!saidaFinal && times.length === 2) saidaFinal = times[times.length - 1];
-  if (!saidaFinal && times.length >= 4) saidaFinal = times[times.length - 1];
-  if (!saidaIntervalo && middle.length > 0) saidaIntervalo = middle[0];
-  if (!voltaIntervalo && middle.length > 1) voltaIntervalo = middle[middle.length - 1];
+  const uniqueTimes = [...new Set(times)]; // Remove duplicatas
+  
+  if (!entradaInicio && uniqueTimes.length > 0) entradaInicio = uniqueTimes[0];
+  
+  // Lógica para 2 batidas: entrada e saída final
+  if (uniqueTimes.length === 2) {
+    if (!saidaFinal) saidaFinal = uniqueTimes[1];
+  }
+  
+  // Lógica para 3 batidas: entrada, saída intervalo, volta intervalo (sem saída final ainda)
+  if (uniqueTimes.length === 3) {
+    if (!saidaIntervalo) saidaIntervalo = uniqueTimes[1];
+    if (!voltaIntervalo) voltaIntervalo = uniqueTimes[2];
+  }
+  
+  // Lógica para 4 batidas: entrada, saída intervalo, volta intervalo, saída final
+  if (uniqueTimes.length >= 4) {
+    if (!saidaIntervalo) saidaIntervalo = uniqueTimes[1];
+    if (!voltaIntervalo) voltaIntervalo = uniqueTimes[2];
+    if (!saidaFinal) saidaFinal = uniqueTimes[3];
+  }
 
   // Fallback operacional: com 3+ batidas e saída de intervalo já conhecida, garantir 3ª batida visível em volta.
   if (!voltaIntervalo && !!saidaIntervalo && times.length >= 3) {

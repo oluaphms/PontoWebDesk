@@ -68,12 +68,17 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 
   try {
+    // Detectar se é mobile para ajustar configuração
+    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Opera Mini/i.test(navigator.userAgent);
+    
     supabaseInstance = createClient(url, key, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false,
+        detectSessionInUrl: true, // Habilitar detecção rápida de sessão na URL
         lock: createInProcessAuthLock(),
+        // Mobile: usar localStorage é mais rápido que IndexedDB em alguns casos
+        storage: isMobile ? localStorage : undefined,
       },
       global: {
         fetch: async (input, init) => {
