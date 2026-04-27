@@ -13,7 +13,6 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import type { User } from '../../types';
-import { BrandLogo } from '../../components/BrandLogo';
 import { prefetchPortalRoute } from '../routes/routeChunks';
 
 const SIDEBAR_WIDTH_EXPANDED = 240;
@@ -61,7 +60,15 @@ const EmployeeSidebar: React.FC<EmployeeSidebarProps> = ({ user, onLogout, onCol
         <div
           className={`flex items-center gap-3 ${collapsed ? 'justify-center px-0' : 'px-2'} pb-4 border-b border-slate-100 dark:border-slate-800`}
         >
-          <BrandLogo size="sm" className="shadow-lg ring-2 ring-emerald-500/30" />
+          <div className="transition-transform duration-300 hover:scale-105 filter drop-shadow-[0_0_6px_rgba(139,92,246,0.3)]">
+            <img
+              src="/play_store_512.png"
+              alt="PontoWebDesk"
+              width={collapsed ? 40 : 48}
+              height={collapsed ? 40 : 48}
+              className="w-[40px] h-[40px] lg:w-[48px] lg:h-[48px] object-contain"
+            />
+          </div>
           {!collapsed && (
             <div className="min-w-0">
               <span className="text-lg font-bold text-slate-900 dark:text-white tracking-tight block truncate">

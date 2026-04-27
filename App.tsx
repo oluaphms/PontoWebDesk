@@ -5,7 +5,6 @@ import { queryClient } from './src/lib/queryClient';
 import { AppInitializer } from './src/components/AppInitializer';
 import { User, LogType, DailySummary, PunchMethod, Company } from './types';
 import Layout from './components/Layout';
-import { BrandLogo } from './components/BrandLogo';
 import Clock from './components/Clock';
 import PunchModal from './components/PunchModal';
 import Onboarding from './components/Onboarding';
@@ -42,10 +41,7 @@ import {
   CalendarDays,
   Sparkles,
   Building2,
-  User as UserIcon,
   Lock,
-  ArrowLeft,
-  ChevronRight,
   Settings,
   ExternalLink,
   Sun,
@@ -53,13 +49,13 @@ import {
   Camera,
   Keyboard,
   MapPin,
-  Eye,
-  EyeOff,
   UserCog,
 } from 'lucide-react';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
 import RoleGuard from './src/components/auth/RoleGuard';
 import ProtectedRoute from './src/components/auth/ProtectedRoute';
+import { PresentationPanel } from './src/components/auth/PresentationPanel';
+import { LoginCard, type LoginRole } from './src/components/auth/LoginCard';
 import { useSettings, SettingsProvider } from './src/contexts/SettingsContext';
 import { useLanguage } from './src/contexts/LanguageContext';
 import { i18n } from './lib/i18n';
@@ -218,14 +214,8 @@ const AppMain: React.FC = () => {
   const [todayLabel, setTodayLabel] = useState<string>('00h 00m de 00h 00m');
 
   // Login State
-  const [loginStep, setLoginStep] = useState<'choice' | 'form'>('choice');
-  const [loginRole, setLoginRole] = useState<'admin' | 'employee' | null>(null);
-  const [loginData, setLoginData] = useState({ identifier: '', password: '' });
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [showIdentifier, setShowIdentifier] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   // Conexão Supabase (fallback quando servidor pausado/rede lenta)
   const [connectionUnavailable, setConnectionUnavailable] = useState(false);
@@ -424,12 +414,9 @@ const AppMain: React.FC = () => {
     return () => window.removeEventListener('supabase:auth-expired', onAuthExpired);
   }, []);
 
-  // Ao exibir tela de login (user null), garantir formulário em estado inicial
+  // Ao exibir tela de login (user null), limpar erro
   useEffect(() => {
     if (!user) {
-      setLoginStep('choice');
-      setLoginRole(null);
-      setLoginData({ identifier: '', password: '' });
       setLoginError(null);
     }
   }, [user]);
@@ -645,9 +632,8 @@ const AppMain: React.FC = () => {
     });
   }, [records, historyTypeFilter, historyMethodFilter, historyDateFilter]);
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = validateLogin(loginData);
+  const handleLogin = async (identifier: string, password: string, role: LoginRole) => {
+    const parsed = validateLogin({ identifier, password });
     if (!parsed.success) {
       setLoginError(parsed.error.errors[0]?.message ?? 'Dados inválidos');
       return;
@@ -658,7 +644,6 @@ const AppMain: React.FC = () => {
 
     try {
       // Pré-check rápido para reduzir espera percebida quando o projeto Supabase está pausado.
-      // Se der falso rapidamente, já mostramos a tela de reconexão sem esperar o signIn completo.
       const FAST_PRECHECK_TIMEOUT_MS = 2500;
       const precheckResult = await Promise.race([
         checkSupabaseConnection(),
@@ -677,44 +662,27 @@ const AppMain: React.FC = () => {
         return;
       }
 
-      // Não chamar signOut aqui: o Supabase substitui a sessão no signIn e o signOut assíncrono
-      // gerava evento "sem sessão" depois do login (voltava para a tela de login) e atrasava o fluxo.
-
-      // Delega a resolução do identificador (email, nome, CPF) para o AuthService,
-      // que já trata e normaliza o valor (incluindo fallback de domínio quando necessário).
-      const loginPromise = authService.signInWithEmail(loginData.identifier, loginData.password);
-      /** Teto alinhado a rede lenta + cold start do Supabase após deploy. */
+      const loginPromise = authService.signInWithEmail(identifier, password);
       const LOGIN_TIMEOUT_MS = 55_000;
       const timeoutPromise = new Promise<{ user: any; error: string | null }>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error('LOGIN_TIMEOUT')
-            ),
-          LOGIN_TIMEOUT_MS
-        )
+        setTimeout(() => reject(new Error('LOGIN_TIMEOUT')), LOGIN_TIMEOUT_MS)
       );
+
       let result: { user: any; error: string | null };
       try {
         result = await Promise.race([loginPromise, timeoutPromise]);
       } catch (authErr: any) {
         const errText = String(
-          authErr?.message ||
-          authErr?.details ||
-          authErr?.hint ||
-          authErr?.error?.message ||
-          ''
+          authErr?.message || authErr?.details || authErr?.hint || authErr?.error?.message || ''
         ).toLowerCase();
         let isTimeoutError = errText.includes('login_timeout') || errText.includes('timeout');
-        const isCircuitBreakerError =
-          errText.includes('circuit breaker ativo');
+        const isCircuitBreakerError = errText.includes('circuit breaker ativo');
         let isDnsError =
           errText.includes('err_name_not_resolved') ||
           errText.includes('name_not_resolved') ||
           errText.includes('dns') ||
           errText.includes('failed to fetch');
 
-        // Reclassifica timeout quando a causa real for DNS/rede.
         if (isTimeoutError && !isDnsError) {
           try {
             const connectionCheck = await Promise.race([
@@ -752,7 +720,6 @@ const AppMain: React.FC = () => {
           setConnectionIssueMessage('Falha de conectividade durante a autenticação. Verifique rede e tente novamente.');
           setLoginError(authErr?.message || 'Erro de rede ao autenticar.');
         }
-        // Limpar sessão local para o próximo "Entrar" funcionar sem precisar clicar em "Limpar sessão"
         try {
           await clearLocalAuthSession();
         } catch {
@@ -805,13 +772,9 @@ const AppMain: React.FC = () => {
         }
       }
     } catch (error: any) {
-      console.error('Erro no handleLoginSubmit:', error);
+      console.error('Erro no handleLogin:', error);
       const errorText = String(
-        error?.message ||
-          error?.details ||
-          error?.hint ||
-          error?.error?.message ||
-          ''
+        error?.message || error?.details || error?.hint || error?.error?.message || ''
       ).toLowerCase();
       const isDnsLike =
         errorText.includes('err_name_not_resolved') ||
@@ -1058,192 +1021,54 @@ const AppMain: React.FC = () => {
         </React.Suspense>
       );
     }
+
     return (
-      <div className="min-h-screen relative flex flex-col items-center justify-center px-4 py-10 sm:p-6 overflow-x-hidden overflow-y-auto font-sans transition-colors duration-300 bg-[#d1d5db] dark:bg-[#1f2937]">
+      <div className={`min-h-screen relative flex flex-col lg:flex-row overflow-x-hidden overflow-y-auto font-sans transition-colors duration-300 ${theme === 'dark' ? 'dark' : ''}`}>
+        {/* Fundo com gradiente - alterna entre modo claro e escuro */}
+        <div className={`fixed inset-0 z-0 transition-all duration-500 ${
+          theme === 'dark' 
+            ? 'bg-gradient-to-br from-slate-950 via-purple-950 to-indigo-950' 
+            : 'bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700'
+        }`} />
 
-        <div className="w-full max-w-md relative z-10">
-          <h1 className="sr-only">
-            {i18n.t('app.name')} — {i18n.t('login.slogan')}
-          </h1>
+        {/* Padrão de pontos sutis */}
+        <div
+          className={`fixed inset-0 z-0 transition-opacity duration-500 ${theme === 'dark' ? 'opacity-20' : 'opacity-30'}`}
+          style={{
+            backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0)`,
+            backgroundSize: '40px 40px',
+          }}
+        />
 
-          {/* Um único painel: logo em cima, ações embaixo */}
-          <div className="relative rounded-[2.5rem] border border-slate-400/70 dark:border-slate-700/70 bg-[#d1d5db] dark:bg-[#1f2937] overflow-hidden transition-colors">
-            <button
-              onClick={toggleTheme}
-              className="absolute top-5 right-5 z-20 p-3 bg-white/90 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-900 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all group shadow-sm"
-              aria-label={getThemeLabel()}
-              title={getThemeLabel()}
-            >
-              <div className="text-slate-700 dark:text-white group-hover:scale-110 transition-transform">
-                {getThemeIcon()}
-              </div>
-            </button>
-            <div className="relative px-6 sm:px-8 pt-9 pb-8 sm:pb-10 flex flex-col items-center bg-[#d1d5db] dark:bg-[#1f2937]">
-              <BrandLogo
-                size="lg"
-                className="relative z-10"
-                alt={`${i18n.t('app.name')} — ${i18n.t('login.slogan')}`}
-              />
-
-            {loginStep === 'choice' ? (
-              <div className="relative z-10 w-full mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <button
-                  onClick={() => { setLoginRole('employee'); setLoginStep('form'); }}
-                  className="w-full group p-6 bg-slate-50 dark:bg-white/5 hover:bg-indigo-600 dark:hover:bg-indigo-600 rounded-[2rem] border border-slate-200 dark:border-white/5 transition-all flex items-center justify-between text-left outline-none focus:ring-4 focus:ring-indigo-500/30"
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-indigo-100 dark:bg-white/10 rounded-2xl flex items-center justify-center text-indigo-600 dark:text-white group-hover:bg-white/20 transition-colors">
-                      <UserIcon size={24} />
-                    </div>
-                    <div>
-                      <p className="text-slate-900 dark:text-white font-bold text-lg transition-colors group-hover:text-white">Entrar</p>
-                      <p className="text-slate-600 dark:text-slate-400 text-xs group-hover:text-indigo-100 dark:group-hover:text-indigo-100 transition-colors">Entre como Colaborador.</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={20} className="text-slate-400 dark:text-slate-600 group-hover:text-white transition-colors" />
-                </button>
-
-                <button
-                  onClick={() => { setLoginRole('admin'); setLoginStep('form'); }}
-                  className="w-full group p-6 bg-slate-50 dark:bg-white/5 hover:bg-slate-800 dark:hover:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-white/5 transition-all flex items-center justify-between text-left outline-none focus:ring-4 focus:ring-slate-500/30"
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-slate-100 dark:bg-white/10 rounded-2xl flex items-center justify-center text-slate-700 dark:text-white group-hover:bg-white/20 transition-colors">
-                      <ShieldCheck size={24} />
-                    </div>
-                    <div>
-                      <p className="text-slate-900 dark:text-white font-bold text-lg transition-colors group-hover:text-white">Entrar</p>
-                      <p className="text-slate-600 dark:text-slate-400 text-xs group-hover:text-slate-200 dark:group-hover:text-slate-200 transition-colors">Entre como Administrador.</p>
-                      </div>
-                  </div>
-                  <ChevronRight size={20} className="text-slate-400 dark:text-slate-600 group-hover:text-white transition-colors" />
-                </button>
-              </div>
-            ) : (
-              <div className="relative z-10 w-full mt-8 animate-in fade-in slide-in-from-right-4 duration-500">
-                <button
-                  onClick={() => setLoginStep('choice')}
-                  className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest mb-8"
-                >
-                  <ArrowLeft size={14} /> {i18n.t('login.backToSelection')}
-                </button>
-
-                <div className="mb-8">
-                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white transition-colors">Entrar</h2>
-                  <p className="text-slate-600 dark:text-slate-400 text-sm transition-colors">
-                    {loginRole === 'admin'
-                      ? 'Entre como Administrador'
-                      : 'Entre como Colaborador'}
-                  </p>
-                </div>
-
-                <form onSubmit={handleLoginSubmit} className="space-y-6">
-                  {/* Campo usuário oculto para acessibilidade e gerenciadores de senha (evita aviso do navegador) */}
-                  <input
-                    type="text"
-                    autoComplete="username"
-                    value={loginData.identifier}
-                    readOnly
-                    tabIndex={-1}
-                    aria-hidden="true"
-                    className="absolute w-px h-px -left-[9999px] opacity-0 pointer-events-none"
-                  />
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                      <input
-                        type={showIdentifier ? 'text' : 'password'}
-                        placeholder={i18n.t('login.usernameOrEmail')}
-                        value={loginData.identifier}
-                        onChange={e => setLoginData({ ...loginData, identifier: e.target.value })}
-                        autoComplete="username"
-                        className="w-full pl-12 pr-10 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-600 transition-all text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowIdentifier((prev) => !prev)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                        aria-label={showIdentifier ? i18n.t('app.hidePassword') : i18n.t('app.showPassword')}
-                      >
-                        {showIdentifier ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder={i18n.t('login.accessPassword')}
-                        value={loginData.password}
-                        onChange={e => setLoginData({ ...loginData, password: e.target.value })}
-                        autoComplete="current-password"
-                        className="w-full pl-12 pr-10 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-600 transition-all text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                        aria-label={showPassword ? i18n.t('app.hidePassword') : i18n.t('app.showPassword')}
-                      >
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {loginError && (
-                    <div className="space-y-2">
-                      <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-500 text-xs font-bold animate-in shake">
-                        <AlertTriangle size={16} /> {loginError}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleClearSessionAndRetry}
-                        className="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 underline"
-                      >
-                        {i18n.t('app.clearSessionRetry')}
-                      </button>
-                    </div>
-                  )}
-
-                  <Button
-                    type="submit"
-                    loading={isLoggingIn}
-                    className="w-full h-14 rounded-2xl text-lg shadow-xl shadow-indigo-600/20"
-                  >
-                    {loginRole === 'admin'
-                      ? 'Entrar como Administrador'
-                      : loginRole === 'employee'
-                        ? 'Entrar como Colaborador'
-                        : i18n.t('login.enterSystem')}
-                  </Button>
-
-                  <p className="text-center space-x-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowForgotPassword(true)}
-                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-                    >
-                      {i18n.t('login.forgotPassword')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearSessionAndRetry}
-                      disabled={isResettingSession}
-                      className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 underline disabled:opacity-50"
-                    >
-                      {isResettingSession ? i18n.t('app.clearing') : i18n.t('app.clearSessionRetry')}
-                    </button>
-                  </p>
-                </form>
-
-                <ForgotPasswordModal isOpen={showForgotPassword} onClose={() => setShowForgotPassword(false)} />
-              </div>
-            )}
-            </div>
+        {/* Toggle de tema */}
+        <button
+          onClick={toggleTheme}
+          className="fixed top-5 right-5 z-50 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl border border-white/20 transition-all group"
+          aria-label={getThemeLabel()}
+          title={getThemeLabel()}
+        >
+          <div className="text-white/80 group-hover:text-white group-hover:scale-110 transition-all">
+            {getThemeIcon()}
           </div>
+        </button>
 
-          <p className="text-center text-slate-500 dark:text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-8 transition-colors">
-            {i18n.t('login.footer')} • v1.4.0
-          </p>
+        {/* Área de Apresentação - Esquerda no Desktop, Topo no Mobile */}
+        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center py-10 lg:py-0 ${theme === 'dark' ? 'bg-black/20' : 'bg-white/10'} lg:bg-transparent transition-colors duration-500`}>
+          <PresentationPanel />
+        </div>
+
+        {/* Área de Login - Direita no Desktop, Abaixo no Mobile */}
+        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 py-8 lg:py-0 backdrop-blur-sm transition-colors duration-500 ${
+          theme === 'dark' ? 'bg-slate-950/30' : 'bg-white/10'
+        } lg:bg-transparent lg:backdrop-blur-none`}>
+          <LoginCard
+            onLogin={handleLogin}
+            isLoading={isLoggingIn}
+            error={loginError}
+            onClearError={() => setLoginError(null)}
+            onClearSession={handleClearSessionAndRetry}
+            isResettingSession={isResettingSession}
+          />
         </div>
       </div>
     );

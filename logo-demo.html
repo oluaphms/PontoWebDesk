@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PontoWebDesk - Logo Premium</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1e1b4b 0%, #581c87 50%, #1e293b 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #c4b5fd 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #a78bfa;
+            margin-bottom: 60px;
+            font-size: 1.1rem;
+        }
+
+        .logo-showcase {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 40px;
+            margin-bottom: 60px;
+        }
+
+        .logo-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .logo-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(139, 92, 246, 0.4);
+            transform: translateY(-5px);
+        }
+
+        .logo-card h3 {
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+            color: #c4b5fd;
+        }
+
+        .logo-card p {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #a78bfa;
+        }
+
+        /* Estilos do Logo */
+        .logo-premium {
+            display: inline-flex;
+            cursor: pointer;
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .logo-premium:hover {
+            transform: scale(1.08) translateY(-2px);
+        }
+
+        .logo-animated {
+            animation: logoEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        @keyframes logoEntrance {
+            0% {
+                opacity: 0;
+                transform: scale(0.5) rotate(-10deg);
+            }
+            50% {
+                transform: scale(1.05) rotate(2deg);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1) rotate(0deg);
+            }
+        }
+
+        .logo-glow {
+            filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.5));
+        }
+
+        .logo-glow:hover {
+            filter: drop-shadow(0 0 25px rgba(139, 92, 246, 0.7));
+        }
+
+        /* Animações */
+        .logo-premium:hover .logo-outer-ring {
+            stroke-width: 3;
+            filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.7));
+        }
+
+        .biometric-arcs path {
+            transition: all 0.4s ease;
+        }
+
+        .logo-premium:hover .biometric-arc-outer,
+        .logo-premium:hover .biometric-arc-mid,
+        .logo-premium:hover .biometric-arc-inner {
+            filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.5));
+        }
+
+        .logo-check {
+            transition: all 0.4s ease;
+        }
+
+        .logo-premium:hover .logo-check {
+            stroke-width: 4.5;
+            filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.8));
+        }
+
+        .logo-center-group circle {
+            transition: all 0.3s ease;
+        }
+
+        .logo-premium:hover .logo-center-main {
+            filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.9));
+        }
+
+        /* Variantes */
+        .size-xs { width: 40px; height: 40px; }
+        .size-sm { width: 60px; height: 60px; }
+        .size-md { width: 80px; height: 80px; }
+        .size-lg { width: 100px; height: 100px; }
+        .size-xl { width: 120px; height: 120px; }
+        .size-xxl { width: 160px; height: 160px; }
+
+        /* Grid de tamanhos */
+        .size-showcase {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            justify-content: center;
+            align-items: center;
+            margin-top: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+        }
+
+        .size-item {
+            text-align: center;
+        }
+
+        .size-item span {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #a78bfa;
+        }
+
+        /* Features list */
+        .features {
+            margin-top: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+
+        .features h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #c4b5fd;
+        }
+
+        .features ul {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .features li {
+            padding: 10px 15px;
+            background: rgba(139, 92, 246, 0.1);
+            border-radius: 10px;
+            border-left: 3px solid #8b5cf6;
+        }
+
+        .features li::before {
+            content: "✨ ";
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PontoWebDesk Logo</h1>
+        <p class="subtitle">Versão Premium - Identidade Biométrica + Precisão Temporal</p>
+
+        <div class="logo-showcase">
+            <!-- Premium com Glow -->
+            <div class="logo-card">
+                <h3>Premium + Glow</h3>
+                <svg width="100" height="100" viewBox="0 0 100 100" fill="none" class="logo-premium logo-animated logo-glow">
+                    <defs>
+                        <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6">
+                                <animate attributeName="stop-color" values="#8B5CF6;#A78BFA;#7C3AED;#8B5CF6" dur="4s" repeatCount="indefinite"/>
+                            </stop>
+                            <stop offset="100%" stopColor="#6D28D9"/>
+                        </linearGradient>
+                        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="2" result="blur"/>
+                            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                    </defs>
+
+                    <!-- Anel externo -->
+                    <circle cx="50" cy="50" r="40" stroke="url(#grad1)" strokeWidth="2" fill="none" class="logo-outer-ring">
+                        <animate attributeName="r" values="40;40.5;40" dur="3s" repeatCount="indefinite"/>
+                    </circle>
+
+                    <!-- Anel scan -->
+                    <circle cx="50" cy="50" r="35" stroke="#8B5CF6" strokeWidth="0.5" fill="none" opacity="0.3" strokeDasharray="4 4">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="20s" repeatCount="indefinite"/>
+                    </circle>
+
+                    <!-- Marcações -->
+                    <line x1="50" y1="14" x2="50" y2="18" stroke="#8B5CF6" strokeWidth="1.5" opacity="0.6"/>
+                    <line x1="86" y1="50" x2="82" y2="50" stroke="#8B5CF6" strokeWidth="1.5" opacity="0.6"/>
+                    <line x1="50" y1="86" x2="50" y2="82" stroke="#8B5CF6" strokeWidth="1.5" opacity="0.6"/>
+                    <line x1="14" y1="50" x2="18" y2="50" stroke="#8B5CF6" strokeWidth="1.5" opacity="0.6"/>
+
+                    <!-- Arcadas biométricas -->
+                    <path d="M22 50 Q50 15 78 50" stroke="url(#grad1)" strokeWidth="1.5" fill="none" class="biometric-arc-outer"/>
+                    <path d="M28 50 Q50 22 72 50" stroke="#A78BFA" strokeWidth="1.5" fill="none" opacity="0.8" class="biometric-arc-mid"/>
+                    <path d="M34 50 Q50 29 66 50" stroke="#7C3AED" strokeWidth="1.5" fill="none" class="biometric-arc-inner"/>
+
+                    <!-- Ridges -->
+                    <line x1="50" y1="35" x2="50" y2="48" stroke="#8B5CF6" strokeWidth="1.5"/>
+                    <line x1="42" y1="38" x2="44" y2="46" stroke="#8B5CF6" strokeWidth="1.2" opacity="0.7"/>
+                    <line x1="58" y1="38" x2="56" y2="46" stroke="#8B5CF6" strokeWidth="1.2" opacity="0.7"/>
+
+                    <!-- Scanner -->
+                    <line x1="15" y1="50" x2="85" y2="50" stroke="#A78BFA" strokeWidth="2" opacity="0" strokeLinecap="round" filter="url(#glow)">
+                        <animate attributeName="opacity" values="0;0.8;0" dur="2.5s" repeatCount="indefinite"/>
+                        <animate attributeName="y1" values="20;80;20" dur="2.5s" repeatCount="indefinite"/>
+                        <animate attributeName="y2" values="20;80;20" dur="2.5s" repeatCount="indefinite"/>
+                    </line>
+
+                    <!-- Ponteiros -->
+                    <line x1="50" y1="50" x2="50" y2="30" stroke="#C4B5FD" strokeWidth="3" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="60s" repeatCount="indefinite"/>
+                    </line>
+                    <line x1="50" y1="50" x2="66" y2="50" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="10s" repeatCount="indefinite"/>
+                    </line>
+
+                    <!-- Centro -->
+                    <g class="logo-center-group">
+                        <circle cx="50" cy="50" r="5" fill="#8B5CF6" opacity="0.3"/>
+                        <circle cx="50" cy="50" r="3.5" fill="url(#grad1)" class="logo-center-main">
+                            <animate attributeName="r" values="3.5;4;3.5" dur="2s" repeatCount="indefinite"/>
+                        </circle>
+                        <circle cx="50" cy="50" r="1.5" fill="#FFFFFF" opacity="0.8">
+                            <animate attributeName="opacity" values="0.8;1;0.8" dur="1.5s" repeatCount="indefinite"/>
+                        </circle>
+                    </g>
+
+                    <!-- Check -->
+                    <path d="M30 48 L43 60 L72 32" stroke="#22C55E" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" class="logo-check"/>
+
+                    <!-- Partículas -->
+                    <circle cx="18" cy="50" r="1.2" fill="#8B5CF6" opacity="0.4">
+                        <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" repeatCount="indefinite"/>
+                    </circle>
+                    <circle cx="82" cy="50" r="1.2" fill="#8B5CF6" opacity="0.4">
+                        <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.5s" repeatCount="indefinite"/>
+                    </circle>
+                </svg>
+                <p>Tamanho: 100px | Glow ativo | Animações completas</p>
+            </div>
+
+            <!-- Minimal -->
+            <div class="logo-card">
+                <h3>Versão Minimalista</h3>
+                <svg width="100" height="100" viewBox="0 0 100 100" fill="none" class="logo-premium">
+                    <defs>
+                        <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6"/>
+                            <stop offset="100%" stopColor="#6D28D9"/>
+                        </linearGradient>
+                    </defs>
+                    <circle cx="50" cy="50" r="38" stroke="url(#grad2)" strokeWidth="2.5" fill="none"/>
+                    <path d="M30 50 Q50 25 70 50" stroke="#8B5CF6" strokeWidth="1.5" fill="none" opacity="0.7"/>
+                    <path d="M35 50 Q50 30 65 50" stroke="#A78BFA" strokeWidth="1.5" fill="none" opacity="0.6"/>
+                    <line x1="50" y1="50" x2="50" y2="30" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round"/>
+                    <line x1="50" y1="50" x2="65" y2="50" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round"/>
+                    <circle cx="50" cy="50" r="3" fill="#8B5CF6"/>
+                    <path d="M32 50 L44 60 L70 35" stroke="#22C55E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                </svg>
+                <p>Design clean | Sem animações | Ideal para headers</p>
+            </div>
+
+            <!-- Grande Impacto -->
+            <div class="logo-card">
+                <h3>Grande Impacto</h3>
+                <svg width="160" height="160" viewBox="0 0 100 100" fill="none" class="logo-premium logo-animated logo-glow">
+                    <defs>
+                        <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6">
+                                <animate attributeName="stop-color" values="#8B5CF6;#A78BFA;#7C3AED;#8B5CF6" dur="4s" repeatCount="indefinite"/>
+                            </stop>
+                            <stop offset="100%" stopColor="#6D28D9"/>
+                        </linearGradient>
+                        <filter id="glow2" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="3" result="blur"/>
+                            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                    </defs>
+                    <circle cx="50" cy="50" r="40" stroke="url(#grad3)" strokeWidth="2" fill="none" filter="url(#glow2)">
+                        <animate attributeName="r" values="40;41;40" dur="3s" repeatCount="indefinite"/>
+                    </circle>
+                    <circle cx="50" cy="50" r="35" stroke="#8B5CF6" strokeWidth="0.5" fill="none" opacity="0.3" strokeDasharray="4 4">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="15s" repeatCount="indefinite"/>
+                    </circle>
+                    <path d="M22 50 Q50 15 78 50" stroke="url(#grad3)" strokeWidth="1.5" fill="none"/>
+                    <path d="M28 50 Q50 22 72 50" stroke="#A78BFA" strokeWidth="1.5" fill="none" opacity="0.8"/>
+                    <path d="M34 50 Q50 29 66 50" stroke="#7C3AED" strokeWidth="1.5" fill="none"/>
+                    <line x1="50" y1="35" x2="50" y2="48" stroke="#8B5CF6" strokeWidth="1.5"/>
+                    <line x1="50" y1="50" x2="50" y2="30" stroke="#C4B5FD" strokeWidth="3" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="60s" repeatCount="indefinite"/>
+                    </line>
+                    <line x1="50" y1="50" x2="66" y2="50" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="10s" repeatCount="indefinite"/>
+                    </line>
+                    <circle cx="50" cy="50" r="3.5" fill="url(#grad3)"/>
+                    <circle cx="50" cy="50" r="1.5" fill="#FFFFFF" opacity="0.9"/>
+                    <path d="M30 48 L43 60 L72 32" stroke="#22C55E" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" filter="url(#glow2)"/>
+                </svg>
+                <p>Tamanho: 160px | Para telas de login e hero</p>
+            </div>
+        </div>
+
+        <!-- Showcase de Tamanhos -->
+        <div class="size-showcase">
+            <div class="size-item">
+                <svg width="40" height="40" viewBox="0 0 100 100" fill="none" class="logo-premium">
+                    <circle cx="50" cy="50" r="40" stroke="#8B5CF6" strokeWidth="3" fill="none"/>
+                    <path d="M25 50 Q50 20 75 50" stroke="#8B5CF6" strokeWidth="2" fill="none"/>
+                    <line x1="50" y1="50" x2="50" y2="25" stroke="#A78BFA" strokeWidth="3" strokeLinecap="round"/>
+                    <circle cx="50" cy="50" r="4" fill="#8B5CF6"/>
+                    <path d="M30 52 L42 64 L70 40" stroke="#22C55E" strokeWidth="4" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span>40px (XS)</span>
+            </div>
+            <div class="size-item">
+                <svg width="60" height="60" viewBox="0 0 100 100" fill="none" class="logo-premium">
+                    <circle cx="50" cy="50" r="40" stroke="#8B5CF6" strokeWidth="2.5" fill="none"/>
+                    <path d="M22 50 Q50 15 78 50" stroke="#8B5CF6" strokeWidth="1.5" fill="none"/>
+                    <path d="M30 50 Q50 25 70 50" stroke="#A78BFA" strokeWidth="1.5" fill="none"/>
+                    <line x1="50" y1="50" x2="50" y2="28" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round"/>
+                    <line x1="50" y1="50" x2="68" y2="50" stroke="#C4B5FD" strokeWidth="2" strokeLinecap="round"/>
+                    <circle cx="50" cy="50" r="3.5" fill="#8B5CF6"/>
+                    <path d="M30 48 L43 60 L72 32" stroke="#22C55E" strokeWidth="3" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span>60px (SM)</span>
+            </div>
+            <div class="size-item">
+                <svg width="80" height="80" viewBox="0 0 100 100" fill="none" class="logo-premium logo-glow">
+                    <defs>
+                        <linearGradient id="grad4" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6"/>
+                            <stop offset="100%" stopColor="#6D28D9"/>
+                        </linearGradient>
+                    </defs>
+                    <circle cx="50" cy="50" r="40" stroke="url(#grad4)" strokeWidth="2" fill="none"/>
+                    <path d="M22 50 Q50 15 78 50" stroke="url(#grad4)" strokeWidth="1.5" fill="none"/>
+                    <path d="M28 50 Q50 22 72 50" stroke="#A78BFA" strokeWidth="1.5" fill="none"/>
+                    <path d="M34 50 Q50 29 66 50" stroke="#7C3AED" strokeWidth="1.5" fill="none"/>
+                    <line x1="50" y1="50" x2="50" y2="30" stroke="#C4B5FD" strokeWidth="2.5" strokeLinecap="round"/>
+                    <line x1="50" y1="50" x2="66" y2="50" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round"/>
+                    <circle cx="50" cy="50" r="3.5" fill="url(#grad4)"/>
+                    <path d="M30 48 L43 60 L72 32" stroke="#22C55E" strokeWidth="3.5" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span>80px (MD)</span>
+            </div>
+            <div class="size-item">
+                <svg width="120" height="120" viewBox="0 0 100 100" fill="none" class="logo-premium logo-animated logo-glow">
+                    <defs>
+                        <linearGradient id="grad5" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8B5CF6">
+                                <animate attributeName="stop-color" values="#8B5CF6;#A78BFA;#7C3AED;#8B5CF6" dur="4s" repeatCount="indefinite"/>
+                            </stop>
+                            <stop offset="100%" stopColor="#6D28D9"/>
+                        </linearGradient>
+                    </defs>
+                    <circle cx="50" cy="50" r="40" stroke="url(#grad5)" strokeWidth="2" fill="none"/>
+                    <circle cx="50" cy="50" r="35" stroke="#8B5CF6" strokeWidth="0.5" fill="none" opacity="0.3" strokeDasharray="4 4">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="20s" repeatCount="indefinite"/>
+                    </circle>
+                    <path d="M22 50 Q50 15 78 50" stroke="url(#grad5)" strokeWidth="1.5" fill="none"/>
+                    <path d="M28 50 Q50 22 72 50" stroke="#A78BFA" strokeWidth="1.5" fill="none" opacity="0.8"/>
+                    <path d="M34 50 Q50 29 66 50" stroke="#7C3AED" strokeWidth="1.5" fill="none"/>
+                    <line x1="50" y1="35" x2="50" y2="48" stroke="#8B5CF6" strokeWidth="1.5"/>
+                    <line x1="50" y1="50" x2="50" y2="30" stroke="#C4B5FD" strokeWidth="3" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="60s" repeatCount="indefinite"/>
+                    </line>
+                    <line x1="50" y1="50" x2="66" y2="50" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="10s" repeatCount="indefinite"/>
+                    </line>
+                    <circle cx="50" cy="50" r="3.5" fill="url(#grad5)"/>
+                    <circle cx="50" cy="50" r="1.5" fill="#FFFFFF" opacity="0.9"/>
+                    <path d="M30 48 L43 60 L72 32" stroke="#22C55E" strokeWidth="3.5" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span>120px (XL)</span>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="features">
+            <h2>✨ Recursos Premium</h2>
+            <ul>
+                <li>Animações SVG nativas (SMIL)</li>
+                <li>Gradientes animados em loop</li>
+                <li>Efeito de scanner biométrico</li>
+                <li>Ponteiros do relógio girando</li>
+                <li>Arcadas com efeito de pulso</li>
+                <li>Sensor central interativo</li>
+                <li>Check de confirmação dinâmico</li>
+                <li>Partículas tech flutuantes</li>
+                <li>Glow e sombras em camadas</li>
+                <li>Transições suaves no hover</li>
+                <li>Anel externo com respiração</li>
+                <li>Microinterações de escala</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

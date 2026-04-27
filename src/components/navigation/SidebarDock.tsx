@@ -6,7 +6,6 @@ import { getNavigationForRole } from '../../config/navigation';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import type { User } from '../../../types';
-import { BrandLogo } from '../../../components/BrandLogo';
 import { prefetchPortalRoute } from '../../routes/routeChunks';
 
 const DOCK_WIDTH_COLLAPSED = 72;
@@ -44,7 +43,15 @@ const SidebarDock: React.FC<SidebarDockProps> = ({ user, onLogout }) => {
             expanded ? 'px-2' : 'justify-center px-0'
           }`}
         >
-          <BrandLogo size="sm" className="shadow-lg" />
+          <div className="transition-transform duration-300 hover:scale-105 filter drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]">
+            <img
+              src="/play_store_512.png"
+              alt="PontoWebDesk"
+              width={expanded ? 48 : 40}
+              height={expanded ? 48 : 40}
+              className="w-[40px] h-[40px] lg:w-[48px] lg:h-[48px] object-contain"
+            />
+          </div>
           <AnimatePresence>
             {expanded && (
               <motion.div

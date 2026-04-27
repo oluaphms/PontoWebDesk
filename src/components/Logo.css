@@ -1,515 +1,328 @@
 /* ============================================
-   LOGO PontoWebDesk - Versão ULTRA PREMIUM
-   Glassmorphism, gradientes, animações fluidas
+   LOGO PontoWebDesk - VERSÃO PREMIUM SURPREENDENTE
+   Animações fluidas, gradientes, efeitos tech
    ============================================ */
 
-/* Container principal com efeito glassmorphism */
-.logo {
-  color: var(--logo-primary);
+/* Container principal */
+.logo-premium {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  animation: logoEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Animação de entrada elástica */
+/* Animação de entrada suave */
+.logo-animated {
+  animation: logoEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
 @keyframes logoEntrance {
   0% {
     opacity: 0;
-    transform: scale(0.8) translateY(-20px);
+    transform: scale(0.5) rotate(-10deg);
   }
   50% {
-    transform: scale(1.02) translateY(2px);
+    transform: scale(1.05) rotate(2deg);
   }
   100% {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: scale(1) rotate(0deg);
   }
-}
-
-/* SVG base */
-.logo svg {
-  display: block;
-  overflow: visible;
-  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.07));
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.logo:hover svg {
-  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.12));
-  transform: translateY(-2px);
-}
-
-/* Dark mode - glow neon */
-.dark .logo svg {
-  filter: drop-shadow(0 4px 15px rgba(139, 92, 246, 0.25));
-}
-
-.dark .logo:hover svg {
-  filter: drop-shadow(0 8px 30px rgba(139, 92, 246, 0.4));
 }
 
 /* ============================================
-   ANIMAÇÕES HOVER PREMIUM
+   EFEITO HOVER PREMIUM
    ============================================ */
 
-/* 1. Efeito base do container */
-.logo:hover svg {
-  filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.15));
-  transform: translateY(-3px) scale(1.02);
+.logo-premium:hover {
+  transform: scale(1.08) translateY(-2px);
 }
 
-/* 2. Aceleração dos ponteiros no hover - mais suave */
-.logo:hover .clock-hand.hour {
-  animation-duration: 6s;
-}
-
-.logo:hover .clock-hand.minute {
-  animation-duration: 1s;
-}
-
-/* 3. Fingerprint brilha mais no hover */
-.logo:hover .fingerprint-circles circle {
-  opacity: 0.6 !important;
-  stroke-width: 3.5;
-}
-
-.logo:hover .fingerprint-ridges path {
-  opacity: 0.5;
-  stroke-width: 2;
-}
-
-/* 4. Aura pulsa mais forte */
-.logo:hover .aura-bg {
-  animation-duration: 1s;
-  opacity: 0.25;
-}
-
-.dark .logo:hover .aura-bg {
-  opacity: 0.35;
-}
-
-/* 5. Relógio ganha destaque */
-.logo:hover .clock-border {
-  stroke-width: 5;
-  filter: drop-shadow(0 0 8px currentColor);
-}
-
-.logo:hover .clock-outer {
-  opacity: 0.6;
-}
-
-/* 6. Texto flutua e brilha */
-.logo:hover .text-main {
-  transform: translateX(5px);
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
-  letter-spacing: 3px;
-}
-
-.logo:hover .text-sub {
-  transform: translateX(5px);
-  opacity: 1;
-  letter-spacing: 7px;
-}
-
-.dark .logo:hover .text-main {
-  filter: drop-shadow(0 0 15px var(--logo-glow));
-}
-
-.dark .logo:hover .text-sub {
-  text-shadow: 0 0 20px rgba(196, 181, 253, 0.6);
-}
-
-/* 7. Botão do cronômetro salta */
-.logo:hover .chrono-button {
-  animation: buttonBounce 0.6s ease;
-}
-
-@keyframes buttonBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-
-/* 8. Linha decorativa se expande */
-.logo:hover .decorative-line {
-  opacity: 0.9;
+/* Anel externo expande no hover */
+.logo-premium:hover .logo-outer-ring {
   stroke-width: 3;
-  stroke-dasharray: 200;
-  stroke-dashoffset: 0;
-  animation: lineDraw 0.8s ease forwards;
+  filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.7));
 }
 
-@keyframes lineDraw {
-  from {
-    stroke-dashoffset: 200;
-  }
-  to {
+/* Círculo de fundo pulsa */
+.logo-premium:hover .logo-bg-circle {
+  opacity: 0.15;
+  animation: bgPulse 2s ease-in-out infinite;
+}
+
+@keyframes bgPulse {
+  0%, 100% { r: 42; opacity: 0.1; }
+  50% { r: 44; opacity: 0.2; }
+}
+
+/* ============================================
+   ANIMAÇÕES BIOMÉTRICAS
+   ============================================ */
+
+/* Arcadas biométricas ganham vida */
+.biometric-arcs {
+  transition: all 0.4s ease;
+}
+
+.logo-premium:hover .biometric-arc-outer {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.6));
+  animation: arcGlow 2s ease-in-out infinite;
+}
+
+.logo-premium:hover .biometric-arc-mid {
+  stroke-width: 2;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.5));
+  animation: arcGlow 2s ease-in-out infinite 0.3s;
+}
+
+.logo-premium:hover .biometric-arc-inner {
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(124, 58, 237, 0.5));
+  animation: arcGlow 2s ease-in-out infinite 0.6s;
+}
+
+@keyframes arcGlow {
+  0%, 100% {
+    stroke-dasharray: 100;
     stroke-dashoffset: 0;
+    opacity: 0.8;
   }
-}
-
-/* 9. Centro do relógio pulsa */
-.logo:hover .clock-center {
-  animation: centerPulse 0.8s ease infinite;
-}
-
-@keyframes centerPulse {
-  0%, 100% { 
-    transform: scale(1);
-    filter: drop-shadow(0 0 6px var(--logo-glow));
-  }
-  50% { 
-    transform: scale(1.4);
-    filter: drop-shadow(0 0 12px var(--logo-glow));
-  }
-}
-
-/* 10. Efeito de onda no fingerprint */
-.logo:hover .fingerprint-container {
-  animation: fingerprintWave 0.6s ease;
-}
-
-@keyframes fingerprintWave {
-  0% { transform: translateY(0) scale(1); }
-  25% { transform: translateY(-4px) scale(1.02); }
-  50% { transform: translateY(0) scale(1); }
-  75% { transform: translateY(2px) scale(0.98); }
-  100% { transform: translateY(0) scale(1); }
-}
-
-/* 11. Glow nos ticks do relógio */
-.logo:hover .clock-ticks line {
-  filter: drop-shadow(0 0 4px currentColor);
-  stroke-width: 3.5;
-}
-
-/* Transições suaves para todos os elementos */
-.fingerprint-circles circle,
-.fingerprint-ridges path,
-.clock-border,
-.clock-outer,
-.text-main,
-.text-sub,
-.clock-ticks line {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ============================================
-   Aura de fundo pulsante
-   ============================================ */
-.aura-bg {
-  fill: var(--logo-glow, transparent);
-  opacity: 0;
-  filter: blur(25px);
-  animation: pulse 4s ease-in-out infinite;
-}
-
-.dark .aura-bg {
-  opacity: 0.12;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 0.1; }
-  50% { transform: scale(1.1); opacity: 0.18; }
-}
-
-/* ============================================
-   FINGERPRINT PREMIUM
-   ============================================ */
-
-.fingerprint-container {
-  animation: fingerprintFloat 6s ease-in-out infinite;
-}
-
-@keyframes fingerprintFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-/* Círculos do fingerprint */
-.fingerprint-circles circle {
-  fill: none;
-  stroke: var(--logo-fingerprint);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  transition: all 0.3s ease;
-}
-
-/* Opacidade progressiva do centro para fora */
-.fingerprint-circles circle:nth-child(1) { opacity: 0.18; }
-.fingerprint-circles circle:nth-child(2) { opacity: 0.24; }
-.fingerprint-circles circle:nth-child(3) { opacity: 0.30; }
-.fingerprint-circles circle:nth-child(4) { opacity: 0.36; }
-.fingerprint-circles circle:nth-child(5) { opacity: 0.42; }
-.fingerprint-circles circle:nth-child(6) { opacity: 0.48; }
-
-/* Dark mode - fingerprint brilhante */
-.dark .fingerprint-circles circle:nth-child(1) { opacity: 0.35; }
-.dark .fingerprint-circles circle:nth-child(2) { opacity: 0.42; }
-.dark .fingerprint-circles circle:nth-child(3) { opacity: 0.48; }
-.dark .fingerprint-circles circle:nth-child(4) { opacity: 0.55; }
-.dark .fingerprint-circles circle:nth-child(5) { opacity: 0.62; }
-.dark .fingerprint-circles circle:nth-child(6) { opacity: 0.70; }
-
-/* Linhas de ridge horizontais */
-.fingerprint-ridges path {
-  fill: none;
-  stroke: var(--logo-fingerprint);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  opacity: 0.25;
-}
-
-.dark .fingerprint-ridges path {
-  opacity: 0.45;
-}
-
-/* Hover effect no fingerprint */
-.logo:hover .fingerprint-circles circle {
-  stroke-width: 3;
-}
-
-/* ============================================
-   RELÓGIO PREMIUM
-   ============================================ */
-
-.clock-container {
-  transition: transform 0.3s ease;
-}
-
-.logo:hover .clock-container {
-  transform: scale(1.03);
-}
-
-/* Borda externa com profundidade */
-.clock-outer {
-  fill: none;
-  stroke: var(--logo-primary);
-  stroke-width: 1.5;
-  opacity: 0.3;
-}
-
-.dark .clock-outer {
-  opacity: 0.5;
-  filter: drop-shadow(0 0 8px var(--logo-glow));
-}
-
-/* Borda principal */
-.clock-border {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 4;
-  stroke-linecap: round;
-  transition: all 0.3s ease;
-}
-
-/* Marcações das horas */
-.clock-ticks line {
-  stroke: currentColor;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  opacity: 0.7;
-}
-
-.dark .clock-ticks line {
-  opacity: 0.9;
-  filter: drop-shadow(0 0 3px var(--logo-glow));
-}
-
-/* Ponteiros elegantes com animação de rotação */
-.clock-hand {
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: all 0.3s ease;
-  transform-origin: 65px 65px;
-}
-
-.clock-hand.hour {
-  stroke-width: 4;
-  animation: rotateHour 24s linear infinite;
-}
-
-.clock-hand.minute {
-  stroke-width: 3;
-  animation: rotateMinute 4s linear infinite;
-}
-
-/* Animação de rotação do ponteiro das horas */
-@keyframes rotateHour {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Animação de rotação do ponteiro dos minutos (mais rápido) */
-@keyframes rotateMinute {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Centro do relógio com efeito */
-.clock-center {
-  fill: var(--logo-secondary);
-  transition: all 0.3s ease;
-}
-
-.clock-pin {
-  fill: currentColor;
-}
-
-.logo:hover .clock-center {
-  transform: scale(1.2);
-  filter: drop-shadow(0 0 6px var(--logo-glow));
-}
-
-/* ============================================
-   BOTÃO DO CRONÔMETRO
-   ============================================ */
-
-.chrono-button {
-  transition: transform 0.3s ease;
-}
-
-.logo:hover .chrono-button {
-  transform: translateY(-1px);
-}
-
-.button-base {
-  fill: var(--logo-primary);
-  opacity: 0.9;
-}
-
-.button-top {
-  fill: var(--logo-secondary);
-}
-
-.dark .button-top {
-  filter: drop-shadow(0 0 4px var(--logo-glow));
-}
-
-/* ============================================
-   TEXTO PREMIUM COM GRADIENTE
-   ============================================ */
-
-.text-container {
-  animation: textSlide 0.6s ease-out 0.2s both;
-}
-
-@keyframes textSlide {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
+  50% {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 50;
     opacity: 1;
-    transform: translateX(0);
   }
 }
 
-/* Texto principal PONTO */
-.text-main {
-  fill: url(#textGradient);
-  font-size: 36px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  transition: all 0.3s ease;
+/* Scanner effect intensificado no hover */
+.logo-premium:hover .logo-scan-ring {
+  opacity: 0.6;
+  stroke-width: 1;
+  animation: scanRotate 3s linear infinite;
 }
 
-/* Gradientes para o texto */
-.gradient-start {
-  stop-color: var(--logo-primary);
-  stop-opacity: 1;
-}
-
-.gradient-end {
-  stop-color: var(--logo-secondary);
-  stop-opacity: 1;
-}
-
-/* Texto subtítulo WEBDESK */
-.text-sub {
-  fill: var(--logo-secondary);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 6px;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  opacity: 0.9;
-  transition: all 0.3s ease;
-}
-
-/* Efeito hover nos textos */
-.logo:hover .text-main {
-  letter-spacing: 2.5px;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
-}
-
-.logo:hover .text-sub {
-  opacity: 1;
-  letter-spacing: 6.5px;
-}
-
-.dark .text-sub {
-  text-shadow: 0 0 15px rgba(196, 181, 253, 0.4);
-}
-
-/* Linha decorativa */
-.decorative-line {
-  fill: none;
-  stroke: var(--logo-secondary);
-  stroke-width: 2;
-  stroke-linecap: round;
-  opacity: 0.4;
-  transition: all 0.3s ease;
-}
-
-.logo:hover .decorative-line {
-  opacity: 0.7;
-  stroke-width: 2.5;
-}
-
-.dark .decorative-line {
-  filter: drop-shadow(0 0 4px var(--logo-glow));
+@keyframes scanRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ============================================
-   TAMANHOS RESPONSIVOS
+   SENSOR BIOMÉTRICO INTERATIVO
    ============================================ */
 
-.logo[data-size="sm"] svg {
-  width: 150px;
+.logo-center-group {
+  transition: all 0.3s ease;
 }
 
-.logo[data-size="md"] svg {
-  width: 220px;
+.logo-premium:hover .logo-center-group {
+  transform-origin: center;
+  animation: sensorActive 1s ease-in-out infinite;
 }
 
-.logo[data-size="lg"] svg {
-  width: 300px;
+@keyframes sensorActive {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
 }
 
-/* Responsivo mobile */
+/* Efeito de ondas no sensor */
+.logo-premium:hover .logo-center-main {
+  filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.9));
+}
+
+.logo-premium:hover .logo-center-glow {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1));
+}
+
+/* ============================================
+   PONTEIROS DO RELÓGIO
+   ============================================ */
+
+.clock-hand-hour,
+  .clock-hand-minute {
+  transform-origin: 50px 50px;
+}
+
+/* Aceleração sutil no hover */
+.logo-premium:hover .clock-hand-hour {
+  animation-duration: 30s !important;
+}
+
+.logo-premium:hover .clock-hand-minute {
+  animation-duration: 5s !important;
+}
+
+/* ============================================
+   CHECK DE CONFIRMAÇÃO DINÂMICO
+   ============================================ */
+
+.logo-check {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  transition: all 0.4s ease;
+}
+
+.logo-premium:hover .logo-check {
+  stroke-width: 4.5;
+  filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.8));
+  animation: checkPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes checkPulse {
+  0%, 100% {
+    stroke-width: 3.5;
+    filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.6));
+  }
+  50% {
+    stroke-width: 4.5;
+    filter: drop-shadow(0 0 15px rgba(52, 211, 153, 0.9));
+  }
+}
+
+/* ============================================
+   PARTÍCULAS TECH ANIMADAS
+   ============================================ */
+
+.tech-particles circle {
+  transition: all 0.3s ease;
+}
+
+.logo-premium:hover .tech-particles circle {
+  r: 2;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.8));
+}
+
+/* Efeito de conexão/raios no hover */
+.logo-premium:hover .connection-rays {
+  opacity: 0.4;
+  animation: raysPulse 2s ease-in-out infinite;
+}
+
+@keyframes raysPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+}
+
+/* ============================================
+   GLOW GLOBAL
+   ============================================ */
+
+.logo-glow {
+  filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.5));
+  transition: filter 0.4s ease;
+}
+
+.logo-glow:hover {
+  filter: drop-shadow(0 0 25px rgba(139, 92, 246, 0.7)) drop-shadow(0 0 40px rgba(167, 139, 250, 0.4));
+}
+
+/* ============================================
+   VERSÃO MINIMALISTA
+   ============================================ */
+
+.logo-minimal {
+  transition: all 0.3s ease;
+}
+
+.logo-minimal:hover {
+  transform: scale(1.05);
+}
+
+.logo-minimal:hover circle {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.5));
+}
+
+.logo-minimal:hover path {
+  stroke-width: 2;
+  opacity: 1;
+}
+
+/* ============================================
+   EFEITO DE CLIQUE/ACTIVE
+   ============================================ */
+
+.logo-premium:active {
+  transform: scale(0.95);
+}
+
+.logo-premium:active .logo-center-group {
+  animation: sensorClick 0.3s ease;
+}
+
+@keyframes sensorClick {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.8); }
+  100% { transform: scale(1); }
+}
+
+/* ============================================
+   ANIMAÇÕES CONTÍNUAS (SEM HOVER)
+   ============================================ */
+
+/* Pulso sutil do anel externo */
+.logo-animated .logo-outer-ring {
+  animation: ringPulse 3s ease-in-out infinite;
+}
+
+@keyframes ringPulse {
+  0%, 100% {
+    stroke-opacity: 1;
+  }
+  50% {
+    stroke-opacity: 0.7;
+  }
+}
+
+/* Partículas flutuando */
+.logo-animated .tech-particles circle:nth-child(1) {
+  animation: floatParticle 4s ease-in-out infinite;
+}
+
+.logo-animated .tech-particles circle:nth-child(2) {
+  animation: floatParticle 4s ease-in-out infinite 2s;
+}
+
+@keyframes floatParticle {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 0.8;
+  }
+}
+
+/* ============================================
+   RESPONSIVIDADE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .logo-premium:hover {
+    transform: scale(1.05);
+  }
+
+  .logo-glow {
+    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.4));
+  }
+}
+
 @media (max-width: 480px) {
-  .logo[data-size="lg"] svg {
-    width: 260px;
+  .logo-premium {
+    transform: scale(0.9);
   }
 
-  .text-main {
-    font-size: 30px;
-  }
-
-  .text-sub {
-    font-size: 13px;
-    letter-spacing: 5px;
+  .logo-premium:hover {
+    transform: scale(0.95);
   }
 }
 
@@ -518,14 +331,78 @@
    ============================================ */
 
 @media (prefers-reduced-motion: reduce) {
-  .logo,
-  .logo svg,
-  .fingerprint-container,
-  .aura-bg,
-  .clock-container,
-  .text-container,
-  .chrono-button {
+  .logo-premium,
+  .logo-animated,
+  .logo-animated *,
+  .biometric-arcs *,
+  .tech-particles *,
+  .clock-hand-hour,
+  .clock-hand-minute,
+  .logo-check {
     animation: none !important;
-    transition: none !important;
+    transition: opacity 0.2s ease !important;
   }
+
+  .logo-premium:hover {
+    transform: none;
+  }
+
+  .logo-premium:hover .logo-check {
+    animation: none;
+    stroke-width: 4;
+  }
+}
+
+/* Foco acessível via teclado */
+.logo-premium:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 0 3px rgba(139, 92, 246, 0.5));
+}
+
+/* ============================================
+   VARIAÇÕES DE COR (TEMAS)
+   ============================================ */
+
+/* Tema escuro - intensidade aumentada */
+.dark .logo-premium .logo-outer-ring {
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.4));
+}
+
+.dark .logo-premium:hover .logo-outer-ring {
+  filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.7));
+}
+
+/* Tema claro - mais sutileza */
+.light .logo-premium .logo-bg-circle {
+  opacity: 0.03;
+}
+
+/* ============================================
+   ESTADOS ESPECIAIS
+   ============================================ */
+
+/* Estado de carregamento/loading */
+.logo-premium.loading .logo-scan-ring {
+  animation: scanRotate 1s linear infinite;
+  opacity: 0.8;
+}
+
+.logo-premium.loading .logo-center-main {
+  animation: sensorBlink 0.8s ease-in-out infinite;
+}
+
+@keyframes sensorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Estado de sucesso */
+.logo-premium.success .logo-check {
+  stroke: #10B981;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 20px rgba(16, 185, 129, 0.8));
+}
+
+.logo-premium.success .logo-outer-ring {
+  stroke: #10B981;
 }
