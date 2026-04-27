@@ -17,7 +17,7 @@ import {
   type KPIData,
   type FilterConfig,
   type Column,
-} from '../../../components/reports';
+} from '../../../components/Reports';
 
 interface BankRow {
   employee_id: string;

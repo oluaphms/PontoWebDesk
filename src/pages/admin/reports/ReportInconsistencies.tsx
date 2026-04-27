@@ -19,7 +19,7 @@ import {
   type FilterConfig,
   type Column,
   type RowAction,
-} from '../../../components/reports';
+} from '../../../components/Reports';
 import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
 
 interface InconsistencyRow {

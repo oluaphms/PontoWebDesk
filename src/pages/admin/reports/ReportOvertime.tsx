@@ -18,7 +18,7 @@ import {
   type KPIData,
   type FilterConfig,
   type Column,
-} from '../../../components/reports';
+} from '../../../components/Reports';
 
 interface EmployeeOption {
   id: string;
