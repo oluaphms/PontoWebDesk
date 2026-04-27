@@ -250,11 +250,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
         {/* Footer do Card */}
         <div className="px-6 sm:px-10 py-4 bg-slate-50/80 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
-          <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Sistema em conformidade com a Portaria 671</span>
+          <div className="flex items-center justify-center text-slate-500 dark:text-slate-400 text-xs">
+            Sistema em conformidade com a Portaria MTP 671/2021
           </div>
         </div>
       </div>
