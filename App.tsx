@@ -312,19 +312,8 @@ const AppMain: React.FC = () => {
         // Não usar getSession() isolado com timeout curto como “portão”: se IndexedDB/rede atrasarem,
         // a app saía antes de hidratar e o usuário via tela presa / sem perfil em cache.
         // getCurrentUser(): até 2×30s + retry delay — não cortar antes (cold start / deploy).
-        // Verificar se usuário marcou "Lembrar-me" - se não marcou, não restaurar sessão
-        const rememberMe = typeof window !== 'undefined' && localStorage.getItem('pontowebdesk_remember_me') === 'true';
-
-        if (!rememberMe) {
-          console.log('[PontoWebDesk] Sessão não restaurada (remember-me desativado)');
-          if (isMounted) {
-            clearTimeout(timeoutId);
-            setIsInitialLoading(false);
-          }
-          return;
-        }
-
-        const INIT_HYDRATE_MS = 68_000;
+        // CORREÇÃO LOGIN: Timeout mais curto + listener explícito de auth
+        const INIT_HYDRATE_MS = 15_000; // Reduzido de 68s para 15s (cold start deve ser rápido)
         const currentUser = await Promise.race([
           authService.getCurrentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
@@ -766,7 +755,13 @@ const AppMain: React.FC = () => {
       }
 
       if (result.user) {
+        // CORREÇÃO LOGIN: Forçar atualização imediata do estado + disparar evento
         setUser(result.user);
+        setIsInitialLoading(false); // Garantir que loading inicial não trave a UI
+
+        // Disparar evento para sincronizar outros componentes
+        window.dispatchEvent(new Event('current_user_changed'));
+
         try {
           const comp = await Promise.race([
             PontoService.getCompany(result.user.companyId),
@@ -777,13 +772,16 @@ const AppMain: React.FC = () => {
           // segue sem empresa
         }
 
-        if (result.user.role === 'admin' || result.user.role === 'hr') {
-          setActiveTab('admin');
-          navigate('/admin/dashboard', { replace: true });
-        } else {
-          setActiveTab('dashboard');
-          navigate('/employee/dashboard', { replace: true });
-        }
+        // Navegar após garantir que estado foi atualizado
+        setTimeout(() => {
+          if (result.user.role === 'admin' || result.user.role === 'hr') {
+            setActiveTab('admin');
+            navigate('/admin/dashboard', { replace: true });
+          } else {
+            setActiveTab('dashboard');
+            navigate('/employee/dashboard', { replace: true });
+          }
+        }, 100);
       }
     } catch (error: any) {
       console.error('Erro no handleLogin:', error);

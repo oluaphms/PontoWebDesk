@@ -271,115 +271,80 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
   const sorted = sortRecordsByTime(sanitized, dayDateStr);
   const date = dayDateStr;
 
-  let entradaInicio: string | null = null;
-  let saidaIntervalo: string | null = null;
-  let voltaIntervalo: string | null = null;
-  let saidaFinal: string | null = null;
+  // Usar Map para garantir 1 batida = 1 coluna (sem duplicação)
+  const timeByType = new Map<string, string>();
 
-  // Interpreta a sequência de batidas baseado na ordem e tipo
+  // Mapear explicitamente tipo -> coluna (1:1, sem inferência por horário)
   for (const record of sorted) {
     const time = extractTime(recordEffectiveMirrorInstant(record, dayDateStr));
-
-    // Duas marcações «pausa» (P) no relógio: a 1ª = saída intervalo; a 2ª = volta intervalo.
-    if (isPausaRawType(record)) {
-      if (saidaIntervalo == null) {
-        saidaIntervalo = time;
-      } else if (voltaIntervalo == null) {
-        voltaIntervalo = time;
-      } else {
-        saidaIntervalo = time;
-      }
-      continue;
-    }
-
     const norm = normalizeRecordTypeForMirror(record.type);
 
+    // Cada tipo vai para sua coluna específica
+    // Se houver múltiplas batidas do mesmo tipo, a última (mais recente) prevalece
     switch (norm) {
       case 'entrada':
-        if (!entradaInicio) {
-          entradaInicio = time;
-        } else if (!voltaIntervalo && saidaIntervalo) {
-          // Segunda entrada após intervalo
-          voltaIntervalo = time;
-        }
+        timeByType.set('entrada', time);
         break;
       case 'saida':
-        if (entradaInicio && !saidaIntervalo && !voltaIntervalo) {
-          // Possível saída para intervalo ou saída final
-          saidaIntervalo = time;
-        } else if (entradaInicio && saidaIntervalo && !voltaIntervalo) {
-          // REP pode emitir a 3ª batida como "saída"; para espelho operacional, trata como volta de intervalo
-          voltaIntervalo = time;
-        } else if (voltaIntervalo || (!saidaIntervalo && entradaInicio)) {
-          // Saída final
-          saidaFinal = time;
-        }
+        timeByType.set('saida', time);
         break;
       case 'intervalo_saida':
-        saidaIntervalo = time;
+        timeByType.set('intervalo_saida', time);
         break;
       case 'intervalo_volta':
-        voltaIntervalo = time;
+        timeByType.set('intervalo_volta', time);
         break;
       default:
+        // Ignorar tipos desconhecidos
         break;
     }
   }
 
-  // Quatro batidas e ainda sem «Volta intervalo» — preenche pelas posições 1–4 (entrada … saída final).
-  if (sorted.length === 4 && voltaIntervalo == null) {
-    const { times: seqTimes } = classifyPunch(realRecords, dayDateStr);
-    if (seqTimes.length === 4) {
-      entradaInicio = seqTimes[0]!;
-      saidaIntervalo = seqTimes[1]!;
-      voltaIntervalo = seqTimes[2]!;
-      saidaFinal = seqTimes[3]!;
-    }
+  // Extrair valores do Map (1 batida = 1 coluna, sem duplicação)
+  let entradaInicio: string | null = timeByType.get('entrada') || null;
+  let saidaIntervalo: string | null = timeByType.get('intervalo_saida') || null;
+  let voltaIntervalo: string | null = timeByType.get('intervalo_volta') || null;
+  let saidaFinal: string | null = timeByType.get('saida') || null;
+
+  // Fallback por ordem cronológica APENAS quando tipos estão incompletos
+  // CORREÇÃO DEFINITIVA: Evitar duplicação de horários entre colunas
+  const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
+  const uniqueTimes = [...new Set(times)]; // Remove duplicatas de horário
+
+  // Só aplicar fallback se não tivermos o tipo específico mapeado
+  if (!entradaInicio && uniqueTimes.length > 0) entradaInicio = uniqueTimes[0];
+
+  // Para 2 batidas sem tipos definidos: assume entrada e saída
+  if (uniqueTimes.length === 2 && !saidaIntervalo && !voltaIntervalo && !saidaFinal) {
+    saidaFinal = uniqueTimes[1];
   }
 
-  // Fallback por ordem cronológica (caso tipos estejam incompletos ou inconsistentes)
-  // CORREÇÃO: Evitar duplicação de horários entre colunas
-  const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
-  const uniqueTimes = [...new Set(times)]; // Remove duplicatas
-  
-  if (!entradaInicio && uniqueTimes.length > 0) entradaInicio = uniqueTimes[0];
-  
-  // Lógica para 2 batidas: entrada e saída final
-  if (uniqueTimes.length === 2) {
-    if (!saidaFinal) saidaFinal = uniqueTimes[1];
+  // Para 3 batidas sem tipos de intervalo: assume entrada, saída intervalo, volta
+  if (uniqueTimes.length === 3 && !saidaIntervalo && !voltaIntervalo) {
+    saidaIntervalo = uniqueTimes[1];
+    voltaIntervalo = uniqueTimes[2];
   }
-  
-  // Lógica para 3 batidas: entrada, saída intervalo, volta intervalo (sem saída final ainda)
-  if (uniqueTimes.length === 3) {
-    if (!saidaIntervalo) saidaIntervalo = uniqueTimes[1];
-    if (!voltaIntervalo) voltaIntervalo = uniqueTimes[2];
-  }
-  
-  // Lógica para 4 batidas: entrada, saída intervalo, volta intervalo, saída final
+
+  // Para 4+ batidas sem tipos completos: distribui sequencialmente
   if (uniqueTimes.length >= 4) {
     if (!saidaIntervalo) saidaIntervalo = uniqueTimes[1];
     if (!voltaIntervalo) voltaIntervalo = uniqueTimes[2];
     if (!saidaFinal) saidaFinal = uniqueTimes[3];
   }
 
-  // Fallback operacional: com 3+ batidas e saída de intervalo já conhecida, garantir 3ª batida visível em volta.
-  if (!voltaIntervalo && !!saidaIntervalo && times.length >= 3) {
-    const third = times[2]!;
-    if (third !== saidaIntervalo) {
-      voltaIntervalo = third;
-    }
-  }
-
+  // CORREÇÃO: Simplificar caso de jornada sem intervalo (apenas entrada/saída)
   const hasIntervalType = sanitized.some((r) => {
     const n = normalizeRecordTypeForMirror(r.type);
     return n === 'intervalo_saida' || n === 'intervalo_volta';
   });
   const entradas = sanitized.filter((r) => normalizeRecordTypeForMirror(r.type) === 'entrada').length;
   const saidas = sanitized.filter((r) => normalizeRecordTypeForMirror(r.type) === 'saida').length;
-  if (!hasIntervalType && entradas === 1 && saidas === 1) {
-    if (!saidaFinal && times.length > 1) saidaFinal = times[times.length - 1];
+
+  // Se só tem entrada e saída (sem intervalos definidos), limpa colunas de intervalo
+  if (!hasIntervalType && entradas >= 1 && saidas >= 1 && uniqueTimes.length === 2) {
     saidaIntervalo = null;
     voltaIntervalo = null;
+    if (!saidaFinal) saidaFinal = uniqueTimes[1];
   }
 
   // Entrada «oficial» do dia: se existir marcação do relógio com tipo entrada, prevalece sobre

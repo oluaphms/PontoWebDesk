@@ -836,30 +836,31 @@ const EmployeeClockIn: React.FC = () => {
 
                 {isExpanded && (
                 <div id={`punch-actions-${card.mode}`} className="mt-6 space-y-2" role="region" aria-labelledby={`comprovante-trigger-${card.mode}`}>
+                  {/* CORREÇÃO: Botões sempre habilitados (exceto durante saving) - usuário escolhe o tipo explicitamente */}
                   <button
                     onClick={() => handlePunch(LogType.IN, card.mode, 'Registrar entrada')}
-                    disabled={saving || (isIn && !isBreak && card.mode !== 'manual')}
+                    disabled={saving}
                     className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Registrar Entrada
                   </button>
                   <button
                     onClick={() => handlePunch(LogType.BREAK, card.mode, 'Início de intervalo')}
-                    disabled={saving || !isIn || isBreak}
+                    disabled={saving}
                     className="w-full py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Iniciar Intervalo
                   </button>
                   <button
                     onClick={() => handlePunch(LogType.IN, card.mode, 'Retorno do intervalo')}
-                    disabled={saving || !isBreak}
+                    disabled={saving}
                     className="w-full py-3 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Finalizar Intervalo
                   </button>
                   <button
                     onClick={() => handlePunch(LogType.OUT, card.mode, 'Registrar saída')}
-                    disabled={saving || !isIn}
+                    disabled={saving}
                     className="w-full py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     Registrar Saída
