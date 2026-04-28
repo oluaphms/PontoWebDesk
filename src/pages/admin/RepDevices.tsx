@@ -82,6 +82,7 @@ type PendingPunchDiag = {
   cpfCanon: string | null;
   matricula: string | null;
   campoAfd: string;
+  ignored?: boolean;
 };
 
 function isEmployeeEligibleForRepPush(e: EmployeeForRep): boolean {
@@ -291,6 +292,16 @@ const AdminRepDevices: React.FC = () => {
   const [srManualConsolidateLocalToday, setSrManualConsolidateLocalToday] = useState(false);
   /** Diagnóstico de PIS pendentes na fila */
   const [pendingPisModal, setPendingPisModal] = useState<{ open: boolean; rows: PendingPunchDiag[] }>({ open: false, rows: [] });
+  /** Funcionário selecionado para reatribuir batidas pendentes */
+  const [selectedEmployeeForReassign, setSelectedEmployeeForReassign] = useState<string>('');
+  /** Batidas selecionadas para reatribuir */
+  const [selectedPunches, setSelectedPunches] = useState<Set<number>>(new Set());
+  /** Loading durante reatribuição */
+  const [reassigningPunches, setReassigningPunches] = useState(false);
+  /** Mostrar batidas ignoradas no diagnóstico */
+  const [showIgnoredPunches, setShowIgnoredPunches] = useState(false);
+  /** Loading durante ignorar batidas */
+  const [ignoringPunches, setIgnoringPunches] = useState(false);
   /** Sub-modal: enviar / status / funcionários / config */
   const [srSendDialogOpen, setSrSendDialogOpen] = useState(false);
   const [srPushAllRunning, setSrPushAllRunning] = useState(false);
@@ -882,10 +893,15 @@ const AdminRepDevices: React.FC = () => {
 
     let q = client
       .from('rep_punch_logs')
-      .select('nsr, pis, cpf, matricula, data_hora')
+      .select('nsr, pis, cpf, matricula, data_hora, ignored')
       .eq('company_id', user.companyId)
       .eq('rep_device_id', d.id)
       .is('time_record_id', null);
+
+    // Por padrão, não mostrar batidas ignoradas (a menos que showIgnoredPunches esteja ativado)
+    if (!showIgnoredPunches) {
+      q = q.or('ignored.is.false,ignored.is.null');
+    }
 
     if (localDay) {
       q = q.gte('data_hora', localDay.startIso).lte('data_hora', localDay.endIso);
@@ -912,10 +928,48 @@ const AdminRepDevices: React.FC = () => {
         cpfCanon: cpfC,
         matricula: (row.matricula != null && String(row.matricula).trim() !== '' ? String(row.matricula).trim() : null) as string | null,
         campoAfd,
+        ignored: row.ignored ?? false,
       };
     });
 
     setPendingPisModal({ open: true, rows });
+  };
+
+  /**
+   * Ignora/Desconsidera batidas selecionadas (de funcionários não cadastrados)
+   */
+  const ignoreSelectedPunches = async () => {
+    if (selectedPunches.size === 0) {
+      setMessage({ type: 'error', text: 'Selecione pelo menos uma batida para ignorar.' });
+      return;
+    }
+
+    setIgnoringPunches(true);
+    const nsrList = Array.from(selectedPunches);
+
+    try {
+      const { data, error } = await getSupabaseClient()!.rpc('rep_ignore_punch_logs', {
+        p_company_id: user?.companyId,
+        p_nsr_list: nsrList,
+        p_ignored_by: user?.id,
+      });
+
+      if (error) {
+        setMessage({ type: 'error', text: 'Erro ao ignorar batidas: ' + error.message });
+      } else {
+        const result = data as { success: boolean; ignored_count: number };
+        setMessage({
+          type: 'success',
+          text: `${result.ignored_count} batida(s) marcada(s) como ignorada(s). Elas não aparecerão mais na fila de pendentes.`,
+        });
+        setSelectedPunches(new Set());
+        await loadPendingPisDiagnostics();
+      }
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Erro ao ignorar batidas: ' + (e as Error).message });
+    } finally {
+      setIgnoringPunches(false);
+    }
   };
 
   // Normaliza PIS/CPF para 11 dígitos canônicos (igual ao SQL rep_afd_canonical_11_digits)
@@ -948,6 +1002,63 @@ const AdminRepDevices: React.FC = () => {
       if (cleanMat && (empPis === cleanMat || empIdent === cleanMat || empFolha === cleanMat)) return true;
       return false;
     }) || null;
+  };
+
+  /**
+   * Reatribui batidas pendentes da fila rep_punch_logs para um funcionário específico.
+   * Usa force_user_id para ignorar o matching automático de PIS/CPF.
+   */
+  const reassignPendingPunches = async () => {
+    if (!selectedEmployeeForReassign || selectedPunches.size === 0) {
+      setMessage({ type: 'error', text: 'Selecione um funcionário e pelo menos uma batida.' });
+      return;
+    }
+
+    setReassigningPunches(true);
+    const rowsToReassign = pendingPisModal.rows.filter((r) => r.nsr != null && selectedPunches.has(r.nsr));
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const row of rowsToReassign) {
+      try {
+        // Chamar RPC para reingestir a batida com force_user_id
+        const { error } = await getSupabaseClient()!.rpc('rep_ingest_punch', {
+          p_company_id: user?.companyId,
+          p_rep_device_id: null,
+          p_pis: row.pisCanon,
+          p_cpf: row.pisCanon,
+          p_matricula: row.matricula,
+          p_nome_funcionario: null,
+          p_data_hora: row.dataHora.replace(' ', 'T') + ':00.000Z',
+          p_tipo_marcacao: 'E', // Tipo padrão entrada (ajustar conforme necessário)
+          p_nsr: row.nsr,
+          p_raw_data: { reassign_from_pending: true, original_data: row },
+          p_only_staging: false,
+          p_apply_schedule: false,
+          p_force_user_id: selectedEmployeeForReassign,
+        });
+
+        if (error) {
+          console.error('Erro ao reatribuir batida NSR', row.nsr, error);
+          errorCount++;
+        } else {
+          successCount++;
+        }
+      } catch (e) {
+        console.error('Exceção ao reatribuir batida NSR', row.nsr, e);
+        errorCount++;
+      }
+    }
+
+    setReassigningPunches(false);
+    setMessage({
+      type: errorCount === 0 ? 'success' : 'warning',
+      text: `${successCount} batida(s) reatribuída(s) com sucesso.${errorCount > 0 ? ` ${errorCount} falha(s).` : ''}`,
+    });
+
+    // Recarregar lista de pendentes
+    await loadPendingPisDiagnostics();
+    setSelectedPunches(new Set());
   };
 
   const srRunSendClock = async () => {
@@ -2357,6 +2468,121 @@ const AdminRepDevices: React.FC = () => {
               </Button>
             </div>
 
+            {/* Controles: Mostrar ignoradas + Reatribuir/Ignorar */}
+            {pendingPisModal.rows.length > 0 && (
+              <div className="mt-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 space-y-3">
+                {/* Toggle mostrar ignoradas */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="show-ignored"
+                    checked={showIgnoredPunches}
+                    onChange={(e) => {
+                      setShowIgnoredPunches(e.target.checked);
+                      loadPendingPisDiagnostics();
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="show-ignored" className="text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                    Mostrar também batidas já ignoradas/desconsideradas
+                  </label>
+                </div>
+
+                {/* Diagnóstico de PIS no cadastro vs relógio */}
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Diagnóstico de PIS:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">
+                      <p className="font-medium text-slate-600 dark:text-slate-400 mb-1">PIS no cadastro desta empresa:</p>
+                      {employees.filter(e => e.pis_pasep).length > 0 ? (
+                        <ul className="space-y-1">
+                          {employees.filter(e => e.pis_pasep).slice(0, 5).map(e => (
+                            <li key={e.id} className="text-emerald-600 dark:text-emerald-400 font-mono">
+                              {e.pis_pasep} → {e.nome}
+                            </li>
+                          ))}
+                          {employees.filter(e => e.pis_pasep).length > 5 && (
+                            <li className="text-slate-500">...e mais {employees.filter(e => e.pis_pasep).length - 5}</li>
+                          )}
+                        </ul>
+                      ) : (
+                        <p className="text-amber-600 dark:text-amber-400">Nenhum colaborador com PIS cadastrado!</p>
+                      )}
+                    </div>
+                    <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">
+                      <p className="font-medium text-slate-600 dark:text-slate-400 mb-1">PIS chegando do relógio (pendentes):</p>
+                      <ul className="space-y-1">
+                        {Array.from(new Set(pendingPisModal.rows.map(r => r.pisCanon).filter(Boolean))).map((pis, i) => (
+                          <li key={i} className="text-red-600 dark:text-red-400 font-mono">
+                            {pis} → NÃO CADASTRADO
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    💡 <strong>Dica:</strong> Se os PIS do relógio forem de outras pessoas (não devem entrar no sistema), selecione-as abaixo e clique em "Ignorar".
+                  </p>
+                </div>
+
+                {/* Seleção de funcionário para reatribuir */}
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Reatribuir batidas selecionadas para:
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedEmployeeForReassign}
+                      onChange={(e) => setSelectedEmployeeForReassign(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+                    >
+                      <option value="">Selecione um colaborador...</option>
+                      {employees.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.nome} {e.pis_pasep ? `(PIS: ${e.pis_pasep})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      onClick={reassignPendingPunches}
+                      disabled={reassigningPunches || !selectedEmployeeForReassign || selectedPunches.size === 0}
+                      loading={reassigningPunches}
+                      variant="primary"
+                    >
+                      Reatribuir ({selectedPunches.size})
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Use apenas se o PIS no cadastro estiver correto e igual ao do relógio.
+                  </p>
+                </div>
+
+                {/* Botão ignorar batidas de não-cadastrados */}
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Desconsiderar batidas de funcionários não cadastrados
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Use esta opção para ignorar batidas de colaboradores de outras empresas ou que não devem entrar no sistema.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={ignoreSelectedPunches}
+                      disabled={ignoringPunches || selectedPunches.size === 0}
+                      loading={ignoringPunches}
+                      variant="danger"
+                    >
+                      Ignorar ({selectedPunches.size})
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-auto flex-1 max-h-[60vh] rounded-lg border border-slate-200 dark:border-slate-600 mt-4">
               {pendingPisModal.rows.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">
@@ -2366,6 +2592,20 @@ const AdminRepDevices: React.FC = () => {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 dark:bg-slate-900/50 sticky top-0">
                     <tr>
+                      <th className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedPunches.size === pendingPisModal.rows.length && pendingPisModal.rows.length > 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedPunches(new Set(pendingPisModal.rows.map((r) => r.nsr).filter(Boolean) as number[]));
+                            } else {
+                              setSelectedPunches(new Set());
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      </th>
                       <th className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">Data/Hora</th>
                       <th className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">NSR</th>
                       <th className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">Tipo Campo</th>
@@ -2377,8 +2617,25 @@ const AdminRepDevices: React.FC = () => {
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                     {pendingPisModal.rows.map((row, i) => {
                       const emp = findEmployeeByPis(row.pisCanon, row.matricula);
+                      const isSelected = row.nsr != null && selectedPunches.has(row.nsr);
                       return (
-                        <tr key={i} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30">
+                        <tr key={i} className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/30 ${isSelected ? 'bg-indigo-50/50 dark:bg-indigo-900/20' : ''}`}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedPunches);
+                                if (e.target.checked && row.nsr != null) {
+                                  newSet.add(row.nsr);
+                                } else if (row.nsr != null) {
+                                  newSet.delete(row.nsr);
+                                }
+                                setSelectedPunches(newSet);
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                          </td>
                           <td className="px-3 py-2 text-slate-800 dark:text-slate-100 whitespace-nowrap">{row.dataHora}</td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{row.nsr ?? '—'}</td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{row.campoAfd}</td>
