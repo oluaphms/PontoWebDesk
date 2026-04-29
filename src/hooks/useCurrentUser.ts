@@ -184,14 +184,17 @@ export function useCurrentUser() {
       return;
     }
 
-    // Verificar sessão no localStorage primeiro (mais rápido que getSession em mobile)
-    const checkLocalSession = () => {
+    // Verificar se usuário marcou "Lembrar-me"
+    const rememberMe = localStorage.getItem('pontowebdesk_remember_me') === 'true';
+
+    // Se marcou "Lembrar-me", tenta restaurar sessão do localStorage primeiro
+    if (rememberMe) {
       try {
         const sessionStr = localStorage.getItem('sb-' + supabase.supabaseUrl + '-auth-token');
         if (sessionStr) {
           const session = JSON.parse(sessionStr);
           if (session?.user) {
-            // Sessão existe, carregar rapidamente
+            // Sessão existe no localStorage, carregar rapidamente (antes da API)
             const minimal = minimalUserFromAuthSession(session.user);
             setUser(minimal);
           }
@@ -199,30 +202,50 @@ export function useCurrentUser() {
       } catch {
         // Ignora erro, vai tentar via API normal
       }
-    };
-    
-    checkLocalSession();
+    }
 
+    // Agora confirma a sessão via API (mais lento, mas confiável)
     const loadingCap = window.setTimeout(() => {
+      // Fallback de segurança: desliga loading após timeout
       setLoading(false);
     }, PROFILE_LOADING_MAX_MS);
 
-    void loadUser().finally(() => {
+    void loadUser().then(() => {
+      // Só desliga loading após confirmação da sessão via API
       window.clearTimeout(loadingCap);
+      setLoading(false);
+    }).catch(() => {
+      // Em caso de erro, também desliga loading
+      window.clearTimeout(loadingCap);
+      setLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // Agora processamos INITIAL_SESSION também para mobile ficar mais rápido
+      // Verificar rememberMe antes de restaurar sessão
+      const rememberMe = localStorage.getItem('pontowebdesk_remember_me') === 'true';
+      
       if (event === 'SIGNED_OUT') {
         setUser(null);
         cachedUser = null;
         setLoading(false);
+        // Limpar rememberMe no logout
+        localStorage.removeItem('pontowebdesk_remember_me');
         return;
       }
-      if (session?.user) {
-        void loadUser();
+      
+      // Só processa eventos de sessão se rememberMe estiver ativo (ou se for SIGNED_IN explícito)
+      if (event === 'SIGNED_IN' && session?.user) {
+        // Login manual - sempre processar
+        void loadUser().then(() => setLoading(false));
+      } else if (rememberMe && session?.user) {
+        // Restauração automática só com rememberMe
+        void loadUser().then(() => setLoading(false));
+      } else if (!rememberMe && event === 'INITIAL_SESSION') {
+        // Evento de sessão inicial mas sem rememberMe - ignorar (não fazer nada)
+        // O estado já foi tratado no useEffect inicial
+        return;
       }
     });
 

@@ -283,7 +283,10 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
     // Se houver múltiplas batidas do mesmo tipo, a última (mais recente) prevalece
     switch (norm) {
       case 'entrada':
-        timeByType.set('entrada', time);
+        // Para entrada, preservar a primeira batida do dia (não sobrescrever com entradas posteriores).
+        if (!timeByType.has('entrada')) {
+          timeByType.set('entrada', time);
+        }
         break;
       case 'saida':
         timeByType.set('saida', time);
@@ -353,7 +356,10 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string): DayMirror {
     (r) =>
       isRepMirrorRecord(r) && normalizeRecordTypeForMirror(r.type) === 'entrada',
   );
-  if (repEntradas.length > 0) {
+  const hasNonRepEntrada = sorted.some(
+    (r) => !isRepMirrorRecord(r) && normalizeRecordTypeForMirror(r.type) === 'entrada',
+  );
+  if (repEntradas.length > 0 && !hasNonRepEntrada) {
     repEntradas.sort(
       (a, b) =>
         new Date(recordEffectiveMirrorInstant(a, dayDateStr)).getTime() -

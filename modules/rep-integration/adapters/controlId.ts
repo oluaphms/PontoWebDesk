@@ -33,6 +33,17 @@ function extra(device: RepDevice): Record<string, unknown> {
     : {};
 }
 
+function readMode671Flag(ex: Record<string, unknown>): boolean {
+  const v = ex.mode_671;
+  if (v === true) return true;
+  if (typeof v === 'string') {
+    const n = v.trim().toLowerCase();
+    return n === 'true' || n === '1' || n === 'yes' || n === 'on';
+  }
+  if (typeof v === 'number') return v === 1;
+  return false;
+}
+
 function credentials(device: RepDevice): { login: string; password: string } {
   const ex = extra(device);
   const loginRaw = String(ex.rep_login ?? ex.login ?? 'admin').trim();
@@ -237,6 +248,14 @@ function controlIdJsonIndicatesSuccess(text: string): boolean {
   }
 }
 
+function controlIdMessageIndicatesAlreadyRegistered(text: string): boolean {
+  const t = String(text || '').toLowerCase();
+  return (
+    (t.includes('já cadastrado') || t.includes('ja cadastrado')) &&
+    (t.includes('pis') || t.includes('matrícula') || t.includes('matricula') || t.includes('registration'))
+  );
+}
+
 /**
  * Documentação Control iD (add_users / update_users): `pis` e `cpf` são **inteiro** em JSON.
  * Enviar string (ex.: "17033259504") costuma gerar HTTP 400 «'pis' em formato incorreto».
@@ -255,6 +274,21 @@ function controlIdCpfToApiInteger(digits11: string): number {
 
 /** Modo legado: documentação fala em `pis` inteiro; alguns firmwares aceitam só string de 11 dígitos. */
 type LegacyPisWire = 'integer' | 'string11';
+/** Alguns firmwares 671 aceitam melhor CPF como string de 11 dígitos (preserva zero à esquerda). */
+type Mode671CpfWire = 'integer' | 'string11';
+type Mode671PisWire = 'integer' | 'string11';
+
+/** Canonicalização tolerante (alinhada ao lado SQL/app) para extrair 11 dígitos úteis. */
+function canonical11FromRaw(raw: string): string | null {
+  const d = sanitizeDigits(raw);
+  if (!d) return null;
+  if (d.length <= 11) return d.padStart(11, '0');
+  if (d.length <= 14) {
+    if (d.startsWith('0')) return d.slice(1).padStart(11, '0').slice(-11);
+    return d.slice(-11);
+  }
+  return d.slice(0, 11);
+}
 
 /** use671Api: JSON com `cpf`; senão `pis` (modo legado Control iD). */
 function buildUserPayloadForAddAndUpdate(
@@ -262,14 +296,24 @@ function buildUserPayloadForAddAndUpdate(
   nome: string,
   idDigits: string,
   matDigits: string,
-  legacyPisWire: LegacyPisWire = 'integer'
+  legacyPisWire: LegacyPisWire = 'integer',
+  mode671CpfWire: Mode671CpfWire = 'integer'
 ): { add: Record<string, unknown>; update: Record<string, unknown> } {
   const add: Record<string, unknown> = { name: nome };
   const update: Record<string, unknown> = { name: nome };
   if (use671Api) {
-    const idNum = controlIdCpfToApiInteger(idDigits);
-    add.cpf = idNum;
-    update.cpf = idNum;
+    const d11 = sanitizeDigits(idDigits);
+    if (d11.length !== 11) {
+      throw new Error('CPF: informe 11 dígitos numéricos para envio ao Control iD (modo 671).');
+    }
+    if (mode671CpfWire === 'string11') {
+      add.cpf = d11;
+      update.cpf = d11;
+    } else {
+      const idNum = controlIdCpfToApiInteger(d11);
+      add.cpf = idNum;
+      update.cpf = idNum;
+    }
   } else {
     const d11 = sanitizeDigits(idDigits);
     if (d11.length !== 11 || !validatePisPasep11(d11)) {
@@ -373,7 +417,7 @@ const ControlIdAdapter: RepVendorAdapter = {
       return { ok: false, message: logged.error };
     }
     const ex = extra(device);
-    const configMode671 = ex.mode_671 === true;
+    const configMode671 = readMode671Flag(ex);
     const cpfDigits = sanitizeDigits(employee.cpf);
     const pisOriginal = employee.pis;
     const pisRawSanitized = sanitizeDigits(employee.pis);
@@ -408,6 +452,7 @@ const ControlIdAdapter: RepVendorAdapter = {
           : use671Api
             ? 'cpf (modo Portaria 671 no relógio)'
             : '—';
+    const diagBase = `diag: mode_671=${configMode671 ? 'true' : 'false'}, use671Api=${resolved.ok ? ((resolved as { ok: true; use671Api: boolean }).use671Api ? 'true' : 'false') : 'n/a'}, cpf_len=${cpfDigits.length}, pis_norm=${pisNorm ? 'yes' : 'no'}`;
 
     const matDigits = sanitizeDigits(employee.matricula);
 
@@ -454,6 +499,15 @@ const ControlIdAdapter: RepVendorAdapter = {
         return { ok: true, message: 'Funcionário já estava no relógio; cadastro atualizado (Control iD).' };
       }
 
+      // Alguns firmwares retornam 4xx/5xx para "já cadastrado" (PIS/matrícula),
+      // mas o efeito prático é idempotente: o colaborador já existe no relógio.
+      if (
+        controlIdMessageIndicatesAlreadyRegistered(addText) &&
+        controlIdMessageIndicatesAlreadyRegistered(updText)
+      ) {
+        return { ok: true, message: 'Funcionário já cadastrado no relógio (PIS/matrícula já existentes).' };
+      }
+
       const addHint = addRes.ok ? addText.slice(0, 280) : `HTTP ${addRes.status} — ${addText.slice(0, 280)}`;
       const updHint = updRes.ok ? updText.slice(0, 280) : `HTTP ${updRes.status} — ${updText.slice(0, 280)}`;
       return { ok: false, addHint, updHint };
@@ -468,26 +522,81 @@ const ControlIdAdapter: RepVendorAdapter = {
       ' Se o relógio for Portaria 671, marque «Portaria 671» no cadastro do dispositivo no Chrono e use o CPF de 11 dígitos no funcionário.';
 
     if (use671Api) {
-      let userAdd: Record<string, unknown>;
-      let userUpdate: Record<string, unknown>;
-      try {
-        const b = buildUserPayloadForAddAndUpdate(true, nome, idDigits, matDigits);
-        userAdd = b.add;
-        userUpdate = b.update;
-      } catch (e) {
-        return { ok: false, message: e instanceof Error ? e.message : 'Identificador inválido para o Control iD.' };
+      const mode671Plan: Array<{
+        wire: Mode671CpfWire;
+        envelope: UsersEnvelopeStyle;
+        tag: string;
+        includePis?: boolean;
+        pisWire?: Mode671PisWire;
+      }> = [
+        { wire: 'integer', envelope: 'do_match_false', tag: 'cpf inteiro + do_match:false' },
+        { wire: 'string11', envelope: 'do_match_false', tag: 'cpf string 11 dígitos + do_match:false' },
+        { wire: 'string11', envelope: 'users_only', tag: 'cpf string 11 dígitos (corpo só users)' },
+      ];
+      const pisCompat = canonical11FromRaw(pisRawSanitized);
+      if (pisCompat) {
+        mode671Plan.push(
+          {
+            wire: 'string11',
+            envelope: 'do_match_false',
+            tag: 'cpf string + pis string11 (compat)',
+            includePis: true,
+            pisWire: 'string11',
+          },
+          {
+            wire: 'string11',
+            envelope: 'users_only',
+            tag: 'cpf string + pis inteiro (compat)',
+            includePis: true,
+            pisWire: 'integer',
+          }
+        );
       }
-      console.debug('[Control iD][pushEmployee] payload 671', {
-        funcionario: nome,
-        fonteIdentificador,
-        valorJsonAdd: { cpf: userAdd.cpf },
-      });
-      const attempt671 = await pushAttempt(true, userAdd, userUpdate);
-      if (attempt671.ok) return attempt671;
+      let attempt671: { ok: true; message: string } | { ok: false; addHint: string; updHint: string } = {
+        ok: false,
+        addHint: '',
+        updHint: '',
+      };
+      for (let i = 0; i < mode671Plan.length; i++) {
+        const step = mode671Plan[i]!;
+        let userAdd: Record<string, unknown>;
+        let userUpdate: Record<string, unknown>;
+        try {
+          const b = buildUserPayloadForAddAndUpdate(true, nome, idDigits, matDigits, 'integer', step.wire);
+          userAdd = b.add;
+          userUpdate = b.update;
+          if (step.includePis && pisCompat) {
+            if (step.pisWire === 'integer') {
+              userAdd.pis = elevenPisDigitsToControlIdApiInteger(pisCompat);
+              userUpdate.pis = elevenPisDigitsToControlIdApiInteger(pisCompat);
+            } else {
+              userAdd.pis = pisCompat;
+              userUpdate.pis = pisCompat;
+            }
+          }
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : 'Identificador inválido para o Control iD.' };
+        }
+        console.debug('[Control iD][pushEmployee] tentativa 671', {
+          funcionario: nome,
+          fonteIdentificador,
+          passo: step.tag,
+          identificador11: idDigits,
+          valorJsonAdd: { cpf: userAdd.cpf },
+        });
+        attempt671 = await pushAttempt(true, userAdd, userUpdate, step.envelope);
+        if (attempt671.ok) {
+          if (i === 0) return attempt671;
+          return {
+            ok: true,
+            message: `${attempt671.message} (compatibilidade Control iD: ${step.tag}).`,
+          };
+        }
+      }
       const failed671 = attempt671 as { ok: false; addHint: string; updHint: string };
       return {
         ok: false,
-        message: `Control iD: inclusão falhou (${failed671.addHint}). Atualização também falhou (${failed671.updHint}).${hint671}`,
+        message: `Control iD: inclusão falhou (${failed671.addHint}). Atualização também falhou (${failed671.updHint}).${hint671} [${diagBase}]`,
       };
     }
 
@@ -537,7 +646,10 @@ const ControlIdAdapter: RepVendorAdapter = {
       let altAdd: Record<string, unknown>;
       let altUpd: Record<string, unknown>;
       try {
-        const alt = buildUserPayloadForAddAndUpdate(true, nome, idDigits, matDigits);
+        // Retry de compatibilidade: em erro de formato do `pis`, usar CPF real do cadastro
+        // no modo 671 (alguns firmwares rejeitam PIS legado mesmo com 11 dígitos).
+        const cpfFor671 = cpfDigits.length === 11 ? cpfDigits : idDigits;
+        const alt = buildUserPayloadForAddAndUpdate(true, nome, cpfFor671, matDigits);
         altAdd = alt.add;
         altUpd = alt.update;
       } catch (e) {
@@ -556,7 +668,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     const failedAttempt = attempt as { ok: false; addHint: string; updHint: string };
     return {
       ok: false,
-      message: `Control iD: inclusão falhou (${failedAttempt.addHint}). Atualização também falhou (${failedAttempt.updHint}).${hint671}`,
+      message: `Control iD: inclusão falhou (${failedAttempt.addHint}). Atualização também falhou (${failedAttempt.updHint}).${hint671} [${diagBase}]`,
     };
   },
 
@@ -564,7 +676,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     if (!device.ip) return { ok: false, message: 'IP não configurado' };
     const logged = await controlIdLogin(device);
     if ('error' in logged) return { ok: false, message: logged.error };
-    const mode671 = extra(device).mode_671 === true;
+    const mode671 = readMode671Flag(extra(device));
     let path = `/get_system_date_time.fcgi?session=${encodeURIComponent(logged.session)}`;
     if (mode671) path += '&mode=671';
     const res = await deviceFetch(device, path, {
@@ -587,7 +699,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     if (!device.ip) return { ok: false, message: 'IP não configurado' };
     const logged = await controlIdLogin(device);
     if ('error' in logged) return { ok: false, message: logged.error };
-    const mode671 = extra(device).mode_671 === true;
+    const mode671 = readMode671Flag(extra(device));
     const body: Record<string, unknown> = {
       day: clock.day,
       month: clock.month,
@@ -642,7 +754,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     if (!device.ip) return { ok: false, message: 'IP não configurado', users: [] };
     const logged = await controlIdLogin(device);
     if ('error' in logged) return { ok: false, message: logged.error, users: [] };
-    const mode671 = extra(device).mode_671 === true;
+    const mode671 = readMode671Flag(extra(device));
     const limit = 100;
     let offset = 0;
     for (;;) {
@@ -684,7 +796,7 @@ const ControlIdAdapter: RepVendorAdapter = {
       throw new Error(logged.error);
     }
     const ex = extra(device);
-    const mode671 = ex.mode_671 === true;
+    const mode671 = readMode671Flag(ex);
     const tzRaw = ex.afd_timezone ?? ex.timezone;
     const afdTz =
       typeof tzRaw === 'string' && tzRaw.trim() ? tzRaw.trim() : 'America/Sao_Paulo';

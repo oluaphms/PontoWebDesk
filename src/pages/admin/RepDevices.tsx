@@ -175,8 +175,10 @@ function repAfdCanonical11(raw: string | null | undefined): string | null {
   // Se tem 12-14 dígitos e começa com 0, remove o 0 inicial
   // Ex: 02966742765 (12 dígitos) → 12966742765 (11 dígitos) ✓
   // Ex: 012966742765 (13 dígitos) → 12966742765 (11 dígitos) ✓
-  if (d.length <= 14 && d.startsWith('0')) {
-    return d.slice(1).padStart(11, '0').slice(-11);
+  // CORREÇÃO PIS COM ZERO À ESQUERDA
+  if (d.length <= 14 && d.charAt(0) === '0') {
+    const semZero = d.substring(1);
+    return semZero.padStart(11, '0').slice(-11);
   }
   if (d.length <= 14) return d.slice(-11);
   return d.slice(0, 11);
@@ -967,7 +969,8 @@ const AdminRepDevices: React.FC = () => {
 
         const batidasPaulo = (allDayPunches || []).filter((row: any) => {
           const pisRow = (row.pis || row.cpf || '').replace(/\D/g, '');
-          return pisVariacoes.some(v => pisRow === v || pisRow.endsWith(v?.slice(-4)));
+          const pisRow11 = repAfdCanonical11(row.pis || row.cpf); // Usar função corrigida!
+          return pisVariacoes.some(v => pisRow === v || pisRow11 === v || pisRow.endsWith(v?.slice(-4)));
         });
 
         console.log(`Batidas do Paulo encontradas: ${batidasPaulo.length}`);
@@ -2621,14 +2624,28 @@ const AdminRepDevices: React.FC = () => {
                   Batidas na fila (rep_punch_logs) que ainda não foram consolidadas por falta de cadastro compatível.
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setPendingPisModal({ open: false, rows: [] })}
-              >
-                Fechar
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPauloDebugInfo(null);
+                    loadPendingPisDiagnostics();
+                  }}
+                  title="Recarregar dados do servidor"
+                >
+                  🔄 Atualizar
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPendingPisModal({ open: false, rows: [] })}
+                >
+                  Fechar
+                </Button>
+              </div>
             </div>
 
             {/* Alerta específico para Paulo Henrique */}
