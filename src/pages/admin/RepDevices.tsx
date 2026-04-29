@@ -164,11 +164,20 @@ function buildLocalClockForRep(mode671: boolean): RepDeviceClockSet {
   return clock;
 }
 
-/** Alinhado a `rep_afd_canonical_11_digits` no Supabase (PIS/CPF campo AFD). */
+/** Alinhado a `rep_afd_canonical_11_digits` no Supabase (PIS/CPF campo AFD).
+ * CORREÇÃO: Quando tem 12-14 dígitos começando com 0, remove o 0 inicial
+ * ao invés de pegar os últimos 11 dígitos (que daria resultado errado).
+ */
 function repAfdCanonical11(raw: string | null | undefined): string | null {
   const d = (raw ?? '').replace(/\D/g, '');
   if (d.length === 0) return null;
   if (d.length <= 11) return d.padStart(11, '0');
+  // Se tem 12-14 dígitos e começa com 0, remove o 0 inicial
+  // Ex: 02966742765 (12 dígitos) → 12966742765 (11 dígitos) ✓
+  // Ex: 012966742765 (13 dígitos) → 12966742765 (11 dígitos) ✓
+  if (d.length <= 14 && d.startsWith('0')) {
+    return d.slice(1).padStart(11, '0').slice(-11);
+  }
   if (d.length <= 14) return d.slice(-11);
   return d.slice(0, 11);
 }
@@ -292,6 +301,14 @@ const AdminRepDevices: React.FC = () => {
   const [srManualConsolidateLocalToday, setSrManualConsolidateLocalToday] = useState(false);
   /** Diagnóstico de PIS pendentes na fila */
   const [pendingPisModal, setPendingPisModal] = useState<{ open: boolean; rows: PendingPunchDiag[] }>({ open: false, rows: [] });
+  /** Debug info para Paulo Henrique */
+  const [pauloDebugInfo, setPauloDebugInfo] = useState<{
+    nome?: string;
+    pisOriginal?: string;
+    pis11?: string;
+    totalBatidasDia?: number;
+    batidasPaulo?: Array<{nsr: number; dataHora: string; pis: string; timeRecordId: string | null; ignored: boolean; status: string}>;
+  } | null>(null);
   /** Funcionário selecionado para reatribuir batidas pendentes */
   const [selectedEmployeeForReassign, setSelectedEmployeeForReassign] = useState<string>('');
   /** Batidas selecionadas para reatribuir */
@@ -889,11 +906,104 @@ const AdminRepDevices: React.FC = () => {
     const client = getSupabaseClient();
     if (!client) return;
 
+    // PRIMEIRO: Carregar TODAS as batidas do relógio (não só pendentes)
+    // Isso ajuda a ver se as batidas do Paulo estão sendo filtradas por algum motivo
+    const { data: allPunches, error: allError } = await client
+      .from('rep_punch_logs')
+      .select('nsr, pis, cpf, matricula, data_hora, ignored, time_record_id, nome_funcionario')
+      .eq('company_id', user.companyId)
+      .eq('rep_device_id', d.id)
+      .order('data_hora', { ascending: false })
+      .limit(100);
+
+    if (allError) {
+      setMessage({ type: 'error', text: 'Erro ao buscar batidas: ' + allError.message });
+      return;
+    }
+
+    // Log detalhado para debug
+    console.log('=== DIAGNÓSTICO REP ===');
+    console.log('Total de batidas no relógio:', allPunches?.length || 0);
+    console.log('Funcionários cadastrados:', employees.map(e => ({ nome: e.nome, pis: e.pis_pasep })));
+
+    // Mostrar TODAS as batidas com seu status
+    (allPunches || []).forEach((row: any) => {
+      const pisRaw = row.pis || row.cpf || '';
+      const pisCanon = repAfdCanonical11(pisRaw);
+      const emp = findEmployeeByPis(pisCanon, row.matricula);
+      const status = row.time_record_id ? '✅ OK (no espelho)' : 
+                    row.ignored ? '🚫 Ignorada' : 
+                    emp ? '⏳ Pendente (casou)' : '❌ Pendente (NÃO casou)';
+      
+      console.log(`NSR ${row.nsr} | ${row.data_hora?.slice(0,16)} | PIS: ${pisCanon || 'N/A'} | ${status} | ${emp?.nome || 'Sem funcionário'}`);
+    });
+
     const localDay = srManualConsolidateLocalToday ? getLocalCalendarDayBoundsIso() : undefined;
 
+    // PRIMEIRO: Buscar TODAS as batidas do dia (processadas E pendentes) para diagnóstico
+    let qAll = client
+      .from('rep_punch_logs')
+      .select('nsr, pis, cpf, matricula, data_hora, ignored, nome_funcionario, time_record_id')
+      .eq('company_id', user.companyId)
+      .eq('rep_device_id', d.id);
+
+    if (localDay) {
+      qAll = qAll.gte('data_hora', localDay.startIso).lte('data_hora', localDay.endIso);
+    }
+
+    const { data: allDayPunches, error: errorAll } = await qAll.order('data_hora', { ascending: false }).limit(100);
+
+    if (errorAll) {
+      console.error('Erro ao buscar TODAS as batidas do dia:', errorAll);
+    } else {
+      console.log('=== TODAS AS BATIDAS DO DIA (processadas + pendentes) ===');
+      console.log(`Total: ${(allDayPunches || []).length} batidas`);
+
+      // Procurar batidas do Paulo em TODAS as batidas
+      const paulo = employees.find(e => e.nome?.toLowerCase().includes('paulo') && e.nome?.toLowerCase().includes('henrique'));
+      if (paulo) {
+        const pisVariacoes = [paulo.pis_pasep?.replace(/\D/g, ''), normalizePisTo11Digits(paulo.pis_pasep)].filter(Boolean);
+        console.log('Variações do PIS Paulo:', pisVariacoes);
+
+        const batidasPaulo = (allDayPunches || []).filter((row: any) => {
+          const pisRow = (row.pis || row.cpf || '').replace(/\D/g, '');
+          return pisVariacoes.some(v => pisRow === v || pisRow.endsWith(v?.slice(-4)));
+        });
+
+        console.log(`Batidas do Paulo encontradas: ${batidasPaulo.length}`);
+        batidasPaulo.forEach((row: any) => {
+          console.log(`  NSR ${row.nsr} | ${row.data_hora} | PIS: ${row.pis || row.cpf} | time_record_id: ${row.time_record_id || 'NULL'} | ignored: ${row.ignored}`);
+        });
+
+        // SALVAR NO ESTADO PARA EXIBIR NO MODAL
+        setPauloDebugInfo({
+          nome: paulo.nome,
+          pisOriginal: paulo.pis_pasep,
+          pis11: normalizePisTo11Digits(paulo.pis_pasep),
+          totalBatidasDia: (allDayPunches || []).length,
+          batidasPaulo: batidasPaulo.map((r: any) => ({
+            nsr: r.nsr,
+            dataHora: r.data_hora,
+            pis: r.pis || r.cpf,
+            timeRecordId: r.time_record_id,
+            ignored: r.ignored,
+            status: r.time_record_id ? 'processada' : (r.ignored ? 'ignorada' : 'pendente')
+          }))
+        });
+      }
+
+      // Listar todas para referência
+      console.log('\nLista completa:');
+      (allDayPunches || []).forEach((row: any) => {
+        const status = row.time_record_id ? '✅ OK' : (row.ignored ? '🚫 Ignorada' : '⏳ Pendente');
+        console.log(`  NSR ${row.nsr} | ${row.data_hora?.slice(0,16)} | PIS: ${(row.pis || row.cpf || 'N/A').slice(-4).padStart(4,'0')} | ${status}`);
+      });
+    }
+
+    // Agora buscar só as pendentes para o modal
     let q = client
       .from('rep_punch_logs')
-      .select('nsr, pis, cpf, matricula, data_hora, ignored')
+      .select('nsr, pis, cpf, matricula, data_hora, ignored, nome_funcionario')
       .eq('company_id', user.companyId)
       .eq('rep_device_id', d.id)
       .is('time_record_id', null);
@@ -931,6 +1041,52 @@ const AdminRepDevices: React.FC = () => {
         ignored: row.ignored ?? false,
       };
     });
+
+    // DEBUG ESPECIAL: Verificar PIS do Paulo Henrique com múltiplas variações
+    const paulo = employees.find(e => e.nome?.toLowerCase().includes('paulo') && e.nome?.toLowerCase().includes('henrique'));
+    if (paulo && allPunches && allPunches.length > 0) {
+      const pisOriginal = paulo.pis_pasep || '';
+      const pis11 = normalizePisTo11Digits(pisOriginal);
+      const pis12 = pisOriginal.replace(/\D/g, ''); // original sem formatação
+      
+      console.log('=== DEBUG PIS PAULO HENRIQUE ===');
+      console.log('PIS cadastrado (original):', pisOriginal);
+      console.log('PIS 11 dígitos (normalizePisTo11Digits):', pis11);
+      console.log('PIS 12 dígitos (original limpo):', pis12);
+      
+      // Verificar com múltiplas variações
+      const variacoes = [...new Set([pis11, pis12, pis11?.slice(-11), pis12?.slice(-11)].filter(Boolean))];
+      console.log('Variações do PIS Paulo a procurar:', variacoes);
+      
+      const batidasEncontradas = (allPunches || []).filter((row: any) => {
+        const pisRow = (row.pis || row.cpf || '').replace(/\D/g, '');
+        const pisRow11 = repAfdCanonical11(row.pis || row.cpf);
+        const match = variacoes.some(v => pisRow === v || pisRow11 === v);
+        if (match) {
+          console.log('✅ BATIDA DO PAULO ENCONTRADA:', {
+            nsr: row.nsr,
+            data: row.data_hora,
+            pis_original: row.pis || row.cpf,
+            pis_limpo: pisRow,
+            pis_canonico: pisRow11,
+            ignored: row.ignored,
+            time_record_id: row.time_record_id
+          });
+        }
+        return match;
+      });
+      
+      console.log(`Total de batidas do Paulo: ${batidasEncontradas.length}`);
+      
+      if (batidasEncontradas.length === 0) {
+        console.log('⚠️ Nenhuma batida do Paulo encontrada. TODAS as batidas do relógio:');
+        (allPunches || []).forEach((row: any) => {
+          const pisLimpo = (row.pis || row.cpf || '').replace(/\D/g, '');
+          console.log(`  NSR ${row.nsr}: PIS='${row.pis || row.cpf}' | Limpo='${pisLimpo}' | 11dig='${repAfdCanonical11(row.pis || row.cpf)}'`);
+        });
+        console.log('PIS Paulo (para comparar):', variacoes);
+      }
+    }
 
     setPendingPisModal({ open: true, rows });
   };
@@ -973,12 +1129,19 @@ const AdminRepDevices: React.FC = () => {
   };
 
   // Normaliza PIS/CPF para 11 dígitos canônicos (igual ao SQL rep_afd_canonical_11_digits)
+  // CORREÇÃO: Quando tem 12-14 dígitos começando com 0, remove o 0 inicial
   const normalizePisTo11Digits = (raw: string | null | undefined): string => {
     const d = (raw || '').replace(/\D/g, '');
     if (!d) return '';
     if (d.length <= 11) {
       return d.padStart(11, '0');
     } else if (d.length <= 14) {
+      // Se começa com 0, remove o 0 inicial ao invés de pegar últimos 11
+      // Ex: 02966742765 → 12966742765 ✓ (correto)
+      // Ex: 012966742765 → 12966742765 ✓ (correto)
+      if (d.startsWith('0')) {
+        return d.slice(1).padStart(11, '0').slice(-11);
+      }
       return d.slice(-11);
     } else {
       return d.slice(0, 11);
@@ -2468,6 +2631,46 @@ const AdminRepDevices: React.FC = () => {
               </Button>
             </div>
 
+            {/* Alerta específico para Paulo Henrique */}
+            {(() => {
+              const paulo = employees.find(e => e.nome?.toLowerCase().includes('paulo') && e.nome?.toLowerCase().includes('henrique'));
+              if (!paulo) return null;
+              const pisPaulo = normalizePisTo11Digits(paulo.pis_pasep);
+              const batidasPaulo = pendingPisModal.rows.filter(r => r.pisCanon === pisPaulo);
+              const temBatidasOutras = pendingPisModal.rows.some(r => r.pisCanon !== pisPaulo);
+              
+              if (batidasPaulo.length === 0 && temBatidasOutras) {
+                return (
+                  <div className="mt-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                    <p className="text-sm font-bold text-red-700 dark:text-red-300 mb-2">
+                      ⚠️ ATENÇÃO: Batidas de {paulo.nome} não encontradas!
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mb-2">
+                      PIS cadastrado no sistema: <strong>{paulo.pis_pasep || 'N/A'}</strong> (normalizado: {pisPaulo || 'N/A'})
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mb-2">
+                      O relógio está enviando batidas de outros PIS ({Array.from(new Set(pendingPisModal.rows.map(r => r.pisCanon).filter(Boolean))).join(', ')}),
+                      mas nenhuma do PIS do Paulo.
+                    </p>
+                    <div className="mt-2 p-2 bg-white dark:bg-slate-800 rounded text-xs text-slate-700 dark:text-slate-300">
+                      <p className="font-medium mb-1">Possíveis causas:</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>O PIS cadastrado no relógio físico é diferente do cadastro do sistema</li>
+                        <li>O Paulo ainda não bateu o ponto hoje no relógio</li>
+                        <li>O cadastro do relógio foi apagado/ficou incompleto após reinicialização</li>
+                        <li>O PIS no relógio tem formatação diferente (zeros à esquerda, etc)</li>
+                      </ol>
+                    </div>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                      💡 <strong>Solução:</strong> Acesse o menu do relógio físico e verifique qual PIS está cadastrado para o Paulo. 
+                      Deve ser exatamente: <strong>{paulo.pis_pasep || pisPaulo || 'o PIS cadastrado no sistema'}</strong>
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Controles: Mostrar ignoradas + Reatribuir/Ignorar */}
             {pendingPisModal.rows.length > 0 && (
               <div className="mt-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 space-y-3">
@@ -2498,14 +2701,15 @@ const AdminRepDevices: React.FC = () => {
                       <p className="font-medium text-slate-600 dark:text-slate-400 mb-1">PIS no cadastro desta empresa:</p>
                       {employees.filter(e => e.pis_pasep).length > 0 ? (
                         <ul className="space-y-1">
-                          {employees.filter(e => e.pis_pasep).slice(0, 5).map(e => (
-                            <li key={e.id} className="text-emerald-600 dark:text-emerald-400 font-mono">
-                              {e.pis_pasep} → {e.nome}
-                            </li>
-                          ))}
-                          {employees.filter(e => e.pis_pasep).length > 5 && (
-                            <li className="text-slate-500">...e mais {employees.filter(e => e.pis_pasep).length - 5}</li>
-                          )}
+                          {employees.filter(e => e.pis_pasep).map(e => {
+                            const pisNormalizado = normalizePisTo11Digits(e.pis_pasep);
+                            const temBatida = pendingPisModal.rows.some(r => r.pisCanon === pisNormalizado);
+                            return (
+                              <li key={e.id} className={`font-mono ${temBatida ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                {e.pis_pasep} → {e.nome} {temBatida ? '✅' : '⏳'}
+                              </li>
+                            );
+                          })}
                         </ul>
                       ) : (
                         <p className="text-amber-600 dark:text-amber-400">Nenhum colaborador com PIS cadastrado!</p>
@@ -2514,18 +2718,75 @@ const AdminRepDevices: React.FC = () => {
                     <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">
                       <p className="font-medium text-slate-600 dark:text-slate-400 mb-1">PIS chegando do relógio (pendentes):</p>
                       <ul className="space-y-1">
-                        {Array.from(new Set(pendingPisModal.rows.map(r => r.pisCanon).filter(Boolean))).map((pis, i) => (
-                          <li key={i} className="text-red-600 dark:text-red-400 font-mono">
-                            {pis} → NÃO CADASTRADO
-                          </li>
-                        ))}
+                        {Array.from(new Set(pendingPisModal.rows.map(r => r.pisCanon).filter(Boolean))).map((pis, i) => {
+                          const emp = findEmployeeByPis(pis, null);
+                          return (
+                            <li key={i} className={`font-mono ${emp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {pis} → {emp ? emp.nome : 'NÃO CADASTRADO'}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                    💡 <strong>Dica:</strong> Se os PIS do relógio forem de outras pessoas (não devem entrar no sistema), selecione-as abaixo e clique em "Ignorar".
+                    💡 <strong>Legenda:</strong> ✅ = Batida casou com funcionário | ⏳ = Sem batida do relógio | ❌ = Não cadastrado
                   </p>
                 </div>
+
+                {/* DEBUG ESPECIAL: Paulo Henrique */}
+                {pauloDebugInfo && (
+                  <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+                    <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-2">
+                      🔍 Debug: {pauloDebugInfo.nome}
+                    </p>
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-xs space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="text-slate-500 dark:text-slate-400">PIS Original:</span>
+                          <span className="font-mono ml-1 text-slate-700 dark:text-slate-300">{pauloDebugInfo.pisOriginal}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 dark:text-slate-400">PIS (11 díg):</span>
+                          <span className="font-mono ml-1 text-slate-700 dark:text-slate-300">{pauloDebugInfo.pis11}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400">Total batidas hoje:</span>
+                        <span className="font-mono ml-1 font-bold text-slate-700 dark:text-slate-300">{pauloDebugInfo.totalBatidasDia}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400">Batidas do Paulo encontradas:</span>
+                        <span className={`font-mono ml-1 font-bold ${(pauloDebugInfo.batidasPaulo?.length || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {pauloDebugInfo.batidasPaulo?.length || 0}
+                        </span>
+                      </div>
+                      {pauloDebugInfo.batidasPaulo && pauloDebugInfo.batidasPaulo.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="text-slate-500 dark:text-slate-400 mb-1">Detalhes:</p>
+                          <ul className="space-y-1">
+                            {pauloDebugInfo.batidasPaulo.map((b, i) => (
+                              <li key={i} className="font-mono text-slate-700 dark:text-slate-300">
+                                NSR {b.nsr} | {b.dataHora?.slice(0,16)} | {b.status === 'processada' ? '✅ No espelho' : b.status === 'ignorada' ? '🚫 Ignorada' : '⏳ Pendente'}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                          <p className="text-red-700 dark:text-red-300 font-medium">⚠️ Nenhuma batida encontrada!</p>
+                          <p className="text-red-600 dark:text-red-400 mt-1">Possíveis causas:</p>
+                          <ul className="list-disc ml-4 text-red-600 dark:text-red-400">
+                            <li>O relógio não enviou as batidas deste PIS</li>
+                            <li>O PIS no relógio físico é diferente do cadastro</li>
+                            <li>As batidas foram filtradas por data</li>
+                            <li>O cadastro do relógio foi apagado/reinicializado</li>
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Seleção de funcionário para reatribuir */}
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
