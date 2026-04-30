@@ -68,6 +68,7 @@ let cachedUser: User | null = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 5 * 60 * 1000;
 const PROFILE_LOADING_MAX_MS = 5000;
+const PROFILE_FETCH_MAX_MS = 4000;
 
 /** Uma carga de perfil por vez em todo o app (vários `useCurrentUser` em paralelo). */
 let loadUserInflight: Promise<void> | null = null;
@@ -123,11 +124,18 @@ async function runSharedLoadUser(): Promise<void> {
       return;
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const profilePromise = supabase
       .from('users')
       .select('*')
       .eq('id', session.user.id)
       .single();
+    const profileTimeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+      window.setTimeout(() => resolve({ data: null, error: new Error('profile_timeout') }), PROFILE_FETCH_MAX_MS),
+    );
+    const { data: profile, error: profileError } = await Promise.race([
+      profilePromise,
+      profileTimeoutPromise,
+    ]);
 
     if (import.meta.env.DEV) {
       console.info('[useCurrentUser] profile fetch', {
@@ -159,8 +167,8 @@ async function runSharedLoadUser(): Promise<void> {
 }
 
 export function useCurrentUser() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => readCachedUser());
+  const [loading, setLoading] = useState(() => readCachedUser() == null);
 
   const loadUser = useCallback(async () => {
     if (!isSupabaseConfigured()) {

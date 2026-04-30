@@ -21,6 +21,16 @@ interface JustificativaOption {
   descricao: string;
 }
 
+interface AdjustmentRequestOption {
+  id: string;
+  status: string;
+  reason: string;
+  created_at: string;
+  adjustment_date: string;
+  adjustment_time: string;
+  punch_type: string;
+}
+
 const MIN_MANUAL_REASON_NO_GPS = 12;
 
 function geolocationErrorMessage(err: GeolocationPositionError): string {
@@ -89,6 +99,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [skipGps, setSkipGps] = useState(false);
   const [submitHint, setSubmitHint] = useState<string | null>(null);
+  const [adjustmentRequests, setAdjustmentRequests] = useState<AdjustmentRequestOption[]>([]);
 
   useEffect(() => {
     if (!isOpen || !companyId || !isSupabaseConfigured()) return;
@@ -118,6 +129,63 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
       setForm((f) => ({ ...f, user_id: userId }));
     }
   }, [isOpen, userId]);
+
+  useEffect(() => {
+    if (!isOpen || !form.user_id || !isSupabaseConfigured()) {
+      setAdjustmentRequests([]);
+      return;
+    }
+    let cancelled = false;
+    const loadAdjustmentRequests = async () => {
+      try {
+        const rows = (await db.select(
+          'requests',
+          [
+            { column: 'user_id', operator: 'eq', value: form.user_id },
+            { column: 'type', operator: 'eq', value: 'adjustment' },
+          ],
+          {
+            columns: 'id, status, reason, created_at, metadata',
+            orderBy: { column: 'created_at', ascending: false },
+            limit: 8,
+          },
+        )) as Array<{
+          id: string;
+          status: string;
+          reason: string;
+          created_at: string;
+          metadata?: Record<string, unknown> | null;
+        }>;
+        if (cancelled) return;
+        setAdjustmentRequests(
+          (rows || [])
+            .map((r) => {
+              const md = r.metadata && typeof r.metadata === 'object' ? r.metadata : {};
+              const adjustment_date = typeof md.adjustment_date === 'string' ? md.adjustment_date : '';
+              const adjustment_time = typeof md.adjustment_time === 'string' ? md.adjustment_time : '';
+              const punch_type = typeof md.punch_type === 'string' ? md.punch_type : 'ENTRADA';
+              if (!adjustment_date || !adjustment_time) return null;
+              return {
+                id: r.id,
+                status: String(r.status || 'pending'),
+                reason: String(r.reason || ''),
+                created_at: String(r.created_at || ''),
+                adjustment_date,
+                adjustment_time,
+                punch_type,
+              } as AdjustmentRequestOption;
+            })
+            .filter((x): x is AdjustmentRequestOption => x != null),
+        );
+      } catch {
+        if (!cancelled) setAdjustmentRequests([]);
+      }
+    };
+    void loadAdjustmentRequests();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, form.user_id]);
 
   const runFetchLocation = useCallback(async () => {
     setLocationError(null);
@@ -403,6 +471,41 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
                 Se uma justificativa for selecionada acima e o motivo estiver vazio, será usado o código da justificativa.
               </p>
             </div>
+
+            {adjustmentRequests.length > 0 && (
+              <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+                <p className="text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase mb-2">
+                  Solicitações de ajuste de ponto (colaborador)
+                </p>
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                  {adjustmentRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="rounded-md border border-indigo-100 dark:border-indigo-900/40 bg-white/80 dark:bg-slate-800/70 p-2"
+                    >
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                        {req.adjustment_date} {req.adjustment_time.slice(0, 5)} - {req.punch_type} - status: {req.status}
+                      </p>
+                      <p className="text-xs text-slate-800 dark:text-slate-200 mt-0.5 whitespace-pre-wrap">
+                        {req.reason || 'Sem motivo informado'}
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 hover:underline"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            manual_reason: `Solicitação #${req.id.slice(0, 8)} (${req.adjustment_date} ${req.adjustment_time.slice(0, 5)} ${req.punch_type}): ${req.reason || 'sem motivo informado'}`,
+                          }))
+                        }
+                      >
+                        Usar no motivo
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {form.entry_mode === 'HORARIO' ? (
               <>

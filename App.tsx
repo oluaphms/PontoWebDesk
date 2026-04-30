@@ -313,7 +313,7 @@ const AppMain: React.FC = () => {
         // a app saía antes de hidratar e o usuário via tela presa / sem perfil em cache.
         // getCurrentUser(): até 2×30s + retry delay — não cortar antes (cold start / deploy).
         // CORREÇÃO LOGIN: Timeout mais curto + listener explícito de auth
-        const INIT_HYDRATE_MS = 15_000; // Reduzido de 68s para 15s (cold start deve ser rápido)
+        const INIT_HYDRATE_MS = 7_000; // Mantém segurança sem segurar splash por muito tempo
         const currentUser = await Promise.race([
           authService.getCurrentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
@@ -647,7 +647,7 @@ const AppMain: React.FC = () => {
 
     try {
       // Pré-check rápido para reduzir espera percebida quando o projeto Supabase está pausado.
-      const FAST_PRECHECK_TIMEOUT_MS = 2500;
+      const FAST_PRECHECK_TIMEOUT_MS = 900;
       const precheckResult = await Promise.race([
         checkSupabaseConnection(),
         new Promise<'unknown'>((resolve) => setTimeout(() => resolve('unknown'), FAST_PRECHECK_TIMEOUT_MS)),

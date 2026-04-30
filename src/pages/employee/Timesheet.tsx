@@ -71,6 +71,9 @@ const EmployeeTimesheet: React.FC = () => {
     created_at: string;
     type: string;
     manual_reason?: string | null;
+    source?: string | null;
+    method?: string | null;
+    origin?: string | null;
   } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
@@ -257,7 +260,7 @@ const EmployeeTimesheet: React.FC = () => {
 
   const openEditManualRecord = useCallback(
     (mirror: MirrorTimeRecord | undefined) => {
-      if (!mirror?.id || !canEditManualAsHr || !isManualRecord(mirror)) return;
+      if (!mirror?.id || !isManualRecord(mirror)) return;
       const full = records.find((r: any) => String(r?.id) === String(mirror.id));
       if (!full) return;
       const ts = full.timestamp != null && String(full.timestamp).trim() !== '' ? full.timestamp : full.created_at;
@@ -268,6 +271,9 @@ const EmployeeTimesheet: React.FC = () => {
         created_at,
         type: String(full.type ?? ''),
         manual_reason: full.manual_reason ?? null,
+        source: full.source ?? null,
+        method: full.method ?? null,
+        origin: full.origin ?? null,
       });
       setShowEditModal(true);
     },
@@ -277,17 +283,17 @@ const EmployeeTimesheet: React.FC = () => {
   const renderTimeCell = (time: string | null, record?: MirrorTimeRecord) => {
     const isManual = record && isManualRecord(record);
     const display = time != null && String(time).trim() !== '' ? String(time).trim() : EMPTY_DASH;
-    const editableManual = Boolean(isManual && canEditManualAsHr && record?.id);
+    const clickableManual = Boolean(isManual && record?.id);
     return (
       <span
-        role={editableManual ? 'button' : undefined}
-        tabIndex={editableManual ? 0 : undefined}
+        role={clickableManual ? 'button' : undefined}
+        tabIndex={clickableManual ? 0 : undefined}
         onClick={(e) => {
           e.stopPropagation();
-          if (editableManual) openEditManualRecord(record);
+          if (clickableManual) openEditManualRecord(record);
         }}
         onKeyDown={(e) => {
-          if (!editableManual) return;
+          if (!clickableManual) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             openEditManualRecord(record);
@@ -299,12 +305,12 @@ const EmployeeTimesheet: React.FC = () => {
             : display === EMPTY_DASH
               ? 'text-slate-400 dark:text-slate-500'
               : 'text-slate-700 dark:text-slate-300'
-        } ${editableManual ? 'cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50' : ''}`}
+        } ${clickableManual ? 'cursor-pointer hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50' : ''}`}
         title={
           isManual
-            ? editableManual
+            ? canEditManualAsHr
               ? `Batida manual: ${record?.manual_reason || 'Sem motivo'} — clique para editar`
-              : `Batida manual: ${record?.manual_reason || 'Sem motivo'}`
+              : `Batida manual: ${record?.manual_reason || 'Sem motivo'} — clique para visualizar`
             : undefined
         }
       >
@@ -611,6 +617,7 @@ const EmployeeTimesheet: React.FC = () => {
           if (user?.id && companyId) invalidateAfterPunch(user.id, companyId);
           setRefreshNonce((n) => n + 1);
         }}
+        readOnly={!canEditManualAsHr}
       />
     </div>
   );

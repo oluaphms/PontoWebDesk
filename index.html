@@ -10,9 +10,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta http-equiv="Permissions-Policy" content="camera=*, geolocation=*">
     <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" href="/res/mipmap-xxxhdpi/ic_launcher.png" sizes="192x192">
     <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
     <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="apple-touch-icon" href="/1024.png" sizes="1024x1024">
+    <link rel="apple-touch-icon" href="/res/mipmap-xxxhdpi/ic_launcher.png" sizes="192x192">
     <link rel="apple-touch-icon" href="/play_store_512.png" sizes="512x512">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -87,6 +88,13 @@
   // Não usar location.reload() aqui: corrida com o primeiro carregamento dos chunks no Vercel.
   (function() {
     'use strict';
+    var CLEANUP_KEY = '__pwb_sw_cleanup_done_v1';
+    try {
+      if (sessionStorage.getItem(CLEANUP_KEY) === '1') return;
+      sessionStorage.setItem(CLEANUP_KEY, '1');
+    } catch (_) {
+      // segue sem sessionStorage
+    }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
         if (registrations.length === 0) return;

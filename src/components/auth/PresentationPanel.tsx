@@ -24,7 +24,7 @@ export const PresentationPanel: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/90 to-purple-700/90 rounded-[2rem] blur-md scale-110" />
             <div className="relative bg-gradient-to-br from-indigo-500/80 to-purple-600/80 backdrop-blur-sm rounded-[1.5rem] p-2 border border-white/20 shadow-2xl">
               <img
-                src="/play_store_512.png"
+                src="/res/mipmap-xxxhdpi/ic_launcher.png"
                 alt="PontoWebDesk"
                 width={100}
                 height={100}
