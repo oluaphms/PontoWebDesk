@@ -6,8 +6,18 @@
 
 import { db, checkSupabaseConfigured, isSupabaseConfigured } from './supabaseClient';
 import { processEmployeeDay } from '../engine/timeEngine';
-import { snapshotPunchesFromRecords } from './timesheetCalculationAudit';
-import { getDayRecords, resolveEmployeeScheduleForDate } from './timeProcessingService';
+import {
+  buildPersistDayDecisionTree,
+  snapshotPunchesFromRecords,
+  type CalculationDecisionStep,
+  type CalculationTraceSource,
+} from './timesheetCalculationAudit';
+import {
+  fetchUserScheduleId,
+  getDayRecords,
+  resolveEmployeeScheduleForDate,
+  summarizeDayRecords,
+} from './timeProcessingService';
 import { writeTimesheetsDailyCalculatedRow, type TimesheetWriteOutcome } from './timesheetsDailyWrite';
 import { validateTimesheetIntegrity } from './timesheetIntegrity';
 import {
@@ -38,6 +48,11 @@ export interface DailyTimesheet {
     schedule_used: unknown;
     correlation_id?: string;
     calculation_type?: 'normal' | 'fallback';
+    used_schedule_id?: string | null;
+    ignored_punch_ids?: string[];
+    promoted_punch_ids?: string[];
+    trace_source?: CalculationTraceSource;
+    decision_tree?: CalculationDecisionStep[];
   };
 }
 
@@ -99,9 +114,10 @@ export async function calculateDailyTimesheet(
   expectedMinutes: number = DEFAULT_EXPECTED_MINUTES
 ): Promise<DailyTimesheet> {
   const day = await processEmployeeDay(employeeId, companyId, dateStr);
-  const [records, resolvedSch] = await Promise.all([
+  const [records, resolvedSch, usedScheduleId] = await Promise.all([
     getDayRecords(employeeId, dateStr),
     resolveEmployeeScheduleForDate(employeeId, companyId, dateStr),
+    fetchUserScheduleId(employeeId),
   ]);
   const expectedMin =
     typeof day.daily.expected_minutes === 'number' && Number.isFinite(day.daily.expected_minutes)
@@ -113,6 +129,18 @@ export async function calculateDailyTimesheet(
     resolvedSch.schedule != null
       ? { ...resolvedSch.schedule }
       : { no_schedule: true, js_day_of_week: resolvedSch.jsDayOfWeek };
+  const punchSummary = summarizeDayRecords(records);
+  const hadEntradaSaidaPair = Boolean(punchSummary.entrada && punchSummary.saida);
+  const missingClockOut = Boolean(punchSummary.entrada && !punchSummary.saida);
+  const decision_tree = buildPersistDayDecisionTree({
+    hasScheduleForDay: resolvedSch.schedule != null,
+    usedScheduleId: usedScheduleId,
+    punchCount: records.length,
+    hadEntradaSaidaPair,
+    contingencyScheduleFallback: day.daily.contingency_schedule_fallback === true,
+    incomplete: day.daily.incomplete === true,
+    missingClockOut,
+  });
 
   return {
     employee_id: employeeId,
@@ -142,6 +170,8 @@ export async function calculateDailyTimesheet(
       punches: snapshotPunchesFromRecords(records),
       schedule_used,
       calculation_type,
+      used_schedule_id: usedScheduleId,
+      decision_tree,
     },
   };
 }

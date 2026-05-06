@@ -6,6 +6,12 @@
 import { getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
 import { throwIfTimesheetClosedForPunchMutation } from '../src/services/timesheetClosure';
 import { db, type Filter } from './supabaseClient';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { appendTimeAttendanceTimelineEvent } from '../src/services/timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from '../src/services/timeAttendanceTimeline.constants';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -253,6 +259,47 @@ export async function updateTimeRecordPunchInstant(
 
 export type InsertAdminMirrorResult = { id: string; createdAt: string };
 
+function logAdminMirrorOperationalTimeline(input: {
+  client: SupabaseClient;
+  companyId: string;
+  userId: string;
+  createdIso: string;
+  type: string;
+  recordId: string;
+  rpcSource?: string;
+}): void {
+  const dateYmd = input.createdIso.slice(0, 10);
+  void appendTimeAttendanceTimelineEvent({
+    companyId: input.companyId,
+    employeeId: input.userId,
+    date: dateYmd,
+    eventType: TimeAttendanceTimelineEventType.TIME_RECORD_CREATED,
+    eventSeverity: TimeAttendanceTimelineSeverity.info,
+    sourceModule: 'timeRecords.insertAdminMirrorTimeRecord',
+    sourceReferenceId: input.recordId,
+    payload: {
+      type: input.type,
+      rpc_source: input.rpcSource ?? 'admin',
+    },
+    supabaseClient: input.client,
+  });
+  void appendTimeAttendanceTimelineEvent({
+    companyId: input.companyId,
+    employeeId: input.userId,
+    date: dateYmd,
+    eventType: TimeAttendanceTimelineEventType.MANUAL_ADJUSTMENT,
+    eventSeverity: TimeAttendanceTimelineSeverity.low,
+    sourceModule: 'timeRecords.insertAdminMirrorTimeRecord',
+    sourceReferenceId: input.recordId,
+    payload: {
+      action: 'mirror_manual_punch',
+      type: input.type,
+      rpc_source: input.rpcSource ?? 'admin',
+    },
+    supabaseClient: input.client,
+  });
+}
+
 /**
  * Inclusão de batida pelo espelho admin: tenta RPC `insert_time_record_for_user`;
  * se não retornar `record_id`, faz insert direto (mesma lógica que `Timesheet.tsx`).
@@ -260,6 +307,7 @@ export type InsertAdminMirrorResult = { id: string; createdAt: string };
 export async function insertAdminMirrorTimeRecord(
   data: Record<string, unknown>,
   companyId: string,
+  opts?: { rpcSource?: string },
 ): Promise<InsertAdminMirrorResult> {
   const userId = String(data.user_id ?? '');
   const type = String(data.type ?? '');
@@ -282,7 +330,7 @@ export async function insertAdminMirrorTimeRecord(
     p_company_id: companyId,
     p_type: type,
     p_method: 'admin',
-    p_source: 'admin',
+    p_source: opts?.rpcSource ?? 'admin',
     p_timestamp: createdAt,
     p_latitude: (data.latitude as number | null | undefined) ?? null,
     p_longitude: (data.longitude as number | null | undefined) ?? null,
@@ -298,6 +346,15 @@ export async function insertAdminMirrorTimeRecord(
     } else if (r.timestamp != null && (typeof r.timestamp === 'number' || typeof r.timestamp === 'object')) {
       createdIso = new Date(r.timestamp as number | Date).toISOString();
     }
+    logAdminMirrorOperationalTimeline({
+      client: sb,
+      companyId,
+      userId,
+      createdIso,
+      type,
+      recordId: id,
+      rpcSource: opts?.rpcSource,
+    });
     return { id, createdAt: createdIso };
   }
 
@@ -312,6 +369,15 @@ export async function insertAdminMirrorTimeRecord(
     company_id: companyId,
     is_manual: true,
     method: 'admin',
+  });
+  logAdminMirrorOperationalTimeline({
+    client: sb,
+    companyId,
+    userId,
+    createdIso: createdAt,
+    type,
+    recordId: mergeId,
+    rpcSource: opts?.rpcSource,
   });
   return { id: mergeId, createdAt };
 }

@@ -1,0 +1,41 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  getTimeAttendanceAuditSummary,
+  menuAuditSignalFromSummary,
+  type TimeAttendanceAuditSummary,
+} from '../services/timeAttendanceData';
+
+export type AuditMenuSignal = 'critical' | 'warning' | null;
+
+const POLL_MS = 30_000;
+
+/**
+ * Contadores leves para badge no menu (sidebar/dock/header). O cache de 30s fica em getTimeAttendanceAuditSummary.
+ */
+export function useTimeAttendanceAuditMenuSignal(
+  companyId: string | null,
+  enabled: boolean,
+): { signal: AuditMenuSignal; summary: TimeAttendanceAuditSummary | null } {
+  const [summary, setSummary] = useState<TimeAttendanceAuditSummary | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !companyId) {
+      setSummary(null);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      const s = await getTimeAttendanceAuditSummary(companyId);
+      if (!cancelled) setSummary(s);
+    };
+    void run();
+    const id = window.setInterval(() => void run(), POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [companyId, enabled]);
+
+  const signal = useMemo(() => menuAuditSignalFromSummary(summary), [summary]);
+  return { signal, summary };
+}

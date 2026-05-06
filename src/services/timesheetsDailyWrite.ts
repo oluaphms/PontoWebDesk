@@ -13,8 +13,24 @@ import {
   applyCalculationAuditToRaw,
   buildCalculationContext,
   contextsSemanticallyEqual,
+  parseCalculationTraceFromRawData,
   type CalculationResultSnapshot,
+  type CalculationTraceSource,
+  type CalculationDecisionStep,
+  type CalculationTrace,
 } from './timesheetCalculationAudit';
+import { appendTimeAttendanceTimelineEvent } from './timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+  type TimeAttendanceTimelineSeverityValue,
+} from './timeAttendanceTimeline.constants';
+import {
+  buildSyntheticTimeAttendanceRowForMotorWrite,
+  deriveOperationalIncident,
+  shouldPersistIncidentTimelineEvent,
+  type OperationalIncidentSeverity,
+} from './timeAttendanceIncidentEngine';
 
 export type TimesheetDailyRowPayload = {
   employee_id: string;
@@ -36,6 +52,11 @@ export type TimesheetDailyRowPayload = {
     schedule_used: unknown;
     correlation_id?: string;
     calculation_type?: 'normal' | 'fallback';
+    used_schedule_id?: string | null;
+    ignored_punch_ids?: string[];
+    promoted_punch_ids?: string[];
+    trace_source?: CalculationTraceSource;
+    decision_tree?: CalculationDecisionStep[];
   };
 };
 
@@ -70,6 +91,109 @@ export type TimesheetWriteResult = {
   id?: string | null;
   processing_status: TimesheetProcessingStatus;
 };
+
+function mapIncidentSeverityToTimeline(s: OperationalIncidentSeverity): TimeAttendanceTimelineSeverityValue {
+  switch (s) {
+    case 'critical':
+      return TimeAttendanceTimelineSeverity.critical;
+    case 'high':
+      return TimeAttendanceTimelineSeverity.high;
+    case 'medium':
+      return TimeAttendanceTimelineSeverity.medium;
+    default:
+      return TimeAttendanceTimelineSeverity.low;
+  }
+}
+
+/**
+ * Observabilidade pós-persistência do motor: timeline + incidente derivado (não altera cálculo).
+ */
+function scheduleMotorTimelineObservation(params: {
+  payload: TimesheetDailyRowPayload;
+  mergedRaw: Record<string, unknown>;
+  processing_status: TimesheetProcessingStatus;
+  calculation_type: 'normal' | 'fallback';
+  punchLen: number;
+  trace: CalculationTrace | null;
+  rowId: string | null;
+}): void {
+  const { payload, mergedRaw, processing_status, calculation_type, punchLen, trace, rowId } = params;
+  void (async () => {
+    await appendTimeAttendanceTimelineEvent({
+      companyId: payload.company_id,
+      employeeId: payload.employee_id,
+      date: payload.date,
+      eventType: TimeAttendanceTimelineEventType.TIMESHEET_RECALCULATED,
+      eventSeverity: TimeAttendanceTimelineSeverity.info,
+      sourceModule: 'timesheetsDailyWrite',
+      sourceReferenceId: rowId,
+      payload: {
+        engine_version: trace?.engine_version,
+        processing_status,
+        calculation_trace_source: trace?.source,
+        replay_reason: trace?.replay_reason,
+        worked_minutes: payload.worked_minutes,
+        punch_count: punchLen,
+        used_schedule_id: trace?.used_schedule_id ?? payload.calculation_audit?.used_schedule_id ?? null,
+      },
+    });
+
+    if (processing_status === 'fallback_schedule' || calculation_type === 'fallback') {
+      await appendTimeAttendanceTimelineEvent({
+        companyId: payload.company_id,
+        employeeId: payload.employee_id,
+        date: payload.date,
+        eventType: TimeAttendanceTimelineEventType.TIMESHEET_FALLBACK_APPLIED,
+        eventSeverity: TimeAttendanceTimelineSeverity.low,
+        sourceModule: 'timesheetsDailyWrite',
+        sourceReferenceId: rowId,
+        payload: {
+          processing_status,
+          calculation_trace_source: trace?.source,
+          used_schedule_id: trace?.used_schedule_id ?? payload.calculation_audit?.used_schedule_id ?? null,
+        },
+      });
+    }
+
+    const syn = buildSyntheticTimeAttendanceRowForMotorWrite({
+      employee_id: payload.employee_id,
+      date: payload.date,
+      worked_minutes: payload.worked_minutes,
+      processing_status,
+      punch_count: punchLen,
+      clock_in: null,
+      clock_out: null,
+      raw_data: mergedRaw,
+    });
+    const inc = deriveOperationalIncident(syn, trace);
+    if (shouldPersistIncidentTimelineEvent(inc)) {
+      await appendTimeAttendanceTimelineEvent({
+        companyId: payload.company_id,
+        employeeId: payload.employee_id,
+        date: payload.date,
+        eventType: TimeAttendanceTimelineEventType.INCIDENT_DETECTED,
+        eventSeverity: mapIncidentSeverityToTimeline(inc.severity),
+        sourceModule: 'timeAttendanceIncidentEngine',
+        sourceReferenceId: rowId,
+        payload: {
+          incident_code: inc.incident_code,
+          severity: inc.severity,
+          category: inc.category,
+          recommended_action: inc.recommended_action,
+          human_reason: inc.human_reason,
+        },
+      });
+      if (typeof globalThis !== 'undefined' && globalThis.console) {
+        globalThis.console.info('[TIME ATTENDANCE INCIDENT]', {
+          incident_code: inc.incident_code,
+          severity: inc.severity,
+          employee_id: payload.employee_id,
+          date: payload.date,
+        });
+      }
+    }
+  })();
+}
 
 function finalizeWrite(
   outcome: TimesheetWriteOutcome,
@@ -256,5 +380,20 @@ export async function writeTimesheetsDailyCalculatedRow(
     date: payload.date,
     had_existing: Boolean(existing?.id),
   });
-  return finalizeWrite('written', mergedRaw, payload, upserted?.id ?? existing?.id ?? null);
+  const written = finalizeWrite('written', mergedRaw, payload, upserted?.id ?? existing?.id ?? null);
+  const rowId = upserted?.id ?? existing?.id ?? null;
+  const punchLen = Array.isArray(payload.calculation_audit?.punches)
+    ? payload.calculation_audit.punches.length
+    : 0;
+  const trace = parseCalculationTraceFromRawData(mergedRaw);
+  scheduleMotorTimelineObservation({
+    payload,
+    mergedRaw,
+    processing_status: written.processing_status,
+    calculation_type,
+    punchLen,
+    trace,
+    rowId,
+  });
+  return written;
 }

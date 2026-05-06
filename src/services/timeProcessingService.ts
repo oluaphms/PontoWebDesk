@@ -15,6 +15,11 @@ import {
   reopenTimesheet,
   throwIfTimesheetClosedForPunchMutation,
 } from './timesheetClosure';
+import { appendTimeAttendanceTimelineEvent } from './timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from './timeAttendanceTimeline.constants';
 
 export {
   assertMonthOpenForEmployee,
@@ -376,6 +381,22 @@ export async function resolveEmployeeScheduleForDate(
     return { schedule: null, jsDayOfWeek };
   }
   return { schedule: legacy, jsDayOfWeek };
+}
+
+/** `users.schedule_id` para rastro de cálculo (`raw_data.calculation_trace`). */
+export async function fetchUserScheduleId(employeeId: string): Promise<string | null> {
+  if (!isSupabaseConfigured() || !String(employeeId || '').trim()) return null;
+  try {
+    const rows = (await db.select(
+      'users',
+      [{ column: 'id', operator: 'eq', value: employeeId }],
+      { columns: 'schedule_id', limit: 1 },
+    )) as { schedule_id?: string | null }[];
+    const sid = rows?.[0]?.schedule_id;
+    return typeof sid === 'string' && sid.trim() ? sid.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Origem da resolução de escala (sem alterar regras de cálculo). */
@@ -967,6 +988,27 @@ export async function closeTimesheet(
   }
 
   console.log('[FECHAMENTO DONE]');
+
+  void appendTimeAttendanceTimelineEvent({
+    companyId,
+    employeeId: empId,
+    date: periodEnd.slice(0, 10),
+    eventType: TimeAttendanceTimelineEventType.TIMESHEET_CLOSED,
+    eventSeverity: TimeAttendanceTimelineSeverity.low,
+    sourceModule: 'timeProcessingService.closeTimesheet',
+    sourceReferenceId: closureId,
+    payload: {
+      year,
+      month,
+      actor: closedBy ?? null,
+      closure_reason: 'monthly_close',
+      period_start: periodStart.slice(0, 10),
+      period_end: periodEnd.slice(0, 10),
+    },
+    createdBy: closedBy ?? null,
+    supabaseClient: client,
+  });
+
   return {
     closure: closureRow,
     snapshot: snapIns as Record<string, unknown>,

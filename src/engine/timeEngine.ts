@@ -5,15 +5,17 @@
  */
 
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
-import { snapshotPunchesFromRecords } from '../services/timesheetCalculationAudit';
+import { buildPersistDayDecisionTree, snapshotPunchesFromRecords } from '../services/timesheetCalculationAudit';
 import { writeTimesheetsDailyCalculatedRow } from '../services/timesheetsDailyWrite';
 import { appendAfdTimeEngineAudit } from './afdTimeEngineAudit';
 import { appendEngineCalcAudit } from './engineCalcAudit';
 import { applyDailyBankLedger, getBankExpiredToPayroll50ForPeriod } from './bankLedger';
 import {
   getDayRecords,
+  fetchUserScheduleId,
   processDailyTime,
   resolveEmployeeScheduleForDate,
+  summarizeDayRecords,
   updateBankHours,
   type RawTimeRecord,
   type WorkScheduleInfo,
@@ -1375,11 +1377,26 @@ async function persistRecalculatedDay(params: {
       ? { ...sch.schedule }
       : { no_schedule: true, js_day_of_week: sch.jsDayOfWeek };
   const calculation_type: 'fallback' | 'normal' = daily.contingency_schedule_fallback ? 'fallback' : 'normal';
+  const used_schedule_id = await fetchUserScheduleId(employeeId);
+  const punchSummary = summarizeDayRecords(params.dayRecords);
+  const hadEntradaSaidaPair = Boolean(punchSummary.entrada && punchSummary.saida);
+  const missingClockOut = Boolean(punchSummary.entrada && !punchSummary.saida);
+  const decision_tree = buildPersistDayDecisionTree({
+    hasScheduleForDay: sch.schedule != null,
+    usedScheduleId: used_schedule_id,
+    punchCount: params.dayRecords.length,
+    hadEntradaSaidaPair,
+    contingencyScheduleFallback: daily.contingency_schedule_fallback === true,
+    incomplete: daily.incomplete === true,
+    missingClockOut,
+  });
   const calculation_audit = {
     punches: snapshotPunchesFromRecords(params.dayRecords),
     schedule_used,
     correlation_id: recalc_run_id,
     calculation_type,
+    used_schedule_id,
+    decision_tree,
   };
   const payload = {
     employee_id: employeeId,

@@ -26,6 +26,12 @@ import {
 import { getEmployeeSchedule, getEmployeeTimesheetScheduleContext } from '../../services/timeProcessingService';
 import type { DayScheduleWindow } from '../../utils/timesheetMirror';
 import { closeTimesheet, isTimesheetClosed, reopenTimesheet } from '../../services/timeProcessingService';
+import { appendTimeAttendanceTimelineEvent } from '../../services/timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from '../../services/timeAttendanceTimeline.constants';
+import { getTimeAttendanceAuditSummary, ALERT_THRESHOLDS } from '../../services/timeAttendanceData';
 import {
   invalidateAfterPunch,
   invalidateAfterTimesheetMonthClose,
@@ -243,18 +249,48 @@ const AdminTimesheet: React.FC = () => {
       return;
     }
     try {
-      const raw = sessionStorage.getItem(adminTimesheetFiltersKey(user.id));
-      if (raw) {
-        const s = JSON.parse(raw) as {
-          periodStart?: string;
-          periodEnd?: string;
-          filterUserId?: string;
-          filterDepartmentId?: string;
-        };
-        if (typeof s.periodStart === 'string' && s.periodStart) setPeriodStart(s.periodStart);
-        if (typeof s.periodEnd === 'string' && s.periodEnd) setPeriodEnd(s.periodEnd);
-        if (typeof s.filterUserId === 'string') setFilterUserId(s.filterUserId);
-        if (typeof s.filterDepartmentId === 'string') setFilterDepartmentId(s.filterDepartmentId);
+      const params = new URLSearchParams(window.location.search);
+      const qUser = params.get('user_id');
+      const qDate = params.get('date');
+      const hasDeepLink =
+        typeof qUser === 'string' &&
+        qUser.trim().length > 0 &&
+        typeof qDate === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(qDate);
+
+      if (hasDeepLink) {
+        setFilterUserId(qUser.trim());
+        const y = Number(qDate.slice(0, 4));
+        const m = Number(qDate.slice(5, 7));
+        if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+          const start = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-01`;
+          const lastDay = new Date(y, m, 0).getDate();
+          const end = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-${String(lastDay).padStart(2, '0')}`;
+          setPeriodStart(start);
+          setPeriodEnd(end);
+        }
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete('user_id');
+          u.searchParams.delete('date');
+          window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        const raw = sessionStorage.getItem(adminTimesheetFiltersKey(user.id));
+        if (raw) {
+          const s = JSON.parse(raw) as {
+            periodStart?: string;
+            periodEnd?: string;
+            filterUserId?: string;
+            filterDepartmentId?: string;
+          };
+          if (typeof s.periodStart === 'string' && s.periodStart) setPeriodStart(s.periodStart);
+          if (typeof s.periodEnd === 'string' && s.periodEnd) setPeriodEnd(s.periodEnd);
+          if (typeof s.filterUserId === 'string') setFilterUserId(s.filterUserId);
+          if (typeof s.filterDepartmentId === 'string') setFilterDepartmentId(s.filterDepartmentId);
+        }
       }
     } catch {
       /* ignore */
@@ -678,6 +714,33 @@ const AdminTimesheet: React.FC = () => {
     }
     const [y, m] = closingMonth.split('-').map(Number);
     if (!y || !m) return;
+    try {
+      const auditPreClose = await getTimeAttendanceAuditSummary(companyId, {
+        start: periodStart.slice(0, 10),
+        end: periodEnd.slice(0, 10),
+      });
+      if (auditPreClose) {
+        const blockDup = auditPreClose.duplicate_count >= ALERT_THRESHOLDS.duplicate;
+        const blockErr = auditPreClose.error_count >= ALERT_THRESHOLDS.error;
+        const blockInc = auditPreClose.inconsistent_count >= 1;
+        if (blockInc) {
+          toast.addToast(
+            'error',
+            'Existem dias inconsistentes na auditoria de jornada. Resolva os incidentes antes do fechamento do período.',
+          );
+          return;
+        }
+        if (blockDup || blockErr) {
+          toast.addToast(
+            'error',
+            'Fechamento bloqueado: há duplicidade de dia ou erro de processamento no período do espelho. Corrija em Auditoria — Jornada antes de fechar a folha.',
+          );
+          return;
+        }
+      }
+    } catch (preErr) {
+      console.warn('[TIME ATTENDANCE AUDIT] pré-fechamento indisponível', preErr);
+    }
     setClosingLoading(true);
     try {
       const already = await isTimesheetClosed(companyId, m, y, filterUserId);
@@ -777,6 +840,22 @@ const AdminTimesheet: React.FC = () => {
         month: m,
         year: y,
         client: supabase,
+      });
+      void appendTimeAttendanceTimelineEvent({
+        companyId,
+        employeeId: filterUserId,
+        date: `${y}-${String(m).padStart(2, '0')}-01`,
+        eventType: TimeAttendanceTimelineEventType.TIMESHEET_REOPENED,
+        eventSeverity: TimeAttendanceTimelineSeverity.medium,
+        sourceModule: 'Timesheet.handleReopenMonth',
+        payload: {
+          year: y,
+          month: m,
+          actor: user?.id ?? null,
+          closure_reason: 'manual_reopen',
+        },
+        createdBy: user?.id ?? null,
+        supabaseClient: supabase,
       });
       await LoggingService.log({
         severity: LogSeverity.SECURITY,

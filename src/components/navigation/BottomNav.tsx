@@ -12,6 +12,8 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import type { User } from '../../../types';
 import { prefetchPortalRoute } from '../../routes/routeChunks';
+import { resolveTenantId } from '../../services/tenantScope';
+import { useTimeAttendanceAuditMenuSignal } from '../../hooks/useTimeAttendanceAuditMenuSignal';
 
 const SvgMenu = ({ size = 24 }: { size?: number }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -70,6 +72,11 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const primaryItems = getBottomNavPrimaryItems(user?.role ?? 'employee', location.pathname);
   const moreItems = getMoreMenuItems(user?.role ?? 'employee', location.pathname);
+  const auditNavEnabled = user?.role === 'admin' || user?.role === 'hr';
+  const { signal: auditMenuSignal } = useTimeAttendanceAuditMenuSignal(
+    resolveTenantId(user) || null,
+    auditNavEnabled,
+  );
 
   return (
     <>
@@ -173,6 +180,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                 {moreItems.map((item) => {
                   const isActive = location.pathname === item.path;
                   const label = i18n.t(item.nameKey);
+                  const isAudit = item.path === '/admin/time-attendance-audit';
+                  const showAudit = isAudit && auditMenuSignal !== null;
                   return (
                     <button
                       key={item.path}
@@ -194,7 +203,12 @@ const BottomNav: React.FC<BottomNavProps> = ({ user, onLogout }) => {
                       `}
                     >
                       <NavIcon icon={item?.icon} size={20} label={label} />
-                      {label}
+                      <span className="flex-1 min-w-0 truncate">{label}</span>
+                      {showAudit && (
+                        <span className="shrink-0 text-base" aria-hidden>
+                          {auditMenuSignal === 'critical' ? '🔴' : '🟠'}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

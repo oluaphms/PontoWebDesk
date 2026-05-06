@@ -32,6 +32,8 @@ import {
   Scale,
   Calculator,
   Table2,
+  ClipboardList,
+  AlertTriangle,
 } from 'lucide-react';
 import type { User } from '../../types';
 import { prefetchPortalRoute } from '../routes/routeChunks';
@@ -52,6 +54,9 @@ const ADMIN_ITEMS = [
   { label: 'Feriados', path: '/admin/feriados', icon: CalendarRange },
   { label: 'Justificativas', path: '/admin/justificativas', icon: FileCheck },
   { label: 'Espelho de Ponto', path: '/admin/timesheet', icon: CalendarDays },
+  { label: 'Auditoria — Jornada', path: '/admin/time-attendance-audit', icon: ClipboardList },
+  { label: 'Timeline operacional', path: '/admin/time-attendance-timeline', icon: Activity },
+  { label: 'Central de incidentes', path: '/admin/operational-incidents', icon: AlertTriangle },
   { label: 'Cálculos', path: '/admin/calculos', icon: Calculator },
   { label: 'Cartão Ponto', path: '/admin/cartao-ponto', icon: FileText },
   { label: 'Cartão Ponto (Somente Leitura)', path: '/admin/cartao-ponto-leitura', icon: FileText },

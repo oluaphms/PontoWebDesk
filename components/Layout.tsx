@@ -12,6 +12,8 @@ import {
   RadialMenu,
   CommandPalette,
 } from '../src/navigation';
+import { resolveTenantId } from '../src/services/tenantScope';
+import { useTimeAttendanceAuditMenuSignal } from '../src/hooks/useTimeAttendanceAuditMenuSignal';
 
 /** Cabeçalho: apenas título + busca — sem BrandLogo (evita favicon duplicado; logo nas sidebars). */
 
@@ -28,6 +30,9 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab, onLogout, layoutVariant }) => {
   const navigate = useNavigate();
+  const tenantId = resolveTenantId(user);
+  const auditNavEnabled = user?.role === 'admin' || user?.role === 'hr';
+  const { signal: auditHeaderSignal } = useTimeAttendanceAuditMenuSignal(tenantId || null, auditNavEnabled);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = user?.preferences?.theme;
     if (saved === 'light' || saved === 'dark') return saved;
@@ -67,6 +72,24 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
           <header className="print:hidden h-16 lg:h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-20 transition-colors duration-300">
             <div className="flex items-center gap-2 flex-1 max-w-md">
               <span className="text-base lg:text-lg font-bold text-indigo-600 dark:text-indigo-400 shrink-0">PontoWebDesk</span>
+              {auditHeaderSignal && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide border border-slate-200 dark:border-slate-600 shrink-0"
+                  title={
+                    auditHeaderSignal === 'critical'
+                      ? 'Jornada: duplicidade ou erro de processamento (veja Auditoria)'
+                      : 'Jornada: inconsistências acima do limiar (veja Auditoria)'
+                  }
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${auditHeaderSignal === 'critical' ? 'bg-red-600' : 'bg-orange-500'}`}
+                    aria-hidden
+                  />
+                  <span className={auditHeaderSignal === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-orange-700 dark:text-orange-400'}>
+                    {auditHeaderSignal === 'critical' ? 'Auditoria crítica' : 'Auditoria'}
+                  </span>
+                </span>
+              )}
               <div className="relative flex-1 hidden sm:block max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} aria-hidden="true" />
                 <input

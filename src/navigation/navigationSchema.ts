@@ -56,6 +56,12 @@ export const navigationGroups: Record<string, NavigationGroupSchema> = {
       { name: 'Cálculos', nameKey: 'menu.calculos', path: '/admin/calculos', roles: ['admin', 'hr'] },
       { name: 'Meu Espelho de Ponto', nameKey: 'menu.espelhoPonto', path: '/employee/timesheet', roles: ['employee'] },
       { name: 'Jornada de Trabalho', nameKey: 'menu.timeAttendance', path: '/admin/time-attendance', roles: ['admin', 'hr'] },
+      {
+        name: 'Auditoria — Jornada',
+        nameKey: 'menu.timeAttendanceAudit',
+        path: '/admin/time-attendance-audit',
+        roles: ['admin', 'hr'],
+      },
       { name: 'Escalas', nameKey: 'menu.escalas', path: '/admin/schedules', roles: ['admin', 'hr'] },
       { name: 'Horários', nameKey: 'menu.horarios', path: '/admin/shifts', roles: ['admin', 'hr'] },
       { name: 'Banco de Horas', nameKey: 'menu.timeBalance', path: '/admin/bank-hours', roles: ['admin', 'hr'] },

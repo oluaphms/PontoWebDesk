@@ -18,6 +18,12 @@ import {
   applyUnresolvedIdentityToRaw,
   resolveCanonicalUserWithMatcher,
 } from '../../modules/rep-integration/repResolveCanonicalUser';
+import { getSupabaseClient } from './supabaseClient';
+import { appendTimeAttendanceTimelineEvent } from './timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from './timeAttendanceTimeline.constants';
 
 export interface ClockEventLogRow {
   id: string;
@@ -318,6 +324,27 @@ export async function promoteClockEventsToEspelho(
       }
       out.processed += 1;
     }
+  }
+
+  const sb = getSupabaseClient();
+  if (sb && out.processed > 0) {
+    void appendTimeAttendanceTimelineEvent({
+      companyId: opts.companyId,
+      eventType: TimeAttendanceTimelineEventType.TIME_RECORD_CREATED,
+      eventSeverity: TimeAttendanceTimelineSeverity.info,
+      sourceModule: 'clockEventPromote.service',
+      sourceReferenceId: opts.deviceId,
+      payload: {
+        batch_summary: true,
+        device_id: opts.deviceId,
+        processed: out.processed,
+        time_records: out.timeRecords,
+        user_not_found: out.userNotFound,
+        duplicate: out.duplicate,
+        errors: out.errors,
+      },
+      supabaseClient: sb,
+    });
   }
 
   return out;

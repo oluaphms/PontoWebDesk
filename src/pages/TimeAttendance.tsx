@@ -11,6 +11,7 @@ import { resolveTenantId } from '../services/tenantScope';
 import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
 import {
   getTimeAttendanceData,
+  getTimeAttendanceStatusDetail,
   getTimeAttendanceStatusPresentation,
   submitManualAttendancePunches,
   type TimeAttendanceRow,
@@ -218,6 +219,7 @@ const TimeAttendancePage: React.FC = () => {
       'intervalo_min',
       'total_horas_motor',
       'status_processamento',
+      'status_detail',
     ];
     const csvRows = list.map((r) => [
       r.date,
@@ -227,6 +229,7 @@ const TimeAttendancePage: React.FC = () => {
       r.break_minutes ?? 0,
       r.total_hours_motor != null ? Number(r.total_hours_motor.toFixed(2)) : '',
       getTimeAttendanceStatusPresentation(r).label,
+      getTimeAttendanceStatusDetail(r),
     ]);
     const csvContent = [header, ...csvRows]
       .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
@@ -391,12 +394,26 @@ const TimeAttendancePage: React.FC = () => {
                 {
                   key: 'clock_in',
                   header: 'Entrada',
-                  render: (row) => row.clock_in ?? '—',
+                  render: (row) => {
+                    const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
+                    if (row.status_label === 'inconsistent_data') return batidasMsg;
+                    if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
+                      return batidasMsg;
+                    }
+                    return row.clock_in ?? '—';
+                  },
                 },
                 {
                   key: 'clock_out',
                   header: 'Saída',
-                  render: (row) => row.clock_out ?? '—',
+                  render: (row) => {
+                    const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
+                    if (row.status_label === 'inconsistent_data') return batidasMsg;
+                    if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
+                      return batidasMsg;
+                    }
+                    return row.clock_out ?? '—';
+                  },
                 },
                 {
                   key: 'break_minutes',

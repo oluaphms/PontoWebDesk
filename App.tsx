@@ -128,6 +128,9 @@ import {
   SchedulesPage,
   SettingsPage,
   TimeAttendancePage,
+  TimeAttendanceAuditPage,
+  TimeAttendanceTimelinePage,
+  OperationalIncidentsPage,
   TimeBalancePage,
   TimeClockPage,
   TimeRecordsPage,
@@ -1378,6 +1381,9 @@ const AppMain: React.FC = () => {
               <Route path="lancamento-eventos" element={<AdminLancamentoEventos />} />
               <Route path="pre-folha" element={<AdminPreFolha />} />
               <Route path="time-attendance" element={<TimeAttendancePage />} />
+              <Route path="time-attendance-audit" element={<TimeAttendanceAuditPage />} />
+              <Route path="time-attendance-timeline" element={<TimeAttendanceTimelinePage />} />
+              <Route path="operational-incidents" element={<OperationalIncidentsPage />} />
               <Route path="absences" element={<AbsencesPage />} />
               <Route path="ausencias" element={<AdminAusencias />} />
               <Route path="requests" element={<RequestsPage />} />

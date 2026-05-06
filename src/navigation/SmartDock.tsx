@@ -8,6 +8,8 @@ import { i18n } from '../../lib/i18n';
 import { useSmartNavigation } from './useSmartNavigation';
 import { getNavIcon } from './iconMap';
 import type { NavigationGroupSchema } from './navigationSchema';
+import { resolveTenantId } from '../services/tenantScope';
+import { useTimeAttendanceAuditMenuSignal } from '../hooks/useTimeAttendanceAuditMenuSignal';
 
 const LONG_PRESS_MS = 500;
 const CARD_MARGIN = 12;
@@ -18,6 +20,9 @@ const SmartDock: React.FC = () => {
   const location = useLocation();
   useLanguage();
   const { user, groups, dockFloatingGroupKey, openDockGroup, setRadialOpen, onLogout } = useSmartNavigation();
+  const tenantId = resolveTenantId(user);
+  const auditNavEnabled = user?.role === 'admin' || user?.role === 'hr';
+  const { signal: auditMenuSignal } = useTimeAttendanceAuditMenuSignal(tenantId || null, auditNavEnabled);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [cardStyle, setCardStyle] = useState<{ left: number; bottom: number; width: number } | null>(null);
@@ -157,6 +162,7 @@ const SmartDock: React.FC = () => {
             const isOpen = dockFloatingGroupKey === groupKey;
             const label = i18n.t(group.labelKey);
             const isSmart = groupKey === 'smart';
+            const showTimeAuditDot = groupKey === 'time' && auditMenuSignal !== null;
 
             return (
               <div
@@ -181,7 +187,18 @@ const SmartDock: React.FC = () => {
                   whileTap={{ scale: 0.96 }}
                   transition={{ type: 'spring', stiffness: 400, damping: 17 }}
                 >
-                  <Icon size={24} className="shrink-0" aria-hidden />
+                  <span className="relative inline-flex">
+                    <Icon size={24} className="shrink-0" aria-hidden />
+                    {showTimeAuditDot && (
+                      <span
+                        className={`absolute -right-0.5 -top-0.5 w-2 h-2 rounded-full border border-white dark:border-slate-900 ${
+                          auditMenuSignal === 'critical' ? 'bg-red-600' : 'bg-orange-500'
+                        }`}
+                        aria-hidden
+                        title={auditMenuSignal === 'critical' ? 'Auditoria: crítico' : 'Auditoria: inconsistências'}
+                      />
+                    )}
+                  </span>
                   <span className="text-[10px] font-medium mt-1 truncate max-w-full hidden sm:block">
                     {label}
                   </span>
@@ -247,6 +264,8 @@ const SmartDock: React.FC = () => {
               <div className={`flex flex-col gap-0.5 max-h-[min(60vh,320px)] overflow-y-auto ${logoutBusy ? 'pointer-events-none opacity-60' : ''}`}>
                 {openGroup.items.map((item) => {
                   const isActive = location.pathname === item.path;
+                  const isAuditItem = item.path === '/admin/time-attendance-audit';
+                  const showAuditBadge = isAuditItem && auditMenuSignal !== null;
                   return (
                     <button
                       key={item.path}
@@ -260,7 +279,16 @@ const SmartDock: React.FC = () => {
                       `}
                       role="menuitem"
                     >
-                      {i18n.t(item.nameKey)}
+                      <span className="flex-1 min-w-0 truncate">{i18n.t(item.nameKey)}</span>
+                      {showAuditBadge && (
+                        <span
+                          className="shrink-0 text-base leading-none"
+                          aria-hidden
+                          title={auditMenuSignal === 'critical' ? 'Crítico: duplicidade ou erro' : 'Inconsistências acima do limiar'}
+                        >
+                          {auditMenuSignal === 'critical' ? '🔴' : '🟠'}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

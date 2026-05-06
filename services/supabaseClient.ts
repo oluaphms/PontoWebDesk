@@ -228,6 +228,8 @@ export async function safeUserSelectColumns(
 interface DbInterface {
   select: (table: string, filters?: Filter[], orderBy?: OrderBy | SelectOptions, limit?: number) => Promise<any[]>;
   insert: (table: string, data: any) => Promise<any>;
+  /** PostgREST upsert; onConflict ex.: 'company_id,snapshot_date' */
+  upsert: (table: string, data: any, onConflict: string) => Promise<void>;
   rpc: <T = any>(
     fn: string,
     args?: Record<string, any>
@@ -373,6 +375,18 @@ export const db: DbInterface = {
     }
 
     return result;
+  },
+
+  upsert: async (table: string, data: any, onConflict: string): Promise<void> => {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase não inicializado');
+    await ensureSupabaseAuthSessionReady(client);
+
+    const { error } = await client.from(table).upsert(data, { onConflict });
+
+    if (error) {
+      throw new Error(`Erro ao upsert em ${table}: ${error.message}`);
+    }
   },
 
   rpc: async <T = any>(fn: string, args?: Record<string, any>): Promise<{ data: T | null; error: any }> => {

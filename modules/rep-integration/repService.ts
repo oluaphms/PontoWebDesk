@@ -16,6 +16,11 @@ import {
 } from './repResolveCanonicalUser';
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
 import { safeUserSelectColumns } from '../../services/supabaseClient';
+import { appendTimeAttendanceTimelineEvent } from '../../src/services/timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from '../../src/services/timeAttendanceTimeline.constants';
 
 const REP_WEAK_MATCH_USER_COLUMNS = [
   'id',
@@ -54,6 +59,107 @@ function extractRepAfdLineFromRawData(rd: Record<string, unknown>): string | nul
 
 function pisDigits11(s: string | null | undefined): string {
   return normalizeDocument(s ?? '').padStart(11, '0').slice(0, 11);
+}
+
+function repCivilDateFromIsoUtc(iso: string): string | null {
+  try {
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return null;
+    return new Date(t).toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+function scheduleRepIngestTimeline(
+  supabase: SupabaseClient,
+  input: {
+    company_id: string;
+    rep_device_id?: string | null;
+    data_hora: string;
+    nsr: number | null | undefined;
+    rawData: Record<string, unknown>;
+    forceUserId: string | null;
+    duplicate?: boolean;
+    user_not_found?: boolean;
+    success: boolean;
+    time_record_id?: string | null;
+  },
+): void {
+  const ymd = repCivilDateFromIsoUtc(input.data_hora);
+  const match_strategy =
+    typeof input.rawData.match_strategy === 'string' ? input.rawData.match_strategy : null;
+  const confidence =
+    typeof input.rawData.match_confidence === 'string' ? input.rawData.match_confidence : null;
+  const canonical_user_id =
+    typeof input.rawData.canonical_user_id === 'string' ? input.rawData.canonical_user_id : null;
+  const resolved_user_id = input.forceUserId ?? null;
+  const device_id = input.rep_device_id ?? null;
+
+  void appendTimeAttendanceTimelineEvent({
+    companyId: input.company_id,
+    employeeId: resolved_user_id,
+    date: ymd,
+    eventType: TimeAttendanceTimelineEventType.REP_PUNCH_RECEIVED,
+    eventSeverity: TimeAttendanceTimelineSeverity.info,
+    sourceModule: 'repService.ingestPunch',
+    payload: {
+      nsr: input.nsr ?? null,
+      match_strategy,
+      resolved_user_id,
+      canonical_user_id,
+      confidence,
+      device_id,
+      duplicate: input.duplicate === true,
+      user_not_found: input.user_not_found === true,
+      success: input.success,
+      time_record_id: input.time_record_id ?? null,
+    },
+    supabaseClient: supabase,
+  });
+
+  if (input.duplicate) return;
+
+  if (input.user_not_found) {
+    void appendTimeAttendanceTimelineEvent({
+      companyId: input.company_id,
+      employeeId: null,
+      date: ymd,
+      eventType: TimeAttendanceTimelineEventType.REP_MATCH_FAILED,
+      eventSeverity: TimeAttendanceTimelineSeverity.medium,
+      sourceModule: 'repService.ingestPunch',
+      payload: { nsr: input.nsr ?? null, device_id, match_strategy },
+      supabaseClient: supabase,
+    });
+    return;
+  }
+
+  if (input.success && confidence === 'low') {
+    void appendTimeAttendanceTimelineEvent({
+      companyId: input.company_id,
+      employeeId: resolved_user_id,
+      date: ymd,
+      eventType: TimeAttendanceTimelineEventType.REP_MATCH_AMBIGUOUS,
+      eventSeverity: TimeAttendanceTimelineSeverity.medium,
+      sourceModule: 'repService.ingestPunch',
+      payload: { nsr: input.nsr ?? null, device_id, match_strategy, confidence },
+      supabaseClient: supabase,
+    });
+  }
+
+  if (input.success && input.time_record_id) {
+    void appendTimeAttendanceTimelineEvent({
+      companyId: input.company_id,
+      employeeId: resolved_user_id,
+      date: ymd,
+      eventType: TimeAttendanceTimelineEventType.REP_MATCH_SUCCESS,
+      eventSeverity: TimeAttendanceTimelineSeverity.info,
+      sourceModule: 'repService.ingestPunch',
+      sourceReferenceId: input.time_record_id,
+      payload: { nsr: input.nsr ?? null, device_id, match_strategy },
+      supabaseClient: supabase,
+    });
+  }
 }
 
 /**
@@ -130,6 +236,8 @@ export async function ingestPunch(
     force_user_id?: string | null;
     /** Lista de colaboradores (mesma empresa) para match fraco controlado quando não há PIS com DV válido. */
     weak_match_users?: readonly RepWeakPisMatchUser[] | null;
+    /** Quando true, não grava timeline por batida (lotes); preferir resumo no chamador. */
+    omitTimeline?: boolean;
   }
 ): Promise<{
   success: boolean;
@@ -220,6 +328,18 @@ export async function ingestPunch(
     duplicate?: boolean;
   };
   if (result.duplicate) {
+    if (!params.omitTimeline) {
+      scheduleRepIngestTimeline(supabase, {
+        company_id: merged.company_id,
+        rep_device_id: merged.rep_device_id,
+        data_hora: merged.data_hora,
+        nsr: merged.nsr,
+        rawData,
+        forceUserId,
+        duplicate: true,
+        success: true,
+      });
+    }
     return { success: true, duplicate: true, error: 'NSR já importado' };
   }
 
@@ -246,12 +366,26 @@ export async function ingestPunch(
       candidatos: 'no cliente admin use RPC rep_match_user_id_for_rep_punch_row → campo debug',
     });
   }
-  return {
+  const out = {
     success: result.success === true,
     time_record_id: result.time_record_id,
     user_not_found: result.user_not_found === true,
     error: result.error,
   };
+  if (!params.omitTimeline) {
+    scheduleRepIngestTimeline(supabase, {
+      company_id: merged.company_id,
+      rep_device_id: merged.rep_device_id,
+      data_hora: merged.data_hora,
+      nsr: merged.nsr,
+      rawData,
+      forceUserId,
+      success: out.success,
+      user_not_found: out.user_not_found === true,
+      time_record_id: out.time_record_id ?? null,
+    });
+  }
+  return out;
 }
 
 /**
@@ -290,6 +424,7 @@ export async function ingestAfdRecords(
       raw_data: { raw: rec.raw },
       force_user_id: forceUserId ?? null,
       weak_match_users: forceUserId ? null : weakUsers,
+      omitTimeline: true,
     });
 
     if (r.duplicate || (r.error && r.error.includes('já importado'))) {
@@ -302,6 +437,21 @@ export async function ingestAfdRecords(
       result.errors.push(r.error || 'Erro desconhecido');
     }
   }
+
+  void appendTimeAttendanceTimelineEvent({
+    companyId: companyId.trim(),
+    eventType: TimeAttendanceTimelineEventType.REP_PUNCH_RECEIVED,
+    eventSeverity: TimeAttendanceTimelineSeverity.info,
+    sourceModule: 'repService.ingestAfdRecords',
+    payload: {
+      batch_summary: true,
+      imported: result.imported,
+      duplicated: result.duplicated,
+      userNotFound: result.userNotFound,
+      errors_count: result.errors.length,
+    },
+    supabaseClient: supabase,
+  });
 
   return result;
 }
@@ -425,6 +575,7 @@ export async function ingestPunchesFromDevice(
           only_staging: onlyStaging,
           apply_schedule: applySchedule,
           weak_match_users: weakUsers,
+          omitTimeline: true,
         })
       )
     );
@@ -453,6 +604,23 @@ export async function ingestPunchesFromDevice(
       });
     }
   }
+
+  void appendTimeAttendanceTimelineEvent({
+    companyId: device.company_id.trim(),
+    eventType: TimeAttendanceTimelineEventType.REP_PUNCH_RECEIVED,
+    eventSeverity: TimeAttendanceTimelineSeverity.info,
+    sourceModule: 'repService.ingestPunchesFromDevice',
+    payload: {
+      batch_summary: true,
+      rep_device_id: device.id,
+      imported: result.imported,
+      duplicated: result.duplicated,
+      userNotFound: result.userNotFound,
+      staged: result.staged ?? 0,
+      errors_count: result.errors.length,
+    },
+    supabaseClient: supabase,
+  });
 
   return result;
 }
@@ -514,6 +682,73 @@ export async function promotePendingRepPunchLogs(
       });
     }
   }
+
+  if (row.success === true) {
+    const snu = row.skipped_no_user ?? 0;
+    const sou = row.skipped_other_user ?? 0;
+    if (snu > 0) {
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        eventType: TimeAttendanceTimelineEventType.REP_MATCH_FAILED,
+        eventSeverity: TimeAttendanceTimelineSeverity.medium,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: repDeviceId,
+        payload: { aggregate: true, skipped_no_user: snu },
+        supabaseClient: supabase,
+      });
+    }
+    if (sou > 0) {
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        eventType: TimeAttendanceTimelineEventType.REP_MATCH_AMBIGUOUS,
+        eventSeverity: TimeAttendanceTimelineSeverity.medium,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: repDeviceId,
+        payload: { aggregate: true, skipped_other_user: sou },
+        supabaseClient: supabase,
+      });
+    }
+    const det = row.promoted_detail ?? [];
+    if (det.length > 0 && det.length <= 8) {
+      for (const d of det) {
+        const uid = String(d.user_id ?? '').trim();
+        const iso = d.data_hora != null ? String(d.data_hora) : '';
+        const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
+        void appendTimeAttendanceTimelineEvent({
+          companyId: companyId.trim(),
+          employeeId: uid || null,
+          date: ymd,
+          eventType: TimeAttendanceTimelineEventType.REP_PROMOTED,
+          eventSeverity: TimeAttendanceTimelineSeverity.info,
+          sourceModule: 'rep_promote_pending_rep_punch_logs',
+          sourceReferenceId: repDeviceId,
+          payload: {
+            nsr: d.nsr ?? null,
+            resolved_user_id: uid || null,
+            canonical_user_id: uid || null,
+            data_hora: iso || null,
+            device_id: repDeviceId,
+          },
+          supabaseClient: supabase,
+        });
+      }
+    } else if (det.length > 8) {
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        eventType: TimeAttendanceTimelineEventType.REP_PROMOTED,
+        eventSeverity: TimeAttendanceTimelineSeverity.info,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: repDeviceId,
+        payload: {
+          aggregate: true,
+          promoted_count: det.length,
+          sample_nsr: det[0]?.nsr ?? null,
+        },
+        supabaseClient: supabase,
+      });
+    }
+  }
+
   return {
     success: row.success === true,
     promoted: row.promoted,
@@ -566,6 +801,34 @@ export async function linkUnresolvedRepPunchAndPromote(
         company_id: companyId.trim(),
       });
     }
+  }
+  void appendTimeAttendanceTimelineEvent({
+    companyId: companyId.trim(),
+    employeeId: userId.trim(),
+    eventType: TimeAttendanceTimelineEventType.MANUAL_ADJUSTMENT,
+    eventSeverity: TimeAttendanceTimelineSeverity.low,
+    sourceModule: 'repService.linkUnresolvedRepPunchAndPromote',
+    sourceReferenceId: repPunchLogId.trim(),
+    payload: {
+      action: 'rep_manual_link',
+      rep_punch_log_id: repPunchLogId.trim(),
+      promoted: row.promoted ?? 0,
+      manual_linked: row.manual_linked === true,
+    },
+    supabaseClient: supabase,
+  });
+  const detl = row.promoted_detail ?? [];
+  if (detl.length > 0) {
+    void appendTimeAttendanceTimelineEvent({
+      companyId: companyId.trim(),
+      employeeId: userId.trim(),
+      eventType: TimeAttendanceTimelineEventType.REP_PROMOTED,
+      eventSeverity: TimeAttendanceTimelineSeverity.info,
+      sourceModule: 'repService.linkUnresolvedRepPunchAndPromote',
+      sourceReferenceId: repPunchLogId.trim(),
+      payload: { aggregate: true, count: detl.length, after_manual_link: true },
+      supabaseClient: supabase,
+    });
   }
   return {
     success: true,

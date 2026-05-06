@@ -23,8 +23,15 @@ import {
 } from '../utils/calendarUtils';
 import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
 import { monthYearFromCivilYmd } from './timesheetClosure';
+import { appendTimeAttendanceTimelineEvent } from './timeAttendanceTimeline.service';
+import {
+  TimeAttendanceTimelineEventType,
+  TimeAttendanceTimelineSeverity,
+} from './timeAttendanceTimeline.constants';
 
 const AUTO_RECALC_DEBOUNCE_MS = 10_000;
+/** Teto de disparos de recálculo por carregamento da lista (evita rajada de RPC). */
+const AUTO_RECALC_MAX_PER_LOAD = 20;
 const MAX_CONCURRENT_RECALC_PER_USER = 2;
 /** Circuit breaker: após N falhas consecutivas (sem linha ou exceção), auto-fix para para este dia. */
 const AUTO_RECALC_MAX_ATTEMPTS = 5;
@@ -108,7 +115,8 @@ export type AutoRecalcRequestOutcome =
   | 'skipped_in_flight'
   | 'skipped_cooldown'
   | 'skipped_debounce'
-  | 'skipped_circuit';
+  | 'skipped_circuit'
+  | 'skipped_load_budget';
 
 async function isTimesheetDayProtected(companyId: string, userId: string, dateYmd: string): Promise<boolean> {
   const date = String(dateYmd).slice(0, 10);
@@ -274,6 +282,15 @@ async function executeAutoRecalcMissingTimesheet(
 ): Promise<void> {
   const g = getAutoRecalcGate(gateKey);
   logTimeAttendanceAutoFixInfo('[TIME ATTENDANCE AUTO FIX]', { user_id: userId, date, reason: 'missing_timesheet' });
+  void appendTimeAttendanceTimelineEvent({
+    companyId,
+    employeeId: userId,
+    date,
+    eventType: TimeAttendanceTimelineEventType.AUTO_FIX_TRIGGERED,
+    eventSeverity: TimeAttendanceTimelineSeverity.info,
+    sourceModule: 'timeAttendanceData.executeAutoRecalcMissingTimesheet',
+    payload: { reason: 'missing_timesheet' },
+  });
   try {
     logCalendarDayConsistencyDebug({ user_id: userId, date });
 
@@ -298,6 +315,15 @@ async function executeAutoRecalcMissingTimesheet(
         user_id: userId,
         date,
         reason: 'protected_timesheet',
+      });
+      void appendTimeAttendanceTimelineEvent({
+        companyId,
+        employeeId: userId,
+        date,
+        eventType: TimeAttendanceTimelineEventType.AUTO_FIX_SKIPPED,
+        eventSeverity: TimeAttendanceTimelineSeverity.low,
+        sourceModule: 'timeAttendanceData.executeAutoRecalcMissingTimesheet',
+        payload: { reason: 'protected_timesheet' },
       });
       return;
     }
@@ -338,6 +364,15 @@ async function executeAutoRecalcMissingTimesheet(
           date,
           attempts: g.consecutiveMisses,
         });
+        void appendTimeAttendanceTimelineEvent({
+          companyId,
+          employeeId: userId,
+          date,
+          eventType: TimeAttendanceTimelineEventType.AUTO_FIX_FAILED,
+          eventSeverity: TimeAttendanceTimelineSeverity.medium,
+          sourceModule: 'timeAttendanceData.executeAutoRecalcMissingTimesheet',
+          payload: { reason: 'no_timesheet_after_recalc', attempts: g.consecutiveMisses },
+        });
       }
     } else {
       g.consecutiveMisses = 0;
@@ -352,6 +387,19 @@ async function executeAutoRecalcMissingTimesheet(
       date,
       message: e instanceof Error ? e.message : String(e),
       cooldown_ms: backoffMs,
+    });
+    void appendTimeAttendanceTimelineEvent({
+      companyId,
+      employeeId: userId,
+      date,
+      eventType: TimeAttendanceTimelineEventType.AUTO_FIX_FAILED,
+      eventSeverity: TimeAttendanceTimelineSeverity.high,
+      sourceModule: 'timeAttendanceData.executeAutoRecalcMissingTimesheet',
+      payload: {
+        reason: 'recalc_exception',
+        message: e instanceof Error ? e.message : String(e),
+        attempts: g.consecutiveMisses,
+      },
     });
     if (g.consecutiveMisses >= g.maxAttempts) {
       logTimeAttendanceAutoFixInfo('[TIME ATTENDANCE AUTO FIX STOPPED]', {
@@ -428,6 +476,230 @@ export type TimeAttendanceRow = {
   raw_data?: unknown;
 };
 
+/**
+ * Ordem determinística (maior vence) — fonte única de prioridade.
+ * duplicate_user_day > inconsistent_data > erro > closed > protegido > recalc fila > pending > fallback/jornada padrão > ok
+ */
+const STATUS_PRIORITY: Record<string, number> = {
+  duplicate_user_day: 100,
+  inconsistent_data: 90,
+  'erro no processamento': 82,
+  Erro: 82,
+  closed_period: 74,
+  protected_timesheet: 68,
+  Protegido: 68,
+  recalculando: 62,
+  'na fila de processamento': 56,
+  pending_engine: 50,
+  'Aguardando cálculo': 48,
+  'Batidas incompletas': 48,
+  'Sem batidas': 48,
+  fallback_schedule: 40,
+  'Jornada padrão': 40,
+  'Referência inválida': 35,
+  ok: 10,
+};
+
+/** Somente chaves de `STATUS_PRIORITY` podem ser aplicadas via `safeApplyStatus` (blindagem). */
+const VALID_STATUS = new Set(Object.keys(STATUS_PRIORITY));
+
+/** Rótulos vindos do motor/UI — mesmo ranque que `ok` / `fallback_schedule` quando aplicável. */
+const STATUS_PRIORITY_ALIASES: Record<string, number> = {
+  OK: 10,
+};
+
+function statusPriorityRank(label: string): number {
+  const k = String(label ?? '').trim();
+  if (!k) return 0;
+  if (STATUS_PRIORITY[k] != null) return STATUS_PRIORITY[k]!;
+  if (STATUS_PRIORITY_ALIASES[k] != null) return STATUS_PRIORITY_ALIASES[k]!;
+  return 0;
+}
+
+/** Somente uso interno de `safeApplyStatus` — não chamar direto (hard lock). */
+function applyStatusWithPriority(row: TimeAttendanceRow, newStatus: string): void {
+  const next = String(newStatus).trim();
+  if (!next) return;
+  const pNew = statusPriorityRank(next);
+  const pCur = statusPriorityRank(row.status_label);
+  if (pNew > pCur) row.status_label = next;
+}
+
+type SafeApplyStatusOptions = {
+  /** `duplicate_user_day` deve sobrescrever qualquer outro status (duplicidade crítica). */
+  forceOverride?: boolean;
+};
+
+/**
+ * Única entrada permitida para alterar `status_label` por código interno.
+ * `applyStatusWithPriority` não deve ser usado fora daqui.
+ */
+function safeApplyStatus(row: TimeAttendanceRow, status: string, options?: SafeApplyStatusOptions): void {
+  const s = String(status).trim();
+  if (!VALID_STATUS.has(s)) {
+    console.error('[TIME ATTENDANCE UNKNOWN STATUS]', { context: 'safeApplyStatus', status: s });
+    return;
+  }
+  if (options?.forceOverride === true && s === 'duplicate_user_day') {
+    row.status_label = s;
+    return;
+  }
+  applyStatusWithPriority(row, s);
+}
+
+/** Chave estável: employee_id|date (YYYY-MM-DD). */
+function employeeDayKey(row: Pick<TimeAttendanceRow, 'employee_id' | 'date'>): string {
+  return `${row.employee_id}|${String(row.date).slice(0, 10)}`;
+}
+
+function collectDuplicateEmployeeDayKeys(rows: readonly TimeAttendanceRow[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const k = employeeDayKey(r);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const dup = new Set<string>();
+  for (const [k, n] of counts.entries()) {
+    if (n > 1) dup.add(k);
+  }
+  return dup;
+}
+
+function markDuplicateUserDayOnRows(rows: readonly TimeAttendanceRow[], dupKeys: ReadonlySet<string>): void {
+  for (const k of dupKeys) {
+    const list = rows.filter((r) => employeeDayKey(r) === k);
+    if (list.length <= 1) continue;
+    for (const row of list) {
+      console.warn('[TIME ATTENDANCE DUPLICATE USER DAY]', {
+        employee_id: row.employee_id,
+        date: row.date,
+        records: row.punch_count,
+        duplicate_group_size: list.length,
+        key: k,
+      });
+      safeApplyStatus(row, 'duplicate_user_day', { forceOverride: true });
+    }
+  }
+}
+
+/** Minutos trabalhados segundo o motor (`timesheets_daily`); 0 se ainda sem total oficial. */
+function workedMinutesFromRow(row: TimeAttendanceRow): number {
+  if (row.total_hours_motor == null || !Number.isFinite(row.total_hours_motor)) return 0;
+  return Math.round(row.total_hours_motor * 60);
+}
+
+/**
+ * Integridade motor × batidas antes da apresentação: não altera horas; só status via `safeApplyStatus`.
+ */
+export function deriveIntegrityStatus(row: TimeAttendanceRow): void {
+  const workedMin = workedMinutesFromRow(row);
+  if (workedMin > 0 && row.punch_count === 0) {
+    console.warn('[TIME ATTENDANCE MOTOR WITHOUT PUNCHES]', {
+      user_id: row.employee_id,
+      date: row.date,
+      worked_minutes: workedMin,
+      has_timesheet_daily: row.has_timesheet_daily,
+    });
+    return;
+  }
+  if (workedMin > 0 && row.punch_count > 0) {
+    const noInOut = !row.clock_in && !row.clock_out;
+    const inNoOutPast = Boolean(row.clock_in && !row.clock_out && isPastDay(row.date));
+    if (noInOut || inNoOutPast) {
+      console.warn('[TIME ATTENDANCE INCONSISTENT]', {
+        user_id: row.employee_id,
+        date: row.date,
+        worked_minutes: workedMin,
+        punch_count: row.punch_count,
+        first_in: row.clock_in,
+        last_out: row.clock_out,
+      });
+      safeApplyStatus(row, 'inconsistent_data');
+    }
+  }
+}
+
+function sortRowsByDateAndName(rows: TimeAttendanceRow[]): TimeAttendanceRow[] {
+  return [...rows].sort((a, b) => {
+    const dc = b.date.localeCompare(a.date);
+    if (dc !== 0) return dc;
+    const na = a.employee_name ?? a.employee_id;
+    const nb = b.employee_name ?? b.employee_id;
+    return na.localeCompare(nb, 'pt-BR');
+  });
+}
+
+/**
+ * Colapsa linhas duplicadas (mesmo colaborador + dia). Mantém a de maior `punch_count`, depois maior minutos do motor.
+ * Emite log obrigatório e marca `duplicate_user_day` na linha mantida.
+ */
+export function dedupeRowsByEmployeeAndDate(rows: TimeAttendanceRow[]): {
+  rows: TimeAttendanceRow[];
+  discardedDuplicateRows: TimeAttendanceRow[];
+} {
+  const byKey = new Map<string, TimeAttendanceRow[]>();
+  for (const r of rows) {
+    const k = employeeDayKey(r);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k)!.push(r);
+  }
+  const out: TimeAttendanceRow[] = [];
+  const discardedDuplicateRows: TimeAttendanceRow[] = [];
+  for (const [k, list] of byKey) {
+    if (list.length === 1) {
+      out.push(list[0]!);
+      continue;
+    }
+    const sorted = [...list].sort((a, b) => {
+      const pc = b.punch_count - a.punch_count;
+      if (pc !== 0) return pc;
+      const wa = workedMinutesFromRow(a);
+      const wb = workedMinutesFromRow(b);
+      if (wb !== wa) return wb - wa;
+      return String(b.id).localeCompare(String(a.id));
+    });
+    const keeper = sorted[0]!;
+    safeApplyStatus(keeper, 'duplicate_user_day', { forceOverride: true });
+    out.push(keeper);
+    discardedDuplicateRows.push(...sorted.slice(1));
+    console.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
+      key: k,
+      kept_id: keeper.id,
+      discarded_count: sorted.length - 1,
+    });
+  }
+  return { rows: sortRowsByDateAndName(out), discardedDuplicateRows };
+}
+
+function isKnownPresentationStatusLabel(label: string): boolean {
+  const k = String(label ?? '').trim();
+  if (!k) return false;
+  if (VALID_STATUS.has(k)) return true;
+  return STATUS_PRIORITY_ALIASES[k] != null;
+}
+
+function coerceUnknownStatusLabel(row: TimeAttendanceRow): void {
+  const k = String(row.status_label ?? '').trim();
+  if (isKnownPresentationStatusLabel(k)) return;
+  console.error('[TIME ATTENDANCE UNKNOWN STATUS]', {
+    status: k || '(vazio)',
+    employee_id: row.employee_id,
+    date: row.date,
+  });
+  safeApplyStatus(row, 'erro no processamento');
+}
+
+/** Para switches exhaustivos: registra status não mapeado sem interromper o fluxo. */
+export function assertNeverStatus(value: never): void {
+  console.error('[TIME ATTENDANCE UNKNOWN STATUS]', { branch: 'assertNeverStatus', value: value as string });
+}
+
+/** Entrada/saída exibidas como HH:mm — ordem lexicográfica é válida para o mesmo dia civil. */
+export function hasValidClockWindow(firstIn: string | null, lastOut: string | null): boolean {
+  if (!firstIn || !lastOut) return false;
+  return firstIn < lastOut;
+}
+
 function attachAutoRecalcRowHints(row: TimeAttendanceRow): void {
   if (row.has_timesheet_daily) {
     row.auto_recalc_requested_at = null;
@@ -442,24 +714,39 @@ function attachAutoRecalcRowHints(row: TimeAttendanceRow): void {
   row.next_retry_at = g.cooldownUntilMs > now ? new Date(g.cooldownUntilMs) : null;
   row.auto_recalc_in_flight = Boolean(g.inFlight || g.queued);
 
+  if (row.status_label === 'duplicate_user_day') {
+    return;
+  }
   if (row.status_label === 'closed_period' || row.status_label === 'protected_timesheet') {
     return;
   }
   if (g.consecutiveMisses >= g.maxAttempts) {
-    row.status_label = 'erro no processamento';
+    safeApplyStatus(row, 'erro no processamento');
     row.next_retry_at = null;
     return;
   }
   if (g.queued) {
-    row.status_label = 'na fila de processamento';
+    safeApplyStatus(row, 'na fila de processamento');
     return;
   }
   if (g.inFlight) {
-    row.status_label = 'recalculando';
+    safeApplyStatus(row, 'recalculando');
   }
 }
 
 const AUTO_FIX_UI_RECENT_MS = 30_000;
+
+function getTodayLocalYmd(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isPastDay(date: string): boolean {
+  return String(date).slice(0, 10) < getTodayLocalYmd();
+}
 
 function motorStatusBadgeClass(row: TimeAttendanceRow): string {
   if (row.processing_status === 'error') return 'text-red-600 dark:text-red-400';
@@ -474,6 +761,20 @@ export function getTimeAttendanceStatusPresentation(row: TimeAttendanceRow): {
   tooltip?: string;
   badgeClassName: string;
 } {
+  if (row.status_label === 'duplicate_user_day') {
+    return {
+      label: 'Duplicidade de registros',
+      tooltip: 'Mais de um conjunto de batidas encontrado para o mesmo colaborador no dia',
+      badgeClassName: 'text-orange-500',
+    };
+  }
+  if (row.status_label === 'inconsistent_data') {
+    return {
+      label: 'Dados inconsistentes',
+      tooltip: 'O motor calculou horas, mas as batidas não foram localizadas corretamente.',
+      badgeClassName: 'text-red-500',
+    };
+  }
   if (row.has_timesheet_daily) {
     return {
       label: row.status_label,
@@ -542,6 +843,34 @@ export function getTimeAttendanceStatusPresentation(row: TimeAttendanceRow): {
     tooltip: undefined,
     badgeClassName: motorStatusBadgeClass(row),
   };
+}
+
+/** Detalhe curto para exportação (ex.: CSV) — evita ambiguidade no RH. */
+export function getTimeAttendanceStatusDetail(row: TimeAttendanceRow): string {
+  if (row.status_label === 'duplicate_user_day') {
+    return 'Mais de um registro encontrado. Verificar duplicidade ou erro de identificação.';
+  }
+  if (row.status_label === 'inconsistent_data') {
+    return 'Horas calculadas sem batidas completas. Pode indicar falha de captura ou sincronização.';
+  }
+  return '';
+}
+
+/**
+ * Auto-recalc só quando há batidas suficientes, janela válida, motor sem horas positivas e cenário não bloqueado.
+ */
+export function rowEligibleForAutoRecalc(
+  row: TimeAttendanceRow,
+  duplicateDayKeys: ReadonlySet<string>,
+): boolean {
+  if (duplicateDayKeys.has(employeeDayKey(row)) || row.status_label === 'duplicate_user_day') return false;
+  if (row.status_label === 'closed_period' || row.status_label === 'protected_timesheet') return false;
+  if (row.status_label === 'inconsistent_data') return false;
+  if (row.processing_status === 'fallback_schedule') return false;
+  if (!hasValidClockWindow(row.clock_in, row.clock_out)) return false;
+  if (row.punch_count < 2) return false;
+  if (workedMinutesFromRow(row) > 0) return false;
+  return true;
 }
 
 function statusLabel(
@@ -636,20 +965,46 @@ export async function getTimeAttendanceData(
     punchesByKey.get(key)!.push(raw);
   }
 
-  const rowMap = new Map<string, TimeAttendanceRow>();
-
+  const sheetsByKey = new Map<string, Record<string, unknown>[]>();
   for (const s of sheetRows ?? []) {
     const employee_id = String(s.employee_id ?? '');
     const date = String(s.date ?? '').slice(0, 10);
     if (!employee_id || !date) continue;
-
     const key = `${employee_id}|${date}`;
+    if (!sheetsByKey.has(key)) sheetsByKey.set(key, []);
+    sheetsByKey.get(key)!.push(s as Record<string, unknown>);
+  }
+
+  const rowMap = new Map<string, TimeAttendanceRow>();
+
+  for (const [key, sheetList] of sheetsByKey) {
     const punches = punchesByKey.get(key) ?? [];
     const summary = summarizeDayRecords(punches);
+    let primarySheet = sheetList[0]!;
+    if (sheetList.length > 1) {
+      const scored = sheetList.map((sh) => ({
+        sh,
+        worked: Number(sh.worked_minutes ?? 0) || 0,
+      }));
+      scored.sort((a, b) => {
+        if (b.worked !== a.worked) return b.worked - a.worked;
+        return String(b.sh.id ?? '').localeCompare(String(a.sh.id ?? ''));
+      });
+      primarySheet = scored[0]!.sh;
+      console.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
+        key,
+        kept_id: primarySheet.id,
+        discarded_count: sheetList.length - 1,
+      });
+    }
+
+    const s = primarySheet;
+    const employee_id = String(s.employee_id ?? '');
+    const date = String(s.date ?? '').slice(0, 10);
     const worked = Number(s.worked_minutes ?? 0);
     const ps = deriveTimesheetProcessingStatus({ raw_data: s.raw_data });
 
-    rowMap.set(key, {
+    const row: TimeAttendanceRow = {
       id: typeof s.id === 'string' ? s.id : key,
       employee_id,
       employee_name: employeeNameById.get(employee_id),
@@ -666,12 +1021,21 @@ export async function getTimeAttendanceData(
       next_retry_at: null,
       auto_recalc_in_flight: false,
       raw_data: s.raw_data,
-    });
+    };
+
+    if (sheetList.length > 1) {
+      safeApplyStatus(row, 'duplicate_user_day', { forceOverride: true });
+    }
+
+    rowMap.set(key, row);
   }
 
   for (const [key, punches] of punchesByKey) {
     if (rowMap.has(key)) continue;
-    const [employee_id, date] = key.split('|');
+    const pipe = key.indexOf('|');
+    if (pipe <= 0) continue;
+    const employee_id = key.slice(0, pipe);
+    const date = key.slice(pipe + 1);
     if (!employee_id || !date) continue;
     const summary = summarizeDayRecords(punches);
     rowMap.set(key, {
@@ -694,13 +1058,17 @@ export async function getTimeAttendanceData(
     });
   }
 
-  const rows = Array.from(rowMap.values()).sort((a, b) => {
-    const dc = b.date.localeCompare(a.date);
-    if (dc !== 0) return dc;
-    const na = a.employee_name ?? a.employee_id;
-    const nb = b.employee_name ?? b.employee_id;
-    return na.localeCompare(nb, 'pt-BR');
-  });
+  let rows = sortRowsByDateAndName(Array.from(rowMap.values()));
+  const sheetDedupPass = dedupeRowsByEmployeeAndDate(rows);
+  rows = sheetDedupPass.rows;
+  void sheetDedupPass.discardedDuplicateRows;
+
+  for (const row of rows) {
+    deriveIntegrityStatus(row);
+  }
+
+  const duplicateDayKeys = collectDuplicateEmployeeDayKeys(rows);
+  markDuplicateUserDayOnRows(rows, duplicateDayKeys);
 
   const source: TimeAttendanceSource =
     (sheetRows?.length ?? 0) > 0 ? 'timesheets_daily' : 'time_records';
@@ -717,7 +1085,7 @@ export async function getTimeAttendanceData(
   for (const row of pendingAuto) {
     const ck = closurePeriodKey(row.employee_id, row.date);
     if (closedKeys.has(ck)) {
-      row.status_label = 'closed_period';
+      safeApplyStatus(row, 'closed_period');
       recalc_blocked++;
       logTimeAttendanceAutoFixInfo('[TIME ATTENDANCE AUTO FIX SKIPPED]', {
         user_id: row.employee_id,
@@ -738,7 +1106,7 @@ export async function getTimeAttendanceData(
   const toRecalc: TimeAttendanceRow[] = [];
   notClosed.forEach((row, i) => {
     if (protectedFlags[i]) {
-      row.status_label = 'protected_timesheet';
+      safeApplyStatus(row, 'protected_timesheet');
       recalc_blocked++;
       logTimeAttendanceAutoFixInfo('[TIME ATTENDANCE AUTO FIX SKIPPED]', {
         user_id: row.employee_id,
@@ -750,11 +1118,26 @@ export async function getTimeAttendanceData(
     toRecalc.push(row);
   });
 
+  let autoRecalcTriggeredThisLoad = 0;
+  const requestAutoRecalcWithLoadCap = (userId: string, dateYmd: string): AutoRecalcRequestOutcome => {
+    if (autoRecalcTriggeredThisLoad >= AUTO_RECALC_MAX_PER_LOAD) {
+      return 'skipped_load_budget';
+    }
+    const outcome = requestAutoRecalcMissingTimesheet(companyId, userId, dateYmd);
+    if (outcome === 'triggered' || outcome === 'queued') {
+      autoRecalcTriggeredThisLoad += 1;
+    }
+    return outcome;
+  };
+
   let recalc_triggered = 0;
   let recalc_cooldown = 0;
+  let recalc_skipped_load_budget = 0;
   for (const row of toRecalc) {
-    const outcome = requestAutoRecalcMissingTimesheet(companyId, row.employee_id, row.date);
+    if (!rowEligibleForAutoRecalc(row, duplicateDayKeys)) continue;
+    const outcome = requestAutoRecalcWithLoadCap(row.employee_id, row.date);
     if (outcome === 'triggered' || outcome === 'queued') recalc_triggered++;
+    else if (outcome === 'skipped_load_budget') recalc_skipped_load_budget++;
     else if (outcome !== 'skipped_circuit') recalc_cooldown++;
   }
 
@@ -784,17 +1167,46 @@ export async function getTimeAttendanceData(
     rows.filter((r) => !r.has_timesheet_daily && r.punch_count > 0).map((r) => `${r.employee_id}|${r.date}`),
   );
 
-  logTimeAttendanceAutoFixInfo('[TIME ATTENDANCE AUTO FIX SUMMARY]', {
+  // Summary sempre visível (auditoria / operação), fora do sample de 5%.
+  console.info('[TIME ATTENDANCE AUTO FIX SUMMARY]', {
     pending_days,
     recalc_triggered,
     recalc_success,
     recalc_blocked,
     recalc_cooldown,
+    recalc_skipped_load_budget,
+    recalc_max_per_load: AUTO_RECALC_MAX_PER_LOAD,
   });
 
   for (const row of rows) {
     attachAutoRecalcRowHints(row);
   }
+
+  for (const row of rows) {
+    coerceUnknownStatusLabel(row);
+  }
+
+  let integrity_ok_count = 0;
+  let integrity_warning_count = 0;
+  let integrity_critical_count = 0;
+  for (const r of rows) {
+    if (r.status_label === 'duplicate_user_day' || r.status_label === 'erro no processamento') {
+      integrity_critical_count += 1;
+    } else if (r.status_label === 'inconsistent_data') {
+      integrity_warning_count += 1;
+    } else {
+      integrity_ok_count += 1;
+    }
+  }
+  console.info('[TIME ATTENDANCE INTEGRITY SUMMARY]', {
+    company_id: companyId,
+    period_start: safeStart,
+    period_end: safeEnd,
+    integrity_ok_count,
+    integrity_warning_count,
+    integrity_critical_count,
+    row_count: rows.length,
+  });
 
   return { rows, source };
 }
@@ -860,4 +1272,304 @@ export async function submitManualAttendancePunches(params: {
   const dateCivil = String(dateYmd).slice(0, 10);
   logCalendarDayConsistencyDebug({ user_id: userId, date: dateCivil });
   await recalculate_period(userId, companyId, dateCivil, dateCivil);
+}
+
+/** Limiares para alerta visual e log de incidente (anti-ruído em inconsistências). */
+export const ALERT_THRESHOLDS = {
+  inconsistent: 5,
+  duplicate: 1,
+  error: 1,
+} as const;
+
+const AUDIT_SUMMARY_STATUS_LABELS = ['inconsistent_data', 'duplicate_user_day', 'erro no processamento'] as const;
+
+export type TimeAttendanceAuditSummary = {
+  inconsistent_count: number;
+  duplicate_count: number;
+  error_count: number;
+  /** Colaboradores distintos com pelo menos um dia em status de auditoria. */
+  affected_users: number;
+  period_start: string;
+  period_end: string;
+  /** 100 − (dup×10 + err×10 + inc×2), limitado a [0, 100]. */
+  quality_score: number;
+  integrity_ok_count: number;
+  integrity_warning_count: number;
+  integrity_critical_count: number;
+};
+
+export type AuditTrendRow = {
+  snapshot_date: string;
+  inconsistent_count: number;
+  duplicate_count: number;
+  error_count: number;
+};
+
+const AUDIT_SNAPSHOT_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+export function computeAuditQualityScore(pick: {
+  inconsistent_count: number;
+  duplicate_count: number;
+  error_count: number;
+}): number {
+  const raw = 100 - pick.duplicate_count * 10 - pick.error_count * 10 - pick.inconsistent_count * 2;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function civilDateTodayLocal(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function isDefaultCivilMonthRange(start: string, end: string): boolean {
+  const d = civilMonthBoundsForAudit();
+  return start === d.start && end === d.end;
+}
+
+/**
+ * Últimos 3 dias (mais recentes na série) piores que os 3 dias anteriores (mesma métrica de peso do score).
+ */
+export function isTrendWorsening(trend: AuditTrendRow[]): boolean {
+  if (trend.length < 6) return false;
+  const chronological = [...trend].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+  const last6 = chronological.slice(-6);
+  const prev3 = last6.slice(0, 3);
+  const last3 = last6.slice(3, 6);
+  const weight = (r: AuditTrendRow) =>
+    r.duplicate_count * 10 + r.error_count * 10 + r.inconsistent_count * 2;
+  const avg = (rows: AuditTrendRow[]) => rows.reduce((s, r) => s + weight(r), 0) / rows.length;
+  return avg(last3) > avg(prev3);
+}
+
+async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAttendanceAuditSummary): Promise<void> {
+  if (!isSupabaseConfigured() || !companyId.trim()) return;
+  if (!isDefaultCivilMonthRange(summary.period_start, summary.period_end)) return;
+
+  const snapshotDate = civilDateTodayLocal();
+
+  try {
+    const existing = await db.select(
+      'time_attendance_audit_snapshots',
+      [
+        { column: 'company_id', operator: 'eq', value: companyId },
+        { column: 'snapshot_date', operator: 'eq', value: snapshotDate },
+      ],
+      { column: 'created_at', ascending: false },
+      1,
+    );
+    const row = existing[0] as { created_at?: string } | undefined;
+    if (row?.created_at) {
+      const age = Date.now() - new Date(row.created_at).getTime();
+      if (age >= 0 && age < AUDIT_SNAPSHOT_MIN_INTERVAL_MS) return;
+    }
+
+    await db.upsert(
+      'time_attendance_audit_snapshots',
+      {
+        company_id: companyId,
+        snapshot_date: snapshotDate,
+        inconsistent_count: summary.inconsistent_count,
+        duplicate_count: summary.duplicate_count,
+        error_count: summary.error_count,
+        affected_users: summary.affected_users,
+        created_at: new Date().toISOString(),
+      },
+      'company_id,snapshot_date',
+    );
+  } catch (e) {
+    console.warn('[TIME ATTENDANCE AUDIT SNAPSHOT]', e);
+  }
+}
+
+/**
+ * Últimos 7 registros de snapshot (datas mais recentes primeiro).
+ */
+export async function getAuditTrend(companyId: string): Promise<AuditTrendRow[]> {
+  if (!isSupabaseConfigured() || !String(companyId || '').trim()) return [];
+  try {
+    const rows = await db.select(
+      'time_attendance_audit_snapshots',
+      [{ column: 'company_id', operator: 'eq', value: companyId }],
+      {
+        columns: 'snapshot_date,inconsistent_count,duplicate_count,error_count',
+        orderBy: { column: 'snapshot_date', ascending: false },
+        limit: 7,
+      },
+    );
+    const mapped: AuditTrendRow[] = (rows || []).map((r: Record<string, unknown>) => ({
+      snapshot_date: String(r.snapshot_date).slice(0, 10),
+      inconsistent_count: Number(r.inconsistent_count) || 0,
+      duplicate_count: Number(r.duplicate_count) || 0,
+      error_count: Number(r.error_count) || 0,
+    }));
+    if (isTrendWorsening(mapped)) {
+      console.warn('[TIME ATTENDANCE TREND ALERT]', { company_id: companyId, trend: mapped });
+    }
+    return mapped;
+  } catch (e) {
+    console.warn('[TIME ATTENDANCE AUDIT TREND]', e);
+    return [];
+  }
+}
+
+const auditSummaryCache = new Map<string, { fetchedAt: number; data: TimeAttendanceAuditSummary }>();
+const AUDIT_SUMMARY_TTL_MS = 30_000;
+
+function auditSummaryCacheKey(companyId: string, start: string, end: string): string {
+  return `${companyId}|${start}|${end}`;
+}
+
+function civilMonthBoundsForAudit(d = new Date()): { start: string; end: string } {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const last = new Date(y, m + 1, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    start: `${y}-${pad(m + 1)}-01`,
+    end: `${y}-${pad(m + 1)}-${pad(last.getDate())}`,
+  };
+}
+
+async function loadEmployeeNameMapForAudit(companyId: string): Promise<Map<string, string>> {
+  const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }]) as Promise<Record<string, unknown>[]>,
+    (
+      db.select('users', [{ column: 'tenant_id', operator: 'eq', value: companyId }]) as Promise<Record<string, unknown>[]>
+    ).catch(() => [] as Record<string, unknown>[]),
+  ]);
+  const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
+  const uniqueUsers = Array.from(new Map(employeeRows.map((e) => [e.id, e])).values());
+  const displayName = (e: Record<string, unknown>) =>
+    (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
+  const empList = uniqueUsers
+    .filter((e) => String(e.role || '').toLowerCase() !== 'admin')
+    .map((e) => ({ id: String(e.id), nome: displayName(e) }));
+  empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return new Map(empList.map((e) => [e.id, e.nome]));
+}
+
+function auditIncidentThresholdsExceeded(s: TimeAttendanceAuditSummary): boolean {
+  return (
+    s.duplicate_count >= ALERT_THRESHOLDS.duplicate ||
+    s.error_count >= ALERT_THRESHOLDS.error ||
+    s.inconsistent_count >= ALERT_THRESHOLDS.inconsistent
+  );
+}
+
+/**
+ * Sinal para badge no menu (vermelho = duplicidade ou erro; laranja = só inconsistência acima do limiar).
+ */
+export function menuAuditSignalFromSummary(summary: TimeAttendanceAuditSummary | null): 'critical' | 'warning' | null {
+  if (!summary) return null;
+  const { inconsistent_count: inc, duplicate_count: dup, error_count: err, quality_score: q } = summary;
+  const T = ALERT_THRESHOLDS;
+  const visible =
+    dup >= T.duplicate || err >= T.error || inc >= T.inconsistent || q < 80;
+  if (!visible) return null;
+  if (dup >= T.duplicate || err >= T.error || q < 80) return 'critical';
+  return 'warning';
+}
+
+/**
+ * Contadores de auditoria reutilizando `getTimeAttendanceData` (sem montar tabela). Cache em memória TTL 30s.
+ */
+export async function getTimeAttendanceAuditSummary(
+  companyId: string,
+  opts?: { start?: string; end?: string },
+): Promise<TimeAttendanceAuditSummary | null> {
+  if (!isSupabaseConfigured() || !String(companyId || '').trim()) return null;
+  const { start: mStart, end: mEnd } = civilMonthBoundsForAudit();
+  const start = String(opts?.start ?? mStart).slice(0, 10);
+  const end = String(opts?.end ?? mEnd).slice(0, 10);
+  if (start > end) return null;
+
+  const key = auditSummaryCacheKey(companyId, start, end);
+  const now = Date.now();
+  const hit = auditSummaryCache.get(key);
+  if (hit && now - hit.fetchedAt < AUDIT_SUMMARY_TTL_MS) {
+    const s = hit.data;
+    return {
+      ...s,
+      quality_score: computeAuditQualityScore(s),
+      integrity_ok_count: s.integrity_ok_count ?? 0,
+      integrity_warning_count: s.integrity_warning_count ?? 0,
+      integrity_critical_count: s.integrity_critical_count ?? 0,
+    };
+  }
+
+  const nameMap = await loadEmployeeNameMapForAudit(companyId);
+  const { rows } = await getTimeAttendanceData(companyId, start, end, nameMap);
+  const labels = AUDIT_SUMMARY_STATUS_LABELS as readonly string[];
+  const auditRows = rows.filter((r) => labels.includes(r.status_label));
+
+  let inconsistent_count = 0;
+  let duplicate_count = 0;
+  let error_count = 0;
+  const userSet = new Set<string>();
+  for (const r of auditRows) {
+    userSet.add(r.employee_id);
+    if (r.status_label === 'inconsistent_data') inconsistent_count++;
+    else if (r.status_label === 'duplicate_user_day') duplicate_count++;
+    else if (r.status_label === 'erro no processamento') error_count++;
+  }
+
+  let integrity_ok_count = 0;
+  let integrity_warning_count = 0;
+  let integrity_critical_count = 0;
+  for (const r of rows) {
+    if (r.status_label === 'duplicate_user_day' || r.status_label === 'erro no processamento') {
+      integrity_critical_count += 1;
+    } else if (r.status_label === 'inconsistent_data') {
+      integrity_warning_count += 1;
+    } else {
+      integrity_ok_count += 1;
+    }
+  }
+  console.info('[TIME ATTENDANCE INTEGRITY SUMMARY]', {
+    company_id: companyId,
+    period_start: start,
+    period_end: end,
+    integrity_ok_count,
+    integrity_warning_count,
+    integrity_critical_count,
+    row_count: rows.length,
+    source: 'getTimeAttendanceAuditSummary',
+  });
+
+  const summary: TimeAttendanceAuditSummary = {
+    inconsistent_count,
+    duplicate_count,
+    error_count,
+    affected_users: userSet.size,
+    period_start: start,
+    period_end: end,
+    quality_score: computeAuditQualityScore({
+      inconsistent_count,
+      duplicate_count,
+      error_count,
+    }),
+    integrity_ok_count,
+    integrity_warning_count,
+    integrity_critical_count,
+  };
+
+  auditSummaryCache.set(key, { fetchedAt: now, data: summary });
+
+  await upsertAuditSnapshotIfNeeded(companyId, summary);
+
+  if (auditIncidentThresholdsExceeded(summary)) {
+    console.warn('[TIME ATTENDANCE INCIDENT]', {
+      company_id: companyId,
+      inconsistent_count,
+      duplicate_count,
+      error_count,
+      affected_users: userSet.size,
+      quality_score: summary.quality_score,
+      period_start: start,
+      period_end: end,
+    });
+  }
+
+  return summary;
 }
