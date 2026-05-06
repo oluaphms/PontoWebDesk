@@ -107,6 +107,75 @@ function getOrigin(): string {
   return 'http://localhost:3010';
 }
 
+function isLocalDev(): boolean {
+  try {
+    if (typeof window !== 'undefined') {
+      const h = String(window.location?.hostname || '').toLowerCase();
+      if (h === 'localhost' || h === '127.0.0.1') return true;
+    }
+  } catch {
+    // ignora
+  }
+  // Vite define isso em runtime no bundle
+  try {
+    return Boolean(import.meta.env?.DEV);
+  } catch {
+    return false;
+  }
+}
+
+function formatNominatimAddress(a: Record<string, unknown>): string {
+  const road = a.road != null ? String(a.road) : '';
+  const houseNumber = a.house_number != null ? String(a.house_number) : '';
+  const suburb = a.suburb != null ? String(a.suburb) : '';
+  const city =
+    (a.city as string) ||
+    (a.town as string) ||
+    (a.village as string) ||
+    (a.county as string) ||
+    '';
+  const state = a.state != null ? String(a.state) : '';
+
+  const streetLine = [road, houseNumber].filter(Boolean).join(', ').trim();
+  const parts: string[] = [];
+  if (streetLine) parts.push(streetLine);
+  if (suburb && !parts.join(' ').toLowerCase().includes(suburb.toLowerCase())) parts.push(suburb);
+  if (city && !parts.join(' ').toLowerCase().includes(city.toLowerCase())) parts.push(city);
+  if (state && !parts.join(' ').toLowerCase().includes(state.toLowerCase())) parts.push(state);
+  return parts.join(' — ').trim();
+}
+
+async function fetchAddressFromNominatimBrowser(lat: number, lng: number): Promise<string> {
+  const FETCH_MS = 6500;
+  const u = new URL('https://nominatim.openstreetmap.org/reverse');
+  u.searchParams.set('format', 'jsonv2');
+  u.searchParams.set('lat', String(lat));
+  u.searchParams.set('lon', String(lng));
+  u.searchParams.set('accept-language', 'pt-BR');
+
+  const ctrl = new AbortController();
+  let tid: number | undefined;
+  if (typeof window !== 'undefined') {
+    tid = window.setTimeout(() => ctrl.abort(), FETCH_MS) as unknown as number;
+  }
+
+  try {
+    const res = await fetch(u.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return '';
+    const data = (await res.json()) as { display_name?: string; address?: Record<string, unknown> };
+    const fromAddress = data.address ? formatNominatimAddress(data.address).trim() : '';
+    const text = fromAddress || String(data.display_name || '').trim();
+    return text;
+  } catch {
+    return '';
+  } finally {
+    if (typeof window !== 'undefined' && tid !== undefined) window.clearTimeout(tid);
+  }
+}
+
 async function fetchAddressFromApi(lat: number, lng: number): Promise<string> {
   const FETCH_MS = 15000;
   const u = new URL('/api/reverse-geocode', getOrigin());
@@ -163,6 +232,11 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
       if (CACHE.has(key)) return CACHE.get(key)!;
 
       let text = await fetchAddressFromApi(lat, lng);
+      // Em desenvolvimento local, /api pode não existir (ex.: Vite sem serverless).
+      // Faz fallback direto no Nominatim no browser para mostrar rua/endereço.
+      if (!text && isLocalDev()) {
+        text = await fetchAddressFromNominatimBrowser(lat, lng);
+      }
       if (!text) {
         text = formatCoordFallback(lat, lng);
       }
