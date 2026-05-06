@@ -15,6 +15,35 @@ import {
   resolveCanonicalUser,
 } from './repResolveCanonicalUser';
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
+import { safeUserSelectColumns } from '../../services/supabaseClient';
+
+const REP_WEAK_MATCH_USER_COLUMNS = [
+  'id',
+  'pis_pasep',
+  'pis',
+  'cpf',
+  'status',
+  'invisivel',
+  'demissao',
+  'company_id',
+] as const;
+
+async function fetchWeakMatchUsersForCompany(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<RepWeakPisMatchUser[]> {
+  const cols = await safeUserSelectColumns(supabase, [...REP_WEAK_MATCH_USER_COLUMNS]);
+  const { data: wu, error } = await supabase
+    .from('users')
+    .select(cols.join(','))
+    .eq('company_id', companyId.trim())
+    .limit(5000);
+  if (error) {
+    console.error('[USERS QUERY ERROR]', error);
+    return [];
+  }
+  return (wu as RepWeakPisMatchUser[] | null) ?? [];
+}
 
 /**
  * Linha AFD compacta tipo 3/7: `raw_data.raw` string ou envelope (`raw` object com `.raw` string), p.ex. clock_event_logs.
@@ -119,12 +148,7 @@ export async function ingestPunch(
   if (!forceUserId) {
     let weakList = params.weak_match_users;
     if (!weakList?.length) {
-      const { data: wu } = await supabase
-        .from('users')
-        .select('id,pis_pasep,pis,cpf,status,invisivel,demissao,company_id')
-        .eq('company_id', merged.company_id)
-        .limit(5000);
-      weakList = (wu as RepWeakPisMatchUser[] | null) ?? [];
+      weakList = await fetchWeakMatchUsersForCompany(supabase, merged.company_id);
     }
 
     const identity = await resolveCanonicalUser(
@@ -246,12 +270,7 @@ export async function ingestAfdRecords(
 
   let weakUsers: RepWeakPisMatchUser[] | null = null;
   if (!forceUserId) {
-    const { data: wu } = await supabase
-      .from('users')
-      .select('id,pis_pasep,pis,cpf,status,invisivel,demissao,company_id')
-      .eq('company_id', companyId)
-      .limit(5000);
-    weakUsers = (wu as RepWeakPisMatchUser[] | null) ?? null;
+    weakUsers = await fetchWeakMatchUsersForCompany(supabase, companyId);
   }
 
   for (const rec of records) {
@@ -379,12 +398,7 @@ export async function ingestPunchesFromDevice(
   const onBatchProgress = options?.onBatchProgress;
   let weakUsers: RepWeakPisMatchUser[] | null = null;
   if (!options?.skipWeakPisMatch) {
-    const { data: wu } = await supabase
-      .from('users')
-      .select('id,pis_pasep,pis,cpf,status,invisivel,demissao,company_id')
-      .eq('company_id', device.company_id)
-      .limit(5000);
-    weakUsers = (wu as RepWeakPisMatchUser[] | null) ?? null;
+    weakUsers = await fetchWeakMatchUsersForCompany(supabase, device.company_id);
   }
   const total = punches.length;
   const totalBatches = total > 0 ? Math.ceil(total / concurrency) : 0;
@@ -448,6 +462,8 @@ export type PromotePendingRepPunchLogsOptions = {
   localWindow?: { startIso: string; endIso: string } | null;
   /** Só cria espelho se o colaborador resolvido pelo AFD for este; outras batidas ficam na fila. */
   onlyUserId?: string | null;
+  /** Promove apenas este id de rep_punch_logs (ex.: após vínculo manual). */
+  onlyRepPunchLogId?: string | null;
 };
 
 /**
@@ -468,12 +484,14 @@ export async function promotePendingRepPunchLogs(
 }> {
   const win = options?.localWindow;
   const onlyUid = options?.onlyUserId?.trim();
+  const onlyLog = options?.onlyRepPunchLogId?.trim();
   const { data, error } = await supabase.rpc('rep_promote_pending_rep_punch_logs', {
     p_company_id: companyId.trim(),
     p_rep_device_id: repDeviceId,
     p_local_window_start: win?.startIso ?? null,
     p_local_window_end: win?.endIso ?? null,
     p_only_user_id: onlyUid && onlyUid.length > 0 ? onlyUid : null,
+    p_only_rep_punch_log_id: onlyLog && onlyLog.length > 0 ? onlyLog : null,
   });
   if (error) {
     return { success: false, error: error.message };
@@ -501,6 +519,58 @@ export async function promotePendingRepPunchLogs(
     promoted: row.promoted,
     skippedNoUser: row.skipped_no_user,
     skippedOtherUser: row.skipped_other_user,
+  };
+}
+
+/**
+ * Admin: associa colaborador a batida sem match e promove (RPC + espelho).
+ */
+export async function linkUnresolvedRepPunchAndPromote(
+  supabase: SupabaseClient,
+  companyId: string,
+  repPunchLogId: string,
+  userId: string,
+): Promise<{
+  success: boolean;
+  promoted?: number;
+  error?: string;
+  manualLinked?: boolean;
+}> {
+  const { data, error } = await supabase.rpc('rep_admin_link_unresolved_punch', {
+    p_rep_punch_log_id: repPunchLogId.trim(),
+    p_user_id: userId.trim(),
+  });
+  if (error) {
+    return { success: false, error: error.message };
+  }
+  const row = data as {
+    success?: boolean;
+    promoted?: number;
+    skipped_no_user?: number;
+    skipped_other_user?: number;
+    skipped_unresolved_identity?: number;
+    promoted_detail?: RepPromotedDetailRow[] | null;
+    error?: string;
+    manual_linked?: boolean;
+  };
+  if (row.success !== true) {
+    return { success: false, error: String(row.error ?? 'Falha ao vincular') };
+  }
+  if (Array.isArray(row.promoted_detail) && row.promoted_detail.length > 0) {
+    try {
+      await syncEspelhoAfterRepPromote(supabase, companyId.trim(), row.promoted_detail);
+    } catch (e) {
+      console.error('[TIMESHEET FAIL]', {
+        motivo: e instanceof Error ? e.message : String(e),
+        contexto: 'syncEspelhoAfterRepPromote (manual link)',
+        company_id: companyId.trim(),
+      });
+    }
+  }
+  return {
+    success: true,
+    promoted: row.promoted,
+    manualLinked: row.manual_linked === true,
   };
 }
 

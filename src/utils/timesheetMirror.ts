@@ -4,6 +4,9 @@
  */
 
 import { localCalendarYmd } from './localDateTimeToIso';
+import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
+
+export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 
 export interface TimeRecord {
   id: string;
@@ -73,23 +76,6 @@ export function recordMirrorInstant(record: TimeRecord): string {
   if (ts && String(ts).trim()) return ts;
   if (ca && String(ca).trim()) return ca;
   return new Date().toISOString();
-}
-
-/**
- * Data civil (YYYY-MM-DD) para agrupar a batida no espelho no período [start,end].
- * Se o instante oficial (`timestamp`) cai fora do período mas `created_at` cai dentro (ex.: AFD com ano errado,
- * importação REP tardia), usa a data de `created_at` para a grelha — senão a batida «sumia» em abril/2026.
- */
-export function calendarDateForEspelhoRow(
-  record: TimeRecord,
-  periodStartYmd: string,
-  periodEndYmd: string
-): string {
-  const primary = extractLocalCalendarDateFromIso(recordIso(record));
-  if (primary >= periodStartYmd && primary <= periodEndYmd) return primary;
-  const fallback = extractLocalCalendarDateFromIso(record.created_at);
-  if (fallback >= periodStartYmd && fallback <= periodEndYmd) return fallback;
-  return primary;
 }
 
 /**
@@ -255,17 +241,6 @@ export function getStatusOverride(day: DayMirror): 'folga' | 'falta' | 'extra' |
 function extractTime(isoString: string): string {
   const date = new Date(isoString);
   return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-/**
- * Data civil local (YYYY-MM-DD) a partir de um instante ISO — alinha com filtros em UTC e com batidas gravadas via horário local.
- */
-export function extractLocalCalendarDateFromIso(isoString: string): string {
-  const date = new Date(isoString);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 function recordIso(record: TimeRecord): string {
@@ -560,6 +535,14 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
     if (!saidaFinal) saidaFinal = uniqueTimes[1];
   }
 
+  // Jornada aberta (ordem operacional de 4 batidas):
+  // quando só existem 2 marcações no dia, tratar a 2ª como início de intervalo.
+  // Evita mostrar "Saída final" prematura em cenários onde ainda faltam volta/saída.
+  if (uniqueTimes.length === 2 && entradaInicio && !saidaIntervalo && !voltaIntervalo && saidaFinal) {
+    saidaIntervalo = saidaFinal;
+    saidaFinal = null;
+  }
+
   // Entrada «oficial» do dia: se existir marcação do relógio com tipo entrada, prevalece sobre
   // mobile/web (evita intervalo ou batida errada ocupar a coluna Entrada).
   const repEntradas = sorted.filter(
@@ -625,6 +608,11 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
       const intervaloVolta = new Date(`${date}T${voltaIntervalo}`);
       workedMinutes -= Math.round((intervaloVolta.getTime() - intervaloSaida.getTime()) / 60000);
     }
+  } else if (entradaInicio && saidaIntervalo && !voltaIntervalo && !saidaFinal) {
+    // Jornada em aberto: total parcial até o início do intervalo.
+    const entrada = new Date(`${date}T${entradaInicio}`);
+    const inicioIntervalo = new Date(`${date}T${saidaIntervalo}`);
+    workedMinutes = Math.round((inicioIntervalo.getTime() - entrada.getTime()) / 60000);
   }
   
   return {

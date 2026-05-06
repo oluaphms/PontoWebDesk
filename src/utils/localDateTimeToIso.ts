@@ -39,24 +39,8 @@ export function localCalendarYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Início do dia civil local (00:00) em ISO UTC — usar em filtros `created_at` (timestamptz). */
-export function localCalendarDayStartUtc(dateYmd: string): string {
-  return localDateAndTimeToIsoUtc(dateYmd, '00:00');
-}
-
-/** Fim do dia civil local (23:59:59.999) em ISO UTC — usar em filtros `created_at` (timestamptz). */
-export function localCalendarDayEndUtc(dateYmd: string): string {
-  const datePart = dateYmd.slice(0, 10);
-  const [ys, ms, ds] = datePart.split('-');
-  const y = parseInt(ys || '0', 10);
-  const mo = parseInt(ms || '1', 10);
-  const d = parseInt(ds || '1', 10);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) {
-    return new Date().toISOString();
-  }
-  const dt = new Date(y, mo - 1, d, 23, 59, 59, 999);
-  return dt.toISOString();
-}
+/** Reexport: definição canônica em `calendarUtils` (dia civil único). */
+export { localCalendarDayEndUtc, localCalendarDayStartUtc } from './calendarUtils';
 
 /** Lista cada dia civil entre start e end (inclusive), em YYYY-MM-DD local. */
 export function enumerateLocalCalendarDays(startYmd: string, endYmd: string): string[] {

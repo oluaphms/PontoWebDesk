@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { calendarDateForEspelhoRow } from './calendarUtils';
 import {
   buildDayMirrorSummary,
-  calendarDateForEspelhoRow,
   normalizeRecordTypeForMirror,
   recordEffectiveMirrorInstant,
   recordMirrorInstant,

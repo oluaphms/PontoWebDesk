@@ -8,6 +8,7 @@ import { mergeRepExtractedIdentifiersIntoRawData } from './repExtractBestIdentif
 import { repPunchLogEffectivePisCanonForDiagnostics } from './repPunchPendingIdentity';
 import type { RepWeakPisMatchUser } from './repWeakPisFallbackMatch';
 import { tryRepUniqueWeakPisMatch } from './repWeakPisFallbackMatch';
+import { safeUserSelectColumns } from '../../services/supabaseClient';
 
 export type RepCanonicalPunchInput = {
   company_id: string;
@@ -204,12 +205,25 @@ export async function fixUnmatchedPunches(
   if (fetchErr) throw fetchErr;
   if (!pending?.length) return { updated: 0, rows: [] };
 
+  const cols = await safeUserSelectColumns(supabase, [
+    'id',
+    'pis_pasep',
+    'pis',
+    'cpf',
+    'status',
+    'invisivel',
+    'demissao',
+    'company_id',
+  ]);
   const { data: wu, error: usersErr } = await supabase
     .from('users')
-    .select('id,pis_pasep,pis,cpf,status,invisivel,demissao,company_id')
+    .select(cols.join(','))
     .eq('company_id', cid)
     .limit(5000);
-  if (usersErr) throw usersErr;
+  if (usersErr) {
+    console.error('[USERS QUERY ERROR]', usersErr);
+    throw usersErr;
+  }
   const users = (wu as RepWeakPisMatchUser[] | null) ?? [];
 
   const rows: FixUnmatchedPunchesRow[] = [];

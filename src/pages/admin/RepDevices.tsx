@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
+import {
+  db,
+  supabase,
+  isSupabaseConfigured,
+  getSupabaseClient,
+  safeUserSelectColumns,
+} from '../../services/supabaseClient';
 import {
   createTimeRecord,
   findTimeRecordIdByCompanySourceNsr,
@@ -130,14 +136,28 @@ function isEmployeeEligibleForRepPush(e: EmployeeForRep): boolean {
 /** Utilizadores da empresa para match REP (evita estado `employees` limitado a 200 linhas / outra company_id). */
 async function fetchRepMatchUsersForBlob(client: SupabaseClient, companyId: string): Promise<EmployeeForRep[]> {
   const cid = companyId.trim();
-  const { data, error } = await client
-    .from('users')
-    .select(
-      'id, nome, email, status, invisivel, demissao, pis_pasep, pis, cpf, numero_identificador, numero_folha'
-    )
-    .eq('company_id', cid)
-    .limit(5000);
-  if (error || !data?.length) return [];
+  const requested = [
+    'id',
+    'nome',
+    'email',
+    'status',
+    'invisivel',
+    'demissao',
+    'pis',
+    'cpf',
+    'numero_identificador',
+    'numero_folha',
+    'pis_pasep',
+    'company_id',
+  ];
+  const cols = await safeUserSelectColumns(client, requested);
+  const { data, error } = await client.from('users').select(cols.join(',')).eq('company_id', cid).limit(5000);
+  if (error) {
+    console.error('[USERS QUERY ERROR]', error);
+    return [];
+  }
+
+  if (!data?.length) return [];
   return data.map((row: Record<string, unknown>) => ({
     id: String(row.id ?? ''),
     nome: String((row.nome as string) || (row.email as string) || row.id || '').trim(),
@@ -390,6 +410,61 @@ async function appendRepPendingQueueDiagnostics(
   if (tailsCanon.size > 1) {
     log(
       'As pendências têm **fins de PIS/CPF canónico diferentes** — são **identificadores distintos** (várias pessoas ou vários NIS). Cada um precisa de **um colaborador** na mesma empresa com esse PIS (ou o número equivalente em folha/crachá).'
+    );
+  }
+}
+
+/** Quando "Consolidado: 0/0", mostra se a janela já tinha promoção prévia ou se há pendências ignoradas. */
+async function appendRepConsolidationOutcomeDiagnostics(
+  client: SupabaseClient,
+  companyId: string,
+  deviceId: string,
+  log: (line: string) => void,
+  opts?: { localWindow?: { startIso: string; endIso: string } }
+): Promise<void> {
+  let promotedQ = client
+    .from('rep_punch_logs')
+    .select('nsr, data_hora, time_record_id, resolved_user_id')
+    .eq('company_id', companyId)
+    .eq('rep_device_id', deviceId)
+    .not('time_record_id', 'is', null);
+  if (opts?.localWindow) {
+    promotedQ = promotedQ
+      .gte('data_hora', opts.localWindow.startIso)
+      .lte('data_hora', opts.localWindow.endIso);
+  }
+  const { data: promotedRows, error: promotedErr } = await promotedQ
+    .order('data_hora', { ascending: false })
+    .limit(3);
+
+  if (!promotedErr && promotedRows && promotedRows.length > 0) {
+    const sample = promotedRows
+      .map((r) => {
+        const t = r.data_hora ? String(r.data_hora).slice(0, 16).replace('T', ' ') : '—';
+        return `NSR ${r.nsr ?? '—'} @ ${t} (resolved_user_id: ${String(r.resolved_user_id ?? '—')})`;
+      })
+      .join(' | ');
+    log(
+      `Diagnóstico: já existe(m) ${promotedRows.length} batida(s) desta janela promovida(s) para o espelho neste relógio. Ex.: ${sample}.`
+    );
+  }
+
+  let ignoredQ = client
+    .from('rep_punch_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .eq('rep_device_id', deviceId)
+    .is('time_record_id', null)
+    .eq('ignored', true);
+  if (opts?.localWindow) {
+    ignoredQ = ignoredQ
+      .gte('data_hora', opts.localWindow.startIso)
+      .lte('data_hora', opts.localWindow.endIso);
+  }
+  const { count: ignoredPending, error: ignoredErr } = await ignoredQ;
+  if (!ignoredErr && (ignoredPending ?? 0) > 0) {
+    log(
+      `Diagnóstico: ${ignoredPending} batida(s) desta janela está(ão) marcada(s) como ignorada(s) na fila (não entram na consolidação nem no espelho).`
     );
   }
 }
@@ -1204,6 +1279,11 @@ const AdminRepDevices: React.FC = () => {
         await appendRepPendingQueueDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
           localWindow: localDay,
           filteredByUserOnly: Boolean(onlyUid) && skippedOtherFinal > 0,
+        });
+      }
+      if (promotedFinal === 0 && skippedFinal === 0) {
+        await appendRepConsolidationOutcomeDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
+          localWindow: localDay,
         });
       }
       setMessage({

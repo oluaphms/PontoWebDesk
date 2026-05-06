@@ -96,6 +96,134 @@ interface SelectOptions {
 // Limite padrão para evitar carregamento de dados excessivos
 const DEFAULT_SELECT_LIMIT = 200;
 
+// ---------------------------------------------------------------------------
+// HARD LOCK produção: safe select (evita 400 por colunas inexistentes)
+// ---------------------------------------------------------------------------
+
+/** Base estável para match / RLS — expandir só após probe bem-sucedido. */
+const USERS_SELECT_MINIMAL = ['id', 'cpf', 'company_id'] as const;
+
+/** Quando nenhuma lista é pedida, tenta estes extras (REP / auto-fix). */
+const USERS_SELECT_DEFAULT_EXTRAS = ['pis', 'pis_pasep', 'status', 'invisivel', 'demissao'] as const;
+
+/** Colunas já validadas por probe nesta sessão (cresce conforme novos selects). */
+let userSelectCapabilityCache: string[] | null = null;
+
+/** Momento em que o cache foi populado ou estendido com sucesso (TTL de revalidação). */
+let userSelectCapabilityCacheAtMs: number | null = null;
+
+const USERS_SAFE_SELECT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** HTTP 400 / coluna inexistente no PostgREST — lista cacheada de colunas pode estar obsoleta. */
+function shouldResetUsersSafeSelectCacheOnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as Record<string, unknown>;
+  const status = Number(e.status ?? e.statusCode);
+  if (status === 400) return true;
+  const code = String(e.code ?? '');
+  if (code === '42703') return true;
+  return false;
+}
+
+export function resetUsersSafeSelectCache(): void {
+  userSelectCapabilityCache = null;
+  userSelectCapabilityCacheAtMs = null;
+}
+
+function uniqueColumns(cols: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const c of cols) {
+    const k = String(c || '').trim();
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
+}
+
+function pickUserColumnsForRequest(available: readonly string[], requested?: string[]): string[] {
+  const avail = new Set(available.map((c) => String(c).trim()).filter(Boolean));
+  if (!requested?.length) return uniqueColumns([...available]);
+  const out: string[] = [];
+  for (const c of requested) {
+    const k = String(c || '').trim();
+    if (k && avail.has(k)) out.push(k);
+  }
+  for (const must of ['id', 'company_id'] as const) {
+    if (avail.has(must) && !out.includes(must)) out.unshift(must);
+  }
+  return uniqueColumns(out);
+}
+
+/**
+ * Colunas seguras para `users.select(...)`: probe com `id,cpf,company_id`, depois adiciona
+ * cada coluna pedida (ou extras padrão) só se o SELECT passar. Capacidade é cacheada e vai
+ * crescendo entre chamadas (REP + Employees + admin).
+ */
+export async function safeUserSelectColumns(
+  client: SupabaseClient,
+  requested?: string[],
+): Promise<string[]> {
+  async function probe(columns: string[]): Promise<boolean> {
+    const sel = uniqueColumns(columns).join(',');
+    const { error } = await client.from('users').select(sel).limit(1);
+    if (error) {
+      console.error('[USERS QUERY ERROR]', error);
+      // Não chamar reset aqui: coluna opcional inválida geraria loop com re-tentativa da mesma coluna.
+      return false;
+    }
+    return true;
+  }
+
+  if (
+    userSelectCapabilityCache &&
+    userSelectCapabilityCacheAtMs != null &&
+    Date.now() - userSelectCapabilityCacheAtMs > USERS_SAFE_SELECT_CACHE_TTL_MS
+  ) {
+    resetUsersSafeSelectCache();
+  }
+
+  if (!userSelectCapabilityCache) {
+    if (await probe([...USERS_SELECT_MINIMAL])) {
+      userSelectCapabilityCache = [...USERS_SELECT_MINIMAL];
+      userSelectCapabilityCacheAtMs = Date.now();
+    } else if (await probe(['id', 'company_id'])) {
+      userSelectCapabilityCache = ['id', 'company_id'];
+      userSelectCapabilityCacheAtMs = Date.now();
+    } else {
+      console.error('[USERS QUERY ERROR]', new Error('Probe users (id, company_id) falhou'));
+      userSelectCapabilityCache = ['id', 'company_id'];
+      userSelectCapabilityCacheAtMs = Date.now();
+    }
+    console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'base' });
+  }
+
+  const tryAdd = uniqueColumns(
+    (requested?.length
+      ? requested.filter((c) => !userSelectCapabilityCache!.includes(String(c).trim()))
+      : [...USERS_SELECT_DEFAULT_EXTRAS].filter((c) => !userSelectCapabilityCache!.includes(c))
+    ).map((c) => String(c).trim()),
+  );
+
+  let grown = false;
+  for (const col of tryAdd) {
+    if (!col || userSelectCapabilityCache.includes(col)) continue;
+    const next = [...userSelectCapabilityCache, col];
+    if (await probe(next)) {
+      userSelectCapabilityCache = next;
+      userSelectCapabilityCacheAtMs = Date.now();
+      grown = true;
+    }
+  }
+  if (grown) {
+    console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'extended' });
+  }
+
+  return pickUserColumnsForRequest(userSelectCapabilityCache, requested);
+}
+
 // Interface do db com sobrecargas para compatibilidade
 interface DbInterface {
   select: (table: string, filters?: Filter[], orderBy?: OrderBy | SelectOptions, limit?: number) => Promise<any[]>;
@@ -141,6 +269,13 @@ export const db: DbInterface = {
       finalOrderBy = options.orderBy;
     } else {
       finalOrderBy = orderBy as OrderBy | undefined;
+    }
+
+    // HARD LOCK: evitar 400 por colunas inexistentes em produção
+    if (table === 'users' && columns && columns !== '*' && columns.trim() !== '') {
+      const req = columns.split(',').map((c) => c.trim()).filter(Boolean);
+      const safe = await safeUserSelectColumns(client, req);
+      columns = safe.join(',');
     }
 
     // Aplicar limite padrão se não especificado (evita carregar tabelas inteiras)
@@ -214,6 +349,12 @@ export const db: DbInterface = {
     );
 
     if (error) {
+      if (table === 'users') {
+        console.error('[USERS QUERY ERROR]', error);
+        if (shouldResetUsersSafeSelectCacheOnError(error)) {
+          resetUsersSafeSelectCache();
+        }
+      }
       throw new Error(`Erro ao buscar dados de ${table}: ${error.message}`);
     }
 

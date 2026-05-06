@@ -24,6 +24,7 @@ export const adminMenuItems: MenuItemConfig[] = [
   { nameKey: 'menu.repDevices', icon: 'schedule', route: '/admin/rep-devices' },
   { nameKey: 'menu.repMonitor', icon: 'insights', route: '/admin/rep-monitor' },
   { nameKey: 'menu.importRep', icon: 'upload', route: '/admin/import-rep' },
+  { nameKey: 'menu.repUnresolved', icon: 'warning', route: '/admin/rep-unresolved' },
   { nameKey: 'menu.settings', icon: 'settings', route: '/admin/settings' },
 ];
 

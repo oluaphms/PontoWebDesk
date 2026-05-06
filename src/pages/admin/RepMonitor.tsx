@@ -59,13 +59,14 @@ const AdminRepMonitor: React.FC = () => {
           )) as LogRow[];
         }
 
+        // Contagem por data_hora (batida no dia local) — colunas alinhadas ao schema; select mínimo evita 400 por campo inexistente.
         const countRes = supabaseClient
           ? await supabaseClient
               .from('rep_punch_logs')
-              .select('*', { count: 'exact', head: true })
+              .select('id', { count: 'exact', head: true })
               .eq('company_id', user.companyId)
-              .gte('created_at', startToday.toISOString())
-              .lte('created_at', endToday.toISOString())
+              .gte('data_hora', startToday.toISOString())
+              .lte('data_hora', endToday.toISOString())
               .then((r) => r.count ?? 0)
           : 0;
 

@@ -1,6 +1,7 @@
 import React, { memo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   LayoutDashboard,
   Users,
   CalendarDays,
@@ -65,6 +66,7 @@ const ADMIN_ITEMS = [
   { label: 'Relógios REP', path: '/admin/rep-devices', icon: Timer },
   { label: 'Monitor REP', path: '/admin/rep-monitor', icon: Activity },
   { label: 'Importar AFD', path: '/admin/import-rep', icon: Upload },
+  { label: 'Quarentena REP', path: '/admin/rep-unresolved', icon: AlertCircle },
   { label: 'Monitoramento', path: '/admin/monitoring', icon: Activity },
   { label: 'Escalas', path: '/admin/schedules', icon: Calendar },
   { label: 'Horários', path: '/admin/shifts', icon: Clock },

@@ -142,16 +142,26 @@ export async function promoteClockEventsToEspelho(
   let weakUsersCache: RepWeakPisMatchUser[] | null = null;
   const loadWeakUsers = async (): Promise<RepWeakPisMatchUser[]> => {
     if (weakUsersCache) return weakUsersCache;
-    const path = [
-      `users?company_id=eq.${encodeURIComponent(opts.companyId)}`,
-      'select=id,pis_pasep,pis,cpf,status,invisivel,demissao,company_id',
-      'limit=5000',
-    ].join('&');
-    try {
-      weakUsersCache = (await restGet<RepWeakPisMatchUser[]>(cfg, path)) ?? [];
-    } catch {
-      weakUsersCache = [];
+    const selectVariants = [
+      'id,cpf,company_id,pis,pis_pasep,status,invisivel,demissao',
+      'id,cpf,company_id,pis,pis_pasep',
+      'id,cpf,company_id,pis',
+      'id,cpf,company_id',
+    ];
+    for (const select of selectVariants) {
+      const path = [
+        `users?company_id=eq.${encodeURIComponent(opts.companyId)}`,
+        `select=${encodeURIComponent(select)}`,
+        'limit=5000',
+      ].join('&');
+      try {
+        weakUsersCache = (await restGet<RepWeakPisMatchUser[]>(cfg, path)) ?? [];
+        return weakUsersCache;
+      } catch (e) {
+        console.error('[USERS QUERY ERROR]', e);
+      }
     }
+    weakUsersCache = [];
     return weakUsersCache;
   };
 

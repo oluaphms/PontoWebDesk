@@ -60,6 +60,7 @@ const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/arquivos-fiscais': () => import('../pages/admin/ArquivosFiscais'),
   '/admin/rep-devices': () => import('../pages/admin/RepDevices'),
   '/admin/import-rep': () => import('../pages/admin/ImportRep'),
+  '/admin/rep-unresolved': () => import('../pages/admin/RepUnresolvedPunches'),
   '/admin/fiscalizacao': () => import('../pages/admin/Fiscalizacao'),
   '/admin/security': () => import('../pages/admin/Security'),
   '/admin/company': () => import('../pages/admin/Company'),

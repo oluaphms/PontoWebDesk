@@ -406,7 +406,8 @@ export async function resolveWorkSchedule(
  */
 export async function getEmployeeTimesheetScheduleContext(
   employeeId: string,
-  companyId: string
+  companyId: string,
+  options?: { useLegacyUserScheduleFallback?: boolean }
 ): Promise<{ workDays: number[]; windowByJsDow: Record<number, DayExpectedWindow | null> }> {
   const windowByJsDow: Record<number, DayExpectedWindow | null> = {
     0: null,
@@ -453,6 +454,11 @@ export async function getEmployeeTimesheetScheduleContext(
       workDays: workDays.length ? [...new Set(workDays)].sort((a, b) => a - b) : [1, 2, 3, 4, 5],
       windowByJsDow,
     };
+  }
+
+  const useLegacyFallback = options?.useLegacyUserScheduleFallback !== false;
+  if (!useLegacyFallback) {
+    return { workDays: [1, 2, 3, 4, 5], windowByJsDow };
   }
 
   const legacy = await getLegacyScheduleFromUser(employeeId, companyId);
@@ -611,16 +617,19 @@ export async function getEmployeeSchedule(
   }
 }
 
-function summarizeDayRecords(records: RawTimeRecord[]): {
+/** Resumo de batidas brutas do dia (mesma ordem temporal que o espelho: `timestamp` antes de `created_at`). */
+export function summarizeDayRecords(records: RawTimeRecord[]): {
   totalMinutes: number;
   entrada: string | null;
   saida: string | null;
   inicio_intervalo: string | null;
   fim_intervalo: string | null;
+  break_minutes: number;
 } {
-  const sorted = [...records].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  const instant = (r: RawTimeRecord) =>
+    new Date((r.timestamp && String(r.timestamp).trim()) || r.created_at).getTime();
+
+  const sorted = [...records].sort((a, b) => instant(a) - instant(b));
 
   let firstEntrada: Date | null = null;
   let lastSaida: Date | null = null;
@@ -630,7 +639,7 @@ function summarizeDayRecords(records: RawTimeRecord[]): {
   let displayFimInt: Date | null = null;
 
   for (const r of sorted) {
-    const t = new Date(r.created_at);
+    const t = new Date((r.timestamp && String(r.timestamp).trim()) || r.created_at);
     const typ = (r.type || '').toLowerCase();
 
     if (typ === 'entrada') {
@@ -661,6 +670,7 @@ function summarizeDayRecords(records: RawTimeRecord[]): {
     saida: lastSaida ? formatHHmm(lastSaida) : null,
     inicio_intervalo: displayInicioInt ? formatHHmm(displayInicioInt) : null,
     fim_intervalo: displayFimInt ? formatHHmm(displayFimInt) : null,
+    break_minutes: Math.round(breakMs / 60000),
   };
 }
 

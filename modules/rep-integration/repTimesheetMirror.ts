@@ -11,6 +11,13 @@ export type RepPromotedDetailRow = {
   status?: string;
 };
 
+/**
+ * Debounce por (user_id + date) para evitar recalcular o mesmo dia repetidamente
+ * quando a consolidação do REP roda em batches ou retries.
+ */
+const RECALC_DEBOUNCE_MS = 30_000;
+const lastAutoRecalcByKey = new Map<string, number>();
+
 function civilDateSaoPauloFromIso(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -84,9 +91,22 @@ export async function syncEspelhoAfterRepPromote(
   const cid = companyId.trim();
 
   for (const { user_id, civilDate } of pairsToRecalc.values()) {
+    const debounceKey = `${user_id}|${civilDate}`;
+    const now = Date.now();
+    const last = lastAutoRecalcByKey.get(debounceKey);
+    if (last != null && now - last < RECALC_DEBOUNCE_MS) {
+      continue;
+    }
+    lastAutoRecalcByKey.set(debounceKey, now);
+
     let calcErrMsg: string | null = null;
     try {
       await recalculate_period(user_id, cid, civilDate, civilDate);
+      console.info('[TIMESHEET AUTO RECALC]', {
+        user_id,
+        date: civilDate,
+        source: 'rep_promote',
+      });
     } catch (e) {
       calcErrMsg = e instanceof Error ? e.message : String(e);
       console.error('[TIMESHEET FAIL]', {

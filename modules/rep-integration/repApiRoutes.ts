@@ -18,6 +18,7 @@ import { parseAFD, parseTxtOrCsv } from './repParser';
 import { ingestAfdRecords } from './repService';
 import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './types';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
+import { safeUserSelectColumns } from '../../services/supabaseClient';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
@@ -62,10 +63,22 @@ async function fetchUserRowForRepPush(
   userId: string,
   expectedCompanyId: string
 ): Promise<UserRowRepPush | Response> {
-  const select = 'nome, email, cpf, pis_pasep, numero_folha, numero_identificador, company_id, role';
+  const requested = [
+    'id',
+    'nome',
+    'email',
+    'cpf',
+    'pis_pasep',
+    'numero_folha',
+    'numero_identificador',
+    'company_id',
+    'role',
+  ];
   const ctx = getServiceSupabase();
   if (ctx) {
-    const { data, error } = await ctx.admin.from('users').select(select).eq('id', userId).maybeSingle();
+    const cols = await safeUserSelectColumns(ctx.admin, requested);
+    const { data, error } = await ctx.admin.from('users').select(cols.join(',')).eq('id', userId).maybeSingle();
+    if (error) console.error('[USERS QUERY ERROR]', error);
     if (error || !data) {
       return Response.json({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
     }
@@ -93,7 +106,9 @@ async function fetchUserRowForRepPush(
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const { data, error } = await userClient.from('users').select(select).eq('id', userId).maybeSingle();
+  const cols = await safeUserSelectColumns(userClient, requested);
+  const { data, error } = await userClient.from('users').select(cols.join(',')).eq('id', userId).maybeSingle();
+  if (error) console.error('[USERS QUERY ERROR]', error);
   if (error || !data) {
     return Response.json({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
   }

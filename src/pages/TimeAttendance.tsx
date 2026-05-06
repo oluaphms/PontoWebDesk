@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { CalendarClock, CheckCircle2, Download, Edit3, Plus } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { CalendarClock, CheckCircle2, Download, ExternalLink, Plus } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
@@ -8,25 +8,20 @@ import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { auth, db, isSupabaseConfigured } from '../services/supabaseClient';
 import { resolveTenantId } from '../services/tenantScope';
-
-interface TimeLogRow {
-  id: string;
-  employee_id: string;
-  employee_name?: string;
-  clock_in: string | null;
-  clock_out: string | null;
-  break_time: number;
-  total_hours: number;
-  date: string;
-}
+import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
+import {
+  getTimeAttendanceData,
+  getTimeAttendanceStatusPresentation,
+  submitManualAttendancePunches,
+  type TimeAttendanceRow,
+} from '../services/timeAttendanceData';
 
 interface EmployeeRow {
   id: string;
   nome: string;
 }
 
-interface TimeLogFormState {
-  id?: string;
+interface TimeAttendanceFormState {
   employeeId: string;
   date: string;
   clockIn: string;
@@ -34,25 +29,38 @@ interface TimeLogFormState {
   breakMinutes: string;
 }
 
+function civilMonthBounds(d = new Date()): { start: string; end: string } {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const last = new Date(y, m + 1, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    start: `${y}-${pad(m + 1)}-01`,
+    end: `${y}-${pad(m + 1)}-${pad(last.getDate())}`,
+  };
+}
+
 const TimeAttendancePage: React.FC = () => {
+  const navigate = useNavigate();
   const { user, loading } = useCurrentUser();
-  const [logs, setLogs] = useState<TimeLogRow[]>([]);
+  const initialMonth = useMemo(() => civilMonthBounds(), []);
+  const [rows, setRows] = useState<TimeAttendanceRow[]>([]);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterEmployeeId, setFilterEmployeeId] = useState('');
-  const [filterDate, setFilterDate] = useState('');
+  const [filterPeriodStart, setFilterPeriodStart] = useState(initialMonth.start);
+  const [filterPeriodEnd, setFilterPeriodEnd] = useState(initialMonth.end);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<TimeLogFormState>({
+  const [form, setForm] = useState<TimeAttendanceFormState>({
     employeeId: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: extractLocalCalendarDateFromIso(new Date().toISOString()),
     clockIn: '',
     clockOut: '',
     breakMinutes: '0',
   });
   const [saving, setSaving] = useState(false);
 
-  /** Mesma lógica de Colaboradores: perfil pode ter só tenantId ou company_id no JWT. */
   const [companyIdFromSession, setCompanyIdFromSession] = useState('');
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +70,9 @@ const TimeAttendancePage: React.FC = () => {
     }
     void (async () => {
       try {
-        const { data: { session } } = await auth.getSession();
+        const {
+          data: { session },
+        } = await auth.getSession();
         const u = session?.user;
         if (!u || cancelled) return;
         const meta = (u.user_metadata || {}) as Record<string, unknown>;
@@ -90,103 +100,79 @@ const TimeAttendancePage: React.FC = () => {
     return companyIdFromSession;
   }, [user, companyIdFromSession]);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!user || !isSupabaseConfigured() || !effectiveCompanyId) return;
 
-    const load = async () => {
-      setIsLoadingData(true);
-      setError(null);
-      try {
-        // Carregar colaboradores
-        const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
-          (db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>).catch(
-            () => [] as any[],
-          ),
-        ]);
-
-        const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
-        const uniqueUsers = Array.from(new Map(employeeRows.map((e: any) => [e.id, e])).values());
-
-        const displayName = (e: any) =>
-          (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
-
-        const empList: EmployeeRow[] = uniqueUsers
-          .filter((e: any) => (e.role || '').toLowerCase() !== 'admin')
-          .map((e: any) => ({
-            id: e.id,
-            nome: displayName(e),
-          }));
-        empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-        setEmployees(empList);
-
-        // Tentar carregar time_logs, mas não falhar se não existir
-        let logRows: any[] = [];
-        try {
-          logRows = (await db.select('time_logs', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }])) as any[];
-        } catch (e) {
-          console.warn('time_logs não disponível ou erro ao carregar:', e);
-          logRows = [];
-        }
-
-        const mapped: TimeLogRow[] =
-          (logRows ?? []).map((l: any) => {
-            const emp = empList.find((e) => e.id === l.employee_id);
-            return {
-              id: l.id,
-              employee_id: l.employee_id,
-              employee_name: emp?.nome,
-              clock_in: l.clock_in,
-              clock_out: l.clock_out,
-              break_time: l.break_time ?? 0,
-              total_hours: l.total_hours ?? 0,
-              date: l.date,
-            };
-          }) ?? [];
-
-        setLogs(mapped);
-      } catch (e) {
-        console.error('Erro ao carregar dados de jornada:', e);
-        setError('Não foi possível carregar os registros de jornada.');
-      } finally {
-        setIsLoadingData(false);
+    setIsLoadingData(true);
+    setError(null);
+    try {
+      const start = filterPeriodStart.slice(0, 10);
+      const end = filterPeriodEnd.slice(0, 10);
+      if (start > end) {
+        setError('Período inválido: a data inicial não pode ser posterior à final.');
+        setRows([]);
+        return;
       }
-    };
 
-    load();
-  }, [user, effectiveCompanyId]);
+      const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
+        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
+        (
+          db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>
+        ).catch(() => [] as any[]),
+      ]);
 
-  const filteredLogs = logs.filter((l) => {
-    if (filterEmployeeId && l.employee_id !== filterEmployeeId) return false;
-    if (filterDate && l.date !== filterDate) return false;
+      const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
+      const uniqueUsers = Array.from(new Map(employeeRows.map((e: any) => [e.id, e])).values());
+
+      const displayName = (e: any) => (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
+
+      const empList: EmployeeRow[] = uniqueUsers
+        .filter((e: any) => (e.role || '').toLowerCase() !== 'admin')
+        .map((e: any) => ({
+          id: e.id,
+          nome: displayName(e),
+        }));
+      empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      setEmployees(empList);
+
+      const nameMap = new Map(empList.map((e) => [e.id, e.nome]));
+      const { rows: dataRows } = await getTimeAttendanceData(effectiveCompanyId, start, end, nameMap);
+      setRows(dataRows);
+    } catch (e) {
+      console.error('Erro ao carregar dados de jornada:', e);
+      setError('Não foi possível carregar os registros de jornada.');
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [user, effectiveCompanyId, filterPeriodStart, filterPeriodEnd]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  /** Atualiza a lista quando o auto-fix ainda está em voo — reflete `timesheets_daily` assim que o motor persiste. */
+  useEffect(() => {
+    if (!effectiveCompanyId) return;
+    const pendingInFlight = rows.some((r) => !r.has_timesheet_daily && r.auto_recalc_in_flight);
+    if (!pendingInFlight) return;
+    const t = window.setTimeout(() => {
+      void loadData();
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [rows, effectiveCompanyId, loadData]);
+
+  const filteredRows = rows.filter((r) => {
+    if (filterEmployeeId && r.employee_id !== filterEmployeeId) return false;
     return true;
   });
-
-  const getStatus = (log: TimeLogRow): 'Working' | 'On Break' | 'Offline' => {
-    if (!log.clock_in) return 'Offline';
-    if (log.clock_in && !log.clock_out) return 'Working';
-    return 'Offline';
-  };
 
   const openNewEntry = () => {
     setForm({
       employeeId: '',
-      date: new Date().toISOString().slice(0, 10),
+      date: extractLocalCalendarDateFromIso(new Date().toISOString()),
       clockIn: '',
       clockOut: '',
       breakMinutes: '0',
-    });
-    setModalOpen(true);
-  };
-
-  const openEditEntry = (log: TimeLogRow) => {
-    setForm({
-      id: log.id,
-      employeeId: log.employee_id,
-      date: log.date,
-      clockIn: log.clock_in ? log.clock_in.slice(11, 16) : '',
-      clockOut: log.clock_out ? log.clock_out.slice(11, 16) : '',
-      breakMinutes: String(log.break_time ?? 0),
     });
     setModalOpen(true);
   };
@@ -198,54 +184,20 @@ const TimeAttendancePage: React.FC = () => {
 
     setSaving(true);
     try {
-      const clockInIso = `${form.date}T${form.clockIn}:00`;
-      const clockOutIso = `${form.date}T${form.clockOut}:00`;
-      const diffMs = new Date(clockOutIso).getTime() - new Date(clockInIso).getTime();
-      const totalHours = Math.max(diffMs / (1000 * 60 * 60) - Number(form.breakMinutes || '0') / 60, 0);
-
-      const payload = {
-        employee_id: form.employeeId,
-        company_id: effectiveCompanyId,
-        clock_in: clockInIso,
-        clock_out: clockOutIso,
-        break_time: Number(form.breakMinutes || '0'),
-        total_hours: Number(totalHours.toFixed(2)),
-        date: form.date,
-      };
-
-      if (form.id) {
-        await (db as { update: (table: string, id: string, data: any) => Promise<any> }).update(
-          'time_logs',
-          form.id,
-          payload,
-        );
-        setLogs((prev) =>
-          prev.map((l) => (l.id === form.id ? { ...l, ...payload, employee_id: payload.employee_id } : l)),
-        );
-      } else {
-        const id = crypto.randomUUID();
-        await (db as { insert: (table: string, data: any) => Promise<any> }).insert('time_logs', {
-          id,
-          ...payload,
-        });
-        const emp = employees.find((e) => e.id === payload.employee_id);
-        setLogs((prev) => [
-          ...prev,
-          {
-            id,
-            employee_id: payload.employee_id,
-            employee_name: emp?.nome,
-            clock_in: payload.clock_in,
-            clock_out: payload.clock_out,
-            break_time: payload.break_time,
-            total_hours: payload.total_hours,
-            date: payload.date,
-          },
-        ]);
-      }
+      await submitManualAttendancePunches({
+        companyId: effectiveCompanyId,
+        userId: form.employeeId,
+        dateYmd: form.date,
+        clockInHHmm: form.clockIn,
+        clockOutHHmm: form.clockOut,
+        breakMinutes: Number(form.breakMinutes || '0'),
+      });
+      setError(null);
       setModalOpen(false);
+      await loadData();
     } catch (err) {
-      console.error('Erro ao salvar time_log:', err);
+      console.error('Erro ao salvar lançamento manual:', err);
+      setError(err instanceof Error ? err.message : 'Falha ao gravar batidas ou recalcular o dia.');
     } finally {
       setSaving(false);
     }
@@ -256,26 +208,34 @@ const TimeAttendancePage: React.FC = () => {
   };
 
   const handleExport = () => {
-    const rows = filteredLogs;
-    if (!rows.length) return;
-    const header = ['date', 'employee', 'clock_in', 'clock_out', 'break_minutes', 'total_hours', 'status'];
-    const csvRows = rows.map((l) => [
-      l.date,
-      l.employee_name ?? l.employee_id,
-      l.clock_in ?? '',
-      l.clock_out ?? '',
-      l.break_time ?? 0,
-      l.total_hours ?? 0,
-      getStatus(l),
+    const list = filteredRows;
+    if (!list.length) return;
+    const header = [
+      'date',
+      'employee',
+      'entrada_hhmm',
+      'saida_hhmm',
+      'intervalo_min',
+      'total_horas_motor',
+      'status_processamento',
+    ];
+    const csvRows = list.map((r) => [
+      r.date,
+      r.employee_name ?? r.employee_id,
+      r.clock_in ?? '',
+      r.clock_out ?? '',
+      r.break_minutes ?? 0,
+      r.total_hours_motor != null ? Number(r.total_hours_motor.toFixed(2)) : '',
+      getTimeAttendanceStatusPresentation(r).label,
     ]);
     const csvContent = [header, ...csvRows]
-      .map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `time_attendance_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `time_attendance_${extractLocalCalendarDateFromIso(new Date().toISOString())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -302,8 +262,7 @@ const TimeAttendancePage: React.FC = () => {
           </p>
         )}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-          {/* min-w-0 + overflow nos filhos: input[type=date] tem largura mínima nativa e quebrava o grid em md */}
-          <div className="grid w-full min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 md:gap-x-8 xl:grid-cols-4 xl:gap-x-6">
+          <div className="grid w-full min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 md:gap-x-8 xl:grid-cols-5 xl:gap-x-6">
             <div className="min-w-0 w-full max-w-full overflow-hidden">
               <label
                 htmlFor="time-attendance-filter-employee"
@@ -328,28 +287,45 @@ const TimeAttendancePage: React.FC = () => {
             </div>
             <div className="min-w-0 w-full max-w-full overflow-hidden">
               <label
-                htmlFor="time-attendance-filter-date"
+                htmlFor="time-attendance-period-start"
                 className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5"
               >
-                Data
+                Período — início
               </label>
               <input
-                id="time-attendance-filter-date"
+                id="time-attendance-period-start"
                 type="date"
                 className="box-border w-full max-w-full min-h-11 min-w-0 px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 [color-scheme:light] dark:[color-scheme:dark]"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
+                value={filterPeriodStart}
+                onChange={(e) => setFilterPeriodStart(e.target.value)}
               />
             </div>
-            <div className="flex min-w-0 items-end md:col-span-2 xl:col-span-1">
+            <div className="min-w-0 w-full max-w-full overflow-hidden">
+              <label
+                htmlFor="time-attendance-period-end"
+                className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5"
+              >
+                Período — fim
+              </label>
+              <input
+                id="time-attendance-period-end"
+                type="date"
+                className="box-border w-full max-w-full min-h-11 min-w-0 px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 [color-scheme:light] dark:[color-scheme:dark]"
+                value={filterPeriodEnd}
+                onChange={(e) => setFilterPeriodEnd(e.target.value)}
+              />
+            </div>
+            <div className="flex min-w-0 items-end xl:col-span-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="w-full min-h-11 sm:w-auto"
                 onClick={() => {
+                  const b = civilMonthBounds();
                   setFilterEmployeeId('');
-                  setFilterDate('');
+                  setFilterPeriodStart(b.start);
+                  setFilterPeriodEnd(b.end);
                 }}
               >
                 Limpar filtros
@@ -369,6 +345,16 @@ const TimeAttendancePage: React.FC = () => {
               <Plus className="w-4 h-4" />
               Lançamento manual
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full min-h-11 sm:w-auto justify-center"
+              onClick={() => navigate('/admin/timesheet')}
+            >
+              <ExternalLink className="w-4 h-4" />
+              Espelho de ponto
+            </Button>
           </div>
         </div>
       </section>
@@ -377,91 +363,77 @@ const TimeAttendancePage: React.FC = () => {
         <h2 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
           Registros de jornada
         </h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Totais de horas exibidos são os calculados pelo motor (`timesheets_daily`). Horários de entrada/saída refletem as batidas em `time_records`.
+        </p>
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         {isLoadingData ? (
           <LoadingState message="Carregando registros..." />
-        ) : filteredLogs.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <EmptyState
             title="Nenhum registro"
-            message="Nenhum registro de jornada encontrado para os filtros selecionados."
+            message="Nenhum registro de jornada encontrado para o período e filtros selecionados."
           />
         ) : (
           <div className="overflow-x-auto max-w-full">
-            <DataTable<TimeLogRow>
-            columns={[
-              {
-                key: 'employee_name',
-                header: 'Colaborador',
-                render: (row) => row.employee_name ?? row.employee_id,
-              },
-              {
-                key: 'clock_in',
-                header: 'Entrada',
-                render: (row) =>
-                  row.clock_in
-                    ? new Date(row.clock_in).toLocaleTimeString('pt-BR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : '--:--',
-              },
-              {
-                key: 'clock_out',
-                header: 'Saída',
-                render: (row) =>
-                  row.clock_out
-                    ? new Date(row.clock_out).toLocaleTimeString('pt-BR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : '--:--',
-              },
-              {
-                key: 'break_time',
-                header: 'Intervalo',
-                render: (row) => `${row.break_time ?? 0} min`,
-              },
-              {
-                key: 'total_hours',
-                header: 'Total',
-                render: (row) => `${(row.total_hours ?? 0).toFixed(2)} h`,
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (row) => {
-                  const status = getStatus(row);
-                  if (status === 'Working') {
-                    return <span className="text-emerald-600 text-xs font-semibold">Trabalhando</span>;
-                  }
-                  if (status === 'On Break') {
-                    return <span className="text-amber-600 text-xs font-semibold">Em intervalo</span>;
-                  }
-                  return <span className="text-slate-500 text-xs font-semibold">Offline</span>;
+            <DataTable<TimeAttendanceRow>
+              columns={[
+                {
+                  key: 'date',
+                  header: 'Data',
+                  render: (row) => row.date,
                 },
-              },
-              {
-                key: 'actions',
-                header: '',
-                render: (row) => (
-                  <div className="flex justify-end gap-2">
-                    <Button size="xs" variant="outline" onClick={() => openEditEntry(row)}>
-                      <Edit3 className="w-3 h-3" />
-                      Editar
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
-            data={filteredLogs}
-          />
+                {
+                  key: 'employee_name',
+                  header: 'Colaborador',
+                  render: (row) => row.employee_name ?? row.employee_id,
+                },
+                {
+                  key: 'clock_in',
+                  header: 'Entrada',
+                  render: (row) => row.clock_in ?? '—',
+                },
+                {
+                  key: 'clock_out',
+                  header: 'Saída',
+                  render: (row) => row.clock_out ?? '—',
+                },
+                {
+                  key: 'break_minutes',
+                  header: 'Intervalo',
+                  render: (row) => `${row.break_minutes ?? 0} min`,
+                },
+                {
+                  key: 'total_hours_motor',
+                  header: 'Total (motor)',
+                  render: (row) =>
+                    row.total_hours_motor != null ? `${row.total_hours_motor.toFixed(2)} h` : '—',
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (row) => {
+                    const st = getTimeAttendanceStatusPresentation(row);
+                    return (
+                      <span
+                        className={`text-xs font-semibold ${st.badgeClassName} ${st.tooltip ? 'cursor-help border-b border-dotted border-current/40' : ''}`}
+                        title={st.tooltip}
+                      >
+                        {st.label}
+                      </span>
+                    );
+                  },
+                },
+              ]}
+              data={filteredRows}
+            />
           </div>
         )}
       </section>
 
       <ModalForm
-        title={form.id ? 'Editar lançamento' : 'Novo lançamento manual'}
-        description="Ajuste manualmente os registros de jornada deste colaborador."
+        title="Novo lançamento manual"
+        description="Serão criadas batidas em sequência (entrada, intervalo se houver, saída) em time_records e em seguida o dia será recalculado pelo motor."
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSubmit={handleFormSubmit}
@@ -471,7 +443,7 @@ const TimeAttendancePage: React.FC = () => {
               Cancelar
             </Button>
             <Button type="submit" size="sm" loading={saving}>
-              Salvar
+              Salvar e recalcular
             </Button>
           </div>
         }

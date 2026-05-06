@@ -4,10 +4,7 @@
  */
 
 import { db, type Filter } from './supabaseClient';
-import {
-  localCalendarDayEndUtc,
-  localCalendarDayStartUtc,
-} from '../src/utils/localDateTimeToIso';
+import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 
 /**

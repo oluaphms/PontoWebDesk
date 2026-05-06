@@ -7,6 +7,7 @@ import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { fetchTimeRecordsForMirrorWindow } from '../../../services/api';
 import { getNationalHolidayDatesForPeriod } from '../../engine/timeEngine';
 import { LoadingState } from '../../../components/UI';
+import { calendarDateForEspelhoRow } from '../../utils/calendarUtils';
 import {
   buildDayMirrorSummary,
   DayMirror,
@@ -16,7 +17,6 @@ import {
   isRepMirrorRecord,
   isStatusRecord,
   normalizeRecordTypeForMirror,
-  calendarDateForEspelhoRow,
   recordEffectiveMirrorInstant,
   type TimeRecord as MirrorTimeRecord,
   type DayScheduleWindow,
@@ -112,7 +112,11 @@ const EmployeeTimesheet: React.FC = () => {
     let active = true;
     void (async () => {
       try {
-        const ctx = await getEmployeeTimesheetScheduleContext(user.id, companyId);
+        // Em tela do colaborador, evita fallback legado via `users` (query pesada sujeita a timeout).
+        // Se não houver ESS, usa padrão [1..5] sem bloquear o espelho.
+        const ctx = await getEmployeeTimesheetScheduleContext(user.id, companyId, {
+          useLegacyUserScheduleFallback: false,
+        });
         if (active) {
           setScheduleWorkDays(ctx.workDays ?? null);
           setScheduleWindowsByDow(ctx.windowByJsDow);
