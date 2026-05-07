@@ -1455,7 +1455,7 @@ class AuthService {
        * próprio login em localhost ou faz o pedido falhar por timeout.
        */
       if (event === 'SIGNED_OUT' && !session?.user && this._passwordSignInActive) {
-        if (typeof console !== 'undefined') {
+        if (import.meta.env.DEV && typeof console !== 'undefined') {
           console.log(
             '[AUTH EVENT] SIGNED_OUT — ignorado (signOut local pré-login; não bloquear fila auth) [OK]',
           );
@@ -1478,7 +1478,7 @@ class AuthService {
         !this._passwordSignInActive &&
         !hasSbAuthKeysInBrowser()
       ) {
-        if (typeof console !== 'undefined') {
+        if (import.meta.env.DEV && typeof console !== 'undefined') {
           console.log(
             '[AUTH EVENT] SIGNED_OUT null — eco cold start, ignorado (sem chaves sb-* no storage) [OK]',
           );
@@ -1486,7 +1486,7 @@ class AuthService {
         return;
       }
 
-      if (typeof console !== 'undefined') {
+      if (import.meta.env.DEV && typeof console !== 'undefined') {
         if (event === 'INITIAL_SESSION' && !session?.user) {
           const sbOrfa = hasSbAuthKeysInBrowser();
           console.log(
@@ -1533,9 +1533,9 @@ class AuthService {
             gapMs = Math.max(gapMs, 72);
           }
         } else if (event === 'INITIAL_SESSION') {
-          /** Localhost / IndexedDB: INITIAL_SESSION pode chegar antes da sessão ser lida — 1 tentativa zerava o utilizador à toa */
-          attempts = isLikelyLocalhost ? 24 : 1;
-          gapMs = isLikelyLocalhost ? 70 : 0;
+          /** GoTrue pode emitir INITIAL_SESSION antes do storage estar hidratado (IndexedDB/WebView; Safari/mobile). */
+          attempts = isLikelyLocalhost ? 28 : 20;
+          gapMs = isLikelyLocalhost ? 72 : 65;
         } else {
           attempts = 10;
           gapMs = 55;
@@ -1616,7 +1616,7 @@ class AuthService {
             !this._passwordSignInActive &&
             !this._isSigningOut
           ) {
-            if (typeof console !== 'undefined') {
+            if (import.meta.env.DEV && typeof console !== 'undefined') {
               console.warn(
                 '[AUTH] Removendo tokens sb-* locais órfãos (getSession continuou sem utilizador válido).',
               );

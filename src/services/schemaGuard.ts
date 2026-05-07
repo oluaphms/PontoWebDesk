@@ -102,7 +102,8 @@ export function enforceEnvSchemaFlag(envVar: unknown, envName: string): boolean 
 
   if (!isProduction && parsed === undefined && !hasWarned) {
     const message = `[SCHEMA GUARD] modo automático ativo — ${envName} não definido`;
-    console.warn(message);
+    /** Evita aparecer como "erro" no console/mobile; nível verbose (DevTools → Verbose/Debug). */
+    console.debug(message);
     /** Não gravar em `window` nem disparar evento: evita badge fixo na UI em dev (detalhe só no console). */
     hasWarned = true;
   }
