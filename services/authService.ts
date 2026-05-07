@@ -830,15 +830,15 @@ class AuthService {
       await clearLocalAuthSession();
 
       try {
-        const { data: sessPre, error: sessPreErr } = await supabase.auth.getSession();
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
+          const { data: sessPre, error: sessPreErr } = await supabase.auth.getSession();
           console.log('[SUPABASE SESSION TEST]', {
             hasSession: !!sessPre?.session,
             error: sessPreErr?.message ?? null,
           });
         }
       } catch (sessionTestErr: unknown) {
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
           console.log('[SUPABASE SESSION TEST]', { hasSession: false, error: String(sessionTestErr) });
         }
       }
@@ -851,15 +851,15 @@ class AuthService {
       }
 
       try {
-        const { data: sessPost, error: sessPostErr } = await supabase.auth.getSession();
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
+          const { data: sessPost, error: sessPostErr } = await supabase.auth.getSession();
           console.log('[SUPABASE SESSION TEST POST]', {
             hasSession: !!sessPost?.session,
             error: sessPostErr?.message ?? null,
           });
         }
       } catch (sessionPostErr: unknown) {
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
           console.log('[SUPABASE SESSION TEST POST]', { hasSession: false, error: String(sessionPostErr) });
         }
       }

@@ -904,7 +904,7 @@ const AppMain: React.FC = () => {
         flushSync(() => {
           setUser(result.user);
           setIsInitialLoading(false);
-          if (typeof console !== 'undefined') {
+          if (typeof console !== 'undefined' && import.meta.env.DEV) {
             console.log('[USER SET MANUAL]');
           }
         });
@@ -917,7 +917,7 @@ const AppMain: React.FC = () => {
         navigate(targetRoute, { replace: true });
         pendingLoginRoleRef.current = null;
 
-        if (typeof console !== 'undefined') {
+        if (typeof console !== 'undefined' && import.meta.env.DEV) {
           console.log('[REDIRECT CHECK]', {
             userInState: !!result.user,
             targetRoute,
@@ -936,7 +936,7 @@ const AppMain: React.FC = () => {
 
           try {
             const client = getSupabaseClient();
-            if (client && typeof console !== 'undefined') {
+            if (client && import.meta.env.DEV && typeof console !== 'undefined') {
               const { data: sessSnap, error: sessErr } = await client.auth.getSession();
               console.log('[SESSION AFTER LOGIN]', {
                 sessionExists: !!sessSnap?.session,

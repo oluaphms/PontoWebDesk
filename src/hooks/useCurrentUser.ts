@@ -149,7 +149,7 @@ async function runSharedLoadUser(): Promise<void> {
 
     const profilePromise = supabase
       .from('users')
-      .select('*')
+      .select('id,email,nome,cargo,role,company_id,department_id,schedule_id,shift_id,phone,avatar')
       .eq('id', session.user.id)
       .single();
     const profileTimeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>

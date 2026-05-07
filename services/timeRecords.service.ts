@@ -79,7 +79,7 @@ export async function countTimeRecordsByUser(userId: string): Promise<number> {
   return count ?? 0;
 }
 
-/** Faixa `created_at` inclusive (strings ISO locais do dia, como em `getDayRecords`). */
+/** Faixa `created_at` inclusive — usada por `getDayRecords` com margem de ±1 dia e filtro pelo instante do evento (timestamp primeiro). */
 export async function getTimeRecordsForUserDayRange(
   userId: string,
   startInclusive: string,

@@ -99,7 +99,9 @@ export function getSupabaseClient(): SupabaseClient | null {
             cache: 'no-store',
             headers,
           };
-          console.log('[UI FETCH]', url, new Date().toISOString());
+          if (import.meta.env?.DEV && typeof console !== 'undefined') {
+            console.log('[UI FETCH]', url, new Date().toISOString());
+          }
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             console.warn('[SUPABASE] modo degradado ativo — navigator.onLine=false; tentando mesmo assim...');
           }

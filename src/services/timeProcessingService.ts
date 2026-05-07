@@ -119,10 +119,24 @@ function formatHHmm(d: Date): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/** Instante do evento (igual ao espelho / trigger SQL: `COALESCE(timestamp, created_at)`). */
+function recordEventInstantMs(r: RawTimeRecord): number {
+  const iso = (r.timestamp && String(r.timestamp).trim()) || r.created_at;
+  return new Date(iso).getTime();
+}
+
+function addDaysToYmdLocal(ymd: string, delta: number): string {
+  const parts = ymd.split('-').map((x) => parseInt(x, 10));
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d + delta);
+  return getLocalDateString(dt);
+}
+
 function sortedByTime(records: RawTimeRecord[]): RawTimeRecord[] {
-  return [...records].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  return [...records].sort((a, b) => recordEventInstantMs(a) - recordEventInstantMs(b));
 }
 
 /** Data local YYYY-MM-DD (evita UTC do toISOString). */
@@ -171,7 +185,7 @@ export function validatePunchSequence(
   if (last === 'entrada') {
     if (next === 'pausa' || next === 'saida') return { valid: true };
     if (next === 'entrada') {
-      const lastMs = new Date(lastRec!.timestamp || lastRec!.created_at).getTime();
+      const lastMs = recordEventInstantMs(lastRec!);
       if (nextEventMs - lastMs > SEQUENCE_TOLERANCE_MS) {
         return { valid: true, sequenceTolerantExit: true };
       }
@@ -588,12 +602,17 @@ async function getLegacyScheduleFromUser(
 export async function getDayRecords(employeeId: string, dateStr: string): Promise<RawTimeRecord[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const start = `${dateStr}T00:00:00`;
-  const end = `${dateStr}T23:59:59.999`;
+  const prev = addDaysToYmdLocal(dateStr, -1);
+  const next = addDaysToYmdLocal(dateStr, 1);
+  const start = `${prev}T00:00:00`;
+  const end = `${next}T23:59:59.999`;
 
   try {
     const rows = (await getTimeRecordsForUserDayRange(employeeId, start, end)) as RawTimeRecord[];
-    return Array.isArray(rows) ? rows : [];
+    const list = Array.isArray(rows) ? rows : [];
+    return list.filter(
+      (r) => getLocalDateString(new Date(recordEventInstantMs(r))) === dateStr,
+    );
   } catch (e) {
     console.warn('[timeProcessingService] getDayRecords:', e);
     return [];
@@ -647,8 +666,7 @@ export function summarizeDayRecords(records: RawTimeRecord[]): {
   fim_intervalo: string | null;
   break_minutes: number;
 } {
-  const instant = (r: RawTimeRecord) =>
-    new Date((r.timestamp && String(r.timestamp).trim()) || r.created_at).getTime();
+  const instant = (r: RawTimeRecord) => recordEventInstantMs(r);
 
   const sorted = [...records].sort((a, b) => instant(a) - instant(b));
 
@@ -660,7 +678,7 @@ export function summarizeDayRecords(records: RawTimeRecord[]): {
   let displayFimInt: Date | null = null;
 
   for (const r of sorted) {
-    const t = new Date((r.timestamp && String(r.timestamp).trim()) || r.created_at);
+    const t = new Date(recordEventInstantMs(r));
     const typ = (r.type || '').toLowerCase();
 
     if (typ === 'entrada') {
