@@ -12,7 +12,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getRecentTimeRecordsForUser } from '../../../services/timeRecords.service';
-import { getDayRecords, getLocalDateString, validatePunchSequence } from '../../services/timeProcessingService';
+import { getDayRecords, getLocalDateString, validatePunchSequence, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
 import {
   getCurrentLocationRobustResult,
   geolocationReasonMessage,
@@ -418,8 +418,11 @@ const EmployeeClockIn: React.FC = () => {
 
       const today = getLocalDateString();
       const dayRecords = await getDayRecords(user.id, today);
-      const typeStr = type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
-      const validation = validatePunchSequence(dayRecords, typeStr, { nextEventTime: new Date() });
+      const logicalTypeStr =
+        type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
+      const persistenceType = persistenceTypeFromClockWebAction(dayRecords, type);
+
+      const validation = validatePunchSequence(dayRecords, logicalTypeStr, { nextEventTime: new Date() });
       if (!validation.valid) {
         setError(validation.error || 'Sequência inválida.');
         toast.addToast('error', validation.error || 'Sequência inválida.');
@@ -507,7 +510,7 @@ const EmployeeClockIn: React.FC = () => {
       const anomaly = detectBehaviorAnomaly({
         employeeId: user.id,
         companyId: user.companyId,
-        type: typeStr,
+        type: logicalTypeStr,
         timestamp: now,
         latitude: geoPos?.latitude,
         longitude: geoPos?.longitude,
@@ -518,7 +521,7 @@ const EmployeeClockIn: React.FC = () => {
       const validationResult = validatePunch({
         employeeId: user.id,
         companyId: user.companyId,
-        type: typeStr,
+        type: logicalTypeStr,
         location: geoPos ? { latitude: geoPos.latitude, longitude: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
         deviceFingerprint: fingerprint,
         allowedLocations,
@@ -529,7 +532,7 @@ const EmployeeClockIn: React.FC = () => {
       const punchPayload = {
         userId: user.id,
         companyId: user.companyId,
-        type: typeStr,
+        type: persistenceType,
         method,
         hasLocation: !!(geoPos?.latitude != null && geoPos?.longitude != null),
         hasPhoto: !!photoUrl,
@@ -542,7 +545,7 @@ const EmployeeClockIn: React.FC = () => {
       const result = await registerPunchSecure({
         userId: user.id,
         companyId: user.companyId,
-        type: typeStr,
+        type: persistenceType,
         method,
         location: geoPos ? { lat: geoPos.latitude, lng: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
         photoUrl: photoUrl || undefined,
@@ -574,13 +577,15 @@ const EmployeeClockIn: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['records'] });
       invalidateAfterPunch(user.id, user.companyId);
       const label =
-        typeStr === 'entrada'
-          ? 'Entrada'
-          : typeStr === 'saída'
-            ? 'Saída'
-            : typeStr === 'pausa'
-              ? 'Intervalo'
-              : typeStr;
+        persistenceType === 'intervalo_volta'
+          ? 'Retorno do intervalo'
+          : persistenceType === 'intervalo_saida'
+            ? 'Saída para intervalo'
+            : logicalTypeStr === 'entrada'
+              ? 'Entrada'
+              : logicalTypeStr === 'saída'
+                ? 'Saída'
+                : 'Intervalo';
       toast.addToast('success', `${label} registrada com sucesso.`);
       closeProofModal();
     } catch (e: unknown) {
@@ -689,8 +694,9 @@ const EmployeeClockIn: React.FC = () => {
     setError(null);
     const today = getLocalDateString();
     const dayRecords = await getDayRecords(user.id, today);
-    const typeStr = type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
-    const validation = validatePunchSequence(dayRecords, typeStr, { nextEventTime: new Date() });
+    const logicalTypeStr =
+      type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
+    const validation = validatePunchSequence(dayRecords, logicalTypeStr, { nextEventTime: new Date() });
     if (!validation.valid) {
       setError(validation.error || 'Sequência inválida.');
       toast.addToast('error', validation.error || 'Sequência inválida.');

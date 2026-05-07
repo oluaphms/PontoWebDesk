@@ -20,6 +20,7 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from './timeAttendanceTimeline.constants';
+import { LogType } from '../../types';
 
 export {
   assertMonthOpenForEmployee,
@@ -139,6 +140,32 @@ function sortedByTime(records: RawTimeRecord[]): RawTimeRecord[] {
   return [...records].sort((a, b) => recordEventInstantMs(a) - recordEventInstantMs(b));
 }
 
+/** Último tipo normalizado, com tolerância a retorno marcado equivocamente como segunda `intervalo_saida`. */
+function effectiveNormalizedLast(sorted: RawTimeRecord[]): string | null {
+  if (!sorted.length) return null;
+  const lastRec = sorted[sorted.length - 1];
+  let last = normalizePunchType(lastRec.type);
+  if (sorted.length >= 2 && last === 'pausa') {
+    const prevNorm = normalizePunchType(sorted[sorted.length - 2].type);
+    const rawLast = (lastRec.type || '').toLowerCase().trim();
+    if (prevNorm === 'pausa' && rawLast === 'intervalo_saida') last = 'entrada';
+  }
+  return last;
+}
+
+/**
+ * Tipo gravado na `time_records` a partir das ações do ClockIn web — alinha espelho/REP aos códigos explícitos.
+ * Validação lógica continua com entrada/pausa/saída (LogType.IN/OUT/BREAK como hoje).
+ */
+export function persistenceTypeFromClockWebAction(dayRecords: RawTimeRecord[], action: LogType): string {
+  if (action === LogType.OUT) return 'saída';
+  if (action === LogType.BREAK) return 'intervalo_saida';
+  const sorted = sortedByTime(dayRecords);
+  const tail = sorted[sorted.length - 1];
+  if (!tail) return 'entrada';
+  return normalizePunchType(tail.type) === 'pausa' ? 'intervalo_volta' : 'entrada';
+}
+
 /** Data local YYYY-MM-DD (evita UTC do toISOString). */
 export function getLocalDateString(d = new Date()): string {
   const y = d.getFullYear();
@@ -171,7 +198,7 @@ export function validatePunchSequence(
   const next = normalizePunchType(nextTypeRaw);
   const sorted = sortedByTime(dayRecords);
   const lastRec = sorted[sorted.length - 1];
-  const last = lastRec ? normalizePunchType(lastRec.type) : null;
+  const last = lastRec ? effectiveNormalizedLast(sorted) : null;
   const nextEventMs = opts?.nextEventTime != null ? new Date(opts.nextEventTime).getTime() : Date.now();
 
   if (!last) {

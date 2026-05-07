@@ -318,7 +318,19 @@ const EmployeeDashboard: React.FC = () => {
           {todayRecords.length === 0 && !loadingData && <li className="text-slate-500 dark:text-slate-400 text-sm">{i18n.t('dashboard.noRecordsToday')}</li>}
           {todayRecords.map((r: any) => (
             <li key={r.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
-              <span className="font-medium text-slate-900 dark:text-white capitalize">{r.type === 'entrada' ? i18n.t('punch.typeIn') : r.type === 'saída' ? i18n.t('punch.typeOut') : r.type === 'pausa' ? i18n.t('punch.typeBreak') : r.type}</span>
+              <span className="font-medium text-slate-900 dark:text-white capitalize">
+                {r.type === 'entrada'
+                  ? i18n.t('punch.typeIn')
+                  : r.type === 'saída'
+                    ? i18n.t('punch.typeOut')
+                    : r.type === 'pausa'
+                      ? i18n.t('punch.typeBreak')
+                      : r.type === 'intervalo_saida'
+                        ? i18n.t('punch.typeIntervalExit')
+                        : r.type === 'intervalo_volta'
+                          ? i18n.t('punch.typeIntervalReturn')
+                          : r.type}
+              </span>
               <span className="tabular-nums text-slate-600 dark:text-slate-300">
                 {new Date(recordPunchInstantIso(r)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </span>
