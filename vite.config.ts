@@ -290,6 +290,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       sourcemap: false,
       emptyOutDir: true,
+      chunkSizeWarningLimit: 1500,
       minify: 'esbuild',
       cssCodeSplit: true,
       cssMinify: true,
