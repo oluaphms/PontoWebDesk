@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { buscarFiltrosEspelhoAdmin } from '../../../services/api';
 import { LoadingState, Button } from '../../../components/UI';
-import { Upload, FileText } from 'lucide-react';
+import { Upload, FileText, X } from 'lucide-react';
 
 type RepDeviceOption = { id: string; nome_dispositivo: string };
 
@@ -15,6 +15,7 @@ const getAppUrl = () => {
 };
 
 const AdminImportRep: React.FC = () => {
+  const navigate = useNavigate();
   const { user, loading } = useCurrentUser();
   const [searchParams] = useSearchParams();
   const [devices, setDevices] = useState<RepDeviceOption[]>([]);
@@ -128,7 +129,16 @@ const AdminImportRep: React.FC = () => {
         icon={<Upload size={24} />}
       />
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-6">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-6 relative">
+        <button
+          type="button"
+          onClick={() => navigate('/admin/timesheet')}
+          className="absolute top-3 right-3 p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40"
+          aria-label="Fechar e voltar para Espelho de Ponto"
+          title="Fechar"
+        >
+          <X className="w-5 h-5" />
+        </button>
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Formatos aceitos: AFD (Portaria 671), TXT ou CSV com colunas NSR, Data, Hora, PIS/CPF, Tipo (E/S). Pode
           obter o ficheiro a partir do software do relógio ou do agente local (exportação AFD), e enviar aqui.

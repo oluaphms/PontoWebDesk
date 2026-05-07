@@ -268,7 +268,7 @@ export const RepPendingSequenceResolutionModal: React.FC<RepPendingSequenceResol
       aria-modal="true"
       aria-labelledby="rep-seq-resolution-title"
     >
-      <button type="button" className="absolute inset-0 cursor-default" aria-label="Fechar" onClick={onClose} />
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Fechar" />
       <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
           <h2 id="rep-seq-resolution-title" className="text-sm font-semibold text-slate-900 dark:text-white pr-2">

@@ -606,7 +606,7 @@ const OpcoesAvancadasModal: React.FC<OpcoesAvancadasModalProps> = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div
         className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -679,7 +679,7 @@ const OpcoesAvancadasModal: React.FC<OpcoesAvancadasModalProps> = ({
       </div>
 
       {colunaEdit && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50" onClick={() => setColunaEdit(null)}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50">
           <div className="bg-sky-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg p-4 w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -773,7 +773,7 @@ const OpcoesAvancadasModal: React.FC<OpcoesAvancadasModalProps> = ({
       )}
 
       {sobreAvisoEdit && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50" onClick={() => setSobreAvisoEdit(null)}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50">
           <div className="bg-sky-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg p-4 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="space-y-3 text-sm">
               <div>

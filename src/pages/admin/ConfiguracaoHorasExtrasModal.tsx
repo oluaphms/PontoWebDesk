@@ -144,7 +144,7 @@ const ConfiguracaoHorasExtrasModal: React.FC<ConfiguracaoHorasExtrasModalProps> 
   const divFolga = dn.dividirJornadasFolgaMeiaNoite ?? false;
 
   return (
-    <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={onClose}>
+    <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div
         className="bg-slate-100 dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-300 dark:border-slate-700 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}

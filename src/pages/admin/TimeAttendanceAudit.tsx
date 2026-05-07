@@ -329,7 +329,7 @@ function PunchesModal(props: {
       aria-modal="true"
       aria-labelledby="audit-punches-title"
     >
-      <button type="button" className="absolute inset-0 cursor-default" aria-label="Fechar" onClick={onClose} />
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Fechar" />
       <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
           <h2 id="audit-punches-title" className="text-sm font-semibold text-slate-900 dark:text-white truncate pr-2">

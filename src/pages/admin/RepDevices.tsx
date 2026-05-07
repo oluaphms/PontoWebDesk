@@ -2672,7 +2672,6 @@ const AdminRepDevices: React.FC = () => {
           role="dialog"
           aria-modal="true"
           aria-labelledby="rep-send-receive-title"
-          onClick={() => setSendReceiveOpen(false)}
         >
           <div
             className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] md:max-h-[86vh] overflow-y-auto flex flex-col p-4 sm:p-6"
@@ -3261,7 +3260,6 @@ const AdminRepDevices: React.FC = () => {
           className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
-          onClick={() => setDetailModal(null)}
         >
           <div
             className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col p-4 sm:p-6"
@@ -3283,7 +3281,6 @@ const AdminRepDevices: React.FC = () => {
           className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
-          onClick={() => setUsersModal(null)}
         >
           <div
             className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col p-4 sm:p-6"
@@ -3335,7 +3332,6 @@ const AdminRepDevices: React.FC = () => {
           className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
-          onClick={() => setPendingPisModal({ open: false, rows: [] })}
         >
           <div
             className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col p-4 sm:p-6"

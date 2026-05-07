@@ -58,7 +58,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden />
       <div
         className="relative w-full h-full bg-white dark:bg-slate-900 border border-slate-200/40 dark:border-slate-800 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto flex flex-col lg:max-w-lg lg:h-[90vh] lg:rounded-2xl lg:my-6"
         role="dialog"
