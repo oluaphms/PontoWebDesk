@@ -261,6 +261,17 @@ export async function updateTimeRecordPunchInstant(
 
 export type InsertAdminMirrorResult = { id: string; createdAt: string };
 
+export type RepGovernanceAfterManualAdjustmentOpts = {
+  repPunchLogIds: string[];
+  reviewedBy?: string | null;
+};
+
+export type InsertAdminMirrorTimeRecordOpts = {
+  rpcSource?: string;
+  /** Se a batida manual foi motivada por batidas REP pendentes, roda governança pós-ajuste. */
+  repGovernance?: RepGovernanceAfterManualAdjustmentOpts;
+};
+
 function logAdminMirrorOperationalTimeline(input: {
   client: SupabaseClient;
   companyId: string;
@@ -309,7 +320,7 @@ function logAdminMirrorOperationalTimeline(input: {
 export async function insertAdminMirrorTimeRecord(
   data: Record<string, unknown>,
   companyId: string,
-  opts?: { rpcSource?: string },
+  opts?: InsertAdminMirrorTimeRecordOpts,
 ): Promise<InsertAdminMirrorResult> {
   const userId = String(data.user_id ?? '');
   const type = String(data.type ?? '');
