@@ -224,7 +224,7 @@ export async function fixUnmatchedPunches(
     console.error('[USERS QUERY ERROR]', usersErr);
     throw usersErr;
   }
-  const users = (wu as RepWeakPisMatchUser[] | null) ?? [];
+  const users = (wu as unknown as RepWeakPisMatchUser[] | null) ?? [];
 
   const rows: FixUnmatchedPunchesRow[] = [];
   let updated = 0;

@@ -56,7 +56,7 @@ async function fetchWeakMatchUsersForCompany(
     console.error('[USERS QUERY ERROR]', error);
     return [];
   }
-  return (wu as RepWeakPisMatchUser[] | null) ?? [];
+  return (wu as unknown as RepWeakPisMatchUser[] | null) ?? [];
 }
 
 /**

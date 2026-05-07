@@ -82,7 +82,7 @@ async function fetchUserRowForRepPush(
     if (error || !data) {
       return Response.json({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
     }
-    const u = data as UserRowRepPush;
+    const u = data as unknown as UserRowRepPush;
     if (u.company_id !== expectedCompanyId) {
       return Response.json({ error: 'Funcionário não pertence a esta empresa' }, { status: 403, headers: JSON_HDR });
     }
@@ -112,7 +112,7 @@ async function fetchUserRowForRepPush(
   if (error || !data) {
     return Response.json({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
   }
-  const u = data as UserRowRepPush;
+  const u = data as unknown as UserRowRepPush;
   if (u.company_id !== expectedCompanyId) {
     return Response.json({ error: 'Funcionário não pertence a esta empresa' }, { status: 403, headers: JSON_HDR });
   }
