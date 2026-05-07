@@ -19,9 +19,12 @@ import {
   getAuditTrend,
   computeAuditQualityScore,
   hasValidClockWindow,
+  rowEligibleForAssistedRepReconciliation,
   type TimeAttendanceRow,
   type AuditTrendRow,
+  type PendingRepPunchOperationalStatus,
 } from '../../services/timeAttendanceData';
+import { RepPendingSequenceResolutionModal } from '../../components/RepPendingSequenceResolutionModal';
 import {
   auditDayReviewKey,
   fetchDayTimeRecordsForAudit,
@@ -51,7 +54,15 @@ import {
   TimeAttendanceTimelineSeverity,
 } from '../../services/timeAttendanceTimeline.constants';
 
-const AUDIT_STATUS = ['inconsistent_data', 'duplicate_user_day', 'erro no processamento'] as const;
+const AUDIT_STATUS = [
+  'inconsistent_data',
+  'duplicate_user_day',
+  'erro no processamento',
+  'pending_rep_sequence',
+  'pending_rep_promote',
+  'pending_rep_closed_period',
+  'pending_rep_protected',
+] as const;
 type AuditStatusLabel = (typeof AUDIT_STATUS)[number];
 
 function isAuditStatus(label: string): label is AuditStatusLabel {
@@ -77,6 +88,14 @@ function possibleCause(status: string): string {
       return 'Mais de um conjunto de batidas no mesmo dia';
     case 'erro no processamento':
       return 'Falha no motor ou regra inválida';
+    case 'pending_rep_sequence':
+      return 'REP: batidas recebidas; sequência/reconciliação impedem promoção ao espelho';
+    case 'pending_rep_promote':
+      return 'REP: batidas aguardando consolidação no espelho';
+    case 'pending_rep_closed_period':
+      return 'REP: período fechado bloqueia promoção das batidas';
+    case 'pending_rep_protected':
+      return 'REP: espelho protegido bloqueia promoção das batidas';
     default:
       return '—';
   }
@@ -89,7 +108,13 @@ function auditRowSeverity(row: TimeAttendanceRow): { label: string; className: s
       className: 'text-red-700 dark:text-red-300 font-bold',
     };
   }
-  if (row.status_label === 'inconsistent_data') {
+  if (
+    row.status_label === 'inconsistent_data' ||
+    row.status_label === 'pending_rep_sequence' ||
+    row.status_label === 'pending_rep_promote' ||
+    row.status_label === 'pending_rep_closed_period' ||
+    row.status_label === 'pending_rep_protected'
+  ) {
     return {
       label: 'MÉDIA',
       className: 'text-amber-700 dark:text-amber-300 font-semibold',
@@ -164,6 +189,8 @@ function manualRecalcDisabledReason(row: TimeAttendanceRow): string | null {
   }
   if (row.status_label === 'closed_period') return 'Período fechado — recálculo bloqueado.';
   if (row.status_label === 'protected_timesheet') return 'Espelho protegido — recálculo bloqueado.';
+  if (row.status_label === 'pending_rep_closed_period') return 'Período fechado — batidas REP ainda não promovidas.';
+  if (row.status_label === 'pending_rep_protected') return 'Espelho protegido — batidas REP ainda não promovidas.';
   if (!hasValidClockWindow(row.clock_in, row.clock_out)) {
     return 'Não é possível recalcular: batidas incompletas.';
   }
@@ -175,6 +202,23 @@ function formatPunchClock(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', dateStyle: 'short' }).format(d);
+}
+
+function pendingRepOperationalCaption(status: PendingRepPunchOperationalStatus | null | undefined): string {
+  switch (status) {
+    case 'sequence_error':
+      return 'Falha de sequência';
+    case 'awaiting_reconciliation':
+      return 'Aguardando reconciliação';
+    case 'awaiting_promote':
+      return 'Aguardando consolidação (promote)';
+    case 'closed_period':
+      return 'Período fechado (REP pendente)';
+    case 'protected':
+      return 'Espelho protegido (REP pendente)';
+    default:
+      return '—';
+  }
 }
 
 function clusterPunchRecords(records: Record<string, unknown>[]): Record<string, unknown>[][] {
@@ -314,54 +358,95 @@ function PunchesModal(props: {
             <div className="flex justify-center py-8">
               <Loader2 className="w-8 h-8 animate-spin text-slate-400" aria-hidden />
             </div>
-          ) : records.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma batida em time_records neste intervalo.</p>
           ) : (
-            groups.map((g, gi) => (
-              <div
-                key={gi}
-                id={`audit-punch-group-${gi}`}
-                className={`rounded-xl border p-3 space-y-2 ${
-                  highlightGroupIndex === gi
-                    ? 'border-indigo-500 ring-2 ring-indigo-500/40 bg-indigo-50/40 dark:bg-indigo-950/30'
-                    : gi === 0
-                      ? 'border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20'
-                      : 'border-amber-300 dark:border-amber-700/80 bg-amber-50/50 dark:bg-amber-950/25'
-                }`}
-              >
-                <p
-                  className={`text-xs font-semibold ${
-                    suspiciousHeaders && gi > 0
-                      ? 'text-amber-800 dark:text-amber-200'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {suspiciousHeaders ? `Grupo suspeito #${gi + 1}` : `Grupo ${gi + 1}`} — {g.length} batida(s)
-                </p>
-                <ul className="space-y-1.5 text-sm">
-                  {g.map((rec, ri) => {
-                    const iso = recordPunchInstantIso(rec as { timestamp?: string | null; created_at?: string | null });
-                    const origin = resolvePunchOrigin(
-                      rec as { origin?: string | null; source?: string | null; method?: string | null },
-                    );
-                    const nsr = rec.nsr;
-                    return (
+            <>
+              {records.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma batida em time_records neste intervalo.</p>
+              ) : (
+                groups.map((g, gi) => (
+                  <div
+                    key={gi}
+                    id={`audit-punch-group-${gi}`}
+                    className={`rounded-xl border p-3 space-y-2 ${
+                      highlightGroupIndex === gi
+                        ? 'border-indigo-500 ring-2 ring-indigo-500/40 bg-indigo-50/40 dark:bg-indigo-950/30'
+                        : gi === 0
+                          ? 'border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20'
+                          : 'border-amber-300 dark:border-amber-700/80 bg-amber-50/50 dark:bg-amber-950/25'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs font-semibold ${
+                        suspiciousHeaders && gi > 0
+                          ? 'text-amber-800 dark:text-amber-200'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {suspiciousHeaders ? `Grupo suspeito #${gi + 1}` : `Grupo ${gi + 1}`} — {g.length} batida(s)
+                    </p>
+                    <ul className="space-y-1.5 text-sm">
+                      {g.map((rec, ri) => {
+                        const iso = recordPunchInstantIso(rec as { timestamp?: string | null; created_at?: string | null });
+                        const origin = resolvePunchOrigin(
+                          rec as { origin?: string | null; source?: string | null; method?: string | null },
+                        );
+                        const nsr = rec.nsr;
+                        return (
+                          <li
+                            key={`${String(rec.id ?? ri)}-${gi}`}
+                            className="flex flex-wrap gap-x-3 gap-y-0.5 border-t border-slate-100 dark:border-slate-800 first:border-0 first:pt-0 pt-2"
+                          >
+                            <span className="font-mono text-xs tabular-nums">{formatPunchClock(iso)}</span>
+                            <span className="text-slate-800 dark:text-slate-200">{String(rec.type ?? '—')}</span>
+                            <span className="text-slate-500 text-xs">{origin.label}</span>
+                            {nsr != null && String(nsr) !== '' && (
+                              <span className="text-slate-400 text-xs tabular-nums">NSR {String(nsr)}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))
+              )}
+              {row.pending_rep_punches && row.pending_rep_punches.length > 0 && (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">
+                    Batidas REP pendentes (evidência operacional — não consolidadas no espelho / motor)
+                  </p>
+                  <p className="text-xs text-amber-800/90 dark:text-amber-200/90">
+                    Estado: {pendingRepOperationalCaption(row.pending_rep_punch_status)} ·{' '}
+                    {row.pending_rep_punches.length} batida(s)
+                  </p>
+                  <ul className="space-y-2 text-sm text-slate-800 dark:text-slate-200">
+                    {row.pending_rep_punches.map((p) => (
                       <li
-                        key={`${String(rec.id ?? ri)}-${gi}`}
-                        className="flex flex-wrap gap-x-3 gap-y-0.5 border-t border-slate-100 dark:border-slate-800 first:border-0 first:pt-0 pt-2"
+                        key={p.id}
+                        className="flex flex-col gap-0.5 border-t border-amber-200/60 dark:border-amber-800/50 first:border-0 first:pt-0 pt-2"
                       >
-                        <span className="font-mono text-xs tabular-nums">{formatPunchClock(iso)}</span>
-                        <span className="text-slate-800 dark:text-slate-200">{String(rec.type ?? '—')}</span>
-                        <span className="text-slate-500 text-xs">{origin.label}</span>
-                        {nsr != null && String(nsr) !== '' && (
-                          <span className="text-slate-400 text-xs tabular-nums">NSR {String(nsr)}</span>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                          <span className="font-mono text-xs tabular-nums">{formatPunchClock(p.data_hora)}</span>
+                          <span className="text-xs">{p.tipo_marcacao ?? '—'}</span>
+                          {p.nsr != null && (
+                            <span className="text-slate-500 text-xs tabular-nums">NSR {String(p.nsr)}</span>
+                          )}
+                          <span className="text-slate-500 text-xs">{p.source ?? '—'}</span>
+                        </div>
+                        {(p.promotion_error_code || p.promotion_error_message) && (
+                          <span className="text-xs text-rose-700 dark:text-rose-300">
+                            {p.promotion_error_code ? `${p.promotion_error_code}: ` : ''}
+                            {p.promotion_error_message ?? ''}
+                          </span>
+                        )}
+                        {p.promotion_attempts != null && (
+                          <span className="text-[11px] text-slate-500">Tentativas de promote: {p.promotion_attempts}</span>
                         )}
                       </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -373,7 +458,15 @@ function rowSeverityClass(status: string): string {
   if (status === 'duplicate_user_day' || status === 'erro no processamento') {
     return 'text-red-600 dark:text-red-400';
   }
-  if (status === 'inconsistent_data') return 'text-orange-600 dark:text-orange-400';
+  if (
+    status === 'inconsistent_data' ||
+    status === 'pending_rep_sequence' ||
+    status === 'pending_rep_promote' ||
+    status === 'pending_rep_closed_period' ||
+    status === 'pending_rep_protected'
+  ) {
+    return 'text-orange-600 dark:text-orange-400';
+  }
   return 'text-slate-800 dark:text-slate-200';
 }
 
@@ -443,6 +536,10 @@ const TimeAttendanceAuditPage: React.FC = () => {
     suggestion: Extract<AuditSuggestion, { type: 'suggest_clock_out' }>;
   } | null>(null);
   const [suggestionBusyKey, setSuggestionBusyKey] = useState<string | null>(null);
+  const [repSeqResolution, setRepSeqResolution] = useState<{
+    row: TimeAttendanceRow;
+    initialRepLogId?: string | null;
+  } | null>(null);
 
   const loadData = useCallback(async () => {
     if (!user || !isSupabaseConfigured() || !effectiveCompanyId) return;
@@ -1039,6 +1136,27 @@ const TimeAttendanceAuditPage: React.FC = () => {
                                 <Eye className="w-3.5 h-3.5" aria-hidden />
                                 Ver batidas
                               </Button>
+                              {rowEligibleForAssistedRepReconciliation(row) ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="w-full justify-center gap-1 text-xs border-amber-300 text-amber-900 dark:text-amber-100"
+                                  disabled={!effectiveCompanyId}
+                                  title="Sequência inválida no promote — reconciliação explícita pelo RH"
+                                  onClick={() =>
+                                    setRepSeqResolution({
+                                      row,
+                                      initialRepLogId:
+                                        row.pending_rep_punches?.find(
+                                          (p) => p.promotion_error_code === 'invalid_sequence',
+                                        )?.id ?? null,
+                                    })
+                                  }
+                                >
+                                  Reconciliação assistida
+                                </Button>
+                              ) : null}
                               <Link to={mirrorTo} className="block">
                                 <Button type="button" size="sm" variant="outline" className="w-full justify-center gap-1 text-xs">
                                   <ExternalLink className="w-3.5 h-3.5" aria-hidden />
@@ -1196,6 +1314,21 @@ const TimeAttendanceAuditPage: React.FC = () => {
         records={punchRows}
         highlightGroupIndex={punchHighlightGroup}
       />
+
+      {repSeqResolution && user?.id && effectiveCompanyId ? (
+        <RepPendingSequenceResolutionModal
+          open
+          onClose={() => setRepSeqResolution(null)}
+          companyId={effectiveCompanyId}
+          employeeId={repSeqResolution.row.employee_id}
+          employeeName={repSeqResolution.row.employee_name}
+          dateYmd={repSeqResolution.row.date.slice(0, 10)}
+          pendingPunches={repSeqResolution.row.pending_rep_punches ?? []}
+          initialRepLogId={repSeqResolution.initialRepLogId}
+          reviewedByUserId={user.id}
+          onCompleted={() => void loadData()}
+        />
+      ) : null}
 
       {suggestionConfirm && (
         <div

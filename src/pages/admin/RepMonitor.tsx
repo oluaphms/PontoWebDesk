@@ -23,12 +23,107 @@ type LogRow = {
   created_at: string;
 };
 
+type PromoBadge = { label: string; classes: string };
+
+function buildRepPromoBadgeByDevice(
+  devList: DeviceRow[],
+  pendRows:
+    | {
+        rep_device_id: string | null;
+        promotion_error_code: string | null;
+        promotion_status: string | null;
+      }[]
+    | null,
+): Record<string, PromoBadge> {
+  const promoMap: Record<string, PromoBadge> = {};
+  const byDev = new Map<
+    string,
+    { codes: Set<string>; emptyCode: number; statuses: Set<string> }
+  >();
+  for (const row of pendRows ?? []) {
+    const devId = row.rep_device_id;
+    if (!devId) continue;
+    let g = byDev.get(devId);
+    if (!g) {
+      g = { codes: new Set<string>(), emptyCode: 0, statuses: new Set<string>() };
+      byDev.set(devId, g);
+    }
+    const st = row.promotion_status != null ? String(row.promotion_status).trim() : '';
+    if (st) g.statuses.add(st);
+    const c = row.promotion_error_code != null ? String(row.promotion_error_code).trim() : '';
+    if (c) g.codes.add(c);
+    else g.emptyCode += 1;
+  }
+  const green: PromoBadge = {
+    label: 'Espelho / fila OK',
+    classes: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200',
+  };
+  for (const d of devList) {
+    const g = byDev.get(d.id);
+    if (!g || (g.codes.size === 0 && g.emptyCode === 0 && g.statuses.size === 0)) {
+      promoMap[d.id] = green;
+      continue;
+    }
+    const codes = g.codes;
+    const st = g.statuses;
+    if (st.has('promoted_partial')) {
+      promoMap[d.id] = {
+        label: 'Promoção parcial (dia)',
+        classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100',
+      };
+      continue;
+    }
+    if (st.has('pending_sequence_resolution') || codes.has('invalid_sequence')) {
+      promoMap[d.id] = {
+        label: 'Reconciliação pendente',
+        classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100',
+      };
+      continue;
+    }
+    if (st.has('rejected')) {
+      promoMap[d.id] = {
+        label: 'Promoção rejeitada',
+        classes: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200',
+      };
+      continue;
+    }
+    if (codes.has('closed_period')) {
+      promoMap[d.id] = {
+        label: 'Período fechado',
+        classes: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200',
+      };
+    } else if (codes.has('duplicate_nsr') || codes.has('protected_timesheet') || codes.has('unknown')) {
+      promoMap[d.id] = {
+        label: 'Falha promoção',
+        classes: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200',
+      };
+    } else if (codes.has('missing_user')) {
+      promoMap[d.id] = {
+        label: 'Aguardando RH',
+        classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100',
+      };
+    } else if (g.emptyCode > 0) {
+      promoMap[d.id] = {
+        label: 'Promoção pendente',
+        classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100',
+      };
+    } else {
+      promoMap[d.id] = {
+        label: 'Falha promoção',
+        classes: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200',
+      };
+    }
+  }
+  return promoMap;
+}
+
 const AdminRepMonitor: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [punchCountToday, setPunchCountToday] = useState<number | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [promoByDeviceId, setPromoByDeviceId] = useState<Record<string, PromoBadge>>({});
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
@@ -73,6 +168,19 @@ const AdminRepMonitor: React.FC = () => {
         setDevices(devList || []);
         setLogs(logList || []);
         setPunchCountToday(countRes);
+
+        if (supabaseClient && user.companyId && devList?.length) {
+          const { data: pendRows } = await supabaseClient
+            .from('rep_punch_logs')
+            .select('rep_device_id, promotion_error_code, promotion_status')
+            .eq('company_id', user.companyId)
+            .is('time_record_id', null)
+            .eq('source', 'rep')
+            .limit(4000);
+          setPromoByDeviceId(buildRepPromoBadgeByDevice(devList || [], pendRows));
+        } else {
+          setPromoByDeviceId({});
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -169,20 +277,32 @@ const AdminRepMonitor: React.FC = () => {
                   </li>
                 ) : (
                   devices.map((d) => (
-                    <li key={d.id} className="px-4 py-3 flex justify-between items-center">
+                    <li key={d.id} className="px-4 py-3 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                       <span className="font-medium text-slate-900 dark:text-white">{d.nome_dispositivo}</span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded ${
-                          d.status === 'ativo'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                            : d.status === 'erro'
-                              ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        {d.status || 'inativo'}
+                      <div className="flex flex-wrap items-center gap-2 justify-end">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            d.status === 'ativo'
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              : d.status === 'erro'
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {d.status || 'inativo'}
+                        </span>
+                        {promoByDeviceId[d.id] ? (
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${promoByDeviceId[d.id].classes}`}
+                            title="Estado da fila REP → espelho (rep_punch_logs sem time_record)"
+                          >
+                            {promoByDeviceId[d.id].label}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="text-sm text-slate-500 dark:text-slate-400 sm:text-right">
+                        {formatDate(d.ultima_sincronizacao)}
                       </span>
-                      <span className="text-sm text-slate-500 dark:text-slate-400">{formatDate(d.ultima_sincronizacao)}</span>
                     </li>
                   ))
                 )}

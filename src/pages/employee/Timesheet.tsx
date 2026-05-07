@@ -3,11 +3,12 @@ import { Navigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, FileDown, MapPin, RefreshCw } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { fetchTimeRecordsForMirrorWindow } from '../../../services/api';
 import { getNationalHolidayDatesForPeriod } from '../../engine/timeEngine';
 import { LoadingState } from '../../../components/UI';
-import { calendarDateForEspelhoRow } from '../../utils/calendarUtils';
+import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from '../../utils/calendarUtils';
+import type { PendingRepPunch } from '../../services/timeAttendanceData';
 import {
   buildDayMirrorSummary,
   DayMirror,
@@ -47,10 +48,23 @@ function formatDateBR(dateStr: string) {
 
 const EMPTY_DASH = '----';
 
+function localYmdStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T00:00:00.000Z`;
+  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+}
+
+function localYmdEndIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T23:59:59.999Z`;
+  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
+}
+
 type DayIssuesModalState = {
   date: string;
   extras: string[];
   inconsistencias: string[];
+  repPending: PendingRepPunch[];
 } | null;
 
 const EmployeeTimesheet: React.FC = () => {
@@ -84,6 +98,7 @@ const EmployeeTimesheet: React.FC = () => {
   } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [issuesModal, setIssuesModal] = useState<DayIssuesModalState>(null);
+  const [repPendingByDate, setRepPendingByDate] = useState<Map<string, PendingRepPunch[]>>(() => new Map());
 
   useEffect(() => {
     const sync = () => setSpecialBarsLayout(readSpecialBarsPref());
@@ -197,6 +212,65 @@ const EmployeeTimesheet: React.FC = () => {
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, companyId, periodStart, periodEnd, periodValid, refreshNonce]);
+
+  useEffect(() => {
+    if (!periodValid || !user?.id || !companyId || !isSupabaseConfigured()) {
+      setRepPendingByDate(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const start = localYmdStartIso(periodStart);
+      const end = localYmdEndIso(periodEnd);
+      const { data, error } = await supabase
+        .from('rep_punch_logs')
+        .select(
+          'id,resolved_user_id,data_hora,tipo_marcacao,nsr,rep_device_id,source,promotion_error_code,promotion_error_message,promotion_attempts,promotion_status',
+        )
+        .eq('company_id', companyId)
+        .eq('resolved_user_id', user.id)
+        .is('time_record_id', null)
+        .eq('ignored', false)
+        .gte('data_hora', start)
+        .lte('data_hora', end)
+        .order('data_hora', { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.warn('[Espelho colaborador] rep_punch_logs pendentes:', error.message);
+        setRepPendingByDate(new Map());
+        return;
+      }
+      const byDate = new Map<string, PendingRepPunch[]>();
+      for (const row of data ?? []) {
+        const r = row as Record<string, unknown>;
+        const dh = String(r.data_hora ?? '');
+        if (!dh) continue;
+        const day = extractLocalCalendarDateFromIso(dh);
+        if (day < periodStart.slice(0, 10) || day > periodEnd.slice(0, 10)) continue;
+        const uid = String(r.resolved_user_id ?? '').trim();
+        if (!uid) continue;
+        const p: PendingRepPunch = {
+          id: String(r.id ?? ''),
+          resolved_user_id: uid,
+          data_hora: dh,
+          tipo_marcacao: r.tipo_marcacao != null ? String(r.tipo_marcacao) : null,
+          nsr: typeof r.nsr === 'number' ? r.nsr : r.nsr != null ? Number(r.nsr) : null,
+          rep_device_id: r.rep_device_id != null ? String(r.rep_device_id) : null,
+          source: r.source != null ? String(r.source) : null,
+          promotion_error_code: r.promotion_error_code != null ? String(r.promotion_error_code) : null,
+          promotion_error_message: r.promotion_error_message != null ? String(r.promotion_error_message) : null,
+          promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
+          promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
+        };
+        if (!byDate.has(day)) byDate.set(day, []);
+        byDate.get(day)!.push(p);
+      }
+      setRepPendingByDate(byDate);
+    })();
     return () => {
       cancelled = true;
     };
@@ -555,6 +629,18 @@ const EmployeeTimesheet: React.FC = () => {
                                 {dataNote}
                               </span>
                             )}
+                            {(() => {
+                              const rp = repPendingByDate.get(date);
+                              if (!rp?.length) return null;
+                              return (
+                                <span
+                                  className="text-xs font-semibold text-amber-800 dark:text-amber-200"
+                                  title="Batidas no REP ainda sem linha no espelho — não entram no total até consolidar."
+                                >
+                                  REP pendente: {rp.length} batida(s)
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="px-3 py-2 align-top">
@@ -645,7 +731,13 @@ const EmployeeTimesheet: React.FC = () => {
       {periodValid && !loadingData && (() => {
         const daysWithIssues = periodDates
           .map((date) => ({ date, day: empMirror.get(date) }))
-          .filter((x) => x.day && (x.day.batidasExtra.length > 0 || x.day.inconsistencias.length > 0));
+          .filter(
+            (x) =>
+              x.day &&
+              (x.day.batidasExtra.length > 0 ||
+                x.day.inconsistencias.length > 0 ||
+                (repPendingByDate.get(x.date)?.length ?? 0) > 0),
+          );
         if (daysWithIssues.length === 0) return null;
         return (
           <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm p-4">
@@ -661,6 +753,7 @@ const EmployeeTimesheet: React.FC = () => {
                 const issueLabel = (r: MirrorTimeRecord) => `${fmtRecord(r)} · ${resolvePunchOrigin(r).label}`;
                 const extraLabels = day.batidasExtra.map(issueLabel);
                 const inconsistLabels = day.inconsistencias.map(issueLabel);
+                const repPend = repPendingByDate.get(date) ?? [];
                 return (
                   <div key={`issue-${date}`} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -675,10 +768,22 @@ const EmployeeTimesheet: React.FC = () => {
                           Incons.: {inconsistLabels.length}
                         </span>
                       )}
+                      {repPend.length > 0 && (
+                        <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          REP pend.: {repPend.length}
+                        </span>
+                      )}
                       <button
                         type="button"
                         className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 hover:underline"
-                        onClick={() => setIssuesModal({ date, extras: extraLabels, inconsistencias: inconsistLabels })}
+                        onClick={() =>
+                          setIssuesModal({
+                            date,
+                            extras: extraLabels,
+                            inconsistencias: inconsistLabels,
+                            repPending: repPend,
+                          })
+                        }
                       >
                         Ver lista completa
                       </button>
@@ -752,6 +857,41 @@ const EmployeeTimesheet: React.FC = () => {
                   <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
                     {issuesModal.inconsistencias.map((item, idx) => (
                       <li key={`incons-${idx}`}>- {item}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">
+                  Batidas REP pendentes ({issuesModal.repPending.length})
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  Registos no REP ainda sem time_record no espelho — não entram no total até consolidar.
+                </p>
+                {issuesModal.repPending.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma batida REP pendente neste dia.</p>
+                ) : (
+                  <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                    {issuesModal.repPending.map((p) => (
+                      <li key={p.id} className="border-t border-slate-200 dark:border-slate-700 first:border-0 first:pt-0 pt-2">
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                          <span className="font-mono text-xs">
+                            {new Date(p.data_hora).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                          {p.nsr != null && <span className="text-xs text-slate-500">NSR {String(p.nsr)}</span>}
+                          <span className="text-xs text-slate-500">{p.source ?? '—'}</span>
+                          <span className="text-xs">{p.tipo_marcacao ?? '—'}</span>
+                        </div>
+                        {(p.promotion_error_code || p.promotion_error_message) && (
+                          <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5">
+                            {p.promotion_error_code ? `${p.promotion_error_code}: ` : ''}
+                            {p.promotion_error_message ?? ''}
+                          </p>
+                        )}
+                        {p.promotion_attempts != null && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">Tentativas: {p.promotion_attempts}</p>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 )}

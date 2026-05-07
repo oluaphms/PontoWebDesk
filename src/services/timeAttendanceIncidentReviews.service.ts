@@ -53,8 +53,13 @@ export async function insertIncidentResolution(input: {
     category?: string;
     recommended_action?: string;
     human_reason?: string;
+    correlation_id?: string | null;
+    operation_id?: string | null;
+    lifecycle?: string | null;
   };
   supabaseClient?: SupabaseClient | null;
+  /** Quando true, não grava o evento companion na timeline (commit transacional coordena). */
+  skipCompanionTimeline?: boolean;
 }): Promise<boolean> {
   const client = input.supabaseClient ?? getSupabaseClient();
   if (!client) return false;
@@ -79,21 +84,23 @@ export async function insertIncidentResolution(input: {
       employee_id: row.employee_id,
       date: row.date,
     });
-    await appendTimeAttendanceTimelineEvent({
-      companyId: row.company_id,
-      employeeId: row.employee_id,
-      date: row.date,
-      eventType: TimeAttendanceTimelineEventType.INCIDENT_RESOLVED,
-      eventSeverity: TimeAttendanceTimelineSeverity.low,
-      sourceModule: 'operational_incidents',
-      payload: {
-        incident_code: row.incident_code,
-        resolution_note: row.resolution_note,
-        ...input.incidentPayload,
-      },
-      createdBy: row.resolved_by,
-      supabaseClient: client,
-    });
+    if (!input.skipCompanionTimeline) {
+      await appendTimeAttendanceTimelineEvent({
+        companyId: row.company_id,
+        employeeId: row.employee_id,
+        date: row.date,
+        eventType: TimeAttendanceTimelineEventType.INCIDENT_RESOLVED,
+        eventSeverity: TimeAttendanceTimelineSeverity.low,
+        sourceModule: 'operational_incidents',
+        payload: {
+          incident_code: row.incident_code,
+          resolution_note: row.resolution_note,
+          ...input.incidentPayload,
+        },
+        createdBy: row.resolved_by,
+        supabaseClient: client,
+      });
+    }
     return true;
   } catch (e) {
     console.error('[TIME ATTENDANCE INCIDENT]', {
@@ -101,6 +108,14 @@ export async function insertIncidentResolution(input: {
       message: e instanceof Error ? e.message : String(e),
     });
     return false;
+  }
+}
+
+/** Para `commitOperationalTransaction`: falha com exceção em vez de retornar false. */
+export async function insertIncidentResolutionOrThrow(input: Parameters<typeof insertIncidentResolution>[0]): Promise<void> {
+  const ok = await insertIncidentResolution(input);
+  if (!ok) {
+    throw new Error('Falha ao inserir resolução de incidente (time_attendance_incident_reviews).');
   }
 }
 

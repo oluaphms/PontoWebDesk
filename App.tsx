@@ -131,6 +131,8 @@ import {
   TimeAttendanceAuditPage,
   TimeAttendanceTimelinePage,
   OperationalIncidentsPage,
+  OperationalRecoveryPage,
+  RepOperationsCenterPage,
   TimeBalancePage,
   TimeClockPage,
   TimeRecordsPage,
@@ -887,7 +889,17 @@ const AppMain: React.FC = () => {
           pendingLoginRoleRef.current = null;
           return;
         }
-        let redirectSessionExists = false;
+
+        /**
+         * Caminho crítico do login: setar usuário e navegar IMEDIATAMENTE.
+         * Qualquer await extra aqui (getSession, getCompany, refreshSession) faz o spinner ficar
+         * preso e o usuário pensa que precisa "atualizar o navegador" — quando na verdade a sessão
+         * já foi gravada e só faltava o redirect. Tudo que não bloqueia a navegação vai pra fire-and-forget.
+         */
+        const targetRoute =
+          result.user.role === 'admin' || result.user.role === 'hr'
+            ? '/admin/dashboard'
+            : '/employee/dashboard';
 
         flushSync(() => {
           setUser(result.user);
@@ -897,51 +909,54 @@ const AppMain: React.FC = () => {
           }
         });
 
-        try {
-          const client = getSupabaseClient();
-          if (client) {
-            const { data: sessSnap, error: sessErr } = await client.auth.getSession();
-            redirectSessionExists = !!sessSnap?.session;
-            if (typeof console !== 'undefined') {
-              console.log('[SESSION AFTER LOGIN]', {
-                sessionExists: redirectSessionExists,
-                error: sessErr?.message ?? null,
-              });
-            }
-          }
-        } catch {
-          redirectSessionExists = false;
-          // não bloquear navegação
+        if (result.user.role === 'admin' || result.user.role === 'hr') {
+          setActiveTab('admin');
+        } else {
+          setActiveTab('dashboard');
         }
-
-        // Disparar evento para sincronizar outros componentes
-        window.dispatchEvent(new Event('current_user_changed'));
-
-        try {
-          const comp = await Promise.race([
-            PontoService.getCompany(result.user.companyId),
-            new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000))
-          ]);
-          if (comp) setCompany(comp);
-        } catch {
-          // segue sem empresa
-        }
+        navigate(targetRoute, { replace: true });
+        pendingLoginRoleRef.current = null;
 
         if (typeof console !== 'undefined') {
           console.log('[REDIRECT CHECK]', {
-            sessionExists: redirectSessionExists,
             userInState: !!result.user,
-            targetRoute: result.user.role === 'admin' || result.user.role === 'hr' ? '/admin/dashboard' : '/employee/dashboard',
+            targetRoute,
           });
         }
-        if (result.user.role === 'admin' || result.user.role === 'hr') {
-          setActiveTab('admin');
-          navigate('/admin/dashboard', { replace: true });
-        } else {
-          setActiveTab('dashboard');
-          navigate('/employee/dashboard', { replace: true });
-        }
-        pendingLoginRoleRef.current = null;
+
+        // Side-effects diferidos: NÃO bloquear o redirect/spinner.
+        // - getSession() é apenas diagnóstico de log.
+        // - getCompany() alimenta o header da dashboard, mas a página renderiza sem ele.
+        void (async () => {
+          try {
+            window.dispatchEvent(new Event('current_user_changed'));
+          } catch {
+            // ignora
+          }
+
+          try {
+            const client = getSupabaseClient();
+            if (client && typeof console !== 'undefined') {
+              const { data: sessSnap, error: sessErr } = await client.auth.getSession();
+              console.log('[SESSION AFTER LOGIN]', {
+                sessionExists: !!sessSnap?.session,
+                error: sessErr?.message ?? null,
+              });
+            }
+          } catch {
+            // log opcional; nunca quebra login
+          }
+
+          try {
+            const comp = await Promise.race([
+              PontoService.getCompany(result.user.companyId),
+              new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000)),
+            ]);
+            if (comp) setCompany(comp);
+          } catch {
+            // segue sem empresa; admin/employee dashboard tolera company nulo no boot
+          }
+        })();
       }
     } catch (error: any) {
       console.error('Erro no handleLogin:', error);
@@ -1384,6 +1399,9 @@ const AppMain: React.FC = () => {
               <Route path="time-attendance-audit" element={<TimeAttendanceAuditPage />} />
               <Route path="time-attendance-timeline" element={<TimeAttendanceTimelinePage />} />
               <Route path="operational-incidents" element={<OperationalIncidentsPage />} />
+              <Route path="operational-recovery" element={<OperationalRecoveryPage />} />
+              <Route path="rep-operational-health" element={<RepOperationsCenterPage />} />
+              <Route path="rep-operations-center" element={<RepOperationsCenterPage />} />
               <Route path="absences" element={<AbsencesPage />} />
               <Route path="ausencias" element={<AdminAusencias />} />
               <Route path="requests" element={<RequestsPage />} />

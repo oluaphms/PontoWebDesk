@@ -12,6 +12,8 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from '../src/services/timeAttendanceTimeline.constants';
+import { extractLocalCalendarDateFromIso } from '../src/utils/calendarUtils';
+import { runRepGovernanceAfterManualMirrorAdjustment } from '../src/services/repOperationalIntegrity.service';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -355,6 +357,15 @@ export async function insertAdminMirrorTimeRecord(
       recordId: id,
       rpcSource: opts?.rpcSource,
     });
+    if (opts?.repGovernance?.repPunchLogIds?.length) {
+      const dateYmd = extractLocalCalendarDateFromIso(createdIso);
+      void runRepGovernanceAfterManualMirrorAdjustment(sb, companyId, {
+        repPunchLogIds: opts.repGovernance.repPunchLogIds,
+        employeeId: userId,
+        dateYmd,
+        reviewedBy: opts.repGovernance.reviewedBy,
+      });
+    }
     return { id, createdAt: createdIso };
   }
 
@@ -379,5 +390,14 @@ export async function insertAdminMirrorTimeRecord(
     recordId: mergeId,
     rpcSource: opts?.rpcSource,
   });
+  if (opts?.repGovernance?.repPunchLogIds?.length) {
+    const dateYmd = extractLocalCalendarDateFromIso(createdAt);
+    void runRepGovernanceAfterManualMirrorAdjustment(sb, companyId, {
+      repPunchLogIds: opts.repGovernance.repPunchLogIds,
+      employeeId: userId,
+      dateYmd,
+      reviewedBy: opts.repGovernance.reviewedBy,
+    });
+  }
   return { id: mergeId, createdAt };
 }

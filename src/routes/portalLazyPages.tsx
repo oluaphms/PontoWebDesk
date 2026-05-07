@@ -18,6 +18,10 @@ export const TimeAttendancePage = React.lazy(ROUTE_LOADERS['/admin/time-attendan
 export const TimeAttendanceAuditPage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-audit']);
 export const TimeAttendanceTimelinePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-timeline']);
 export const OperationalIncidentsPage = React.lazy(ROUTE_LOADERS['/admin/operational-incidents']);
+export const OperationalRecoveryPage = React.lazy(ROUTE_LOADERS['/admin/operational-recovery']);
+export const RepOperationsCenterPage = React.lazy(ROUTE_LOADERS['/admin/rep-operations-center']);
+/** Compat: URL antiga `/admin/rep-operational-health` usa o mesmo módulo. */
+export const RepOperationalHealthPage = React.lazy(ROUTE_LOADERS['/admin/rep-operational-health']);
 export const AbsencesPage = React.lazy(ROUTE_LOADERS['/admin/absences']);
 export const RequestsPage = React.lazy(ROUTE_LOADERS['/admin/requests']);
 

@@ -89,6 +89,8 @@ export async function syncRepDevice(
   /** Quantas marcações vieram do relógio (antes de gravar). */
   received?: number;
   ingestErrors?: string[];
+  /** Ingestão direta: espelho rejeitou com evidência em rep_punch_logs. */
+  promoteMirrorFailed?: number;
   error?: string;
 }> {
   const { data: device, error: fetchError } = await supabase
@@ -150,6 +152,7 @@ export async function syncRepDevice(
       staged: result.staged,
       duplicated: result.duplicated,
       userNotFound: result.userNotFound,
+      promoteMirrorFailed: result.promoteMirrorFailed ?? 0,
       errors: result.errors,
       onlyStaging: ingestOptions?.onlyStaging,
       applySchedule: ingestOptions?.applySchedule,
@@ -162,6 +165,7 @@ export async function syncRepDevice(
       duplicated: result.duplicated,
       userNotFound: result.userNotFound,
       received: punches.length,
+      promoteMirrorFailed: result.promoteMirrorFailed ?? 0,
       ingestErrors: result.errors.length ? [...result.errors] : undefined,
       error: result.errors[0],
     };

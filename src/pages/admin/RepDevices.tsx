@@ -929,6 +929,8 @@ const AdminRepDevices: React.FC = () => {
         const dup = r.duplicated ?? 0;
         const unf = r.userNotFound ?? 0;
         const received = r.received ?? 0;
+        const pmfIngest = r.promoteMirrorFailed ?? 0;
+        let promoteQueueFailedTotal = 0;
 
         appendSrLog(`Bruto do relógio (esta leitura): ${received} marcação(ões).`);
 
@@ -955,6 +957,7 @@ const AdminRepDevices: React.FC = () => {
             onlyUserId: onlyUid,
           });
           if (pr.success) {
+            promoteQueueFailedTotal += pr.promoteFailed ?? 0;
             const promoted = pr.promoted ?? 0;
             const skipped = pr.skippedNoUser ?? 0;
             const skippedOther = pr.skippedOtherUser ?? 0;
@@ -973,6 +976,7 @@ const AdminRepDevices: React.FC = () => {
                 });
                 notePromotePeriodClosed(prRetry);
                 if (prRetry.success) {
+                  promoteQueueFailedTotal += prRetry.promoteFailed ?? 0;
                   const promotedRetry = prRetry.promoted ?? 0;
                   imp += promotedRetry;
                   stillInQueueOnly = prRetry.skippedNoUser ?? stillInQueueOnly;
@@ -1000,6 +1004,7 @@ const AdminRepDevices: React.FC = () => {
                 });
                 notePromotePeriodClosed(prFinal);
                 if (prFinal.success) {
+                  promoteQueueFailedTotal += prFinal.promoteFailed ?? 0;
                   stillInQueueOnly = prFinal.skippedNoUser ?? stillInQueueOnly;
                   stillInQueueOtherUser = prFinal.skippedOtherUser ?? stillInQueueOtherUser;
                 }
@@ -1111,10 +1116,31 @@ const AdminRepDevices: React.FC = () => {
             );
           }
         }
-        if (dup) {
-          parts.push(
-            `nesta descarga: ${dup} batida(s) repetem NSR já na base (reenvio do relógio; não há insert duplicado — independente da fila «sem cadastro»)`
-          );
+        if (
+          !periodClosedBlocked &&
+          received > 0 &&
+          (dup > 0 || pmfIngest > 0 || promoteQueueFailedTotal > 0)
+        ) {
+          const bits: string[] = [];
+          if (dup > 0) {
+            bits.push(
+              `${dup} com NSR já na base (duplicidade — sem novo time_record por esse motivo)`
+            );
+          }
+          if (pmfIngest > 0) {
+            let t = `${pmfIngest} aceite(s) no REP mas rejeitada(s) pelo espelho (sequência ou outra regra; ver rep_punch_logs e incidentes)`;
+            if (promoteQueueFailedTotal > 0) {
+              t += `; ${promoteQueueFailedTotal} falha(s) na consolidação da fila (além do ingest)`;
+            }
+            bits.push(t);
+          } else if (promoteQueueFailedTotal > 0) {
+            bits.push(
+              `${promoteQueueFailedTotal} falha(s) ao promover a fila para o espelho (rep_punch_logs)`
+            );
+          }
+          parts.push(`Das ${received} marcação(ões) lidas do relógio: ${bits.join('; ')}.`);
+        }
+        if (dup > 0) {
           appendSrLog(
             'NSR duplicado: se a batida **já está no espelho** (time_record), não há nova linha. Se está **só na fila** pendente, com a migração 20260502140000 o reenvio do mesmo NSR **actualiza** PIS/CPF/matrícula na linha existente para alinhar ao que o relógio manda agora — depois «Consolidar».'
           );
@@ -1217,6 +1243,7 @@ const AdminRepDevices: React.FC = () => {
       const promoted = pr.promoted ?? 0;
       const skipped = pr.skippedNoUser ?? 0;
       const skippedOther = pr.skippedOtherUser ?? 0;
+      let promoteFailedTotal = pr.promoteFailed ?? 0;
       let shouldRetryPromote = false;
       if (skipped > 0) {
         const fixedByRepair = await tryAutoRepairPendingMatches(consolidateCompanyId, d.id, localDay);
@@ -1234,6 +1261,9 @@ const AdminRepDevices: React.FC = () => {
               onlyUserId: onlyUid,
             })
           : pr;
+      if (shouldRetryPromote && prAfterRepair.success) {
+        promoteFailedTotal += prAfterRepair.promoteFailed ?? 0;
+      }
       let promotedFinal = prAfterRepair.promoted ?? promoted;
       let skippedFinal = prAfterRepair.skippedNoUser ?? skipped;
       let skippedOtherFinal = prAfterRepair.skippedOtherUser ?? skippedOther;
@@ -1253,6 +1283,7 @@ const AdminRepDevices: React.FC = () => {
             onlyUserId: onlyUid,
           });
           if (prFinal.success) {
+            promoteFailedTotal += prFinal.promoteFailed ?? 0;
             skippedFinal = prFinal.skippedNoUser ?? skippedFinal;
             skippedOtherFinal = prFinal.skippedOtherUser ?? skippedOtherFinal;
           }
@@ -1261,6 +1292,11 @@ const AdminRepDevices: React.FC = () => {
       const partsLog: string[] = [
         `Consolidado: ${promotedFinal} registro(s) na folha; ${skippedFinal} pendente(s) sem funcionário identificado`,
       ];
+      if (promoteFailedTotal > 0) {
+        partsLog.push(
+          `${promoteFailedTotal} falha(s) ao promover para o espelho (evidência em rep_punch_logs; consulte incidentes operacionais)`
+        );
+      }
       if (onlyUid && skippedOtherFinal > 0) {
         partsLog.push(`${skippedOtherFinal} com cadastro noutro colaborador (filtro «só este»)`);
       }

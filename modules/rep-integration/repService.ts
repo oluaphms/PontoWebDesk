@@ -21,6 +21,15 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from '../../src/services/timeAttendanceTimeline.constants';
+import {
+  classifyRepPromoteError,
+  type RepPromoteErrorType,
+} from './repPromoteErrorClassifier';
+import {
+  reconcileOperationalDaySequence,
+  saoPauloCivilBoundsUtc,
+} from './repOperationalSequenceResolver';
+import { runRepGovernanceAfterPromoteRecoveredBatch } from '../../src/services/repOperationalIntegrity.service';
 
 const REP_WEAK_MATCH_USER_COLUMNS = [
   'id',
@@ -71,6 +80,87 @@ function repCivilDateFromIsoUtc(iso: string): string | null {
   }
 }
 
+const STABLE_PROMOTE_CODES = new Set<string>([
+  'invalid_sequence',
+  'duplicate_nsr',
+  'closed_period',
+  'protected_timesheet',
+  'missing_user',
+  'unknown',
+]);
+
+function normalizeRepPromoteErrorCode(
+  raw: string | null | undefined,
+  message: string | null | undefined,
+): RepPromoteErrorType {
+  const r = (raw ?? '').trim();
+  if (r && STABLE_PROMOTE_CODES.has(r)) return r as RepPromoteErrorType;
+  return classifyRepPromoteError(message);
+}
+
+/** Timeline + incidente operacional quando o espelho rejeita a batida (evidência fica em rep_punch_logs). */
+function recordRepPromoteMirrorFailureOnTimeline(
+  supabase: SupabaseClient,
+  args: {
+    companyId: string;
+    employeeId: string | null;
+    date: string | null;
+    nsr: number | null | undefined;
+    message: string | null | undefined;
+    errorCode?: string | null;
+    repPunchLogId?: string | null;
+    sourceModule: string;
+    sourceReferenceId?: string | null;
+    promotionAttempts?: number | null;
+    deviceId?: string | null;
+  },
+): void {
+  const msg = args.message ?? '';
+  const code = normalizeRepPromoteErrorCode(args.errorCode, msg);
+  if (typeof globalThis !== 'undefined' && globalThis.console) {
+    globalThis.console.warn('[REP PROMOTE FAILED]', {
+      nsr: args.nsr ?? null,
+      error_code: code,
+      employee_id: args.employeeId ?? null,
+      date: args.date ?? null,
+      rep_punch_log_id: args.repPunchLogId ?? null,
+    });
+  }
+  const payload: Record<string, unknown> = {
+    error_code: code,
+    message: msg ? msg.slice(0, 2000) : null,
+    nsr: args.nsr ?? null,
+    employee_id: args.employeeId ?? null,
+    date: args.date ?? null,
+    category: 'REP',
+    rep_punch_log_id: args.repPunchLogId ?? null,
+    promotion_attempts: args.promotionAttempts ?? null,
+    device_id: args.deviceId ?? null,
+  };
+  void appendTimeAttendanceTimelineEvent({
+    companyId: args.companyId,
+    employeeId: args.employeeId,
+    date: args.date,
+    eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED,
+    eventSeverity: TimeAttendanceTimelineSeverity.medium,
+    sourceModule: args.sourceModule,
+    sourceReferenceId: args.repPunchLogId ?? args.sourceReferenceId ?? null,
+    payload,
+    supabaseClient: supabase,
+  });
+  void appendTimeAttendanceTimelineEvent({
+    companyId: args.companyId,
+    employeeId: args.employeeId,
+    date: args.date,
+    eventType: TimeAttendanceTimelineEventType.INCIDENT_DETECTED,
+    eventSeverity: TimeAttendanceTimelineSeverity.medium,
+    sourceModule: args.sourceModule,
+    sourceReferenceId: args.repPunchLogId ?? args.sourceReferenceId ?? null,
+    payload: { rep_promote_failure: true, ...payload },
+    supabaseClient: supabase,
+  });
+}
+
 function scheduleRepIngestTimeline(
   supabase: SupabaseClient,
   input: {
@@ -84,6 +174,11 @@ function scheduleRepIngestTimeline(
     user_not_found?: boolean;
     success: boolean;
     time_record_id?: string | null;
+    promoteMirrorFailed?: boolean;
+    promotionErrorCode?: string | null;
+    promoteErrorMessage?: string | null;
+    repLogId?: string | null;
+    promotionAttempts?: number | null;
   },
 ): void {
   const ymd = repCivilDateFromIsoUtc(input.data_hora);
@@ -114,11 +209,29 @@ function scheduleRepIngestTimeline(
       user_not_found: input.user_not_found === true,
       success: input.success,
       time_record_id: input.time_record_id ?? null,
+      promote_mirror_failed: input.promoteMirrorFailed === true,
     },
     supabaseClient: supabase,
   });
 
   if (input.duplicate) return;
+
+  if (input.promoteMirrorFailed) {
+    recordRepPromoteMirrorFailureOnTimeline(supabase, {
+      companyId: input.company_id,
+      employeeId: resolved_user_id,
+      date: ymd,
+      nsr: input.nsr,
+      message: input.promoteErrorMessage ?? null,
+      errorCode: input.promotionErrorCode ?? null,
+      repPunchLogId: input.repLogId ?? null,
+      sourceModule: 'repService.ingestPunch',
+      sourceReferenceId: device_id,
+      promotionAttempts: input.promotionAttempts ?? null,
+      deviceId: device_id,
+    });
+    return;
+  }
 
   if (input.user_not_found) {
     void appendTimeAttendanceTimelineEvent({
@@ -210,6 +323,8 @@ export interface IngestResult {
   errors: string[];
   /** Marcações só em rep_punch_logs (modo fila temporária) */
   staged?: number;
+  /** Batida gravada no REP mas o espelho rejeitou (ex.: sequência inválida); evidência em rep_punch_logs. */
+  promoteMirrorFailed?: number;
 }
 
 /**
@@ -246,6 +361,11 @@ export async function ingestPunch(
   /** NSR já existia em rep_punch_logs para este relógio. */
   duplicate?: boolean;
   error?: string;
+  /** Falha de INSERT em time_records com log preservado (RPC devolve código estável). */
+  promoteMirrorFailed?: boolean;
+  promotion_error_code?: string;
+  rep_log_id?: string;
+  promotion_attempts?: number;
 }> {
   const merged = applyControlIdAfdLineIdentityOverride(params);
   let rawData = mergeRepExtractedIdentifiersIntoRawData(merged.raw_data ?? {});
@@ -326,6 +446,9 @@ export async function ingestPunch(
     user_not_found?: boolean;
     error?: string;
     duplicate?: boolean;
+    promotion_error_code?: string;
+    rep_log_id?: string;
+    promotion_attempts?: number;
   };
   if (result.duplicate) {
     if (!params.omitTimeline) {
@@ -366,11 +489,19 @@ export async function ingestPunch(
       candidatos: 'no cliente admin use RPC rep_match_user_id_for_rep_punch_row → campo debug',
     });
   }
+  const promotionCode =
+    typeof result.promotion_error_code === 'string' ? result.promotion_error_code.trim() : '';
+  const mirrorFailed = result.success === false && promotionCode.length > 0;
   const out = {
     success: result.success === true,
     time_record_id: result.time_record_id,
     user_not_found: result.user_not_found === true,
     error: result.error,
+    promoteMirrorFailed: mirrorFailed,
+    promotion_error_code: promotionCode || undefined,
+    rep_log_id: typeof result.rep_log_id === 'string' ? result.rep_log_id : undefined,
+    promotion_attempts:
+      typeof result.promotion_attempts === 'number' ? result.promotion_attempts : undefined,
   };
   if (!params.omitTimeline) {
     scheduleRepIngestTimeline(supabase, {
@@ -383,6 +514,12 @@ export async function ingestPunch(
       success: out.success,
       user_not_found: out.user_not_found === true,
       time_record_id: out.time_record_id ?? null,
+      promoteMirrorFailed: mirrorFailed,
+      promotionErrorCode: promotionCode || null,
+      promoteErrorMessage: result.error ?? null,
+      repLogId: typeof result.rep_log_id === 'string' ? result.rep_log_id : null,
+      promotionAttempts:
+        typeof result.promotion_attempts === 'number' ? result.promotion_attempts : null,
     });
   }
   return out;
@@ -400,7 +537,14 @@ export async function ingestAfdRecords(
   /** Atribui todas as linhas do ficheiro a este colaborador (ignora PIS/CPF do AFD). */
   forceUserId?: string | null
 ): Promise<IngestResult> {
-  const result: IngestResult = { success: true, imported: 0, duplicated: 0, userNotFound: 0, errors: [] };
+  const result: IngestResult = {
+    success: true,
+    imported: 0,
+    duplicated: 0,
+    userNotFound: 0,
+    errors: [],
+    promoteMirrorFailed: 0,
+  };
 
   let weakUsers: RepWeakPisMatchUser[] | null = null;
   if (!forceUserId) {
@@ -448,6 +592,7 @@ export async function ingestAfdRecords(
       imported: result.imported,
       duplicated: result.duplicated,
       userNotFound: result.userNotFound,
+      promote_mirror_failed: result.promoteMirrorFailed ?? 0,
       errors_count: result.errors.length,
     },
     supabaseClient: supabase,
@@ -497,6 +642,10 @@ function foldIngestPunchRow(
     result.duplicated += 1;
     return;
   }
+  if (r.promoteMirrorFailed) {
+    result.promoteMirrorFailed = (result.promoteMirrorFailed ?? 0) + 1;
+    return;
+  }
   if (r.success && r.user_not_found) {
     /** Com fila temporária, «sem usuário» é esperado: conta só em staged, não duplicar em userNotFound. */
     if (onlyStaging) {
@@ -541,6 +690,7 @@ export async function ingestPunchesFromDevice(
     userNotFound: 0,
     errors: [],
     staged: 0,
+    promoteMirrorFailed: 0,
   };
   const onlyStaging = options?.onlyStaging ?? false;
   const applySchedule = options?.applySchedule ?? false;
@@ -550,41 +700,68 @@ export async function ingestPunchesFromDevice(
   if (!options?.skipWeakPisMatch) {
     weakUsers = await fetchWeakMatchUsersForCompany(supabase, device.company_id);
   }
-  const total = punches.length;
-  const totalBatches = total > 0 ? Math.ceil(total / concurrency) : 0;
+  const sorted = [...punches].sort((a, b) => {
+    const ta = Date.parse(a.data_hora);
+    const tb = Date.parse(b.data_hora);
+    if (ta !== tb) return ta - tb;
+    return (a.nsr ?? 0) - (b.nsr ?? 0);
+  });
+  const groups = new Map<string, PunchFromDevice[]>();
+  for (const p of sorted) {
+    const k = repPunchIngestGroupKey(p);
+    const g = groups.get(k);
+    if (g) g.push(p);
+    else groups.set(k, [p]);
+  }
+  const orderedKeys = Array.from(groups.keys()).sort((ka, kb) => {
+    const a = groups.get(ka)![0];
+    const b = groups.get(kb)![0];
+    return Date.parse(a.data_hora) - Date.parse(b.data_hora);
+  });
+  const total = sorted.length;
+  const totalBatches = total > 0 ? Math.ceil(orderedKeys.length / concurrency) : 0;
   /** Máximo de callbacks de progresso (importações enormes). */
   const maxProgressSamples = 50;
   const progressStep =
     totalBatches <= maxProgressSamples ? 1 : Math.max(1, Math.ceil(totalBatches / maxProgressSamples));
 
-  for (let i = 0; i < punches.length; i += concurrency) {
-    const slice = punches.slice(i, i + concurrency);
+  let processedCount = 0;
+  for (let i = 0; i < orderedKeys.length; i += concurrency) {
+    const sliceKeys = orderedKeys.slice(i, i + concurrency);
     const batch = await Promise.all(
-      slice.map((p) =>
-        ingestPunch(supabase, {
-          company_id: device.company_id,
-          rep_device_id: device.id,
-          pis: p.pis ?? null,
-          cpf: p.cpf ?? null,
-          matricula: p.matricula ?? null,
-          nome_funcionario: p.nome ?? null,
-          data_hora: p.data_hora,
-          tipo_marcacao: p.tipo || 'E',
-          nsr: p.nsr ?? null,
-          raw_data: p.raw ?? {},
-          only_staging: onlyStaging,
-          apply_schedule: applySchedule,
-          weak_match_users: weakUsers,
-          omitTimeline: true,
-        })
-      )
+      sliceKeys.map(async (key) => {
+        const list = groups.get(key)!;
+        const out: Awaited<ReturnType<typeof ingestPunch>>[] = [];
+        for (const p of list) {
+          out.push(
+            await ingestPunch(supabase, {
+              company_id: device.company_id,
+              rep_device_id: device.id,
+              pis: p.pis ?? null,
+              cpf: p.cpf ?? null,
+              matricula: p.matricula ?? null,
+              nome_funcionario: p.nome ?? null,
+              data_hora: p.data_hora,
+              tipo_marcacao: p.tipo || 'E',
+              nsr: p.nsr ?? null,
+              raw_data: p.raw ?? {},
+              only_staging: onlyStaging,
+              apply_schedule: applySchedule,
+              weak_match_users: weakUsers,
+              omitTimeline: true,
+            }),
+          );
+        }
+        return out;
+      }),
     );
-    for (const r of batch) {
+    const flat = batch.flat();
+    for (const r of flat) {
       foldIngestPunchRow(r, onlyStaging, result);
     }
+    processedCount += flat.length;
     if (onBatchProgress && totalBatches > 0) {
       const batchIndex = Math.floor(i / concurrency) + 1;
-      const processedCount = Math.min(i + slice.length, total);
       const isFirst = batchIndex === 1;
       const isLast = batchIndex === totalBatches;
       const onStep = totalBatches <= maxProgressSamples || batchIndex % progressStep === 0;
@@ -598,7 +775,7 @@ export async function ingestPunchesFromDevice(
         });
       }
     }
-    if (i + concurrency < punches.length) {
+    if (i + concurrency < orderedKeys.length) {
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0);
       });
@@ -617,12 +794,146 @@ export async function ingestPunchesFromDevice(
       duplicated: result.duplicated,
       userNotFound: result.userNotFound,
       staged: result.staged ?? 0,
+      promote_mirror_failed: result.promoteMirrorFailed ?? 0,
       errors_count: result.errors.length,
     },
     supabaseClient: supabase,
   });
 
   return result;
+}
+
+export type RepPromoteFailedDetailRow = {
+  rep_punch_log_id?: string;
+  nsr?: number | null;
+  user_id?: string;
+  data_hora?: string;
+  error_code?: string;
+  message?: string;
+  promotion_attempts?: number | null;
+};
+
+export type RepPromoteRecoveredDetailRow = {
+  rep_punch_log_id?: string;
+  nsr?: number | null;
+  user_id?: string;
+  data_hora?: string;
+  previous_error_code?: string;
+};
+
+async function logRepOperationalReconciliationForPromoteBatch(
+  supabase: SupabaseClient,
+  companyId: string,
+  batch: { promoted: RepPromotedDetailRow[]; failed: RepPromoteFailedDetailRow[] },
+): Promise<void> {
+  const keys = new Set<string>();
+  const add = (uid: string | undefined | null, iso: string | null | undefined) => {
+    const u = String(uid ?? '').trim();
+    if (!u) return;
+    const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
+    if (!ymd) return;
+    keys.add(`${u}|${ymd}`);
+  };
+  for (const p of batch.promoted) add(p.user_id, p.data_hora != null ? String(p.data_hora) : null);
+  for (const f of batch.failed) add(f.user_id, f.data_hora != null ? String(f.data_hora) : null);
+  if (keys.size === 0) return;
+
+  for (const key of keys) {
+    const pipe = key.indexOf('|');
+    if (pipe < 0) continue;
+    const userId = key.slice(0, pipe);
+    const date = key.slice(pipe + 1);
+    try {
+      const { startIso, endIso } = saoPauloCivilBoundsUtc(date);
+      const { data: trs, error: e1 } = await supabase
+        .from('time_records')
+        .select('id,timestamp,type')
+        .eq('company_id', companyId)
+        .eq('user_id', userId)
+        .gte('timestamp', startIso)
+        .lte('timestamp', endIso)
+        .limit(800);
+      if (e1) continue;
+      const { data: pend, error: e2 } = await supabase
+        .from('rep_punch_logs')
+        .select('id,data_hora,tipo_marcacao')
+        .eq('company_id', companyId)
+        .eq('resolved_user_id', userId)
+        .is('time_record_id', null)
+        .eq('ignored', false)
+        .gte('data_hora', startIso)
+        .lte('data_hora', endIso)
+        .limit(800);
+      if (e2) continue;
+      const rec = reconcileOperationalDaySequence({
+        employeeId: userId,
+        date,
+        timeRecords: (trs ?? []).map((r) => ({
+          id: r.id as string,
+          timestamp: r.timestamp as string,
+          type: r.type as string,
+        })),
+        pendingRepPunches: (pend ?? []).map((r) => ({
+          id: r.id as string,
+          data_hora: r.data_hora as string,
+          tipo_marcacao: (r.tipo_marcacao as string | null) ?? null,
+        })),
+      });
+      const pendingCount = pend?.length ?? 0;
+      const promotedSameDay = batch.promoted.filter((p) => {
+        const u = String(p.user_id ?? '').trim();
+        const y = p.data_hora != null ? repCivilDateFromIsoUtc(String(p.data_hora)) : null;
+        return u === userId && y === date;
+      }).length;
+      const failedSameDay = batch.failed.filter((f) => {
+        const u = String(f.user_id ?? '').trim();
+        const y = f.data_hora != null ? repCivilDateFromIsoUtc(String(f.data_hora)) : null;
+        return u === userId && y === date;
+      }).length;
+      const partial = pendingCount > 0 && (promotedSameDay > 0 || (trs?.length ?? 0) > 0);
+
+      if (typeof globalThis !== 'undefined' && globalThis.console) {
+        globalThis.console.info('[REP DAY RECONCILIATION]', {
+          employee_id: userId,
+          date,
+          pending_rep_in_mirror_day: pendingCount,
+          mirror_records_in_day: trs?.length ?? 0,
+          issues: rec.issues.length,
+          batch_promoted_this_window: promotedSameDay,
+          batch_failed_this_window: failedSameDay,
+          partial_day: partial,
+        });
+      }
+      for (const iss of rec.issues) {
+        if (typeof globalThis !== 'undefined' && globalThis.console) {
+          if (iss.kind === 'sequence_gap') {
+            globalThis.console.warn('[REP SEQUENCE GAP]', {
+              employee_id: userId,
+              date,
+              ...iss,
+            });
+          }
+          if (iss.kind === 'duplicate_entry') {
+            globalThis.console.warn('[REP DUPLICATE ENTRY DETECTED]', {
+              employee_id: userId,
+              date,
+              ...iss,
+            });
+          }
+        }
+      }
+    } catch {
+      /* logging only */
+    }
+  }
+}
+
+function repPunchIngestGroupKey(p: PunchFromDevice): string {
+  const pis = (p.pis ?? '').trim();
+  const cpf = (p.cpf ?? '').trim();
+  const mat = (p.matricula ?? '').trim();
+  if (pis || cpf || mat) return `i:${pis}|${cpf}|${mat}`;
+  return `u:${p.nsr ?? 'x'}:${p.data_hora}`;
 }
 
 export type PromotePendingRepPunchLogsOptions = {
@@ -645,6 +956,10 @@ export async function promotePendingRepPunchLogs(
 ): Promise<{
   success: boolean;
   promoted?: number;
+  promoteFailed?: number;
+  promoteFailedInvalidSequence?: number;
+  promoteFailedRejected?: number;
+  promoteFailedDetail?: RepPromoteFailedDetailRow[];
   skippedNoUser?: number;
   /** Com filtro por colaborador: batidas que casa(m) com outro utilizador. */
   skippedOtherUser?: number;
@@ -667,10 +982,16 @@ export async function promotePendingRepPunchLogs(
   const row = data as {
     success?: boolean;
     promoted?: number;
+    promote_failed?: number;
+    promote_failed_invalid_sequence?: number;
+    promote_failed_rejected?: number;
+    promote_failed_detail?: RepPromoteFailedDetailRow[] | null;
+    rep_promote_recovered_detail?: RepPromoteRecoveredDetailRow[] | null;
     skipped_no_user?: number;
     skipped_other_user?: number;
     promoted_detail?: RepPromotedDetailRow[] | null;
   };
+  const failedRows = row.promote_failed_detail ?? [];
   if (row.success === true && Array.isArray(row.promoted_detail) && row.promoted_detail.length > 0) {
     try {
       await syncEspelhoAfterRepPromote(supabase, companyId.trim(), row.promoted_detail);
@@ -708,6 +1029,125 @@ export async function promotePendingRepPunchLogs(
         supabaseClient: supabase,
       });
     }
+    const pf = row.promote_failed ?? 0;
+    if (pf > 0 && typeof globalThis !== 'undefined' && globalThis.console) {
+      globalThis.console.info('[REP PROMOTE RETRY]', {
+        promote_failed: pf,
+        note: 'Sem retry automático imediato para invalid_sequence / período fechado / NSR duplicado; missing_user após vínculo manual.',
+        rep_device_id: repDeviceId,
+      });
+    }
+    if (failedRows.length > 0 && failedRows.length <= 12) {
+      for (const fr of failedRows) {
+        const uid = String(fr.user_id ?? '').trim();
+        const iso = fr.data_hora != null ? String(fr.data_hora) : '';
+        const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
+        const attempts =
+          typeof fr.promotion_attempts === 'number' ? fr.promotion_attempts : null;
+        if ((attempts ?? 0) > 1) {
+          void appendTimeAttendanceTimelineEvent({
+            companyId: companyId.trim(),
+            employeeId: uid || null,
+            date: ymd,
+            eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_RETRIED,
+            eventSeverity: TimeAttendanceTimelineSeverity.low,
+            sourceModule: 'rep_promote_pending_rep_punch_logs',
+            sourceReferenceId: String(fr.rep_punch_log_id ?? repDeviceId),
+            payload: {
+              error_code: fr.error_code ?? null,
+              nsr: fr.nsr ?? null,
+              promotion_attempts: attempts,
+              rep_punch_log_id: fr.rep_punch_log_id ?? null,
+            },
+            supabaseClient: supabase,
+          });
+        }
+        recordRepPromoteMirrorFailureOnTimeline(supabase, {
+          companyId: companyId.trim(),
+          employeeId: uid || null,
+          date: ymd,
+          nsr: fr.nsr,
+          message: fr.message ?? null,
+          errorCode: fr.error_code ?? null,
+          repPunchLogId: fr.rep_punch_log_id != null ? String(fr.rep_punch_log_id) : null,
+          sourceModule: 'rep_promote_pending_rep_punch_logs',
+          sourceReferenceId: repDeviceId,
+          promotionAttempts: attempts,
+          deviceId: repDeviceId,
+        });
+      }
+    } else if (failedRows.length > 12) {
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED,
+        eventSeverity: TimeAttendanceTimelineSeverity.medium,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: repDeviceId,
+        payload: {
+          aggregate: true,
+          promote_failed: pf,
+          sample: failedRows[0],
+          category: 'REP',
+        },
+        supabaseClient: supabase,
+      });
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        eventType: TimeAttendanceTimelineEventType.INCIDENT_DETECTED,
+        eventSeverity: TimeAttendanceTimelineSeverity.medium,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: repDeviceId,
+        payload: {
+          rep_promote_failure: true,
+          aggregate: true,
+          promote_failed: pf,
+          category: 'REP',
+        },
+        supabaseClient: supabase,
+      });
+    }
+
+    if ((row.promoted_detail?.length ?? 0) > 0 || failedRows.length > 0) {
+      void logRepOperationalReconciliationForPromoteBatch(supabase, companyId.trim(), {
+        promoted: row.promoted_detail ?? [],
+        failed: failedRows,
+      });
+    }
+
+    const recovered = row.rep_promote_recovered_detail ?? [];
+    for (const rc of recovered) {
+      const uid = String(rc.user_id ?? '').trim();
+      const iso = rc.data_hora != null ? String(rc.data_hora) : '';
+      const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
+      if (typeof globalThis !== 'undefined' && globalThis.console) {
+        globalThis.console.info('[REP PROMOTE RECOVERED]', {
+          nsr: rc.nsr ?? null,
+          employee_id: uid || null,
+          date: ymd,
+          previous_error_code: rc.previous_error_code ?? null,
+        });
+      }
+      void appendTimeAttendanceTimelineEvent({
+        companyId: companyId.trim(),
+        employeeId: uid || null,
+        date: ymd,
+        eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_RECOVERED,
+        eventSeverity: TimeAttendanceTimelineSeverity.info,
+        sourceModule: 'rep_promote_pending_rep_punch_logs',
+        sourceReferenceId: String(rc.rep_punch_log_id ?? repDeviceId),
+        payload: {
+          nsr: rc.nsr ?? null,
+          previous_error_code: rc.previous_error_code ?? null,
+          rep_punch_log_id: rc.rep_punch_log_id ?? null,
+        },
+        supabaseClient: supabase,
+      });
+    }
+
+    if (recovered.length > 0) {
+      void runRepGovernanceAfterPromoteRecoveredBatch(supabase, companyId.trim(), recovered);
+    }
+
     const det = row.promoted_detail ?? [];
     if (det.length > 0 && det.length <= 8) {
       for (const d of det) {
@@ -752,6 +1192,10 @@ export async function promotePendingRepPunchLogs(
   return {
     success: row.success === true,
     promoted: row.promoted,
+    promoteFailed: row.promote_failed,
+    promoteFailedInvalidSequence: row.promote_failed_invalid_sequence,
+    promoteFailedRejected: row.promote_failed_rejected,
+    promoteFailedDetail: failedRows.length ? failedRows : undefined,
     skippedNoUser: row.skipped_no_user,
     skippedOtherUser: row.skipped_other_user,
   };

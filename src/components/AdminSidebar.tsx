@@ -2,6 +2,7 @@ import React, { memo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
+  ShieldCheck,
   LayoutDashboard,
   Users,
   CalendarDays,
@@ -34,6 +35,7 @@ import {
   Table2,
   ClipboardList,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import type { User } from '../../types';
 import { prefetchPortalRoute } from '../routes/routeChunks';
@@ -57,6 +59,8 @@ const ADMIN_ITEMS = [
   { label: 'Auditoria — Jornada', path: '/admin/time-attendance-audit', icon: ClipboardList },
   { label: 'Timeline operacional', path: '/admin/time-attendance-timeline', icon: Activity },
   { label: 'Central de incidentes', path: '/admin/operational-incidents', icon: AlertTriangle },
+  { label: 'Recuperação operacional', path: '/admin/operational-recovery', icon: RefreshCw },
+  { label: 'Centro operacional REP', path: '/admin/rep-operations-center', icon: ShieldCheck },
   { label: 'Cálculos', path: '/admin/calculos', icon: Calculator },
   { label: 'Cartão Ponto', path: '/admin/cartao-ponto', icon: FileText },
   { label: 'Cartão Ponto (Somente Leitura)', path: '/admin/cartao-ponto-leitura', icon: FileText },

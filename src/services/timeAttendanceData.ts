@@ -2,7 +2,7 @@
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
 
-import { db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { insertAdminMirrorTimeRecord } from '../../services/timeRecords.service';
 import { recalculate_period } from '../engine/timeEngine';
 import type { RawTimeRecord } from './timeProcessingService';
@@ -17,6 +17,7 @@ import {
 } from '../utils/timesheetOperationalUx';
 import {
   calendarDateForEspelhoRow,
+  extractLocalCalendarDateFromIso,
   localCalendarDayEndUtc,
   localCalendarDayStartUtc,
   logCalendarDayConsistencyDebug,
@@ -450,6 +451,38 @@ function requestAutoRecalcMissingTimesheet(
 
 export type TimeAttendanceSource = 'time_records' | 'timesheets_daily';
 
+/** Evidência REP ainda não promovida para `time_records` — não entra no motor nem em horas. */
+export type RepOperationalResolutionStatus =
+  | 'pending'
+  | 'investigating'
+  | 'waiting_review'
+  | 'reconciled'
+  | 'ignored'
+  | 'expired';
+
+export type PendingRepPunch = {
+  id: string;
+  resolved_user_id: string;
+  data_hora: string;
+  tipo_marcacao: string | null;
+  nsr: number | null;
+  rep_device_id: string | null;
+  source: string | null;
+  promotion_error_code: string | null;
+  promotion_error_message: string | null;
+  promotion_attempts: number | null;
+  promotion_status: string | null;
+  operational_resolution_status?: RepOperationalResolutionStatus | null;
+  last_promotion_attempt_at?: string | null;
+};
+
+export type PendingRepPunchOperationalStatus =
+  | 'sequence_error'
+  | 'awaiting_reconciliation'
+  | 'awaiting_promote'
+  | 'closed_period'
+  | 'protected';
+
 export type TimeAttendanceRow = {
   /** Linha estável na UI: id da timesheets_daily ou chave sintética */
   id: string;
@@ -474,7 +507,25 @@ export type TimeAttendanceRow = {
   auto_recalc_in_flight: boolean;
   /** Presente quando há linha em `timesheets_daily` — métricas de sucesso real do motor. */
   raw_data?: unknown;
+  /** Batidas em `rep_punch_logs` com colaborador resolvido e sem `time_record` — só evidência operacional. */
+  pending_rep_punches?: PendingRepPunch[];
+  pending_rep_punch_count?: number;
+  has_pending_rep_punches?: boolean;
+  pending_rep_punch_status?: PendingRepPunchOperationalStatus | null;
 };
+
+/** Batida REP que ainda pode ser tratada pela reconciliação assistida (sequência inválida). */
+export function isRepPunchEligibleForAssistedSequenceReconciliation(p: PendingRepPunch): boolean {
+  if (p.promotion_error_code !== 'invalid_sequence') return false;
+  const st = p.operational_resolution_status ?? 'pending';
+  return st === 'pending' || st === 'investigating' || st === 'waiting_review';
+}
+
+/** Linha de espelho/jornada com falha de sequência no promote e pelo menos uma batida elegível. */
+export function rowEligibleForAssistedRepReconciliation(row: TimeAttendanceRow): boolean {
+  if (row.status_label !== 'pending_rep_sequence') return false;
+  return row.pending_rep_punches?.some(isRepPunchEligibleForAssistedSequenceReconciliation) ?? false;
+}
 
 /**
  * Ordem determinística (maior vence) — fonte única de prioridade.
@@ -485,8 +536,12 @@ const STATUS_PRIORITY: Record<string, number> = {
   inconsistent_data: 90,
   'erro no processamento': 82,
   Erro: 82,
+  pending_rep_sequence: 81,
+  pending_rep_promote: 77,
+  pending_rep_closed_period: 75,
   closed_period: 74,
   protected_timesheet: 68,
+  pending_rep_protected: 67,
   Protegido: 68,
   recalculando: 62,
   'na fila de processamento': 56,
@@ -582,6 +637,218 @@ function markDuplicateUserDayOnRows(rows: readonly TimeAttendanceRow[], dupKeys:
   }
 }
 
+async function fetchPendingRepPunchLogsForPeriod(
+  companyId: string,
+  safeStart: string,
+  safeEnd: string,
+): Promise<PendingRepPunch[]> {
+  if (!isSupabaseConfigured() || !companyId?.trim()) return [];
+  try {
+    const startIso = localCalendarDayStartUtc(safeStart);
+    const endIso = localCalendarDayEndUtc(safeEnd);
+    const { data, error } = await supabase
+      .from('rep_punch_logs')
+      .select(
+        'id,resolved_user_id,data_hora,tipo_marcacao,nsr,rep_device_id,source,promotion_error_code,promotion_error_message,promotion_attempts,promotion_status,operational_resolution_status,last_promotion_attempt_at',
+      )
+      .eq('company_id', companyId.trim())
+      .not('resolved_user_id', 'is', null)
+      .is('time_record_id', null)
+      .eq('ignored', false)
+      .gte('data_hora', startIso)
+      .lte('data_hora', endIso)
+      .order('data_hora', { ascending: true })
+      .limit(8000);
+    if (error) {
+      console.warn('[TIME ATTENDANCE REP PENDING FETCH]', error.message);
+      return [];
+    }
+    const out: PendingRepPunch[] = [];
+    for (const row of data ?? []) {
+      const r = row as Record<string, unknown>;
+      const uid = String(r.resolved_user_id ?? '').trim();
+      if (!uid) continue;
+      const dh = String(r.data_hora ?? '');
+      if (!dh) continue;
+      const day = extractLocalCalendarDateFromIso(dh);
+      if (day < safeStart || day > safeEnd) continue;
+      out.push({
+        id: String(r.id ?? ''),
+        resolved_user_id: uid,
+        data_hora: dh,
+        tipo_marcacao: r.tipo_marcacao != null ? String(r.tipo_marcacao) : null,
+        nsr: typeof r.nsr === 'number' ? r.nsr : r.nsr != null ? Number(r.nsr) : null,
+        rep_device_id: r.rep_device_id != null ? String(r.rep_device_id) : null,
+        source: r.source != null ? String(r.source) : null,
+        promotion_error_code: r.promotion_error_code != null ? String(r.promotion_error_code) : null,
+        promotion_error_message: r.promotion_error_message != null ? String(r.promotion_error_message) : null,
+        promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
+        promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
+        operational_resolution_status:
+          r.operational_resolution_status != null
+            ? (String(r.operational_resolution_status) as RepOperationalResolutionStatus)
+            : null,
+        last_promotion_attempt_at:
+          r.last_promotion_attempt_at != null ? String(r.last_promotion_attempt_at) : null,
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn('[TIME ATTENDANCE REP PENDING FETCH]', e);
+    return [];
+  }
+}
+
+/** Batidas REP ainda pendentes num dia/colaborador (para modais / incidentes). */
+export async function fetchPendingRepPunchesForEmployeeDay(
+  companyId: string,
+  employeeId: string,
+  dateYmd: string,
+): Promise<PendingRepPunch[]> {
+  const day = String(dateYmd).slice(0, 10);
+  const list = await fetchPendingRepPunchLogsForPeriod(companyId, day, day);
+  return list.filter((p) => p.resolved_user_id === employeeId);
+}
+
+function groupPendingRepByEmployeeDay(
+  punches: PendingRepPunch[],
+  safeStart: string,
+  safeEnd: string,
+): Map<string, PendingRepPunch[]> {
+  const m = new Map<string, PendingRepPunch[]>();
+  for (const p of punches) {
+    const day = extractLocalCalendarDateFromIso(p.data_hora);
+    if (day < safeStart || day > safeEnd) continue;
+    const key = `${p.resolved_user_id}|${day}`;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key)!.push(p);
+  }
+  return m;
+}
+
+function applyPendingRepEvidenceToRow(row: TimeAttendanceRow): void {
+  const pending = row.pending_rep_punches;
+  if (!pending?.length) return;
+  row.pending_rep_punch_count = pending.length;
+  row.has_pending_rep_punches = true;
+
+  const codes = pending.map((p) => p.promotion_error_code).filter((c): c is string => Boolean(c && String(c).trim()));
+  const hasProtected = codes.some((c) => c === 'protected_timesheet');
+  const hasClosed = codes.some((c) => c === 'closed_period');
+  const hasSeq =
+    codes.some((c) => c === 'invalid_sequence') ||
+    pending.some((p) => p.promotion_status === 'pending_sequence_resolution');
+  const hasOtherErr = codes.some(
+    (c) => c !== 'invalid_sequence' && c !== 'closed_period' && c !== 'protected_timesheet',
+  );
+
+  if (hasProtected) {
+    row.pending_rep_punch_status = 'protected';
+    safeApplyStatus(row, 'pending_rep_protected');
+    return;
+  }
+  if (hasClosed) {
+    row.pending_rep_punch_status = 'closed_period';
+    safeApplyStatus(row, 'pending_rep_closed_period');
+    return;
+  }
+  if (hasSeq) {
+    row.pending_rep_punch_status = 'awaiting_reconciliation';
+    safeApplyStatus(row, 'pending_rep_sequence');
+    return;
+  }
+  if (hasOtherErr) {
+    row.pending_rep_punch_status = 'sequence_error';
+    safeApplyStatus(row, 'pending_rep_sequence');
+    return;
+  }
+  row.pending_rep_punch_status = 'awaiting_promote';
+  safeApplyStatus(row, 'pending_rep_promote');
+}
+
+function buildSyntheticRepPendingOnlyRow(
+  employee_id: string,
+  date: string,
+  pending: PendingRepPunch[],
+  employeeNameById: Map<string, string>,
+): TimeAttendanceRow {
+  const row: TimeAttendanceRow = {
+    id: `rep-pending|${employee_id}|${date}`,
+    employee_id,
+    employee_name: employeeNameById.get(employee_id),
+    date,
+    clock_in: null,
+    clock_out: null,
+    break_minutes: 0,
+    total_hours_motor: null,
+    processing_status: 'pending_engine',
+    status_label: 'Sem batidas',
+    has_timesheet_daily: false,
+    punch_count: 0,
+    auto_recalc_requested_at: null,
+    next_retry_at: null,
+    auto_recalc_in_flight: false,
+    pending_rep_punches: pending,
+  };
+  applyPendingRepEvidenceToRow(row);
+  return row;
+}
+
+function mergeRepPendingEvidenceIntoRows(
+  rows: TimeAttendanceRow[],
+  byKey: Map<string, PendingRepPunch[]>,
+  employeeNameById: Map<string, string>,
+  safeStart: string,
+  safeEnd: string,
+): TimeAttendanceRow[] {
+  if (byKey.size === 0) return rows;
+  const index = new Map<string, TimeAttendanceRow>();
+  for (const r of rows) {
+    index.set(`${r.employee_id}|${String(r.date).slice(0, 10)}`, r);
+  }
+  const extra: TimeAttendanceRow[] = [];
+  for (const [key, pending] of byKey) {
+    if (!pending.length) continue;
+    const existing = index.get(key);
+    if (existing) {
+      existing.pending_rep_punches = pending;
+      applyPendingRepEvidenceToRow(existing);
+      continue;
+    }
+    const pipe = key.indexOf('|');
+    if (pipe <= 0) continue;
+    const employee_id = key.slice(0, pipe);
+    const date = key.slice(pipe + 1);
+    if (date < safeStart || date > safeEnd) continue;
+    extra.push(buildSyntheticRepPendingOnlyRow(employee_id, date, pending, employeeNameById));
+  }
+  if (!extra.length) return rows;
+  return [...rows, ...extra];
+}
+
+function logRepPendingSummary(rows: TimeAttendanceRow[]): void {
+  const byDay = new Map<string, { pending: number; errors: string[] }>();
+  for (const r of rows) {
+    if (!r.pending_rep_punch_count) continue;
+    const k = `${r.employee_id}|${r.date.slice(0, 10)}`;
+    const errs =
+      r.pending_rep_punches?.map((p) => p.promotion_error_code).filter((c): c is string => Boolean(c)) ?? [];
+    byDay.set(k, { pending: r.pending_rep_punch_count, errors: errs });
+  }
+  if (byDay.size === 0) return;
+  for (const [key, v] of byDay) {
+    const pipe = key.indexOf('|');
+    const employee_id = pipe > 0 ? key.slice(0, pipe) : key;
+    const date = pipe > 0 ? key.slice(pipe + 1) : '';
+    console.info('[TIME ATTENDANCE REP PENDING]', {
+      employee_id,
+      date,
+      pending_count: v.pending,
+      promote_errors: v.errors.length ? [...new Set(v.errors)] : [],
+    });
+  }
+}
+
 /** Minutos trabalhados segundo o motor (`timesheets_daily`); 0 se ainda sem total oficial. */
 function workedMinutesFromRow(row: TimeAttendanceRow): number {
   if (row.total_hours_motor == null || !Number.isFinite(row.total_hours_motor)) return 0;
@@ -592,6 +859,9 @@ function workedMinutesFromRow(row: TimeAttendanceRow): number {
  * Integridade motor × batidas antes da apresentação: não altera horas; só status via `safeApplyStatus`.
  */
 export function deriveIntegrityStatus(row: TimeAttendanceRow): void {
+  if (row.has_pending_rep_punches && row.punch_count === 0 && workedMinutesFromRow(row) === 0) {
+    return;
+  }
   const workedMin = workedMinutesFromRow(row);
   if (workedMin > 0 && row.punch_count === 0) {
     console.warn('[TIME ATTENDANCE MOTOR WITHOUT PUNCHES]', {
@@ -707,6 +977,12 @@ function attachAutoRecalcRowHints(row: TimeAttendanceRow): void {
     row.auto_recalc_in_flight = false;
     return;
   }
+  if (row.has_pending_rep_punches && row.punch_count === 0) {
+    row.auto_recalc_requested_at = null;
+    row.next_retry_at = null;
+    row.auto_recalc_in_flight = false;
+    return;
+  }
   const key = `${row.employee_id}|${row.date}`;
   const g = getAutoRecalcGate(key);
   const now = Date.now();
@@ -761,6 +1037,35 @@ export function getTimeAttendanceStatusPresentation(row: TimeAttendanceRow): {
   tooltip?: string;
   badgeClassName: string;
 } {
+  if (row.status_label === 'pending_rep_sequence') {
+    return {
+      label: 'REP — reconciliação',
+      tooltip:
+        'Batidas do relógio recebidas, mas ainda não promovidas para o espelho devido à sequência operacional ou outra regra de promoção.',
+      badgeClassName: 'text-amber-600 dark:text-amber-400',
+    };
+  }
+  if (row.status_label === 'pending_rep_promote') {
+    return {
+      label: 'REP — aguardando espelho',
+      tooltip: 'Batidas do REP aguardando consolidação no espelho.',
+      badgeClassName: 'text-amber-600 dark:text-amber-400',
+    };
+  }
+  if (row.status_label === 'pending_rep_closed_period') {
+    return {
+      label: 'REP — período fechado',
+      tooltip: 'Promoção ao espelho bloqueada: período fechado.',
+      badgeClassName: 'text-slate-500 dark:text-slate-400',
+    };
+  }
+  if (row.status_label === 'pending_rep_protected') {
+    return {
+      label: 'REP — espelho protegido',
+      tooltip: 'Promoção ao espelho bloqueada: registo protegido (Portaria / folha).',
+      badgeClassName: 'text-slate-500 dark:text-slate-400',
+    };
+  }
   if (row.status_label === 'duplicate_user_day') {
     return {
       label: 'Duplicidade de registros',
@@ -853,6 +1158,20 @@ export function getTimeAttendanceStatusDetail(row: TimeAttendanceRow): string {
   if (row.status_label === 'inconsistent_data') {
     return 'Horas calculadas sem batidas completas. Pode indicar falha de captura ou sincronização.';
   }
+  if (row.status_label === 'pending_rep_sequence') {
+    const n = row.pending_rep_punch_count ?? 0;
+    return `Evidência REP: ${n} batida(s) na fila sem espelho (sequência/regra de promoção). Não entra no motor até consolidar.`;
+  }
+  if (row.status_label === 'pending_rep_promote') {
+    const n = row.pending_rep_punch_count ?? 0;
+    return `Evidência REP: ${n} batida(s) aguardando promoção ao espelho.`;
+  }
+  if (row.status_label === 'pending_rep_closed_period') {
+    return 'Batidas REP na fila; promoção bloqueada por período fechado.';
+  }
+  if (row.status_label === 'pending_rep_protected') {
+    return 'Batidas REP na fila; promoção bloqueada por espelho protegido.';
+  }
   return '';
 }
 
@@ -864,6 +1183,14 @@ export function rowEligibleForAutoRecalc(
   duplicateDayKeys: ReadonlySet<string>,
 ): boolean {
   if (duplicateDayKeys.has(employeeDayKey(row)) || row.status_label === 'duplicate_user_day') return false;
+  if (
+    row.status_label === 'pending_rep_sequence' ||
+    row.status_label === 'pending_rep_promote' ||
+    row.status_label === 'pending_rep_closed_period' ||
+    row.status_label === 'pending_rep_protected'
+  ) {
+    return false;
+  }
   if (row.status_label === 'closed_period' || row.status_label === 'protected_timesheet') return false;
   if (row.status_label === 'inconsistent_data') return false;
   if (row.processing_status === 'fallback_schedule') return false;
@@ -916,7 +1243,7 @@ export async function getTimeAttendanceData(
   const safeStart = String(startDate).slice(0, 10);
   const safeEnd = String(endDate).slice(0, 10);
 
-  const [sheetRows, recordRows] = await Promise.all([
+  const [sheetRows, recordRows, repPendingFlat] = await Promise.all([
     db.select(
       'timesheets_daily',
       [
@@ -945,6 +1272,7 @@ export async function getTimeAttendanceData(
         },
       )
       .catch(() => [] as Record<string, unknown>[]),
+    fetchPendingRepPunchLogsForPeriod(companyId, safeStart, safeEnd),
   ]);
 
   const punchesByKey = new Map<string, RawTimeRecord[]>();
@@ -1062,6 +1390,12 @@ export async function getTimeAttendanceData(
   const sheetDedupPass = dedupeRowsByEmployeeAndDate(rows);
   rows = sheetDedupPass.rows;
   void sheetDedupPass.discardedDuplicateRows;
+
+  const repPendingByKey = groupPendingRepByEmployeeDay(repPendingFlat, safeStart, safeEnd);
+  rows = sortRowsByDateAndName(
+    mergeRepPendingEvidenceIntoRows(rows, repPendingByKey, employeeNameById, safeStart, safeEnd),
+  );
+  logRepPendingSummary(rows);
 
   for (const row of rows) {
     deriveIntegrityStatus(row);
@@ -1192,7 +1526,13 @@ export async function getTimeAttendanceData(
   for (const r of rows) {
     if (r.status_label === 'duplicate_user_day' || r.status_label === 'erro no processamento') {
       integrity_critical_count += 1;
-    } else if (r.status_label === 'inconsistent_data') {
+    } else if (
+      r.status_label === 'inconsistent_data' ||
+      r.status_label === 'pending_rep_sequence' ||
+      r.status_label === 'pending_rep_promote' ||
+      r.status_label === 'pending_rep_closed_period' ||
+      r.status_label === 'pending_rep_protected'
+    ) {
       integrity_warning_count += 1;
     } else {
       integrity_ok_count += 1;
@@ -1520,7 +1860,13 @@ export async function getTimeAttendanceAuditSummary(
   for (const r of rows) {
     if (r.status_label === 'duplicate_user_day' || r.status_label === 'erro no processamento') {
       integrity_critical_count += 1;
-    } else if (r.status_label === 'inconsistent_data') {
+    } else if (
+      r.status_label === 'inconsistent_data' ||
+      r.status_label === 'pending_rep_sequence' ||
+      r.status_label === 'pending_rep_promote' ||
+      r.status_label === 'pending_rep_closed_period' ||
+      r.status_label === 'pending_rep_protected'
+    ) {
       integrity_warning_count += 1;
     } else {
       integrity_ok_count += 1;

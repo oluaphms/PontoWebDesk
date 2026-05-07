@@ -218,6 +218,7 @@ const TimeAttendancePage: React.FC = () => {
       'saida_hhmm',
       'intervalo_min',
       'total_horas_motor',
+      'rep_pendente_qtd',
       'status_processamento',
       'status_detail',
     ];
@@ -228,6 +229,7 @@ const TimeAttendancePage: React.FC = () => {
       r.clock_out ?? '',
       r.break_minutes ?? 0,
       r.total_hours_motor != null ? Number(r.total_hours_motor.toFixed(2)) : '',
+      r.pending_rep_punch_count ?? 0,
       getTimeAttendanceStatusPresentation(r).label,
       getTimeAttendanceStatusDetail(r),
     ]);
@@ -367,7 +369,7 @@ const TimeAttendancePage: React.FC = () => {
           Registros de jornada
         </h2>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Totais de horas exibidos são os calculados pelo motor (`timesheets_daily`). Horários de entrada/saída refletem as batidas em `time_records`.
+          Totais de horas exibidos são os calculados pelo motor (`timesheets_daily`). Horários de entrada/saída refletem as batidas em `time_records`. A coluna «REP (pend.)» mostra apenas evidência em `rep_punch_logs` ainda sem `time_record` — não entra no motor nem nas horas.
         </p>
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         {isLoadingData ? (
@@ -425,6 +427,22 @@ const TimeAttendancePage: React.FC = () => {
                   header: 'Total (motor)',
                   render: (row) =>
                     row.total_hours_motor != null ? `${row.total_hours_motor.toFixed(2)} h` : '—',
+                },
+                {
+                  key: 'rep_pending',
+                  header: 'REP (pend.)',
+                  render: (row) => {
+                    const n = row.pending_rep_punch_count ?? 0;
+                    if (!row.has_pending_rep_punches || n <= 0) return '—';
+                    return (
+                      <span
+                        className="text-amber-800 dark:text-amber-200 font-medium"
+                        title="Batidas no REP com colaborador identificado, ainda sem linha no espelho — não somam ao total do motor."
+                      >
+                        {n} batida(s)
+                      </span>
+                    );
+                  },
                 },
                 {
                   key: 'status',

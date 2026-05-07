@@ -31,7 +31,14 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from '../../services/timeAttendanceTimeline.constants';
-import { getTimeAttendanceAuditSummary, ALERT_THRESHOLDS } from '../../services/timeAttendanceData';
+import {
+  getTimeAttendanceAuditSummary,
+  ALERT_THRESHOLDS,
+  isRepPunchEligibleForAssistedSequenceReconciliation,
+  type PendingRepPunch,
+} from '../../services/timeAttendanceData';
+import { extractLocalCalendarDateFromIso } from '../../utils/calendarUtils';
+import { RepPendingSequenceResolutionModal } from '../../components/RepPendingSequenceResolutionModal';
 import {
   invalidateAfterPunch,
   invalidateAfterTimesheetMonthClose,
@@ -77,6 +84,19 @@ function localDateKey(d = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** Limites do dia civil local (espelho / RH) em ISO UTC para filtrar `data_hora`. */
+function localYmdStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T00:00:00.000Z`;
+  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+}
+
+function localYmdEndIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T23:59:59.999Z`;
+  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
 }
 
 /** Meses civis de `startYmd` a `endYmd` (YYYY-MM-DD), inclusive, em ordem cronológica. */
@@ -137,6 +157,7 @@ type DayIssuesModalState = {
   date: string;
   extras: string[];
   inconsistencias: string[];
+  repPending: PendingRepPunch[];
 } | null;
 
 const AdminTimesheet: React.FC = () => {
@@ -188,6 +209,12 @@ const AdminTimesheet: React.FC = () => {
 
   /** Evita `loadEspelho` com período vazio antes de ler sessionStorage (caso típico: novo login → batidas “sumiam”). */
   const [filtersHydrated, setFiltersHydrated] = useState(false);
+
+  /** Batidas REP com colaborador resolvido ainda sem `time_record` no período (reconciliação de sequência). */
+  const [repPendingReconciliationCount, setRepPendingReconciliationCount] = useState<number | null>(null);
+  const [repPendingByDate, setRepPendingByDate] = useState<Map<string, PendingRepPunch[]>>(() => new Map());
+  const [repSeqModalDate, setRepSeqModalDate] = useState<string | null>(null);
+  const [repSeqRefreshKey, setRepSeqRefreshKey] = useState(0);
 
   const holidayDates = useMemo(() => new Set(holidays.map((h) => h.date).filter(Boolean)), [holidays]);
 
@@ -390,6 +417,72 @@ const AdminTimesheet: React.FC = () => {
     if (!filtersHydrated) return;
     void loadEspelho();
   }, [loadEspelho, filtersHydrated]);
+
+  useEffect(() => {
+    if (!filtersHydrated || !periodValid || !filterUserId || !companyId || !isSupabaseConfigured()) {
+      setRepPendingReconciliationCount(null);
+      setRepPendingByDate(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const start = localYmdStartIso(periodStart);
+      const end = localYmdEndIso(periodEnd);
+      const { data, error } = await supabase
+        .from('rep_punch_logs')
+        .select(
+          'id,resolved_user_id,data_hora,tipo_marcacao,nsr,rep_device_id,source,promotion_error_code,promotion_error_message,promotion_attempts,promotion_status,operational_resolution_status,last_promotion_attempt_at',
+        )
+        .eq('company_id', companyId)
+        .eq('resolved_user_id', filterUserId)
+        .is('time_record_id', null)
+        .eq('ignored', false)
+        .gte('data_hora', start)
+        .lte('data_hora', end)
+        .order('data_hora', { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.warn('[Espelho] rep_punch_logs pendentes:', error.message);
+        setRepPendingReconciliationCount(null);
+        setRepPendingByDate(new Map());
+        return;
+      }
+      const byDate = new Map<string, PendingRepPunch[]>();
+      for (const row of data ?? []) {
+        const r = row as Record<string, unknown>;
+        const dh = String(r.data_hora ?? '');
+        if (!dh) continue;
+        const day = extractLocalCalendarDateFromIso(dh);
+        if (day < periodStart.slice(0, 10) || day > periodEnd.slice(0, 10)) continue;
+        const uid = String(r.resolved_user_id ?? '').trim();
+        if (!uid) continue;
+        const p: PendingRepPunch = {
+          id: String(r.id ?? ''),
+          resolved_user_id: uid,
+          data_hora: dh,
+          tipo_marcacao: r.tipo_marcacao != null ? String(r.tipo_marcacao) : null,
+          nsr: typeof r.nsr === 'number' ? r.nsr : r.nsr != null ? Number(r.nsr) : null,
+          rep_device_id: r.rep_device_id != null ? String(r.rep_device_id) : null,
+          source: r.source != null ? String(r.source) : null,
+          promotion_error_code: r.promotion_error_code != null ? String(r.promotion_error_code) : null,
+          promotion_error_message: r.promotion_error_message != null ? String(r.promotion_error_message) : null,
+          promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
+          promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
+          operational_resolution_status:
+            r.operational_resolution_status != null ? String(r.operational_resolution_status) : null,
+          last_promotion_attempt_at:
+            r.last_promotion_attempt_at != null ? String(r.last_promotion_attempt_at) : null,
+        };
+        if (!byDate.has(day)) byDate.set(day, []);
+        byDate.get(day)!.push(p);
+      }
+      setRepPendingByDate(byDate);
+      setRepPendingReconciliationCount(data?.length ?? 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filtersHydrated, periodValid, filterUserId, companyId, periodStart, periodEnd, repSeqRefreshKey]);
 
   useEffect(() => {
     if (!issuesModal) return;
@@ -1270,6 +1363,18 @@ const AdminTimesheet: React.FC = () => {
         </section>
       )}
 
+      {periodValid && filterUserId && repPendingReconciliationCount != null && repPendingReconciliationCount > 0 && (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100 print:hidden"
+          role="status"
+        >
+          <strong className="font-semibold">Batidas REP pendentes de reconciliação:</strong>{' '}
+          {repPendingReconciliationCount} no período selecionado (registadas no REP com colaborador identificado, ainda sem
+          linha no espelho — em geral sequência operacional ou regra do espelho). Ver Monitor REP,{' '}
+          <code className="text-xs">rep_punch_logs</code> e incidentes operacionais.
+        </div>
+      )}
+
       {/* Legenda + filtro de batidas */}
       <div className="flex flex-wrap gap-3 text-sm text-slate-600 dark:text-slate-400 print:text-xs">
         <button
@@ -1571,6 +1676,30 @@ const AdminTimesheet: React.FC = () => {
                             {dataNote}
                           </div>
                         )}
+                        {(() => {
+                          const rp = repPendingByDate.get(date);
+                          if (!rp?.length) return null;
+                          const canAssist = rp.some((p) => isRepPunchEligibleForAssistedSequenceReconciliation(p));
+                          return (
+                            <div className="mt-0.5 space-y-1">
+                              <div
+                                className="text-xs font-semibold text-amber-800 dark:text-amber-200"
+                                title="Batidas recebidas no REP com colaborador identificado, ainda sem time_record no espelho. Não entram no total oficial do motor até a consolidação."
+                              >
+                                REP pendente: {rp.length} batida(s)
+                              </div>
+                              {canAssist ? (
+                                <button
+                                  type="button"
+                                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-300 hover:underline print:hidden"
+                                  onClick={() => setRepSeqModalDate(date)}
+                                >
+                                  Reconciliação assistida
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2">
                         {renderMirrorSlot(hasRealRecords ? entradaSlotTime : null, hasRealRecords ? entradaSlotRecord : undefined)}
@@ -1614,7 +1743,13 @@ const AdminTimesheet: React.FC = () => {
       {periodValid && filterUserId && !loadingEspelho && (() => {
         const daysWithIssues = periodDates
           .map((date) => ({ date, day: empMirror.get(date) }))
-          .filter((x) => x.day && (x.day.batidasExtra.length > 0 || x.day.inconsistencias.length > 0));
+          .filter(
+            (x) =>
+              x.day &&
+              (x.day.batidasExtra.length > 0 ||
+                x.day.inconsistencias.length > 0 ||
+                (repPendingByDate.get(x.date)?.length ?? 0) > 0),
+          );
         if (daysWithIssues.length === 0) return null;
         return (
           <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm p-4">
@@ -1633,6 +1768,7 @@ const AdminTimesheet: React.FC = () => {
                 const issueLabel = (r: TimeRecord) => `${fmtRecord(r)} · ${resolvePunchOrigin(r).label}`;
                 const extraLabels = day.batidasExtra.map(issueLabel);
                 const inconsistLabels = day.inconsistencias.map(issueLabel);
+                const repPend = repPendingByDate.get(date) ?? [];
                 return (
                   <div key={`issue-${date}`} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1647,13 +1783,34 @@ const AdminTimesheet: React.FC = () => {
                           Incons.: {inconsistLabels.length}
                         </span>
                       )}
+                      {repPend.length > 0 && (
+                        <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          REP pend.: {repPend.length}
+                        </span>
+                      )}
                       <button
                         type="button"
                         className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 hover:underline"
-                        onClick={() => setIssuesModal({ date, extras: extraLabels, inconsistencias: inconsistLabels })}
+                        onClick={() =>
+                          setIssuesModal({
+                            date,
+                            extras: extraLabels,
+                            inconsistencias: inconsistLabels,
+                            repPending: repPend,
+                          })
+                        }
                       >
                         Ver lista completa
                       </button>
+                      {repPend.some((p) => isRepPunchEligibleForAssistedSequenceReconciliation(p)) ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-amber-800 dark:text-amber-200 hover:underline"
+                          onClick={() => setRepSeqModalDate(date)}
+                        >
+                          Reconciliação assistida
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -1765,10 +1922,62 @@ const AdminTimesheet: React.FC = () => {
                   </ul>
                 )}
               </div>
+              <div>
+                <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">
+                  Batidas REP pendentes ({issuesModal.repPending.length})
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  Evidência em rep_punch_logs (colaborador identificado) ainda sem time_record — não entra no total do motor
+                  até consolidar.
+                </p>
+                {issuesModal.repPending.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma batida REP pendente neste dia.</p>
+                ) : (
+                  <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                    {issuesModal.repPending.map((p) => (
+                      <li key={p.id} className="border-t border-slate-200 dark:border-slate-700 first:border-0 first:pt-0 pt-2">
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                          <span className="font-mono text-xs">
+                            {new Date(p.data_hora).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                          {p.nsr != null && <span className="text-xs text-slate-500">NSR {String(p.nsr)}</span>}
+                          <span className="text-xs text-slate-500">{p.source ?? '—'}</span>
+                          <span className="text-xs">{p.tipo_marcacao ?? '—'}</span>
+                        </div>
+                        {(p.promotion_error_code || p.promotion_error_message) && (
+                          <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5">
+                            {p.promotion_error_code ? `${p.promotion_error_code}: ` : ''}
+                            {p.promotion_error_message ?? ''}
+                          </p>
+                        )}
+                        {p.promotion_attempts != null && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">Tentativas: {p.promotion_attempts}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
+      {repSeqModalDate && filterUserId && companyId && user?.id ? (
+        <RepPendingSequenceResolutionModal
+          open
+          onClose={() => setRepSeqModalDate(null)}
+          companyId={companyId}
+          employeeId={filterUserId}
+          employeeName={selectedEmployee?.nome}
+          dateYmd={repSeqModalDate}
+          pendingPunches={repPendingByDate.get(repSeqModalDate) ?? []}
+          reviewedByUserId={user.id}
+          onCompleted={() => {
+            void loadEspelho();
+            setRepSeqRefreshKey((k) => k + 1);
+          }}
+        />
+      ) : null}
     </div>
   );
 };

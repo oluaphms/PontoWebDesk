@@ -104,6 +104,34 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
   }
 }
 
+/**
+ * Igual a `appendTimeAttendanceTimelineEvent`, mas falha com exceção (commit transacional operacional).
+ */
+export async function appendTimeAttendanceTimelineEventOrThrow(input: AppendTimeAttendanceTimelineEventInput): Promise<void> {
+  const companyId = String(input.companyId ?? '').trim();
+  if (!companyId) throw new Error('companyId obrigatório para timeline.');
+
+  const client = input.supabaseClient ?? getSupabaseClient();
+  if (!client) throw new Error('Cliente Supabase indisponível para timeline.');
+
+  const row = {
+    company_id: companyId,
+    employee_id: input.employeeId?.trim() ? input.employeeId.trim() : null,
+    date: normalizeDateYmd(input.date ?? null),
+    event_type: input.eventType,
+    event_severity: input.eventSeverity ?? TimeAttendanceTimelineSeverity.info,
+    source_module: input.sourceModule?.trim() ? input.sourceModule.trim() : null,
+    source_reference_id: input.sourceReferenceId?.trim() ? input.sourceReferenceId.trim() : null,
+    payload: input.payload && typeof input.payload === 'object' ? input.payload : {},
+    created_by: input.createdBy?.trim() ? input.createdBy.trim() : null,
+  };
+
+  const { error } = await client.from('time_attendance_timeline').insert(row);
+  if (error) {
+    throw new Error(error.message || 'Falha ao inserir time_attendance_timeline.');
+  }
+}
+
 export type ListTimeAttendanceTimelineParams = {
   companyId: string;
   employeeId?: string | null;

@@ -95,18 +95,20 @@ export function computeOperationalTrend(params: {
   const incIncidents = ratio(TimeAttendanceTimelineEventType.INCIDENT_DETECTED) > 1.25;
   const repFail = ratio(TimeAttendanceTimelineEventType.REP_MATCH_FAILED) > 1.3;
   const repAmb = ratio(TimeAttendanceTimelineEventType.REP_MATCH_AMBIGUOUS) > 1.3;
+  const repPromoteFail = ratio(TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED) > 1.25;
   const replayR = ratio(TimeAttendanceTimelineEventType.TIMESHEET_REPLAY) > 1.4;
   const fb = ratio(TimeAttendanceTimelineEventType.TIMESHEET_FALLBACK_APPLIED) > 1.35;
 
   const messages: string[] = [];
   if (incIncidents) messages.push('Operação degradando: mais incidentes detectados vs período anterior.');
   if (repFail || repAmb) messages.push('REP degradando: falhas ou ambiguidades de match em alta.');
+  if (repPromoteFail) messages.push('Promoção REP → espelho em alta: revisar sequência, folha fechada ou incidentes.');
   if (fb) messages.push('Escala problemática: uso de fallback do motor em alta.');
   if (replayR) messages.push('Replay em alta: revisar mudanças de motor/regras ou dados.');
 
   const out: OperationalTrendResult = {
     degraded_operation: incIncidents,
-    rep_degrading: repFail || repAmb,
+    rep_degrading: repFail || repAmb || repPromoteFail,
     schedule_problem: fb,
     replay_rising: replayR,
     fallback_excess: fb,

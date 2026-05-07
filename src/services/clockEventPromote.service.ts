@@ -24,6 +24,7 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from './timeAttendanceTimeline.constants';
+import { classifyRepPromoteError } from '../../modules/rep-integration/repPromoteErrorClassifier';
 
 export interface ClockEventLogRow {
   id: string;
@@ -44,6 +45,8 @@ export interface PromoteEspelhoResult {
   userNotFound: number;
   duplicate: number;
   errors: number;
+  /** Espelho rejeitou insert; rep_punch_logs mantém evidência (não marcar como promovido). */
+  promoteMirrorFailed: number;
 }
 
 function eventTypeToRepTipo(eventType: string): string {
@@ -143,6 +146,7 @@ export async function promoteClockEventsToEspelho(
     userNotFound: 0,
     duplicate: 0,
     errors: 0,
+    promoteMirrorFailed: 0,
   };
 
   let weakUsersCache: RepWeakPisMatchUser[] | null = null;
@@ -289,6 +293,12 @@ export async function promoteClockEventsToEspelho(
       const userNotFound = rpcResult.user_not_found === true;
       const success = rpcResult.success === true;
       const timeRecordId = typeof rpcResult.time_record_id === 'string' ? rpcResult.time_record_id : null;
+      const promotionCodeRaw =
+        typeof rpcResult.promotion_error_code === 'string' ? rpcResult.promotion_error_code.trim() : '';
+      const repLogId = typeof rpcResult.rep_log_id === 'string' ? rpcResult.rep_log_id : null;
+      const mirrorFailed = success === false && promotionCodeRaw.length > 0;
+      const errMsg =
+        typeof rpcResult.error === 'string' ? rpcResult.error : JSON.stringify(rpcResult).slice(0, 200);
 
       if (!duplicate && typeof globalThis !== 'undefined' && globalThis.console) {
         const status = forceUserId ? 'resolved' : 'unresolved';
@@ -302,6 +312,55 @@ export async function promoteClockEventsToEspelho(
       if (duplicate) {
         out.duplicate += 1;
         await markPromoted(cfg, table, ev.id, { promote_error: 'duplicate_rep' });
+      } else if (mirrorFailed) {
+        out.promoteMirrorFailed += 1;
+        const code = promotionCodeRaw || classifyRepPromoteError(errMsg);
+        if (typeof globalThis !== 'undefined' && globalThis.console) {
+          globalThis.console.warn('[REP PROMOTE FAILED]', {
+            nsr,
+            error_code: code,
+            employee_id: forceUserId ?? null,
+            date: ev.occurred_at?.slice(0, 10) ?? null,
+            rep_punch_log_id: repLogId,
+          });
+        }
+        const sb = getSupabaseClient();
+        if (sb) {
+          const ymd = ev.occurred_at?.slice(0, 10) ?? null;
+          const payload = {
+            error_code: code,
+            message: errMsg ? errMsg.slice(0, 2000) : null,
+            nsr,
+            employee_id: forceUserId ?? null,
+            date: ymd,
+            category: 'REP',
+            rep_punch_log_id: repLogId,
+            device_id: ev.device_id,
+          };
+          void appendTimeAttendanceTimelineEvent({
+            companyId: opts.companyId,
+            employeeId: forceUserId ?? null,
+            date: ymd,
+            eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED,
+            eventSeverity: TimeAttendanceTimelineSeverity.medium,
+            sourceModule: 'clockEventPromote.service',
+            sourceReferenceId: repLogId ?? ev.id,
+            payload,
+            supabaseClient: sb,
+          });
+          void appendTimeAttendanceTimelineEvent({
+            companyId: opts.companyId,
+            employeeId: forceUserId ?? null,
+            date: ymd,
+            eventType: TimeAttendanceTimelineEventType.INCIDENT_DETECTED,
+            eventSeverity: TimeAttendanceTimelineSeverity.medium,
+            sourceModule: 'clockEventPromote.service',
+            sourceReferenceId: repLogId ?? ev.id,
+            payload: { rep_promote_failure: true, ...payload },
+            supabaseClient: sb,
+          });
+        }
+        await markMirrorPromotionFailure(cfg, table, ev.id, `rep_mirror:${code}:${errMsg.slice(0, 500)}`);
       } else if (success && timeRecordId) {
         out.timeRecords += 1;
         await markPromoted(cfg, table, ev.id, {
@@ -316,8 +375,6 @@ export async function promoteClockEventsToEspelho(
         await markPromoted(cfg, table, ev.id, { promote_error: 'no_time_record' });
       } else {
         out.errors += 1;
-        const errMsg =
-          typeof rpcResult.error === 'string' ? rpcResult.error : JSON.stringify(rpcResult).slice(0, 200);
         await markPromoted(cfg, table, ev.id, {
           promote_error: errMsg || 'rpc_failed',
         });
@@ -341,6 +398,7 @@ export async function promoteClockEventsToEspelho(
         time_records: out.timeRecords,
         user_not_found: out.userNotFound,
         duplicate: out.duplicate,
+        promote_mirror_failed: out.promoteMirrorFailed,
         errors: out.errors,
       },
       supabaseClient: sb,
@@ -361,4 +419,18 @@ async function markPromoted(
     ...fields,
   };
   await restPatch(cfg, `${table}?id=eq.${encodeURIComponent(id)}`, body);
+}
+
+/** Falha no espelho com evidência em rep_punch_logs: não preencher promoted_at (fila continua elegível). */
+async function markMirrorPromotionFailure(
+  cfg: SupabaseRestConfig,
+  table: string,
+  id: string,
+  promoteError: string
+): Promise<void> {
+  await restPatch(cfg, `${table}?id=eq.${encodeURIComponent(id)}`, {
+    promoted_at: null,
+    promote_error: promoteError.slice(0, 2000),
+    time_record_id: null,
+  });
 }

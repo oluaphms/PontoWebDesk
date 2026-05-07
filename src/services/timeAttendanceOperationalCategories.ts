@@ -6,6 +6,7 @@ import type { OperationalIncident } from './timeAttendanceIncidentEngine';
 
 export type OperationalIncidentBucket =
   | 'REP'
+  | 'REP_PROMOTE'
   | 'MATCH'
   | 'TIMESHEET'
   | 'SCHEDULE'

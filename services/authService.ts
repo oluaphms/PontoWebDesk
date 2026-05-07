@@ -877,14 +877,18 @@ class AuthService {
       });
 
       if (data.user) {
-        // Timeout na carga do perfil: free tier / RLS — ≥10s no caminho de login (HARD LOCK: só login).
-        const PROFILE_LOAD_TIMEOUT_MS = 12_000;
+        /**
+         * Timeout curto no caminho de login: se o perfil completo demorar, seguimos com o
+         * perfil mínimo e o `onAuthStateChanged` (SIGNED_IN) substitui pelo completo logo
+         * em seguida — evita spinner travado que faz o usuário "ter que atualizar o navegador".
+         */
+        const PROFILE_LOAD_TIMEOUT_MS = 2_500;
         const appUser = await Promise.race([
           this.supabaseUserToAppUser(data.user).catch(() => null as User | null),
           new Promise<User | null>((resolve) =>
             setTimeout(() => {
               if (import.meta.env?.DEV && typeof console !== 'undefined') {
-                console.info('[Auth] Perfil completo ainda carregando; usando perfil mínimo. Você pode seguir usando o sistema.');
+                console.info('[Auth] Perfil completo ainda carregando; usando perfil mínimo (será refinado em segundo plano).');
               }
               resolve(null);
             }, PROFILE_LOAD_TIMEOUT_MS)

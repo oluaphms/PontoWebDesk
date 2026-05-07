@@ -11,9 +11,12 @@ import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { resolveTenantId } from '../../services/tenantScope';
 import { recalculate_period } from '../../engine/timeEngine';
 import {
+  fetchPendingRepPunchesForEmployeeDay,
   getTimeAttendanceData,
+  type PendingRepPunch,
   type TimeAttendanceRow,
 } from '../../services/timeAttendanceData';
+import { RepPendingSequenceResolutionModal } from '../../components/RepPendingSequenceResolutionModal';
 import { parseCalculationTraceFromRawData } from '../../services/timesheetCalculationAudit';
 import {
   deriveOperationalIncident,
@@ -30,7 +33,11 @@ import {
   computeOperationalTrend,
   type ReliabilityDaySignals,
 } from '../../services/timeAttendanceReliability.service';
-import { listTimeAttendanceTimelinePage } from '../../services/timeAttendanceTimeline.service';
+import {
+  listTimeAttendanceTimelinePage,
+  type TimeAttendanceTimelineRow,
+} from '../../services/timeAttendanceTimeline.service';
+import { TimeAttendanceTimelineEventType } from '../../services/timeAttendanceTimeline.constants';
 
 type EnrichedIncident = {
   row: TimeAttendanceRow;
@@ -48,6 +55,35 @@ function civilMonthBounds(d = new Date()): { start: string; end: string } {
     start: `${y}-${pad(m + 1)}-01`,
     end: `${y}-${pad(m + 1)}-${pad(last.getDate())}`,
   };
+}
+
+function suggestedRepPromoteFailureAction(errorCode: string): string {
+  switch (errorCode) {
+    case 'invalid_sequence':
+      return 'Complete a sequência no espelho (intervalo/saída) ou peça ao RH para ajustar; a batida REP permanece auditável em rep_punch_logs.';
+    case 'closed_period':
+      return 'Reabra o período na folha de ponto e volte a consolidar; não há retry automático com folha fechada.';
+    case 'protected_timesheet':
+      return 'Registo protegido (Portaria 671): requer fluxo de auditoria / excepção; não forçar insert inválido.';
+    case 'duplicate_nsr':
+      return 'NSR duplicado no espelho: conferir time_records existente; não retry automático.';
+    case 'missing_user':
+      return 'Após alinhar cadastro ou vínculo manual, volte a «Consolidar»; retry permitido após identidade resolvida.';
+    default:
+      return 'Investigar mensagem técnica e timeline; retry com backoff se causa desconhecida.';
+  }
+}
+
+function repPromoteIncidentCode(ev: TimeAttendanceTimelineRow): string {
+  const p = (ev.payload ?? {}) as Record<string, unknown>;
+  return `rep_promote_failed:${String(p.nsr ?? 'na')}:${ev.id.slice(0, 8)}`;
+}
+
+function repPromoteReviewKey(ev: TimeAttendanceTimelineRow): string {
+  const p = (ev.payload ?? {}) as Record<string, unknown>;
+  const emp = (ev.employee_id ?? 'desconhecido').trim() || 'desconhecido';
+  const d = String(ev.date ?? p.date ?? '').slice(0, 10) || '0000-00-00';
+  return `${emp}|${d}|${repPromoteIncidentCode(ev)}`;
 }
 
 function severityBadgeClass(s: string): string {
@@ -82,6 +118,14 @@ const OperationalIncidents: React.FC = () => {
   const [resolveKey, setResolveKey] = useState<string | null>(null);
   const [recalcKey, setRecalcKey] = useState<string | null>(null);
   const [trendBanner, setTrendBanner] = useState<string[]>([]);
+  const [repPromoteEvents, setRepPromoteEvents] = useState<TimeAttendanceTimelineRow[]>([]);
+  const [repSeqModal, setRepSeqModal] = useState<{
+    employeeId: string;
+    dateYmd: string;
+    punches: PendingRepPunch[];
+    initialLogId?: string | null;
+    employeeLabel?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!companyId || !supabase) return;
@@ -124,6 +168,9 @@ const OperationalIncidents: React.FC = () => {
         previous: recent.slice(mid),
       });
       setTrendBanner(trend.messages);
+      setRepPromoteEvents(
+        recent.filter((row) => row.event_type === TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar incidentes.');
     } finally {
@@ -150,6 +197,21 @@ const OperationalIncidents: React.FC = () => {
     }
     return out;
   }, [rows]);
+
+  const repPromoteFiltered = useMemo(() => {
+    if (filterBucket !== '' && filterBucket !== 'REP_PROMOTE') return [];
+    return repPromoteEvents.filter((ev) => {
+      if (filterEmployee && (ev.employee_id ?? '') !== filterEmployee) return false;
+      if (filterSeverity && ev.event_severity !== filterSeverity) return false;
+      const resolved = reviews.has(repPromoteReviewKey(ev));
+      if (showResolved) {
+        if (!resolved) return false;
+      } else if (resolved) {
+        return false;
+      }
+      return true;
+    });
+  }, [repPromoteEvents, filterBucket, filterEmployee, filterSeverity, reviews, showResolved]);
 
   const filtered = useMemo(() => {
     return incidents.filter((i) => {
@@ -191,6 +253,38 @@ const OperationalIncidents: React.FC = () => {
     return { critical, open, affected: emp.size, degradedCompanies, meanScore };
   }, [incidents, rows, reviews]);
 
+  const handleResolveRepPromote = async (ev: TimeAttendanceTimelineRow) => {
+    if (!user?.id || !companyId) return;
+    const p = (ev.payload ?? {}) as Record<string, unknown>;
+    const errCode = typeof p.error_code === 'string' ? p.error_code : 'unknown';
+    const note = window.prompt('Nota de resolução (opcional):') ?? '';
+    const emp = (ev.employee_id ?? '').trim() || 'desconhecido';
+    const d = String(ev.date ?? p.date ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const incidentCode = repPromoteIncidentCode(ev);
+    setResolveKey(ev.id);
+    try {
+      const ok = await insertIncidentResolution({
+        companyId,
+        incidentCode,
+        employeeId: emp,
+        dateYmd: d,
+        resolvedBy: user.id,
+        resolutionNote: note.trim() || null,
+        incidentPayload: {
+          severity: ev.event_severity,
+          category: 'REP',
+          recommended_action: suggestedRepPromoteFailureAction(errCode),
+          human_reason: typeof p.message === 'string' ? p.message : 'Falha de promoção REP',
+        },
+      });
+      if (ok) {
+        setReviews((prev) => new Set(prev).add(repPromoteReviewKey(ev)));
+      }
+    } finally {
+      setResolveKey(null);
+    }
+  };
+
   const handleResolve = async (i: EnrichedIncident) => {
     if (!user?.id || !companyId) return;
     const note = window.prompt('Nota de resolução (opcional):') ?? '';
@@ -226,6 +320,23 @@ const OperationalIncidents: React.FC = () => {
       await load();
     } finally {
       setRecalcKey(null);
+    }
+  };
+
+  const openAssistedRepResolution = async (ev: TimeAttendanceTimelineRow) => {
+    const p = (ev.payload ?? {}) as Record<string, unknown>;
+    if (p.error_code !== 'invalid_sequence') return;
+    if (!companyId || !user?.id) return;
+    const emp = (ev.employee_id ?? '').trim();
+    const d = String(ev.date ?? p.date ?? '').slice(0, 10);
+    if (!emp || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    try {
+      const punches = await fetchPendingRepPunchesForEmployeeDay(companyId, emp, d);
+      const logId = typeof p.rep_punch_log_id === 'string' ? p.rep_punch_log_id : null;
+      const employeeLabel = employees.find((e) => e.id === emp)?.nome ?? emp;
+      setRepSeqModal({ employeeId: emp, dateYmd: d, punches, initialLogId: logId, employeeLabel });
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -343,19 +454,20 @@ const OperationalIncidents: React.FC = () => {
                 <option value="">Todas</option>
                 {(
                   [
-                    'REP',
-                    'MATCH',
-                    'TIMESHEET',
-                    'SCHEDULE',
-                    'REPLAY',
-                    'DRIFT',
-                    'INTEGRATION',
-                    'CLOSURE',
-                    'AUDIT',
-                  ] as OperationalIncidentBucket[]
-                ).map((b) => (
+                    ['REP', 'REP'],
+                    ['REP_PROMOTE', 'Falha de promoção REP'],
+                    ['MATCH', 'MATCH'],
+                    ['TIMESHEET', 'TIMESHEET'],
+                    ['SCHEDULE', 'SCHEDULE'],
+                    ['REPLAY', 'REPLAY'],
+                    ['DRIFT', 'DRIFT'],
+                    ['INTEGRATION', 'INTEGRATION'],
+                    ['CLOSURE', 'CLOSURE'],
+                    ['AUDIT', 'AUDIT'],
+                  ] as [OperationalIncidentBucket, string][]
+                ).map(([b, label]) => (
                   <option key={b} value={b}>
-                    {b}
+                    {label}
                   </option>
                 ))}
               </select>
@@ -375,13 +487,14 @@ const OperationalIncidents: React.FC = () => {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          {loadingData && rows.length === 0 ? (
+          {loadingData && rows.length === 0 && repPromoteEvents.length === 0 ? (
             <LoadingState message="Carregando…" />
-          ) : filtered.length === 0 ? (
+          ) : filtered.length === 0 && repPromoteFiltered.length === 0 ? (
             <p className="text-sm text-slate-600 dark:text-slate-400">Nenhum incidente nestes filtros.</p>
           ) : (
             <ul className="space-y-3">
-              {filtered.map((i) => {
+              {filterBucket !== 'REP_PROMOTE'
+                ? filtered.map((i) => {
                 const resolved = reviews.has(i.key);
                 return (
                   <li
@@ -451,11 +564,110 @@ const OperationalIncidents: React.FC = () => {
                     </div>
                   </li>
                 );
-              })}
+              })
+                : null}
+              {(filterBucket === '' || filterBucket === 'REP_PROMOTE') &&
+                repPromoteFiltered.map((ev) => {
+                  const p = (ev.payload ?? {}) as Record<string, unknown>;
+                  const errCode = typeof p.error_code === 'string' ? p.error_code : 'unknown';
+                  const attempts =
+                    typeof p.promotion_attempts === 'number' ? p.promotion_attempts : null;
+                  const rk = repPromoteReviewKey(ev);
+                  const resolved = reviews.has(rk);
+                  const empLabel =
+                    (ev.employee_id && employees.find((e) => e.id === ev.employee_id)?.nome) ||
+                    ev.employee_id ||
+                    '—';
+                  return (
+                    <li
+                      key={ev.id}
+                      className="rounded-xl border border-rose-200 dark:border-rose-900/50 p-4 bg-white/80 dark:bg-slate-900/50"
+                    >
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <div>
+                          <div className={`text-sm font-semibold ${severityBadgeClass(ev.event_severity)}`}>
+                            Falha de promoção REP · {errCode} · {ev.event_severity}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            REP_PROMOTE · {empLabel} · {String(ev.date ?? p.date ?? '').slice(0, 10) || '—'}
+                          </div>
+                        </div>
+                        {resolved ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                            <CheckCircle2 className="w-4 h-4" /> Resolvido
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-slate-700 dark:text-slate-300 mt-2">
+                        {typeof p.message === 'string' ? p.message : '—'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Tentativas: {attempts != null ? attempts : '—'} · Última ocorrência:{' '}
+                        {ev.created_at ? new Date(ev.created_at).toLocaleString('pt-BR') : '—'}
+                      </p>
+                      <p className="text-xs text-amber-800 dark:text-amber-200 mt-2">
+                        Ação sugerida: {suggestedRepPromoteFailureAction(errCode)}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Link
+                          to="/admin/time-attendance-timeline"
+                          className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                        >
+                          Timeline <ExternalLink className="w-3 h-3" />
+                        </Link>
+                        {!resolved && ev.employee_id ? (
+                          <Link
+                            to={`/admin/timesheet?user_id=${encodeURIComponent(ev.employee_id)}&date=${encodeURIComponent(String(ev.date ?? p.date ?? '').slice(0, 10))}`}
+                            className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                          >
+                            Espelho <ExternalLink className="w-3 h-3" />
+                          </Link>
+                        ) : null}
+                        {!resolved ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={resolveKey === ev.id}
+                            onClick={() => void handleResolveRepPromote(ev)}
+                          >
+                            {resolveKey === ev.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                            Marcar resolvido
+                          </Button>
+                        ) : null}
+                        {errCode === 'invalid_sequence' && !resolved && ev.employee_id ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void openAssistedRepResolution(ev)}
+                          >
+                            Reconciliação assistida
+                          </Button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </>
       )}
+
+      {repSeqModal && user?.id && companyId ? (
+        <RepPendingSequenceResolutionModal
+          open
+          onClose={() => setRepSeqModal(null)}
+          companyId={companyId}
+          employeeId={repSeqModal.employeeId}
+          employeeName={repSeqModal.employeeLabel}
+          dateYmd={repSeqModal.dateYmd}
+          pendingPunches={repSeqModal.punches}
+          initialRepLogId={repSeqModal.initialLogId}
+          reviewedByUserId={user.id}
+          onCompleted={() => void load()}
+        />
+      ) : null}
     </div>
   );
 };
