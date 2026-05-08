@@ -3,6 +3,7 @@ import { queryCache, TTL } from './queryCache';
 import { handleError } from '../utils/handleError';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
 import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
+import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../utils/localDateTimeToIso';
 
 export interface AdminDashboardCards {
   totalEmployees: number;
@@ -36,6 +37,7 @@ export interface AdminDashboardLastRecord {
   id: string;
   employeeName: string;
   type: string;
+  typeLabel: string;
   /** YYYY-MM-DD */
   date: string;
   /** HH:mm */
@@ -43,6 +45,12 @@ export interface AdminDashboardLastRecord {
   location: string;
   originLabel: string;
   userId: string;
+  lat: number | null;
+  lng: number | null;
+  accuracy: number | null;
+  sourceRecordId: string;
+  hasTimeAnomaly: boolean;
+  timeAnomalyReason: string | null;
 }
 
 export interface AdminDashboardPayload {
@@ -89,6 +97,126 @@ function formatLatLng(r: any): string {
   return '—';
 }
 
+function normalizeType(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
+function typeLabel(rawType: unknown): string {
+  const t = normalizeType(rawType);
+  if (t === 'entrada') return 'Entrada';
+  if (t === 'saida') return 'Saída';
+  if (t === 'pausa') return 'Pausa';
+  if (t === 'intervalo_saida') return 'Volta intervalo';
+  return String(rawType ?? '—');
+}
+
+function readGeoFromRecord(r: any): { lat: number; lng: number; accuracy: number | null } | null {
+  const snapshot = r?.raw_data?.geo_snapshot;
+  if (snapshot && snapshot.latitude_original != null && snapshot.longitude_original != null) {
+    const lat = Number(snapshot.latitude_original);
+    const lng = Number(snapshot.longitude_original);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const accuracy = snapshot.accuracy_meters == null ? null : Number(snapshot.accuracy_meters);
+      return { lat, lng, accuracy: Number.isFinite(accuracy as number) ? accuracy : null };
+    }
+  }
+  const lat = Number(r?.latitude ?? r?.location?.lat);
+  const lng = Number(r?.longitude ?? r?.location?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const accuracy = r?.accuracy == null ? null : Number(r.accuracy);
+    return { lat, lng, accuracy: Number.isFinite(accuracy as number) ? accuracy : null };
+  }
+  return null;
+}
+
+function parseInstantSafe(raw: unknown): Date | null {
+  const str = String(raw ?? '').trim();
+  if (!str) return null;
+  const d = new Date(str);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
+}
+
+function resolveDashboardDisplayInstant(record: any): {
+  instant: Date | null;
+  hasAnomaly: boolean;
+  anomalyReason: string | null;
+} {
+  const primary = parseInstantSafe(record?.timestamp);
+  const fallback = parseInstantSafe(record?.created_at);
+  const now = Date.now();
+  const primaryDeltaHours = primary ? (primary.getTime() - now) / 36e5 : null;
+  const fallbackDeltaHours = fallback ? (fallback.getTime() - now) / 36e5 : null;
+
+  if (primary && Math.abs(primaryDeltaHours ?? 0) <= 24) {
+    return { instant: primary, hasAnomaly: false, anomalyReason: null };
+  }
+
+  if (primary && Math.abs(primaryDeltaHours ?? 0) > 24) {
+    console.info('[TIME DISPLAY BUG]', {
+      reason: 'timestamp_delta_gt_24h',
+      source_record_id: String(record?.id ?? ''),
+      user_id: String(record?.user_id ?? ''),
+      timestamp: String(record?.timestamp ?? ''),
+      created_at: String(record?.created_at ?? ''),
+      delta_hours: Math.round(primaryDeltaHours ?? 0),
+    });
+    if (fallback) {
+      console.info('[TIMEZONE NORMALIZATION]', {
+        source_record_id: String(record?.id ?? ''),
+        chosen_source: 'created_at_due_to_timestamp_anomaly',
+        timezone: 'America/Sao_Paulo',
+      });
+      return {
+        instant: fallback,
+        hasAnomaly: true,
+        anomalyReason: 'timestamp fora da janela esperada (>24h)',
+      };
+    }
+    return {
+      instant: primary,
+      hasAnomaly: true,
+      anomalyReason: 'timestamp fora da janela esperada (>24h)',
+    };
+  }
+
+  if (fallback) {
+    if (Math.abs(fallbackDeltaHours ?? 0) > 24) {
+      console.info('[TIME DISPLAY BUG]', {
+        reason: 'created_at_delta_gt_24h',
+        source_record_id: String(record?.id ?? ''),
+        user_id: String(record?.user_id ?? ''),
+        created_at: String(record?.created_at ?? ''),
+        delta_hours: Math.round(fallbackDeltaHours ?? 0),
+      });
+      return {
+        instant: fallback,
+        hasAnomaly: true,
+        anomalyReason: 'created_at fora da janela esperada (>24h)',
+      };
+    }
+    console.info('[TIMEZONE NORMALIZATION]', {
+      source_record_id: String(record?.id ?? ''),
+      chosen_source: 'created_at',
+      timezone: 'America/Sao_Paulo',
+    });
+    return { instant: fallback, hasAnomaly: false, anomalyReason: null };
+  }
+
+  console.info('[TIME DISPLAY BUG]', {
+    reason: 'invalid_timestamp_and_created_at',
+    source_record_id: String(record?.id ?? ''),
+    user_id: String(record?.user_id ?? ''),
+    timestamp: String(record?.timestamp ?? ''),
+    created_at: String(record?.created_at ?? ''),
+  });
+  return { instant: null, hasAnomaly: true, anomalyReason: 'data inválida' };
+}
+
 /**
  * Agrega dados do painel admin em chamadas controladas (evita N queries na UI).
  */
@@ -133,9 +261,13 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
         () =>
           db.select(
             'time_records',
-            [{ column: 'company_id', operator: 'eq', value: companyId }],
+            [
+              { column: 'company_id', operator: 'eq', value: companyId },
+              { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
+              { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+            ],
             { column: 'created_at', ascending: false },
-            5,
+            40,
           ) as Promise<any[]>,
         TTL.REALTIME,
       ),
@@ -185,13 +317,6 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       const day = String(d.getDate()).padStart(2, '0');
       previousWeekDays.push(`${y}-${m}-${day}`);
     }
-
-    const normalizeType = (raw: unknown): string =>
-      String(raw ?? '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/\p{M}/gu, '');
 
     const statsByDay = new Map<string, Omit<AdminWeeklyChartPoint, 'day'>>();
     for (const r of records) {
@@ -246,26 +371,47 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
     };
 
     // Usar recentRecords diretamente (já vem ordenado do banco)
-    const lastRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
-      const iso = recordPunchInstantIso(r);
-      const t = new Date(iso);
-      const timeStr = Number.isFinite(t.getTime())
-        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const allRecentRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
+      const tInfo = resolveDashboardDisplayInstant(r);
+      const t = tInfo.instant;
+      const geo = readGeoFromRecord(r);
+      const timeStr = t && Number.isFinite(t.getTime())
+        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
         : '—';
-      const dateStr = Number.isFinite(t.getTime())
-        ? t.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      const dateStr = t && Number.isFinite(t.getTime())
+        ? t.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' })
         : '—';
       return {
         id: String(r.id ?? ''),
         userId: String(r.user_id ?? ''),
         employeeName: nameMap.get(String(r.user_id)) ?? String(r.user_id ?? '').slice(0, 8) ?? '—',
         type: String(r.type ?? ''),
+        typeLabel: typeLabel(r.type),
         date: dateStr,
         time: timeStr,
-        location: formatLatLng(r),
+        location: geo ? `${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` : formatLatLng(r),
         originLabel: resolvePunchOrigin(r).label,
+        lat: geo?.lat ?? null,
+        lng: geo?.lng ?? null,
+        accuracy: geo?.accuracy ?? null,
+        sourceRecordId: String(r.id ?? ''),
+        hasTimeAnomaly: tInfo.hasAnomaly,
+        timeAnomalyReason: tInfo.anomalyReason,
       };
     });
+    const lastRecords = allRecentRecords
+      .filter((r) => {
+        if (r.date === '—') return false;
+        const [dd, mm, yyyy] = r.date.split('/');
+        const ymd = `${yyyy}-${mm}-${dd}`;
+        return ymd === todayLocal;
+      })
+      .sort((a, b) => {
+        const am = parseInt(a.time.replace(':', ''), 10);
+        const bm = parseInt(b.time.replace(':', ''), 10);
+        return Number.isFinite(bm) && Number.isFinite(am) ? bm - am : 0;
+      })
+      .slice(0, 8);
 
     return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
   } catch (e) {

@@ -97,6 +97,19 @@ const AdminDashboard: React.FC = () => {
     { label: i18n.t('dashboard.absentToday'), value: cards.absentToday, icon: UserX, color: 'bg-amber-500' },
   ];
 
+  const originBadgeClass = (originLabel: string) => {
+    if (originLabel === 'Relógio') return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+    if (originLabel === 'App') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+  };
+
+  const geoQuality = (accuracy: number | null) => {
+    if (accuracy == null || !Number.isFinite(accuracy)) return null;
+    if (accuracy > 300) return 'GPS degradado';
+    if (accuracy > 100) return 'Localização aproximada';
+    return null;
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader title={i18n.t('dashboard.adminTitle')} />
@@ -142,49 +155,57 @@ const AdminDashboard: React.FC = () => {
                   {i18n.t('dashboard.viewTimesheet')} <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700">
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
-                        {i18n.t('dashboard.employee')}
-                      </th>
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
-                        {i18n.t('dashboard.type')}
-                      </th>
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
-                        Data
-                      </th>
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
-                        {i18n.t('dashboard.time')}
-                      </th>
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">Origem</th>
-                      <th className="text-left py-2 font-bold text-slate-500 dark:text-slate-400">
-                        {i18n.t('dashboard.location')}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lastRecords.map((r) => (
-                      <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="py-2 text-slate-900 dark:text-white">{r.employeeName}</td>
-                        <td className="py-2">
-                          {r.type === 'entrada'
-                            ? i18n.t('punch.typeIn')
-                            : r.type === 'saída'
-                              ? i18n.t('punch.typeOut')
-                              : r.type === 'pausa'
-                                ? i18n.t('punch.typeBreak')
-                                : r.type}
-                        </td>
-                        <td className="py-2 tabular-nums">{r.date}</td>
-                        <td className="py-2 tabular-nums">{r.time}</td>
-                        <td className="py-2 text-slate-600 dark:text-slate-300 text-xs">{r.originLabel}</td>
-                        <td className="py-2 text-slate-500 dark:text-slate-400 text-xs">{r.location}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {lastRecords.map((r) => {
+                  const quality = geoQuality(r.accuracy);
+                  const mapHref =
+                    r.lat != null && r.lng != null
+                      ? `https://maps.google.com/?q=${r.lat},${r.lng}`
+                      : null;
+                  return (
+                    <article
+                      key={r.id}
+                      className="rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-2 overflow-hidden"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="font-semibold text-slate-900 dark:text-white truncate">{r.employeeName}</h4>
+                        <span className="text-xs px-2 py-1 rounded-md bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 shrink-0">
+                          {r.typeLabel}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-300">
+                        <span className="tabular-nums">{r.date}</span> às <span className="tabular-nums">{r.time}</span>
+                      </div>
+                      {r.hasTimeAnomaly && (
+                        <div className="text-xs px-2 py-1 rounded-md bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 inline-flex w-fit">
+                          Data inconsistente: {r.timeAnomalyReason ?? 'verificar origem da batida'}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs px-2 py-1 rounded-md ${originBadgeClass(r.originLabel)}`}>{r.originLabel}</span>
+                        {quality && (
+                          <span className="text-xs px-2 py-1 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            {quality}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold">GPS:</span>{' '}
+                        <span className="break-all">{r.location === '—' ? '—' : r.location}</span>
+                      </div>
+                      {mapHref && (
+                        <a
+                          href={mapHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          Ver no mapa
+                        </a>
+                      )}
+                    </article>
+                  );
+                })}
                 {lastRecords.length === 0 && (
                   <p className="py-8 text-center text-slate-500 dark:text-slate-400 text-sm">
                     {i18n.t('dashboard.noRecentRecords')}

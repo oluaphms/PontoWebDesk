@@ -11,7 +11,16 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
 import { extractLatLng } from '../../utils/reverseGeocode';
+import { validateCoordinateOrder } from '../../services/geolocation/geoIntegrity.service';
 import { recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
+import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
+import { queryCache } from '../../services/queryCache';
+import {
+  EmployeeOperationalStatus,
+  deriveOperationalStatusFromLastPunch,
+  normalizePunchType,
+  operationalStatusColor,
+} from '../../types/employeeOperationalStatus';
 import { LoadingState } from '../../../components/UI';
 import {
   MapPin,
@@ -25,22 +34,40 @@ import {
   Calendar,
 } from 'lucide-react';
 
-type MapStatus = 'Trabalhando' | 'Em Pausa' | 'Offline' | 'Ausente';
-
 interface EmployeeStatus {
   userId: string;
   userName: string;
-  status: MapStatus;
+  status: 'Trabalhando' | 'Em pausa' | 'Em intervalo' | 'Fora da jornada';
   lastRecordType?: string;
   lastRecordAt?: string;
   lat?: number;
   lng?: number;
+  accuracy?: number | null;
+  capturedAt?: string;
+  sourceRecordId?: string;
 }
 
 type UserRow = { id: string; nome: string; email?: string };
-type TimeRecordRow = { id: string; user_id: string; type: string; timestamp?: string | null; created_at: string };
+type TimeRecordRow = {
+  id: string;
+  user_id: string;
+  type: string;
+  timestamp?: string | null;
+  created_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy?: number | null;
+  raw_data?: {
+    geo_snapshot?: {
+      latitude_original?: number | null;
+      longitude_original?: number | null;
+      accuracy_meters?: number | null;
+      captured_at?: string | null;
+    };
+  } | null;
+};
 
-type PresenceStatus = 'working' | 'left' | 'late' | 'overtime' | 'absent';
+type PresenceStatus = 'working' | 'break' | 'lunch' | 'off_duty';
 
 interface EmployeePresence {
   user_id: string;
@@ -51,6 +78,8 @@ interface EmployeePresence {
   lastType?: string;
   pairCount: number;
 }
+
+const COMPANY_TIMEZONE = 'America/Sao_Paulo';
 
 const todayStart = () => {
   const d = new Date();
@@ -63,9 +92,79 @@ const todayEnd = () => {
   return d.toISOString();
 };
 
+function toMonitoringStatus(status: EmployeeOperationalStatus): EmployeeStatus['status'] {
+  if (status === EmployeeOperationalStatus.WORKING) return 'Trabalhando';
+  if (status === EmployeeOperationalStatus.BREAK) return 'Em pausa';
+  if (status === EmployeeOperationalStatus.LUNCH) return 'Em intervalo';
+  return 'Fora da jornada';
+}
+
+function formatLocalDateTime(rawIso: string | undefined, context: { employeeId: string; recordId?: string }) {
+  if (!rawIso) return undefined;
+  const parsed = new Date(rawIso);
+  if (!Number.isFinite(parsed.getTime())) {
+    console.info('[TIME DISPLAY BUG]', { reason: 'invalid_date', raw: rawIso, ...context });
+    return undefined;
+  }
+  const now = Date.now();
+  const deltaMs = parsed.getTime() - now;
+  if (deltaMs > 24 * 60 * 60 * 1000 || deltaMs < -24 * 60 * 60 * 1000) {
+    console.info('[TIME DISPLAY BUG]', {
+      reason: 'delta_gt_24h',
+      raw: rawIso,
+      delta_hours: Math.round(deltaMs / 36e5),
+      ...context,
+    });
+  }
+  if (deltaMs > 0) {
+    console.info('[TIME DISPLAY BUG]', { reason: 'future_date', raw: rawIso, ...context });
+  }
+  console.info('[TIMEZONE NORMALIZATION]', {
+    timezone: COMPANY_TIMEZONE,
+    input: rawIso,
+    ...context,
+  });
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: COMPANY_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
+function readGeoSnapshot(record: TimeRecordRow) {
+  const geo = record.raw_data?.geo_snapshot;
+  if (geo) {
+    const lat = Number(geo.latitude_original);
+    const lng = Number(geo.longitude_original);
+    const accuracy = geo.accuracy_meters == null ? null : Number(geo.accuracy_meters);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {
+        lat,
+        lng,
+        accuracy: Number.isFinite(accuracy as number) ? accuracy : null,
+        capturedAt: geo.captured_at ?? recordPunchInstantIso(record),
+        source: 'raw_data.geo_snapshot',
+      };
+    }
+  }
+  const fallbackCoord = extractLatLng(record);
+  if (fallbackCoord) {
+    return {
+      lat: fallbackCoord.lat,
+      lng: fallbackCoord.lng,
+      accuracy: record.accuracy == null ? null : Number(record.accuracy),
+      capturedAt: recordPunchInstantIso(record),
+      source: 'record_lat_lng',
+    };
+  }
+  return null;
+}
+
 function inferStatus(
   records: TimeRecordRow[],
-  now: Date
 ): { status: PresenceStatus; lastPunch?: string; lastType?: string; pairCount: number } {
   const sorted = [...records].sort(
     (a, b) => recordPunchInstantMs(a) - recordPunchInstantMs(b),
@@ -83,22 +182,11 @@ function inferStatus(
   const lastType = last ? type(last.type) : null;
   const lastTs = last ? recordPunchInstantIso(last) : null;
 
-  if (sorted.length === 0) {
-    const hour = now.getHours();
-    const min = now.getMinutes();
-    if (hour < 8) return { status: 'absent', pairCount: 0 };
-    if (hour > 8 || (hour === 8 && min > 30)) return { status: 'late', pairCount: 0 };
-    return { status: 'absent', pairCount: 0 };
-  }
-  if (lastType === 'entrada') {
-    const h = now.getHours();
-    if (h >= 18) return { status: 'overtime', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
-    return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
-  }
-  if (lastType === 'saida') {
-    return { status: 'left', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
-  }
-  return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
+  if (sorted.length === 0) return { status: 'off_duty', pairCount: 0 };
+  if (lastType === 'entrada') return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
+  if (lastType === 'pausa') return { status: 'break', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
+  if (lastType === 'intervalo_saida') return { status: 'lunch', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
+  return { status: 'off_duty', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
 }
 
 type TabId = 'hoje' | 'mapa';
@@ -136,47 +224,92 @@ const AdminMonitoring: React.FC = () => {
       ]);
       const users = usersRows ?? [];
       const records = [...(recentRecords ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
-      const lastByUser = new Map<string, { type: string; at: string }>();
-      const lastGpsByUser = new Map<string, { lat: number; lng: number; at: string }>();
+      const lastByUser = new Map<string, TimeRecordRow>();
+      const lastGpsByUser = new Map<
+        string,
+        { lat: number; lng: number; at: string; accuracy: number | null; source: string; recordId: string }
+      >();
       records.forEach((r: TimeRecordRow) => {
         if (!lastByUser.has(r.user_id)) {
-          lastByUser.set(r.user_id, {
-            type: r.type,
-            at: recordPunchInstantIso(r),
-          });
+          lastByUser.set(r.user_id, r);
         }
         if (!lastGpsByUser.has(r.user_id)) {
-          const coord = extractLatLng(r);
-          if (coord && Number.isFinite(coord.lat) && Number.isFinite(coord.lng)) {
+          const geo = readGeoSnapshot(r);
+          if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+            console.info('[GEO SNAPSHOT USED]', {
+              employee_id: r.user_id,
+              lat: geo.lat,
+              lng: geo.lng,
+              accuracy: geo.accuracy,
+              captured_at: geo.capturedAt,
+              source_record_id: r.id,
+              source: geo.source,
+            });
             lastGpsByUser.set(r.user_id, {
-              lat: coord.lat,
-              lng: coord.lng,
-              at: recordPunchInstantIso(r),
+              lat: geo.lat,
+              lng: geo.lng,
+              at: geo.capturedAt,
+              accuracy: geo.accuracy,
+              source: geo.source,
+              recordId: r.id,
             });
           }
         }
       });
       const statusList: EmployeeStatus[] = users.map((u: UserRow) => {
-        const last = lastByUser.get(u.id);
+        const lastRecord = lastByUser.get(u.id);
         const lastGps = lastGpsByUser.get(u.id);
-        let status: MapStatus = 'Offline';
-        if (last) {
-          const dt = new Date(last.at).getTime();
-          const now = Date.now();
-          const diffMin = (now - dt) / 60000;
-          if (diffMin > 60) status = 'Ausente';
-          else if (last.type === 'entrada') status = 'Trabalhando';
-          else if (last.type === 'pausa') status = 'Em Pausa';
-          else status = 'Offline';
+        const statusEnum = deriveOperationalStatusFromLastPunch(lastRecord?.type);
+        const status = toMonitoringStatus(statusEnum);
+        if (lastRecord) {
+          console.info('[MONITORING STATUS DERIVATION]', {
+            employee_id: u.id,
+            source_record_id: lastRecord.id,
+            last_punch_type: normalizePunchType(lastRecord.type),
+            operational_status: statusEnum,
+          });
+        }
+        if (lastGps) {
+          const coordIssues = validateCoordinateOrder(lastGps.lat, lastGps.lng);
+          if (coordIssues.length > 0) {
+            console.info('[GEO MAP POSITION]', {
+              employee_id: u.id,
+              lat: lastGps.lat,
+              lng: lastGps.lng,
+              source_record_id: lastGps.recordId,
+              coordinate_issues: coordIssues,
+            });
+          }
+          console.info('[GEO MONITOR SOURCE]', {
+            employee_id: u.id,
+            source_record_id: lastGps.recordId,
+            lat: lastGps.lat,
+            lng: lastGps.lng,
+            accuracy: lastGps.accuracy,
+            captured_at: lastGps.at,
+            source: lastGps.source,
+          });
+          console.info('[GEO MAP POSITION]', {
+            employee_id: u.id,
+            lat: lastGps.lat,
+            lng: lastGps.lng,
+            source_record_id: lastGps.recordId,
+          });
         }
         return {
           userId: u.id,
           userName: u.nome || u.email || '—',
           status,
-          lastRecordType: last?.type,
-          lastRecordAt: last?.at ? new Date(last.at).toLocaleString('pt-BR') : undefined,
+          lastRecordType: lastRecord?.type,
+          lastRecordAt: formatLocalDateTime(lastRecord ? recordPunchInstantIso(lastRecord) : undefined, {
+            employeeId: u.id,
+            recordId: lastRecord?.id,
+          }),
           lat: lastGps?.lat,
           lng: lastGps?.lng,
+          accuracy: lastGps?.accuracy,
+          capturedAt: lastGps?.at,
+          sourceRecordId: lastGps?.recordId,
         };
       });
       setMapList(statusList);
@@ -202,6 +335,9 @@ const AdminMonitoring: React.FC = () => {
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
           debounce = null;
+          clearGeocodeCache();
+          queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
+          queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
           void refresh();
         }, 400);
       })
@@ -223,11 +359,10 @@ const AdminMonitoring: React.FC = () => {
   }, [todayRecords]);
 
   const presenceList = useMemo(() => {
-    const now = new Date();
     const result: EmployeePresence[] = [];
     for (const u of todayUsers) {
       const recs = byUser.get(u.id) || [];
-      const { status, lastPunch, lastType, pairCount } = inferStatus(recs, now);
+      const { status, lastPunch, lastType, pairCount } = inferStatus(recs);
       result.push({
         user_id: u.id,
         nome: u.nome || u.email || u.id.slice(0, 8),
@@ -242,15 +377,23 @@ const AdminMonitoring: React.FC = () => {
   }, [todayUsers, byUser]);
 
   const working = presenceList.filter((e) => e.status === 'working');
-  const left = presenceList.filter((e) => e.status === 'left');
-  const late = presenceList.filter((e) => e.status === 'late');
-  const overtime = presenceList.filter((e) => e.status === 'overtime');
-  const absent = presenceList.filter((e) => e.status === 'absent');
+  const onBreak = presenceList.filter((e) => e.status === 'break');
+  const onLunch = presenceList.filter((e) => e.status === 'lunch');
+  const offDuty = presenceList.filter((e) => e.status === 'off_duty');
 
   const formatTime = (s: string | undefined) => {
     if (!s) return '—';
     try {
-      return new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const d = new Date(s);
+      if (!Number.isFinite(d.getTime())) {
+        console.info('[TIME DISPLAY BUG]', { reason: 'invalid_time_only', raw: s });
+        return '—';
+      }
+      return new Intl.DateTimeFormat('pt-BR', {
+        timeZone: COMPANY_TIMEZONE,
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(d);
     } catch {
       return s;
     }
@@ -259,11 +402,11 @@ const AdminMonitoring: React.FC = () => {
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
-  const statusColor: Record<MapStatus, string> = {
-    Trabalhando: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-    'Em Pausa': 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-    Offline: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
-    Ausente: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+  const statusColor: Record<EmployeeStatus['status'], string> = {
+    Trabalhando: operationalStatusColor(EmployeeOperationalStatus.WORKING),
+    'Em pausa': operationalStatusColor(EmployeeOperationalStatus.BREAK),
+    'Em intervalo': operationalStatusColor(EmployeeOperationalStatus.LUNCH),
+    'Fora da jornada': operationalStatusColor(EmployeeOperationalStatus.OFF_DUTY),
   };
 
   const tabBtn = (id: TabId, label: string, icon: React.ReactNode) => (
@@ -312,19 +455,17 @@ const AdminMonitoring: React.FC = () => {
         <>
           {tab === 'hoje' && (
             <div className="space-y-6 animate-in fade-in duration-200">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon={<LogIn className="text-green-600" size={20} />} label="Trabalhando agora" value={working.length} />
-                <StatCard icon={<LogOut className="text-slate-600" size={20} />} label="Já saíram" value={left.length} />
-                <StatCard icon={<AlertCircle className="text-amber-600" size={20} />} label="Atrasados" value={late.length} />
-                <StatCard icon={<Zap className="text-indigo-600" size={20} />} label="Em hora extra" value={overtime.length} />
-                <StatCard icon={<Clock className="text-red-600" size={20} />} label="Faltas hoje" value={absent.length} />
+                <StatCard icon={<AlertCircle className="text-amber-600" size={20} />} label="Em pausa" value={onBreak.length} />
+                <StatCard icon={<Zap className="text-blue-600" size={20} />} label="Em intervalo" value={onLunch.length} />
+                <StatCard icon={<LogOut className="text-slate-600" size={20} />} label="Fora da jornada" value={offDuty.length} />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <PresenceSection title="Trabalhando agora" items={working} formatTime={formatTime} statusLabel="Entrada" />
-                <PresenceSection title="Já saíram" items={left} formatTime={formatTime} statusLabel="Última saída" />
-                <PresenceSection title="Atrasados" items={late} formatTime={formatTime} statusLabel="—" />
-                <PresenceSection title="Em hora extra" items={overtime} formatTime={formatTime} statusLabel="Entrada" />
-                <PresenceSection title="Faltas hoje" items={absent} formatTime={formatTime} statusLabel="—" />
+                <PresenceSection title="Em pausa" items={onBreak} formatTime={formatTime} statusLabel="Pausa" />
+                <PresenceSection title="Em intervalo" items={onLunch} formatTime={formatTime} statusLabel="Intervalo" />
+                <PresenceSection title="Fora da jornada" items={offDuty} formatTime={formatTime} statusLabel="Última batida" />
               </div>
             </div>
           )}

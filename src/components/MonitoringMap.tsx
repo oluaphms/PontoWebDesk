@@ -6,7 +6,7 @@ const LEAFLET_CSS_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 // Mapa sempre em modo claro, independente do tema do sistema
 const TILE_LAYER_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
-export type MonitoringStatus = 'Trabalhando' | 'Em Pausa' | 'Offline' | 'Ausente';
+export type MonitoringStatus = 'Trabalhando' | 'Em pausa' | 'Em intervalo' | 'Fora da jornada';
 
 export interface MonitoringEmployee {
   userId: string;
@@ -27,9 +27,9 @@ const loadLeafletCSS = () => {
 
 const statusColors: Record<MonitoringStatus, string> = {
   Trabalhando: '#10b981',
-  'Em Pausa': '#f59e0b',
-  Offline: '#64748b',
-  Ausente: '#ef4444',
+  'Em pausa': '#f59e0b',
+  'Em intervalo': '#3b82f6',
+  'Fora da jornada': '#64748b',
 };
 
 interface MonitoringMapProps {
