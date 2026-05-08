@@ -19,11 +19,7 @@ import {
   geolocationActionHint,
   queryGeolocationPermission,
   logGeolocationDebug,
-  watchGeoPosition,
   getAccuracyStatusMessage,
-  getLocationFromCache,
-  saveLocationToCache,
-  isLocationAccurateEnough,
   type GeoPosition,
   type GeolocationFailureReason,
   type GeoPermissionState,
@@ -46,6 +42,8 @@ import { LogType, PunchMethod } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { queryClient } from '../../lib/queryClient';
 import { invalidateAfterPunch } from '../../services/queryCache';
+import { reverseGeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
+import { validateGeoSnapshot } from '../../services/geolocation/geoIntegrity.service';
 import {
   hasStoredPasskey,
   isWebAuthnSupported,
@@ -268,9 +266,6 @@ const EmployeeClockIn: React.FC = () => {
     const status = getAccuracyStatusMessage(r.position.accuracy);
     setAccuracyStatus(status);
 
-    // Salva no cache
-    saveLocationToCache(r.position);
-
     logGeolocationDebug('retryGps:ok', {
       position: r.position,
       samples: r.position.sampleCount,
@@ -327,33 +322,14 @@ const EmployeeClockIn: React.FC = () => {
       const status = getAccuracyStatusMessage(r.position.accuracy);
       setAccuracyStatus(status);
 
-      // Salva no cache
-      saveLocationToCache(r.position);
-
       logGeolocationDebug('modal:initial:ok', {
         position: r.position,
         samples: r.position.sampleCount,
       });
     })();
 
-    // Watch position para atualizações contínuas (menos frequentes)
-    const stopWatch = watchGeoPosition(
-      (r) => {
-        if (cancelled) return;
-        if (r.ok && r.position) {
-          setGeo(r.position);
-          setGpsFailReason(null);
-          setGeoLiveStatus('captured');
-          const status = getAccuracyStatusMessage(r.position.accuracy);
-          setAccuracyStatus(status);
-        }
-      },
-      { minIntervalMs: 5000, timeout: 25000, maximumAge: 5000, enableHighAccuracy: true },
-    );
-
     return () => {
       cancelled = true;
-      stopWatch();
     };
   }, [proofModalOpen]);
 
@@ -442,6 +418,16 @@ const EmployeeClockIn: React.FC = () => {
           return;
         }
       }
+      if (!manualBypass && geoPos?.accuracy != null) {
+        if (geoPos.accuracy > 500) {
+          setError('Precisão de GPS muito baixa (>500m). Atualize a localização e tente novamente.');
+          toast.addToast('error', 'GPS muito impreciso para registrar ponto.');
+          return;
+        }
+        if (geoPos.accuracy > 100) {
+          toast.addToast('warning', 'Localização aproximada: a precisão está acima de 100m.');
+        }
+      }
 
       let photoUrl: string | null = null;
       if (localPhotoDataUrl) {
@@ -507,6 +493,56 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       const now = new Date();
+      const lastGeoWithCoords =
+        history.find(
+          (h) =>
+            Number.isFinite(Number(h.latitude)) &&
+            Number.isFinite(Number(h.longitude)) &&
+            (h.timestamp || h.created_at),
+        ) ?? null;
+      const baseGeoSnapshot =
+        geoPos != null
+          ? {
+              latitude_original: geoPos.latitude,
+              longitude_original: geoPos.longitude,
+              accuracy_meters: geoPos.accuracy ?? null,
+              captured_at: new Date(geoPos.timestamp ?? Date.now()).toISOString(),
+              provider: geoPos.provider || 'browser_geolocation',
+              speed: geoPos.speed ?? null,
+              heading: geoPos.heading ?? null,
+              altitude: geoPos.altitude ?? null,
+              geocode_source: null,
+              reverse_geocode_version: null,
+            }
+          : null;
+      const geoValidation = baseGeoSnapshot
+        ? validateGeoSnapshot(
+            baseGeoSnapshot,
+            { employeeId: user.id, source: PUNCH_SOURCE_WEB },
+            lastGeoWithCoords
+              ? {
+                  lat: Number(lastGeoWithCoords.latitude),
+                  lng: Number(lastGeoWithCoords.longitude),
+                  instantMs: new Date(lastGeoWithCoords.timestamp || lastGeoWithCoords.created_at).getTime(),
+                }
+              : null,
+          )
+        : { valid: true, issues: [] as string[] };
+      if (!geoValidation.valid) {
+        setError('Coordenadas inválidas detectadas. Atualize a localização e tente novamente.');
+        toast.addToast('error', 'Coordenadas inválidas para registro.');
+        return;
+      }
+      if (typeof console !== 'undefined') {
+        console.info('[GEO CAPTURE]', {
+          employee_id: user.id,
+          lat: geoPos?.latitude ?? null,
+          lng: geoPos?.longitude ?? null,
+          accuracy: geoPos?.accuracy ?? null,
+          provider: geoPos?.provider ?? 'browser_geolocation',
+          source: PUNCH_SOURCE_WEB,
+        });
+      }
       const anomaly = detectBehaviorAnomaly({
         employeeId: user.id,
         companyId: user.companyId,
@@ -567,6 +603,38 @@ const EmployeeClockIn: React.FC = () => {
         locationLng: geoPos?.longitude ?? null,
         deviceId: fingerprint.deviceId,
         fraudScore: validationResult.fraudScore,
+        geoSnapshot:
+          baseGeoSnapshot != null
+            ? {
+                ...baseGeoSnapshot,
+                ...(await Promise.race([
+                  reverseGeocodeSnapshot(baseGeoSnapshot.latitude_original, baseGeoSnapshot.longitude_original)
+                    .then(({ snapshot }) => ({
+                      geocode_source: snapshot.provider,
+                      reverse_geocode_version: 'v1',
+                      geocode_snapshot: snapshot,
+                    }))
+                    .catch(() => ({
+                      geocode_source: 'unresolved',
+                      reverse_geocode_version: 'v1',
+                      geocode_snapshot: null,
+                    })),
+                  new Promise<{ geocode_source: string; reverse_geocode_version: string; geocode_snapshot: null }>(
+                    (resolve) =>
+                      setTimeout(
+                        () =>
+                          resolve({
+                            geocode_source: 'timeout',
+                            reverse_geocode_version: 'v1',
+                            geocode_snapshot: null,
+                          }),
+                        3000,
+                      ),
+                  ),
+                ])),
+              }
+            : null,
+        geoValidationIssues: geoValidation.issues,
       });
 
       if (validationResult.fraudFlags.length > 0) {

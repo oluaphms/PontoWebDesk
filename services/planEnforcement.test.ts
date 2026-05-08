@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from './planEnforcement';
+import { installOperationalTestIsolation } from '../src/testing/operationalTestIsolation';
 
 /** Mock mínimo da cadeia Supabase usada por assertPlanLimit */
 function mockClient(opts: { plan: string; activeEmployeeCount: number }) {
@@ -31,11 +32,13 @@ function mockClient(opts: { plan: string; activeEmployeeCount: number }) {
 }
 
 describe('assertPlanLimit', () => {
-  it('bloqueia CREATE_EMPLOYEE no Free quando já no limite', async () => {
+  installOperationalTestIsolation();
+
+  it('permite CREATE_EMPLOYEE no Free mesmo com 5 ativos (plano sem limite hard)', async () => {
     const client = mockClient({ plan: 'free', activeEmployeeCount: 5 }) as any;
     await expect(
       assertPlanLimit(client, { tenantId: 't1', action: { type: 'CREATE_EMPLOYEE' } }),
-    ).rejects.toMatchObject({ code: PLAN_LIMIT_CODE });
+    ).resolves.toBeUndefined();
   });
 
   it('permite CREATE_EMPLOYEE no Free com vaga', async () => {
@@ -45,14 +48,14 @@ describe('assertPlanLimit', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('bloqueia USE_REP rep_afd_import no Free', async () => {
+  it('permite USE_REP rep_afd_import no Free (feature liberada)', async () => {
     const client = mockClient({ plan: 'free', activeEmployeeCount: 0 }) as any;
     await expect(
       assertPlanLimit(client, {
         tenantId: 't1',
         action: { type: 'USE_REP', feature: 'rep_afd_import' },
       }),
-    ).rejects.toBeInstanceOf(PlanLimitError);
+    ).resolves.toBeUndefined();
   });
 
   it('permite USE_REP no Pro', async () => {
@@ -63,5 +66,15 @@ describe('assertPlanLimit', () => {
         action: { type: 'USE_REP', feature: 'rep_devices' },
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('falha sem tenant_id', async () => {
+    const client = mockClient({ plan: 'pro', activeEmployeeCount: 0 }) as any;
+    await expect(assertPlanLimit(client, { tenantId: '', action: { type: 'CREATE_EMPLOYEE' } })).rejects.toMatchObject({
+      code: PLAN_LIMIT_CODE,
+    });
+    await expect(assertPlanLimit(client, { tenantId: '', action: { type: 'CREATE_EMPLOYEE' } })).rejects.toBeInstanceOf(
+      PlanLimitError,
+    );
   });
 });

@@ -1,0 +1,52 @@
+name: enterprise-governance
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit Tests
+        run: npm run test:run
+
+      - name: Chaos Tests
+        run: npm run test:chaos
+
+      - name: Architecture Lint
+        run: npm run lint:architecture
+
+      - name: Self-Healing Checks
+        run: npm run ci:self-heal
+
+      - name: Contract Validation
+        run: npm run validate:contracts
+
+      - name: Migration Validation
+        run: npm run validate:migrations
+
+      - name: Dependency Graph Audit
+        run: npm run audit:dependency-graph
+
+      - name: Generate Architecture Docs
+        run: npm run generate:architecture-docs
+
+      - name: Generate Engineering Telemetry
+        run: npm run generate:telemetry

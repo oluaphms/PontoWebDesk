@@ -101,3 +101,11 @@ export {
   type OperationalSeverity,
   type TrendArrow,
 } from './ruleEngine/operationalRuleEngine';
+export {
+  getOperationalRetentionPolicy,
+  setOperationalRetentionPolicy,
+  collectOperationalGrowthSnapshot,
+  runOperationalMaintenanceJobs,
+  evaluateOperationalDegradationAlarms,
+  validateOperationalSecurityIsolation,
+} from './stability/operationalStability';

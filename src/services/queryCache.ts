@@ -5,6 +5,12 @@
  */
 
 import { useCatalogStore } from '../stores/catalogStore';
+import {
+  assertTenantScopedCacheKey,
+  buildTenantCacheKey,
+  registerTenantScopedCache,
+  type TenantScope,
+} from '../domain/operational/cache/tenantCacheIsolation';
 
 interface CacheEntry<T> {
   data: T;
@@ -13,6 +19,7 @@ interface CacheEntry<T> {
 
 const store = new Map<string, CacheEntry<unknown>>();
 const HARD_LOCK_NO_CACHE_KEYS = ['timesheet', 'payroll', 'rep_punch_logs', 'jobs'];
+let tenantCacheRegistryBootstrapped = false;
 
 function isHardLockNoCacheKey(key: string): boolean {
   const normalized = String(key || '').toLowerCase();
@@ -78,19 +85,65 @@ export const queryCache = {
 
   /** Invalida entradas que começam com o prefixo (ex: 'users:company123') */
   invalidate(prefix: string): void {
+    let removed = 0;
     for (const key of store.keys()) {
-      if (key.startsWith(prefix)) store.delete(key);
+      if (key.startsWith(prefix)) {
+        store.delete(key);
+        removed += 1;
+      }
+    }
+    if (typeof console !== 'undefined' && removed > 0) {
+      console.info('[QUERY CACHE INVALIDATION]', { prefix, removed });
     }
   },
 
   /** Limpa todo o cache (ex: no logout) */
   clear(): void {
+    const size = store.size;
     store.clear();
     inflightMap.clear();
+    if (typeof console !== 'undefined') {
+      console.info('[QUERY CACHE INVALIDATION]', { action: 'clear_all', removed: size });
+    }
   },
 };
 
 const inflightMap = new Map<string, Promise<unknown>>();
+
+function bootstrapTenantCacheRegistry(): void {
+  if (tenantCacheRegistryBootstrapped) return;
+  tenantCacheRegistryBootstrapped = true;
+  registerTenantScopedCache({
+    name: 'query_cache',
+    clear: () => queryCache.clear(),
+    validate: () => {
+      const issues: string[] = [];
+      for (const key of store.keys()) {
+        if (isHardLockNoCacheKey(key)) continue;
+        if (
+          key.startsWith('users:') ||
+          key.startsWith('time_records:') ||
+          key.startsWith('admin_report:') ||
+          key.startsWith('admin_bank_hours:')
+        ) {
+          try {
+            assertTenantScopedCacheKey(key.replace(/^[^:]+:/, 'x:'));
+          } catch (error) {
+            issues.push(`key "${key}" sem escopo suficiente (${String(error)})`);
+          }
+        }
+      }
+      return issues;
+    },
+  });
+}
+bootstrapTenantCacheRegistry();
+
+export function buildTenantQueryCacheKey(scope: Partial<TenantScope>, ...parts: Array<string | number>): string {
+  const key = buildTenantCacheKey(scope, ...parts);
+  assertTenantScopedCacheKey(key);
+  return key;
+}
 
 /**
  * Chave estável para cache de relatórios admin (prefixo invalidado com `admin_report:${companyId}`).

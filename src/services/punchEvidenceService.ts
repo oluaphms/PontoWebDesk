@@ -11,6 +11,8 @@ export interface SavePunchEvidenceParams {
   locationLng?: number | null;
   deviceId?: string | null;
   fraudScore?: number | null;
+  geoSnapshot?: Record<string, unknown> | null;
+  geoValidationIssues?: string[] | null;
 }
 
 export interface CreateFraudAlertParams {
@@ -40,17 +42,31 @@ export async function savePunchEvidence(params: SavePunchEvidenceParams): Promis
       p_device_id: params.deviceId ?? null,
       p_fraud_score: params.fraudScore ?? null,
     });
-    if (!rpcError) return;
-
-    if (import.meta.env?.DEV && typeof console !== 'undefined') {
-      console.warn('[punch_evidence] RPC falhou, tentando insert direto:', rpcError);
+    if (rpcError) {
+      if (import.meta.env?.DEV && typeof console !== 'undefined') {
+        console.warn('[punch_evidence] RPC falhou, tentando insert direto:', rpcError);
+      }
+      await db.insert('punch_evidence', row);
     }
-    await db.insert('punch_evidence', row);
   } catch (e) {
     if (import.meta.env?.DEV && typeof console !== 'undefined') {
       console.warn('[punch_evidence] insert falhou (não bloqueia o ponto):', e);
     }
     // não falhar o registro principal
+  }
+
+  if (params.geoSnapshot) {
+    try {
+      await supabase.rpc('set_time_record_geo_snapshot_if_absent', {
+        p_time_record_id: params.timeRecordId,
+        p_geo_snapshot: params.geoSnapshot,
+        p_geo_validation_issues: params.geoValidationIssues ?? [],
+      });
+    } catch (e) {
+      if (import.meta.env?.DEV && typeof console !== 'undefined') {
+        console.warn('[punch_evidence] geo snapshot rpc falhou:', e);
+      }
+    }
   }
 }
 

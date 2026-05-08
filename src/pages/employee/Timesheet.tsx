@@ -67,6 +67,20 @@ type DayIssuesModalState = {
   repPending: PendingRepPunch[];
 } | null;
 
+type PunchGeoSnapshot = {
+  accuracy_meters?: number | null;
+  provider?: string | null;
+  captured_at?: string | null;
+};
+
+function getGeoSnapshot(row: any): PunchGeoSnapshot | null {
+  const raw = row?.raw_data;
+  if (!raw || typeof raw !== 'object') return null;
+  const snap = (raw as { geo_snapshot?: unknown }).geo_snapshot;
+  if (!snap || typeof snap !== 'object') return null;
+  return snap as PunchGeoSnapshot;
+}
+
 const EmployeeTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
   /** Linhas brutas do Supabase (inclui campos de GPS para o detalhe expansível). */
@@ -678,6 +692,16 @@ const EmployeeTimesheet: React.FC = () => {
                             <div className="space-y-2">
                               {dayRecs.map((r: any) => {
                                 const ll = extractLatLng(r);
+                                const geoSnap = getGeoSnapshot(r);
+                                const accuracy = Number(
+                                  geoSnap?.accuracy_meters ?? r?.accuracy ?? Number.NaN,
+                                );
+                                const provider = String(
+                                  geoSnap?.provider || r?.method || 'desconhecido',
+                                ).toLowerCase();
+                                const capturedAt = String(
+                                  geoSnap?.captured_at || r?.timestamp || r?.created_at || '',
+                                ).trim();
                                 const whenIso = recordEffectiveMirrorInstant(r as MirrorTimeRecord, date);
                                 const when = whenIso
                                   ? new Date(whenIso).toLocaleTimeString('pt-BR', {
@@ -701,7 +725,35 @@ const EmployeeTimesheet: React.FC = () => {
                                     </span>
                                     <div className="min-w-0 flex-1 basis-[min(100%,18rem)] max-w-xl">
                                       {ll ? (
-                                        <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
+                                        <div className="space-y-1">
+                                          <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
+                                          <div className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
+                                            GPS: {ll.lat.toFixed(6)}, {ll.lng.toFixed(6)}
+                                          </div>
+                                          <div className="flex flex-wrap gap-1 text-[10px]">
+                                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                              Precisao: {Number.isFinite(accuracy) ? `${Math.round(accuracy)}m` : 'N/D'}
+                                            </span>
+                                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                              Provider: {provider}
+                                            </span>
+                                            {capturedAt && (
+                                              <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                                Captura: {new Date(capturedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                              </span>
+                                            )}
+                                            {Number.isFinite(accuracy) && accuracy > 300 && (
+                                              <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                                Baixa precisao GPS
+                                              </span>
+                                            )}
+                                            {Number.isFinite(accuracy) && accuracy > 100 && accuracy <= 300 && (
+                                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                                Localizacao aproximada
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
                                       ) : resolvePunchOrigin(r).kind === 'rep' ? (
                                         <span className="text-slate-500 dark:text-slate-400">GPS não se aplica (Relógio REP)</span>
                                       ) : (

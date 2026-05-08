@@ -20,6 +20,37 @@ export interface AdjustmentHistoryEntry {
   changed_by_name?: string;
 }
 
+function normalizeScopedCompanyIds(entries: AdjustmentHistoryEntry[]): string[] {
+  return Array.from(
+    new Set(
+      entries
+        .map((entry) => String(entry.company_id ?? '').trim())
+        .filter((companyId) => companyId.length > 0),
+    ),
+  );
+}
+
+async function loadScopedUsersById(userIds: string[], companyIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0 || companyIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  try {
+    const users = (await db.select(
+      'users',
+      [
+        { column: 'id', operator: 'in', value: userIds },
+        { column: 'company_id', operator: 'in', value: companyIds },
+      ],
+      { columns: 'id, nome', limit: Math.max(1, userIds.length * 2) },
+    )) as Array<{ id: string; nome?: string | null }>;
+    return new Map((users || []).map((u) => [u.id, u.nome || u.id]));
+  } catch (error) {
+    console.error('[AdjustmentHistoryService] Error loading scoped users:', error);
+    return new Map<string, string>();
+  }
+}
+
 export const AdjustmentHistoryService = {
   /**
    * Obtém o histórico completo de um ajuste
@@ -42,10 +73,10 @@ export const AdjustmentHistoryService = {
       const entries: AdjustmentHistoryEntry[] = data || [];
 
       // Enriquecer com nomes de usuários
-      const userIds = [...new Set(entries.map((e) => e.changed_by).filter(Boolean))];
-      if (userIds.length > 0) {
-        const { data: users } = await supabase.from('users').select('id, nome').in('id', userIds);
-        const userMap = new Map((users || []).map((u: any) => [u.id, u.nome]));
+      const userIds = [...new Set(entries.map((e) => e.changed_by).filter(Boolean))] as string[];
+      const companyIds = normalizeScopedCompanyIds(entries);
+      if (userIds.length > 0 && companyIds.length > 0) {
+        const userMap = await loadScopedUsersById(userIds, companyIds);
         entries.forEach((e) => {
           if (e.changed_by) {
             e.changed_by_name = userMap.get(e.changed_by) || e.changed_by;
@@ -81,10 +112,10 @@ export const AdjustmentHistoryService = {
       const entries: AdjustmentHistoryEntry[] = data || [];
 
       // Enriquecer com nomes de usuários
-      const userIds = [...new Set(entries.map((e) => e.changed_by).filter(Boolean))];
-      if (userIds.length > 0) {
-        const { data: users } = await supabase.from('users').select('id, nome').in('id', userIds);
-        const userMap = new Map((users || []).map((u: any) => [u.id, u.nome]));
+      const userIds = [...new Set(entries.map((e) => e.changed_by).filter(Boolean))] as string[];
+      const companyIds = normalizeScopedCompanyIds(entries);
+      if (userIds.length > 0 && companyIds.length > 0) {
+        const userMap = await loadScopedUsersById(userIds, companyIds);
         entries.forEach((e) => {
           if (e.changed_by) {
             e.changed_by_name = userMap.get(e.changed_by) || e.changed_by;

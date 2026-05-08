@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { installOperationalTestIsolation } from '../testing/operationalTestIsolation';
 
 vi.mock('./timeProcessingService', () => ({
   processDailyTime: vi.fn(async () => ({
@@ -24,6 +25,15 @@ vi.mock('./timeProcessingService', () => ({
       work_days: [1, 2, 3, 4, 5],
     },
     jsDayOfWeek: 1,
+  })),
+  fetchUserScheduleId: vi.fn(async () => 'schedule-1'),
+  summarizeDayRecords: vi.fn(() => ({
+    totalMinutes: 0,
+    entrada: null,
+    saida: null,
+    inicio_intervalo: null,
+    fim_intervalo: null,
+    break_minutes: 0,
   })),
 }));
 
@@ -51,6 +61,8 @@ import { processDailyTime } from './timeProcessingService';
 import { calculateDailyTimesheet } from './payrollCalculator';
 
 describe('calculateDailyTimesheet holiday behavior', () => {
+  installOperationalTestIsolation();
+
   it('2026-04-21 sem trabalho: HOLIDAY sem falta, esperado zero e extra100 zero', async () => {
     const mockedProcess = vi.mocked(processDailyTime);
     mockedProcess.mockResolvedValueOnce({

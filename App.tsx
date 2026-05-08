@@ -17,6 +17,7 @@ import { PontoService, getRecordCreatedAtDate } from './services/pontoService';
 import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { queryCache } from './src/services/queryCache';
+import { clearTenantScopedCaches } from './src/domain/operational/cache/tenantCacheIsolation';
 import {
   checkSupabaseConfigured,
   testSupabaseConnection,
@@ -129,9 +130,13 @@ import {
   SettingsPage,
   TimeAttendancePage,
   TimeAttendanceAuditPage,
+  GeolocationAuditPage,
   TimeAttendanceTimelinePage,
   OperationalIncidentsPage,
   OperationalRecoveryPage,
+  OperationalHealthCheckPage,
+  OperationalObservabilityPage,
+  OperationalLoadReportPage,
   RepOperationsCenterPage,
   TimeBalancePage,
   TimeClockPage,
@@ -452,6 +457,7 @@ const AppMain: React.FC = () => {
         } catch {
           // ignora
         }
+        clearTenantScopedCaches();
         window.dispatchEvent(new Event('current_user_changed'));
         if (typeof window !== 'undefined') {
           window.location.href = window.location.origin + '/';
@@ -1038,6 +1044,7 @@ const AppMain: React.FC = () => {
 
     // Limpa caches para não vazar dados entre sessões (memória + React Query)
     queryCache.clear();
+    clearTenantScopedCaches(user ? { companyId: user.companyId, userId: user.id } : undefined);
     try {
       queryClient.clear();
     } catch {
@@ -1397,9 +1404,13 @@ const AppMain: React.FC = () => {
               <Route path="pre-folha" element={<AdminPreFolha />} />
               <Route path="time-attendance" element={<TimeAttendancePage />} />
               <Route path="time-attendance-audit" element={<TimeAttendanceAuditPage />} />
+              <Route path="geolocation-audit" element={<GeolocationAuditPage />} />
               <Route path="time-attendance-timeline" element={<TimeAttendanceTimelinePage />} />
               <Route path="operational-incidents" element={<OperationalIncidentsPage />} />
               <Route path="operational-recovery" element={<OperationalRecoveryPage />} />
+              <Route path="operational-health-check" element={<OperationalHealthCheckPage />} />
+              <Route path="operational-observability" element={<OperationalObservabilityPage />} />
+              <Route path="operational-load-report" element={<OperationalLoadReportPage />} />
               <Route path="rep-operational-health" element={<RepOperationsCenterPage />} />
               <Route path="rep-operations-center" element={<RepOperationsCenterPage />} />
               <Route path="absences" element={<AbsencesPage />} />

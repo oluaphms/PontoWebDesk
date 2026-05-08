@@ -4,11 +4,26 @@
  * Inclui multi-amostragem, filtro de precisão e cache inteligente.
  */
 
+import {
+  assertTenantScopedCacheKey,
+  buildTenantGeoCacheKey,
+  clearTenantScopedCaches,
+  registerTenantScopedCache,
+  type TenantScope,
+} from '../domain/operational/cache/tenantCacheIsolation';
+import { appendOperationalTraceSpan, beginOperationalTrace, failOperationalTrace, finalizeOperationalTrace } from '../domain/operational/tracing';
+import { recordOperationalMetric } from '../domain/operational/metrics';
+
 export interface GeoPosition {
   latitude: number;
   longitude: number;
   accuracy: number;
   timestamp?: number;
+  captured_at?: string;
+  provider?: string;
+  speed?: number | null;
+  heading?: number | null;
+  altitude?: number | null;
   /** Indica se a leitura tem alta precisão (<= 50m) */
   highAccuracy?: boolean;
   /** Número de amostras usadas para calcular esta posição */
@@ -20,10 +35,11 @@ const ACCURACY_THRESHOLD = 50; // metros - limite para considerar alta precisão
 const MAX_SAMPLE_ATTEMPTS = 5; // máximo de tentativas para coletar amostras
 const SAMPLE_INTERVAL = 800; // ms entre amostras
 
-/** Chave para cache no localStorage */
-const LAST_LOCATION_KEY = 'last_valid_location';
-const LAST_LOCATION_TIMESTAMP_KEY = 'last_location_timestamp';
+/** Namespace da cache GEO no localStorage (isolado por tenant/usuario). */
+const LAST_LOCATION_KEY_PREFIX = 'geo:last_valid_location:';
+const LAST_LOCATION_TIMESTAMP_KEY_PREFIX = 'geo:last_location_timestamp:';
 const LOCATION_CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutos
+const GEO_CACHE_META_KEY = 'geo:last_scope_meta';
 
 export interface GetCurrentLocationOptions {
   enableHighAccuracy?: boolean;
@@ -41,9 +57,8 @@ export interface RobustLocationOptions {
 
 const DEFAULT_OPTIONS: GetCurrentLocationOptions = {
   enableHighAccuracy: true,
-  timeout: 20000,
-  /** Permite reutilizar posição recente (mais rápido e menos falhas em redes lentas) */
-  maximumAge: 60000,
+  timeout: 15000,
+  maximumAge: 0,
 };
 
 export type GeolocationFailureReason =
@@ -64,6 +79,93 @@ function devLog(...args: unknown[]): void {
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && typeof console !== 'undefined') {
     console.info('[Geo]', ...args);
   }
+}
+
+function geoLog(tag: string, payload: Record<string, unknown>): void {
+  if (typeof console === 'undefined') return;
+  console.info(tag, payload);
+}
+
+function readCurrentUserScope(): TenantScope {
+  if (typeof window === 'undefined') {
+    return { companyId: 'no-company', userId: 'no-user' };
+  }
+  try {
+    const raw = localStorage.getItem('current_user');
+    if (!raw) return { companyId: 'no-company', userId: 'no-user' };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const companyId = String(parsed.companyId ?? parsed.company_id ?? parsed.tenantId ?? '').trim() || 'no-company';
+    const userId = String(parsed.id ?? '').trim() || 'no-user';
+    const role = String(parsed.role ?? '').trim() || undefined;
+    return { companyId, userId, role };
+  } catch {
+    return { companyId: 'no-company', userId: 'no-user' };
+  }
+}
+
+function buildGeoStorageKeys(position: GeoPosition) {
+  const scope = readCurrentUserScope();
+  const provider = String(position.provider ?? 'browser_geolocation').trim() || 'browser_geolocation';
+  const key = buildTenantGeoCacheKey({
+    scope,
+    provider,
+    lat: position.latitude,
+    lng: position.longitude,
+  });
+  assertTenantScopedCacheKey(key);
+  return {
+    scope,
+    provider,
+    cacheKey: `${LAST_LOCATION_KEY_PREFIX}${key}`,
+    timestampKey: `${LAST_LOCATION_TIMESTAMP_KEY_PREFIX}${key}`,
+  };
+}
+
+function removeGeoCacheByScope(scope?: Partial<TenantScope>): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const company = String(scope?.companyId ?? scope?.tenantId ?? '').trim();
+  const user = String(scope?.userId ?? '').trim();
+  const keyPrefix = `${LAST_LOCATION_KEY_PREFIX}${company}:${user}:`;
+  const tsPrefix = `${LAST_LOCATION_TIMESTAMP_KEY_PREFIX}${company}:${user}:`;
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if ((company && user && (k.startsWith(keyPrefix) || k.startsWith(tsPrefix))) || (!company && !user && k.startsWith('geo:last_'))) {
+      toRemove.push(k);
+    }
+  }
+  for (const k of toRemove) localStorage.removeItem(k);
+}
+
+let geoCacheIsolationBootstrapped = false;
+function bootstrapGeoCacheIsolation(): void {
+  if (geoCacheIsolationBootstrapped || typeof window === 'undefined') return;
+  geoCacheIsolationBootstrapped = true;
+
+  registerTenantScopedCache({
+    name: 'geo_location_cache',
+    clear: (scope) => removeGeoCacheByScope(scope),
+    validate: () => {
+      const issues: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(LAST_LOCATION_KEY_PREFIX)) continue;
+        const scopedKey = k.slice(LAST_LOCATION_KEY_PREFIX.length);
+        try {
+          assertTenantScopedCacheKey(scopedKey);
+        } catch (error) {
+          issues.push(String(error));
+        }
+      }
+      return issues;
+    },
+  });
+
+  window.addEventListener('current_user_changed', () => {
+    clearTenantScopedCaches();
+    geoLog('[GEO CACHE INVALIDATION]', { reason: 'current_user_changed' });
+  });
 }
 
 /**
@@ -140,8 +242,17 @@ export function logGeolocationDebug(
 export function saveLocationToCache(position: GeoPosition): void {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
-    localStorage.setItem(LAST_LOCATION_KEY, JSON.stringify(position));
-    localStorage.setItem(LAST_LOCATION_TIMESTAMP_KEY, String(Date.now()));
+    bootstrapGeoCacheIsolation();
+    const keys = buildGeoStorageKeys(position);
+    localStorage.setItem(keys.cacheKey, JSON.stringify(position));
+    localStorage.setItem(keys.timestampKey, String(Date.now()));
+    localStorage.setItem(GEO_CACHE_META_KEY, JSON.stringify({ ...keys.scope, provider: keys.provider }));
+    geoLog('[GEO TENANT CACHE]', {
+      company_id: keys.scope.companyId,
+      user_id: keys.scope.userId,
+      provider: keys.provider,
+      cache_key: keys.cacheKey,
+    });
     devLog('Cache salvo:', position);
   } catch {
     // Ignora erros de localStorage (modo privado, etc.)
@@ -152,17 +263,49 @@ export function saveLocationToCache(position: GeoPosition): void {
 export function getLocationFromCache(): GeoPosition | null {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
-    const cached = localStorage.getItem(LAST_LOCATION_KEY);
-    const timestamp = localStorage.getItem(LAST_LOCATION_TIMESTAMP_KEY);
-    if (!cached || !timestamp) return null;
+    bootstrapGeoCacheIsolation();
 
-    const age = Date.now() - Number(timestamp);
+    const scope = readCurrentUserScope();
+    const scopePrefix = `${LAST_LOCATION_KEY_PREFIX}${scope.companyId}:${scope.userId}:`;
+    const candidates: Array<{ cacheKey: string; timestampKey: string; ts: number }> = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(scopePrefix)) continue;
+      const scopedKey = key.slice(LAST_LOCATION_KEY_PREFIX.length);
+      assertTenantScopedCacheKey(scopedKey);
+      const tsKey = `${LAST_LOCATION_TIMESTAMP_KEY_PREFIX}${scopedKey}`;
+      const ts = Number(localStorage.getItem(tsKey) ?? '0');
+      if (Number.isFinite(ts) && ts > 0) {
+        candidates.push({ cacheKey: key, timestampKey: tsKey, ts });
+      }
+    }
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => b.ts - a.ts);
+    const winner = candidates[0]!;
+    const cached = localStorage.getItem(winner.cacheKey);
+    if (!cached) return null;
+
+    const age = Date.now() - winner.ts;
     if (age > LOCATION_CACHE_MAX_AGE) {
+      localStorage.removeItem(winner.cacheKey);
+      localStorage.removeItem(winner.timestampKey);
+      geoLog('[GEO CACHE INVALIDATION]', {
+        reason: 'ttl_expired',
+        company_id: scope.companyId,
+        user_id: scope.userId,
+        cache_key: winner.cacheKey,
+      });
       devLog('Cache expirado (idade:', Math.round(age / 1000), 's)');
       return null;
     }
 
     const position = JSON.parse(cached) as GeoPosition;
+    geoLog('[GEO CACHE ISOLATION]', {
+      company_id: scope.companyId,
+      user_id: scope.userId,
+      cache_key: winner.cacheKey,
+      age_ms: age,
+    });
     devLog('Cache recuperado:', position, '(idade:', Math.round(age / 1000), 's)');
     return position;
   } catch {
@@ -174,8 +317,15 @@ export function getLocationFromCache(): GeoPosition | null {
 export function clearLocationCache(): void {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
-    localStorage.removeItem(LAST_LOCATION_KEY);
-    localStorage.removeItem(LAST_LOCATION_TIMESTAMP_KEY);
+    bootstrapGeoCacheIsolation();
+    const scope = readCurrentUserScope();
+    removeGeoCacheByScope(scope);
+    localStorage.removeItem(GEO_CACHE_META_KEY);
+    geoLog('[GEO CACHE INVALIDATION]', {
+      reason: 'manual_clear',
+      company_id: scope.companyId,
+      user_id: scope.userId,
+    });
   } catch {
     // Ignora erros
   }
@@ -273,16 +423,25 @@ async function collectLocationSamples(
  */
 export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}): Promise<LocationResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  const scope = readCurrentUserScope();
+  const trace = beginOperationalTrace({
+    company_id: scope.companyId,
+    employee_id: scope.userId,
+    source: 'getCurrentLocationResult',
+  });
+  const t0 = Date.now();
 
   return new Promise((resolve) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       logGeolocationDebug('getCurrentPosition', { reason: 'unsupported' });
+      failOperationalTrace(trace.trace_id, 'unsupported');
       resolve({ ok: false, position: null, reason: 'unsupported' });
       return;
     }
 
     if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost') {
       logGeolocationDebug('insecure_context', { reason: 'insecure_context' });
+      failOperationalTrace(trace.trace_id, 'insecure_context');
       resolve({ ok: false, position: null, reason: 'insecure_context' });
       return;
     }
@@ -294,7 +453,41 @@ export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy ?? 0,
           timestamp: position.timestamp,
+          captured_at: new Date(position.timestamp || Date.now()).toISOString(),
+          provider: 'browser_geolocation',
+          speed: position.coords.speed ?? null,
+          heading: position.coords.heading ?? null,
+          altitude: position.coords.altitude ?? null,
         };
+        geoLog('[GEO CAPTURE]', {
+          lat: pos.latitude,
+          lng: pos.longitude,
+          accuracy: pos.accuracy,
+          provider: pos.provider,
+          source: 'app',
+        });
+        const latency = Date.now() - t0;
+        appendOperationalTraceSpan({
+          trace_id: trace.trace_id,
+          type: 'GEO_CAPTURE',
+          source: 'navigator.geolocation',
+          status: 'ok',
+          finished_at: new Date().toISOString(),
+          metadata: { accuracy: pos.accuracy, latency_ms: latency },
+        });
+        recordOperationalMetric('geo_capture_latency_ms', latency, {
+          company_id: scope.companyId,
+          employee_id: scope.userId,
+          source: 'browser_geolocation',
+          operation_type: 'geo_capture',
+        });
+        recordOperationalMetric('geo_snapshot_growth', 1, {
+          company_id: scope.companyId,
+          employee_id: scope.userId,
+          source: 'browser_geolocation',
+          operation_type: 'geo_capture',
+        });
+        finalizeOperationalTrace(trace.trace_id);
         logGeolocationDebug('getCurrentPosition:ok', { position: pos });
         resolve({
           ok: true,
@@ -308,13 +501,14 @@ export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}
         if (code === 1) reason = 'denied';
         else if (code === 2) reason = 'unavailable';
         else if (code === 3) reason = 'timeout';
+        failOperationalTrace(trace.trace_id, apiMessage || reason);
         logGeolocationDebug('getCurrentPosition:error', { reason, apiMessage });
         resolve({ ok: false, position: null, reason, apiMessage });
       },
       {
         enableHighAccuracy: opts.enableHighAccuracy,
         timeout: opts.timeout,
-        maximumAge: opts.maximumAge ?? 60000,
+        maximumAge: opts.maximumAge ?? 0,
       }
     );
   });
@@ -328,15 +522,6 @@ export function getCurrentLocationResult(options: GetCurrentLocationOptions = {}
 export async function getAccurateLocationWithSampling(
   options: RobustLocationOptions = {}
 ): Promise<LocationResult> {
-  // Se não forçar leitura fresca, tenta cache primeiro
-  if (!options.forceFresh) {
-    const cached = getLocationFromCache();
-    if (cached) {
-      devLog('Usando localização do cache:', cached);
-      return { ok: true, position: cached };
-    }
-  }
-
   // Coleta múltiplas amostras
   logGeolocationDebug('multiSampling:start', {});
   const samples = await collectLocationSamples(3, {
@@ -351,7 +536,7 @@ export async function getAccurateLocationWithSampling(
     return getCurrentLocationResult({
       enableHighAccuracy: true,
       timeout: 15000,
-      maximumAge: 60000,
+      maximumAge: 0,
     });
   }
 
@@ -421,7 +606,7 @@ export async function getCurrentLocationRobustResult(
   const second = await getCurrentLocationResult({
     enableHighAccuracy: false,
     timeout: 15000,
-    maximumAge: options.forceFresh ? 0 : 120000,
+    maximumAge: 0,
   });
   if (second.ok && second.position.accuracy <= 120) {
     // Salva no cache se for boa
@@ -442,19 +627,6 @@ export async function getCurrentLocationRobustResult(
   });
   if (third.ok) {
     saveLocationToCache(third.position);
-  }
-
-  // ETAPA 4: Fallback para cache se tudo falhou
-  if (!third.ok && !options.forceFresh) {
-    const cached = getLocationFromCache();
-    if (cached) {
-      devLog('Usando cache como fallback após falhas');
-      // Marca que é do cache para o chamador saber
-      return {
-        ok: true,
-        position: { ...cached, accuracy: Math.max(cached.accuracy, 100), highAccuracy: false },
-      };
-    }
   }
 
   return third.ok ? third : second;
@@ -527,6 +699,11 @@ export function watchGeoPosition(onResult: (result: LocationResult) => void, opt
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy ?? 0,
           timestamp: position.timestamp,
+          captured_at: new Date(position.timestamp || Date.now()).toISOString(),
+          provider: 'browser_geolocation',
+          speed: position.coords.speed ?? null,
+          heading: position.coords.heading ?? null,
+          altitude: position.coords.altitude ?? null,
         },
       });
     },

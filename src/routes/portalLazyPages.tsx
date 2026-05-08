@@ -16,9 +16,13 @@ export const ReportsPage = React.lazy(ROUTE_LOADERS['/reports']);
 export const SettingsPage = React.lazy(ROUTE_LOADERS['/settings']);
 export const TimeAttendancePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance']);
 export const TimeAttendanceAuditPage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-audit']);
+export const GeolocationAuditPage = React.lazy(ROUTE_LOADERS['/admin/geolocation-audit']);
 export const TimeAttendanceTimelinePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-timeline']);
 export const OperationalIncidentsPage = React.lazy(ROUTE_LOADERS['/admin/operational-incidents']);
 export const OperationalRecoveryPage = React.lazy(ROUTE_LOADERS['/admin/operational-recovery']);
+export const OperationalHealthCheckPage = React.lazy(ROUTE_LOADERS['/admin/operational-health-check']);
+export const OperationalObservabilityPage = React.lazy(ROUTE_LOADERS['/admin/operational-observability']);
+export const OperationalLoadReportPage = React.lazy(ROUTE_LOADERS['/admin/operational-load-report']);
 export const RepOperationsCenterPage = React.lazy(ROUTE_LOADERS['/admin/rep-operations-center']);
 /** Compat: URL antiga `/admin/rep-operational-health` usa o mesmo módulo. */
 export const RepOperationalHealthPage = React.lazy(ROUTE_LOADERS['/admin/rep-operational-health']);

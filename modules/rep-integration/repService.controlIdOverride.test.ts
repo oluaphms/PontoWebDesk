@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ingestPunch } from './repService';
+import { installOperationalTestIsolation } from '../../src/testing/operationalTestIsolation';
 
 describe('ingestPunch — não anula PIS válido já vindo do fetch (AFD truncado no raw)', () => {
+  installOperationalTestIsolation();
+
   it('mantém pis/cpf quando DV válido mesmo que parse da linha AFD dê outro valor', async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: { success: true, user_not_found: false, time_record_id: 'tr1' },
@@ -26,6 +29,7 @@ describe('ingestPunch — não anula PIS válido já vindo do fetch (AFD truncad
         nsr: 16494,
         cpfOuPis: '12966742765',
       },
+      force_user_id: 'user-1',
     });
 
     const payload = rpc.mock.calls[0]![1] as Record<string, unknown>;
@@ -53,6 +57,7 @@ describe('ingestPunch — não anula PIS válido já vindo do fetch (AFD truncad
       tipo_marcacao: 'E',
       nsr: 16494,
       raw_data: { source: 'controlid_afd', raw: linha12 },
+      force_user_id: 'user-1',
     });
 
     const payload = rpc.mock.calls[0]![1] as Record<string, unknown>;

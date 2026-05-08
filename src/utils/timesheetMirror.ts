@@ -364,11 +364,16 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
     }
   }
 
+  const semEntrada = timeByType.get('entrada') ?? null;
+  const semSaidaInt = timeByType.get('intervalo_saida') ?? null;
+  const semVolta = timeByType.get('intervalo_volta') ?? null;
+  const semSaida = timeByType.get('saida') ?? null;
+
   // Extrair valores do Map (1 batida = 1 coluna, sem duplicação)
-  let entradaInicio: string | null = timeByType.get('entrada') || null;
-  let saidaIntervalo: string | null = timeByType.get('intervalo_saida') || null;
-  let voltaIntervalo: string | null = timeByType.get('intervalo_volta') || null;
-  let saidaFinal: string | null = timeByType.get('saida') || null;
+  let entradaInicio: string | null = semEntrada;
+  let saidaIntervalo: string | null = semSaidaInt;
+  let voltaIntervalo: string | null = semVolta;
+  let saidaFinal: string | null = semSaida;
   let batidasExtra: TimeRecord[] = [];
   let inconsistencias: TimeRecord[] = [];
   const pruneInconsistenciasUsedInGrid = (
@@ -391,16 +396,47 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
     voltaIntervalo = null;
     saidaFinal = null;
     const classified = classifyRecordsByScheduleProximity(sorted, dayDateStr, schedule);
-    entradaInicio = classified.bySlot.entrada ?? entradaInicio;
-    saidaIntervalo = classified.bySlot.saida_intervalo ?? saidaIntervalo;
-    voltaIntervalo = classified.bySlot.volta_intervalo ?? voltaIntervalo;
-    saidaFinal = classified.bySlot.saida_final ?? saidaFinal;
+    /** Proximidade à escala; se vazio, usa o horário inferido pelo tipo da batida — exceto saída final (ver abaixo). */
+    entradaInicio = classified.bySlot.entrada ?? semEntrada;
+    saidaIntervalo = classified.bySlot.saida_intervalo ?? semSaidaInt;
+    voltaIntervalo = classified.bySlot.volta_intervalo ?? semVolta;
+    saidaFinal = classified.bySlot.saida_final ?? null;
+
+    if (!saidaFinal && semSaida) {
+      const conflictsSlot =
+        semSaida === classified.bySlot.volta_intervalo ||
+        semSaida === classified.bySlot.saida_intervalo ||
+        semSaida === classified.bySlot.entrada;
+      if (!conflictsSlot) {
+        const saidaTyped = sorted.filter((r) => normalizeRecordTypeForMirror(r.type) === 'saida');
+        const lastSaida = saidaTyped.length ? saidaTyped[saidaTyped.length - 1] : null;
+        const lastInDay = sorted[sorted.length - 1];
+        if (
+          lastSaida &&
+          lastInDay?.id === lastSaida.id &&
+          sorted.length >= 2 &&
+          classified.inconsistentRecordIds.has(lastSaida.id)
+        ) {
+          saidaFinal = semSaida;
+        }
+      }
+    }
+
     batidasExtra = sorted.filter((r) => classified.extraRecordIds.has(r.id));
     inconsistencias = sorted.filter((r) => classified.inconsistentRecordIds.has(r.id));
 
     // Fallback operacional: se a régua da escala não encaixar nenhuma batida,
     // ainda assim projeta APP/REP na grade por ordem cronológica para não "sumir" do espelho.
-    if (!entradaInicio && !saidaIntervalo && !voltaIntervalo && !saidaFinal && sorted.length > 0) {
+    const loneAllInconsistent =
+      sorted.length === 1 && sorted[0] != null && classified.inconsistentRecordIds.has(sorted[0].id);
+    if (
+      !loneAllInconsistent &&
+      !entradaInicio &&
+      !saidaIntervalo &&
+      !voltaIntervalo &&
+      !saidaFinal &&
+      sorted.length > 0
+    ) {
       const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
       const uniqueTimes = [...new Set(times)];
       entradaInicio = uniqueTimes[0] ?? null;
@@ -431,6 +467,16 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
       voltaIntervalo,
       saidaFinal,
     ]);
+
+    // Batidas que têm horário na grelha deixam de contar como «extra» (ex.: saída fora da janela da escala).
+    const gridTimesSet = new Set<string>(
+      [entradaInicio, saidaIntervalo, voltaIntervalo, saidaFinal].filter(Boolean) as string[],
+    );
+    batidasExtra = sorted.filter((r) => {
+      if (isStatusRecord(r)) return false;
+      const t = extractTime(recordEffectiveMirrorInstant(r, dayDateStr));
+      return !gridTimesSet.has(t);
+    });
 
     let workedMinutes = 0;
     if (entradaInicio && saidaFinal) {

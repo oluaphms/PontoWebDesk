@@ -29,6 +29,10 @@ import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
 } from './timeAttendanceTimeline.constants';
+import {
+  buildTenantCacheKey,
+  registerTenantScopedCache,
+} from '../domain/operational/cache/tenantCacheIsolation';
 
 const AUTO_RECALC_DEBOUNCE_MS = 10_000;
 /** Teto de disparos de recálculo por carregamento da lista (evita rajada de RPC). */
@@ -185,9 +189,9 @@ function isProtectedDailyRaw(raw: unknown): boolean {
   return Boolean(r.manual_lock === true || r.manual_override === true);
 }
 
-function closurePeriodKey(employeeId: string, dateYmd: string): string {
+function closurePeriodKey(companyId: string, employeeId: string, dateYmd: string): string {
   const { year, month } = monthYearFromCivilYmd(dateYmd);
-  return `${employeeId}|${year}|${month}`;
+  return `${companyId}|${employeeId}|${year}|${month}`;
 }
 
 /**
@@ -253,6 +257,26 @@ type AutoRecalcGate = {
 };
 
 const autoRecalcGateByKey = new Map<string, AutoRecalcGate>();
+registerTenantScopedCache({
+  name: 'time_attendance_autorecalc_gate',
+  clear: () => {
+    autoRecalcGateByKey.clear();
+    userRecalcLaneByUserId.clear();
+    previousPendingAutoKeys.clear();
+  },
+  validate: () => {
+    const issues: string[] = [];
+    for (const key of autoRecalcGateByKey.keys()) {
+      const parts = key.split(':');
+      if (parts.length < 3) issues.push(`gate key sem tenant scope: ${key}`);
+    }
+    return issues;
+  },
+});
+
+function autoRecalcGateKey(companyId: string, userId: string, dateYmd: string): string {
+  return buildTenantCacheKey({ companyId, userId }, String(dateYmd).slice(0, 10));
+}
 
 function getAutoRecalcGate(key: string): AutoRecalcGate {
   let g = autoRecalcGateByKey.get(key);
@@ -423,7 +447,7 @@ function requestAutoRecalcMissingTimesheet(
   dateYmd: string,
 ): AutoRecalcRequestOutcome {
   const date = String(dateYmd).slice(0, 10);
-  const key = `${userId}|${date}`;
+  const key = autoRecalcGateKey(companyId, userId, date);
   const now = Date.now();
   const g = getAutoRecalcGate(key);
 
@@ -1417,7 +1441,7 @@ export async function getTimeAttendanceData(
   const notClosed: TimeAttendanceRow[] = [];
 
   for (const row of pendingAuto) {
-    const ck = closurePeriodKey(row.employee_id, row.date);
+    const ck = closurePeriodKey(companyId, row.employee_id, row.date);
     if (closedKeys.has(ck)) {
       safeApplyStatus(row, 'closed_period');
       recalc_blocked++;
@@ -1476,10 +1500,9 @@ export async function getTimeAttendanceData(
   }
 
   for (const k of previousPendingAutoKeys) {
-    const pipe = k.indexOf('|');
-    if (pipe <= 0) continue;
-    const user_id = k.slice(0, pipe);
-    const date = k.slice(pipe + 1);
+    const [kCompanyId, user_id, date] = k.split('|');
+    if (!kCompanyId || !user_id || !date) continue;
+    if (kCompanyId !== companyId) continue;
     const row = rows.find((r) => r.employee_id === user_id && r.date === date);
     if (!row?.has_timesheet_daily) continue;
     const status = operationalStatusForAutoFixMetrics(row.raw_data);
@@ -1489,16 +1512,17 @@ export async function getTimeAttendanceData(
   }
 
   const recalc_success = [...previousPendingAutoKeys].filter((k) => {
-    const pipe = k.indexOf('|');
-    if (pipe <= 0) return false;
-    const uid = k.slice(0, pipe);
-    const date = k.slice(pipe + 1);
+    const [kCompanyId, uid, date] = k.split('|');
+    if (!kCompanyId || !uid || !date) return false;
+    if (kCompanyId !== companyId) return false;
     const row = rows.find((r) => r.employee_id === uid && r.date === date);
     return Boolean(row?.has_timesheet_daily && isAutoFixRealMotorSuccess(row.raw_data));
   }).length;
 
   previousPendingAutoKeys = new Set(
-    rows.filter((r) => !r.has_timesheet_daily && r.punch_count > 0).map((r) => `${r.employee_id}|${r.date}`),
+    rows
+      .filter((r) => !r.has_timesheet_daily && r.punch_count > 0)
+      .map((r) => `${companyId}|${r.employee_id}|${r.date}`),
   );
 
   // Summary sempre visível (auditoria / operação), fora do sample de 5%.

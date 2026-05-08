@@ -1,0 +1,7 @@
+{
+  "ignoreRpcTracing": [
+    "src/services/punchEvidenceService.ts",
+    "src/services/tenantOnboardingService.ts"
+  ],
+  "migrationDocMode": "warn"
+}

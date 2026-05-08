@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Testes básicos para validação de env.
  * Estes testes verificam o comportamento de validação.
@@ -7,8 +8,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { isValidSupabaseUrl } from './env';
+import { installOperationalTestIsolation } from '../../src/testing/operationalTestIsolation';
 
 describe('env validation', () => {
+  installOperationalTestIsolation();
+
   describe('isValidSupabaseUrl', () => {
     it('aceita URL válida do Supabase', () => {
       const url = 'https://abcdefgh12345678.supabase.co';

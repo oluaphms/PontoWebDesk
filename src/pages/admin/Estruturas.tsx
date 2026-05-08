@@ -84,13 +84,28 @@ const AdminEstruturas: React.FC = () => {
         }
       });
       if (supabase) {
-        const { data: respData } = await supabase.from('estrutura_responsaveis').select('estrutura_id, user_id');
+        const estruturaIds = list.map((e) => e.id);
+        const { data: respData } = estruturaIds.length
+          ? await supabase
+              .from('estrutura_responsaveis')
+              .select('estrutura_id, user_id')
+              .in('estrutura_id', estruturaIds)
+          : { data: [] as any[] };
         const respMap = new Map<string, string[]>();
         (respData ?? []).forEach((r: any) => {
           if (!respMap.has(r.estrutura_id)) respMap.set(r.estrutura_id, []);
           respMap.get(r.estrutura_id)!.push(r.user_id);
         });
-        const { data: userNames } = await supabase.from('users').select('id, nome, email');
+        const responsibleUserIds = Array.from(
+          new Set((respData ?? []).map((r: any) => String(r.user_id ?? '')).filter(Boolean)),
+        );
+        const { data: userNames } = responsibleUserIds.length
+          ? await supabase
+              .from('users')
+              .select('id, nome, email')
+              .eq('company_id', user.companyId)
+              .in('id', responsibleUserIds)
+          : { data: [] as any[] };
         const nameMap = new Map((userNames ?? []).map((u: any) => [u.id, u.nome || u.email || u.id]));
         list.forEach((e) => {
           const ids = respMap.get(e.id) ?? [];

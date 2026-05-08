@@ -6,6 +6,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from './supabaseClient';
 import type { TimeAttendanceTimelineEventTypeValue, TimeAttendanceTimelineSeverityValue } from './timeAttendanceTimeline.constants';
 import { TimeAttendanceTimelineSeverity } from './timeAttendanceTimeline.constants';
+import { appendOperationalTraceSpan, beginOperationalTrace, failOperationalTrace, finalizeOperationalTrace } from '../domain/operational/tracing';
+import { recordOperationalMetric } from '../domain/operational/metrics';
+import { operationalCircuitBreaker } from '../domain/operational/resilience';
 
 export type AppendTimeAttendanceTimelineEventInput = {
   companyId: string;
@@ -58,10 +61,19 @@ export function compactTimelinePayloadForList(payload: Record<string, unknown> |
 export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttendanceTimelineEventInput): Promise<void> {
   const companyId = String(input.companyId ?? '').trim();
   if (!companyId) return;
+  const trace = beginOperationalTrace({
+    company_id: companyId,
+    employee_id: input.employeeId ?? null,
+    correlation_id: String(input.payload?.correlation_id ?? '') || null,
+    operation_id: String(input.payload?.operation_id ?? '') || null,
+    source: 'appendTimeAttendanceTimelineEvent',
+  });
+  const t0 = Date.now();
 
   const client = input.supabaseClient ?? getSupabaseClient();
   if (!client) {
     console.error('[TIME ATTENDANCE TIMELINE ERROR]', { reason: 'no_supabase_client', event: input.eventType });
+    failOperationalTrace(trace.trace_id, 'no_supabase_client');
     return;
   }
 
@@ -78,15 +90,42 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
   };
 
   try {
-    const { error } = await client.from('time_attendance_timeline').insert(row);
+    const { error } = await operationalCircuitBreaker.execute({
+      key: 'timeline_append',
+      companyId,
+      fn: async () => client.from('time_attendance_timeline').insert(row),
+    });
     if (error) {
       console.error('[TIME ATTENDANCE TIMELINE ERROR]', {
         message: error.message,
         code: error.code,
         event: input.eventType,
       });
+      failOperationalTrace(trace.trace_id, error.message);
       return;
     }
+    const duration = Date.now() - t0;
+    appendOperationalTraceSpan({
+      trace_id: trace.trace_id,
+      type: 'TIMELINE_APPEND',
+      source: 'appendTimeAttendanceTimelineEvent',
+      status: 'ok',
+      finished_at: new Date().toISOString(),
+      metadata: { event_type: input.eventType, duration_ms: duration },
+    });
+    recordOperationalMetric('timeline_throughput', 1, {
+      company_id: companyId,
+      employee_id: row.employee_id,
+      source: row.source_module,
+      operation_type: input.eventType,
+    });
+    recordOperationalMetric('timeline_volume_growth', 1, {
+      company_id: companyId,
+      employee_id: row.employee_id,
+      source: row.source_module,
+      operation_type: input.eventType,
+    });
+    finalizeOperationalTrace(trace.trace_id);
     if (typeof globalThis !== 'undefined' && globalThis.console) {
       globalThis.console.info('[TIME ATTENDANCE TIMELINE]', {
         event: input.eventType,
@@ -101,6 +140,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
       event: input.eventType,
       message: e instanceof Error ? e.message : String(e),
     });
+    failOperationalTrace(trace.trace_id, e);
   }
 }
 
@@ -202,7 +242,15 @@ export async function listTimeAttendanceTimelinePage(
       return { rows: [], nextCursor: null };
     }
 
-    const list = (data ?? []) as TimeAttendanceTimelineRow[];
+    const scopedList = ((data ?? []) as TimeAttendanceTimelineRow[]).filter((row) => row.company_id === companyId);
+    if (scopedList.length !== (data ?? []).length) {
+      console.error('[TENANT ISOLATION FAILURE]', {
+        context: 'timeline_page',
+        requested_company_id: companyId,
+        leaked_rows: (data ?? []).length - scopedList.length,
+      });
+    }
+    const list = scopedList;
     const page = list.slice(0, limit);
     const extra = list.length > limit ? list[limit] : null;
     const nextCursor =

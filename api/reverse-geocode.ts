@@ -67,27 +67,34 @@ function buildNominatimUrl(lat: number, lng: number): string {
  * Nominatim com timeout por tentativa e 2ª tentativa após falha (rede/timeout/429).
  * Mantém o total abaixo de ~9,5s para caber no limite Hobby (10s).
  */
-async function resolveAddressFromCoordinates(lat: number, lng: number): Promise<string> {
+async function resolveAddressFromCoordinates(
+  lat: number,
+  lng: number,
+): Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }> {
   const NOMINATIM_MS = 4500;
   const NOMINATIM_HEADERS = {
     Accept: 'application/json',
     'User-Agent': `PontoWebDesk/1.0 (reverse-geocode; ${CONTACT_HINT})`,
   } as const;
 
-  const tryOnce = async (): Promise<string> => {
+  const tryOnce = async (): Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }> => {
     const nomRes = await fetchWithTimeout(buildNominatimUrl(lat, lng), NOMINATIM_MS, {
       headers: NOMINATIM_HEADERS,
     });
-    if (!nomRes.ok) return '';
+    if (!nomRes.ok) return { address: '', address_parts: null, provider: 'nominatim' };
     const nomData = (await nomRes.json()) as { display_name?: string; address?: Record<string, unknown> };
     const fromAddress = nomData.address ? formatNominatimAddress(nomData.address).trim() : '';
     const text = fromAddress || String(nomData.display_name || '').trim();
-    return text;
+    return {
+      address: text,
+      address_parts: nomData.address ?? null,
+      provider: 'nominatim',
+    };
   };
 
   try {
     const first = await tryOnce();
-    if (first) return first;
+    if (first.address) return first;
   } catch (e) {
     console.warn('Nominatim reverse geocode (1ª):', e instanceof Error ? e.message : e);
   }
@@ -96,12 +103,16 @@ async function resolveAddressFromCoordinates(lat: number, lng: number): Promise<
 
   try {
     const second = await tryOnce();
-    if (second) return second;
+    if (second.address) return second;
   } catch (e) {
     console.warn('Nominatim reverse geocode (2ª):', e instanceof Error ? e.message : e);
   }
 
-  return FALLBACK;
+  return {
+    address: FALLBACK,
+    address_parts: null,
+    provider: 'fallback',
+  };
 }
 
 export default async function handler(request: Request): Promise<Response> {
@@ -126,16 +137,16 @@ export default async function handler(request: Request): Promise<Response> {
       return Response.json({ error: 'lat e lon devem ser números válidos.' }, { status: 400, headers: corsHeaders });
     }
 
-    const address = await Promise.race([
+    const geo = await Promise.race([
       resolveAddressFromCoordinates(lat, lon),
-      new Promise<string>((resolve) => {
-        setTimeout(() => resolve(FALLBACK), HARD_CAP_MS);
+      new Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }>((resolve) => {
+        setTimeout(() => resolve({ address: FALLBACK, address_parts: null, provider: 'timeout_fallback' }), HARD_CAP_MS);
       }),
     ]);
 
-    return Response.json({ address }, { status: 200, headers: corsHeaders });
+    return Response.json(geo, { status: 200, headers: corsHeaders });
   } catch (e) {
     console.error('Reverse geocode handler error:', e);
-    return Response.json({ address: FALLBACK }, { status: 200, headers: corsHeaders });
+    return Response.json({ address: FALLBACK, address_parts: null, provider: 'error_fallback' }, { status: 200, headers: corsHeaders });
   }
 }
