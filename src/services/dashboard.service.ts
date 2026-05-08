@@ -63,6 +63,8 @@ export interface AdminDashboardPayload {
   lastRecords: AdminDashboardLastRecord[];
 }
 
+const ADMIN_DASHBOARD_LAST_RECORDS_LIMIT = 8;
+
 function localTodayYmd(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -411,7 +413,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
         const bm = parseInt(b.time.replace(':', ''), 10);
         return Number.isFinite(bm) && Number.isFinite(am) ? bm - am : 0;
       })
-      .slice(0, 8);
+      .slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT);
 
     return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
   } catch (e) {
