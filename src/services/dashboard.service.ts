@@ -338,17 +338,6 @@ function buildAdminLastRecordsForToday(
     .slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT);
 }
 
-function originLabelFromOperationalSnapshot(origin: string | null | undefined, method: string | null | undefined): string {
-  const o = String(origin ?? '').trim().toLowerCase();
-  if (o === 'rep') return 'Relógio';
-  if (o === 'admin') return 'Manual / RH';
-  if (o === 'mobile' || o === 'app') return 'App';
-  const m = String(method ?? '').trim().toLowerCase();
-  if (m === 'rep') return 'Relógio';
-  if (m === 'admin' || m === 'manual') return 'Manual / RH';
-  return 'App';
-}
-
 function mergeAdminLastRecordGeoFromSources(
   row: AdminDashboardLastRecord,
   cos: CurrentOperationalStateRow,
@@ -356,7 +345,12 @@ function mergeAdminLastRecordGeoFromSources(
   recentRecord: OperationalPunchRecord | null,
   nowMs: number,
 ): AdminDashboardLastRecord {
-  const live = liveByEmployee.get(row.userId) ?? null;
+  const punchId = String(row.sourceRecordId ?? '').trim();
+  const cosMatchesPunch = Boolean(
+    punchId && cos.last_punch_record_id && String(cos.last_punch_record_id) === punchId,
+  );
+  const live = cosMatchesPunch ? liveByEmployee.get(row.userId) ?? null : null;
+  const cosForResolve = cosMatchesPunch ? cos : null;
   const recordGeo = recentRecord ? readGeoSnapshot(recentRecord) : null;
   const record = recordGeo
     ? {
@@ -369,7 +363,12 @@ function mergeAdminLastRecordGeoFromSources(
       }
     : null;
   let previousAccepted: { latitude: number; longitude: number; atMs: number } | null = null;
-  if (cos.map_captured_at && cos.map_latitude != null && cos.map_longitude != null) {
+  if (
+    cosMatchesPunch &&
+    cos.map_captured_at &&
+    cos.map_latitude != null &&
+    cos.map_longitude != null
+  ) {
     const v = validateOperationalTimestamp(cos.map_captured_at, nowMs);
     previousAccepted = {
       latitude: Number(cos.map_latitude),
@@ -382,7 +381,7 @@ function mergeAdminLastRecordGeoFromSources(
     employeeId: row.userId,
     companyId: cos.company_id,
     live,
-    cos,
+    cos: cosForResolve,
     record,
     previousAccepted,
     log: false,
@@ -399,63 +398,20 @@ function mergeAdminLastRecordGeoFromSources(
   };
 }
 
-/** Últimos registros do dia a partir de `current_operational_state` (fonte única com monitoramento). */
-function buildAdminLastRecordsFromOperationalState(
-  cosRows: CurrentOperationalStateRow[],
-  users: any[],
-  todayLocal: string,
+/** Enriquece GEO do painel quando o snapshot COS/live corresponde à batida do card (evita misturar última posição com batidas antigas). */
+function enrichAdminLastRecordsWithCosGeo(
+  base: AdminDashboardLastRecord[],
+  cosByEmployee: Map<string, CurrentOperationalStateRow>,
+  recordById: Map<string, OperationalPunchRecord>,
+  liveByEmployee: Map<string, LiveEmployeeLocationRow>,
+  nowMs: number,
 ): AdminDashboardLastRecord[] {
-  const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
-  const filtered = cosRows.filter((r) => {
-    if (!r.last_punch_at) return false;
-    const ymd = punchInstantOperationalYmd({ timestamp: r.last_punch_at, created_at: r.last_punch_at });
-    return ymd === todayLocal;
-  });
-  filtered.sort((a, b) => {
-    const ta = new Date(a.last_punch_at!).getTime();
-    const tb = new Date(b.last_punch_at!).getTime();
-    return tb - ta;
-  });
-  return filtered.slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT).map((r) => {
-    const t = r.last_punch_at ? new Date(r.last_punch_at) : null;
-    const timeStr =
-      t && Number.isFinite(t.getTime())
-        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
-        : '—';
-    const dateStr =
-      t && Number.isFinite(t.getTime())
-        ? t.toLocaleDateString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            timeZone: 'America/Sao_Paulo',
-          })
-        : '—';
-    const hasGeo = r.map_latitude != null && r.map_longitude != null;
-    return {
-      id: String(r.last_punch_record_id ?? ''),
-      userId: String(r.employee_id ?? ''),
-      employeeName: nameMap.get(String(r.employee_id)) ?? String(r.employee_id ?? '').slice(0, 8) ?? '—',
-      type: String(r.last_punch_type ?? ''),
-      typeLabel: typeLabel(r.last_punch_type),
-      date: dateStr,
-      time: timeStr,
-      location: hasGeo ? `${Number(r.map_latitude).toFixed(4)}, ${Number(r.map_longitude).toFixed(4)}` : '—',
-      originLabel: originLabelFromOperationalSnapshot(r.last_punch_origin, r.last_punch_method),
-      lat: r.map_latitude != null ? Number(r.map_latitude) : null,
-      lng: r.map_longitude != null ? Number(r.map_longitude) : null,
-      accuracy: r.map_accuracy != null ? Number(r.map_accuracy) : null,
-      sourceRecordId: String(r.last_punch_record_id ?? ''),
-      hasTimeAnomaly: false,
-      timeAnomalyReason: null,
-      streetAddress: null,
-      streetResolved: false,
-      geoStreet: null,
-      geoDistrict: null,
-      geoPostalCode: null,
-      geoCity: null,
-      geoState: null,
-    };
+  return base.map((row) => {
+    const cos = cosByEmployee.get(row.userId);
+    if (!cos) return row;
+    const recId = row.sourceRecordId ? String(row.sourceRecordId) : '';
+    const rec = recId ? (recordById.get(recId) as OperationalPunchRecord | undefined) ?? null : null;
+    return mergeAdminLastRecordGeoFromSources(row, cos, liveByEmployee, rec, nowMs);
   });
 }
 
@@ -568,17 +524,9 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
       const liveBy = new Map(flagStaleLiveLocations(liveRaw, nowMs).map((r) => [r.employee_id, r]));
       const recordById = new Map(recentRecords.map((r: any) => [String(r.id), r]));
       const cosBy = new Map(cosRows.map((c) => [c.employee_id, c]));
-      if (cosRows.length > 0) {
-        const built = buildAdminLastRecordsFromOperationalState(cosRows, users, todayLocal);
-        return built.map((row) => {
-          const cos = cosBy.get(row.userId);
-          if (!cos) return row;
-          const recId = cos.last_punch_record_id ? String(cos.last_punch_record_id) : '';
-          const rec = recId ? (recordById.get(recId) as OperationalPunchRecord | undefined) ?? null : null;
-          return mergeAdminLastRecordGeoFromSources(row, cos, liveBy, rec, nowMs);
-        });
-      }
-      return buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+      const baseLast = buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+      if (cosRows.length === 0) return baseLast;
+      return enrichAdminLastRecordsWithCosGeo(baseLast, cosBy, recordById, liveBy, nowMs);
     } catch (e) {
       handleError(e, 'getAdminDashboardLastRecordsOnly');
       return [];
@@ -750,16 +698,11 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       lowCount: low.count,
     };
 
+    const baseLastRecords = buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
     const lastRecords =
       cosRows.length > 0
-        ? buildAdminLastRecordsFromOperationalState(cosRows, users, todayLocal).map((row) => {
-            const cos = cosByDash.get(row.userId);
-            if (!cos) return row;
-            const recId = cos.last_punch_record_id ? String(cos.last_punch_record_id) : '';
-            const rec = recId ? (recordByIdDash.get(recId) as OperationalPunchRecord | undefined) ?? null : null;
-            return mergeAdminLastRecordGeoFromSources(row, cos, liveByDash, rec, nowMsDash);
-          })
-        : buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+        ? enrichAdminLastRecordsWithCosGeo(baseLastRecords, cosByDash, recordByIdDash, liveByDash, nowMsDash)
+        : baseLastRecords;
 
     return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
     } catch (e) {

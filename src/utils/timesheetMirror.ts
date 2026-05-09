@@ -181,13 +181,28 @@ function classifyRecordsByScheduleProximity(
     const hhmm = extractTime(recordEffectiveMirrorInstant(r, dayDateStr));
     const minute = parseHHmmToMinutes(hhmm);
     if (minute == null) continue;
-    const minDiff = refs.reduce((acc, ref) => Math.min(acc, Math.abs(minute - ref.minute)), Number.POSITIVE_INFINITY);
+    const norm = normalizeRecordTypeForMirror(r.type);
+    // REP costuma gravar «saida» para várias marcações; só fixamos slot para tipos inequívocos (ex.: manual intervalo_*).
+    const forcedSlot: SlotType | null =
+      norm === 'entrada'
+        ? 'entrada'
+        : norm === 'intervalo_saida'
+          ? 'saida_intervalo'
+          : norm === 'intervalo_volta'
+            ? 'volta_intervalo'
+            : null;
+    const refsForRecord = forcedSlot ? refs.filter((ref) => ref.slot === forcedSlot) : refs;
+    if (refsForRecord.length === 0) continue;
+    const minDiff = refsForRecord.reduce(
+      (acc, ref) => Math.min(acc, Math.abs(minute - ref.minute)),
+      Number.POSITIVE_INFINITY,
+    );
     if (minDiff > tolerance) {
       inconsistentRecordIds.add(r.id);
       continue;
     }
     let best: { slot: SlotType; diff: number } | null = null;
-    for (const ref of refs) {
+    for (const ref of refsForRecord) {
       const diff = Math.abs(minute - ref.minute);
       if (diff > tolerance) continue;
       const curBest = bestDiffBySlot.get(ref.slot);

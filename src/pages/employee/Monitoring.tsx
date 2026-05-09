@@ -2,7 +2,7 @@
  * Mapa colaborador: mesmo resolver unificado que o monitoramento admin (GEO priorizado).
  */
 
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
@@ -15,16 +15,23 @@ import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from
 import { LoadingState } from '../../../components/UI';
 import { buildMapEmployeeFromPipelineRow, getCompanyTodayYmd, type MonitoringPipelineEmployeeRow } from '../../services/monitoring/monitoringGeoHardLock.service';
 import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany } from '../../services/currentOperationalState.service';
-import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../services/liveEmployeeLocation.service';
+import {
+  fetchLiveLocationsForCompany,
+  flagStaleLiveLocations,
+  upsertLiveEmployeeLocation,
+} from '../../services/liveEmployeeLocation.service';
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
 import { operationalClockMs } from '../../utils/operationalDateHardLock';
 import { RefreshCw } from 'lucide-react';
+
+const LIVE_UPSERT_MIN_MS = 12_000;
 
 const EmployeeMonitoring: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [pipelineRows, setPipelineRows] = useState<MonitoringPipelineEmployeeRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [usingCos, setUsingCos] = useState(false);
+  const lastLiveUpsertRef = useRef(0);
 
   const load = async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
@@ -73,6 +80,42 @@ const EmployeeMonitoring: React.FC = () => {
   useEffect(() => {
     void load();
   }, [user?.companyId]);
+
+  /** Publica posição na tabela `live_employee_location` (consumida pelo resolver de mapa). */
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !getSupabaseClient() || !user?.companyId || !user?.id) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    let watchId: number | null = null;
+    const onPosition = (pos: GeolocationPosition) => {
+      if (isPollingSuppressedByVisibility()) return;
+      const now = Date.now();
+      if (now - lastLiveUpsertRef.current < LIVE_UPSERT_MIN_MS) return;
+      lastLiveUpsertRef.current = now;
+      const ts = pos.timestamp;
+      void upsertLiveEmployeeLocation({
+        companyId: user.companyId!,
+        employeeId: user.id!,
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+        capturedAtMs: ts != null && Number.isFinite(ts) ? Math.round(ts) : now,
+        provider: null,
+        speedMps: pos.coords.speed != null && Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
+        headingDeg: pos.coords.heading != null && Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
+      });
+    };
+
+    watchId = navigator.geolocation.watchPosition(onPosition, () => {}, {
+      enableHighAccuracy: false,
+      maximumAge: 15_000,
+      timeout: 25_000,
+    });
+
+    return () => {
+      if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [user?.companyId, user?.id]);
 
   useEffect(() => {
     if (!getSupabaseClient() || !user?.companyId) return;

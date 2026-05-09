@@ -550,8 +550,8 @@ BEGIN
     is_online = EXCLUDED.is_online,
     updated_at = EXCLUDED.updated_at,
     last_update_source = EXCLUDED.last_update_source,
-    state_version = public.current_operational_state.state_version + 1,
-    last_event_sequence = COALESCE(public.current_operational_state.last_event_sequence, 0) + 1,
+    state_version = s.state_version + 1,
+    last_event_sequence = COALESCE(s.last_event_sequence, 0) + 1,
     state_source = EXCLUDED.state_source,
     last_event_at = EXCLUDED.last_event_at;
 

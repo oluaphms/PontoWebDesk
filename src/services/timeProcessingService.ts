@@ -21,6 +21,7 @@ import {
   TimeAttendanceTimelineSeverity,
 } from './timeAttendanceTimeline.constants';
 import { LogType } from '../../types';
+import { normalizeRecordTypeForMirror, type NormalizedMirrorRecordType } from '../utils/timesheetMirror';
 
 export {
   assertMonthOpenForEmployee,
@@ -241,6 +242,42 @@ export function validatePunchSequence(
   }
 
   return { valid: true };
+}
+
+/**
+ * Tipo canônico para exibir no dashboard do colaborador, alinhado à sequência operacional:
+ * segunda «entrada» após entrada com intervalo > tolerância = saída de intervalo (mesmo critério que `validatePunchSequence`);
+ * «entrada» após `intervalo_saida` = retorno de intervalo (quando o banco ainda traz `entrada`).
+ */
+export function inferDashboardPunchDisplayMirrorType(
+  sortedAsc: RawTimeRecord[],
+  index: number,
+): NormalizedMirrorRecordType {
+  const rec = sortedAsc[index];
+  if (!rec) return 'entrada';
+
+  const mirror = normalizeRecordTypeForMirror(rec.type);
+  if (mirror === 'intervalo_saida' || mirror === 'intervalo_volta' || mirror === 'saida') {
+    return mirror;
+  }
+
+  if (index === 0) return 'entrada';
+
+  const prev = sortedAsc[index - 1]!;
+  const dt = recordEventInstantMs(rec) - recordEventInstantMs(prev);
+  const prevMirror = normalizeRecordTypeForMirror(prev.type);
+
+  if (mirror === 'entrada') {
+    if (dt > SEQUENCE_TOLERANCE_MS && prevMirror === 'entrada') {
+      return 'intervalo_saida';
+    }
+    if (dt > 0 && prevMirror === 'intervalo_saida') {
+      return 'intervalo_volta';
+    }
+    return 'entrada';
+  }
+
+  return mirror === 'unknown' ? 'entrada' : mirror;
 }
 
 /** Jornada esperada em minutos a partir da escala */

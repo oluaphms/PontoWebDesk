@@ -12,8 +12,24 @@ import { LogType, PunchMethod } from '../../../types';
 import type { TimeRecord } from '../../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
-import { extractLocalCalendarDateFromIso } from '../../utils/timesheetMirror';
+import { extractLocalCalendarDateFromIso, type NormalizedMirrorRecordType } from '../../utils/timesheetMirror';
+import { inferDashboardPunchDisplayMirrorType } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
+
+function punchTypeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType): string {
+  switch (norm) {
+    case 'entrada':
+      return i18n.t('punch.typeIn');
+    case 'saida':
+      return i18n.t('punch.typeOut');
+    case 'intervalo_saida':
+      return i18n.t('punch.typeIntervalExit');
+    case 'intervalo_volta':
+      return i18n.t('punch.typeIntervalReturn');
+    default:
+      return '—';
+  }
+}
 
 const EmployeeDashboard: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -316,20 +332,10 @@ const EmployeeDashboard: React.FC = () => {
         <p className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums mb-4">{todayHours || '0h 0m'}</p>
         <ul className="space-y-2">
           {todayRecords.length === 0 && !loadingData && <li className="text-slate-500 dark:text-slate-400 text-sm">{i18n.t('dashboard.noRecordsToday')}</li>}
-          {todayRecords.map((r: any) => (
+          {todayRecords.map((r: any, idx: number) => (
             <li key={r.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
-              <span className="font-medium text-slate-900 dark:text-white capitalize">
-                {r.type === 'entrada'
-                  ? i18n.t('punch.typeIn')
-                  : r.type === 'saída'
-                    ? i18n.t('punch.typeOut')
-                    : r.type === 'pausa'
-                      ? i18n.t('punch.typeBreak')
-                      : r.type === 'intervalo_saida'
-                        ? i18n.t('punch.typeIntervalExit')
-                        : r.type === 'intervalo_volta'
-                          ? i18n.t('punch.typeIntervalReturn')
-                          : r.type}
+              <span className="font-medium text-slate-900 dark:text-white">
+                {punchTypeLabelFromMirrorNorm(inferDashboardPunchDisplayMirrorType(todayRecords, idx))}
               </span>
               <span className="tabular-nums text-slate-600 dark:text-slate-300">
                 {new Date(recordPunchInstantIso(r)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
