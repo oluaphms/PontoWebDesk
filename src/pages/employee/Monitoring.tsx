@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
@@ -9,6 +9,7 @@ import { extractLatLng } from '../../utils/reverseGeocode';
 import { recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
+import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import {
   EmployeeOperationalStatus,
   deriveOperationalStatusFromLastPunch,
@@ -146,15 +147,22 @@ const EmployeeMonitoring: React.FC = () => {
 
   useEffect(() => {
     if (!getSupabaseClient() || !user?.companyId) return;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel('time_records_monitoring_employee')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_records', filter: `company_id=eq.${user.companyId}` }, () => {
-        clearGeocodeCache();
-        queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
-        load();
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          debounce = null;
+          if (isPollingSuppressedByVisibility()) return;
+          clearGeocodeCache();
+          queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
+          load();
+        }, getMonitoringRealtimeDebounceMs());
       })
       .subscribe();
     return () => {
+      if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
     };
   }, [user?.companyId]);
@@ -196,4 +204,4 @@ const EmployeeMonitoring: React.FC = () => {
   );
 };
 
-export default EmployeeMonitoring;
+export default memo(EmployeeMonitoring);

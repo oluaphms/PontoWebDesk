@@ -3,8 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { i18n } from '../../lib/i18n';
-import { useSmartNavigation } from './useSmartNavigation';
-import { getNavigationGroupsByRole } from './navigationSchema';
+import { useSmartNavigationSelector } from './useSmartNavigation';
 import { getNavIcon } from './iconMap';
 
 const RADIUS = 140;
@@ -14,8 +13,10 @@ const RadialMenu: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   useLanguage();
-  const { radialOpen, setRadialOpen, flatItems, user } = useSmartNavigation();
-  const groups = getNavigationGroupsByRole(user?.role ?? 'employee');
+  const radialOpen = useSmartNavigationSelector((s) => s.radialOpen);
+  const setRadialOpen = useSmartNavigationSelector((s) => s.setRadialOpen);
+  const flatItems = useSmartNavigationSelector((s) => s.flatItems);
+  const groups = useSmartNavigationSelector((s) => s.groups);
 
   const handleSelect = useCallback(
     (path: string) => {

@@ -11,6 +11,7 @@ import {
   registerTenantScopedCache,
   type TenantScope,
 } from '../domain/operational/cache/tenantCacheIsolation';
+import { recordMemoryCacheInvalidation } from '../performance/queryInvalidationAudit';
 
 interface CacheEntry<T> {
   data: T;
@@ -92,8 +93,11 @@ export const queryCache = {
         removed += 1;
       }
     }
-    if (typeof console !== 'undefined' && removed > 0) {
-      console.info('[QUERY CACHE INVALIDATION]', { prefix, removed });
+    if (removed > 0) {
+      recordMemoryCacheInvalidation(prefix, removed);
+      if (typeof console !== 'undefined') {
+        console.info('[QUERY CACHE INVALIDATION]', { prefix, removed });
+      }
     }
   },
 
@@ -102,6 +106,9 @@ export const queryCache = {
     const size = store.size;
     store.clear();
     inflightMap.clear();
+    if (size > 0) {
+      recordMemoryCacheInvalidation('clear_all', size);
+    }
     if (typeof console !== 'undefined') {
       console.info('[QUERY CACHE INVALIDATION]', { action: 'clear_all', removed: size });
     }

@@ -17,11 +17,26 @@ import {
 } from './supabaseClient';
 import { clearLocalAuthSession } from './supabase';
 import { withTimeout } from '../src/utils/withTimeout';
+import { getActiveLoginTrace, traceLoginStep } from '../src/auth/authPerformanceTrace';
+import { measureSupabaseAsync } from '../src/auth/supabaseAuthLatency';
+import { scheduleDeferredBootstrap } from '../src/auth/authBootstrapPriority';
+import { normalizeAuthenticatedSession } from '../src/auth/authSessionNormalizer';
+import { getCachedAuthProfile, setCachedAuthProfile, clearAuthProfileCache } from '../src/auth/authProfileCache';
+import { runProfileHydrationSingleFlight, clearProfileHydrationInflight } from '../src/auth/profileHydrationSingleFlight';
+import {
+  setAuthDuplicateContext,
+  clearAuthDuplicateContext,
+  auditProfileRequestStart,
+  auditProfileRequestEnd,
+  auditSessionRequestStart,
+  auditSessionRequestEnd,
+} from '../src/auth/authDuplicateRequestAudit';
 import { User } from '../types';
 import { LogSeverity } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';
 import { resolveTenantId } from '../src/services/tenantScope';
 import { LoggingService } from './loggingService';
+import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/appShellBootstrap';
 
 export interface AuthResult {
   user: User | null;
@@ -88,11 +103,12 @@ class AuthService {
   private _isRefreshingSession = false;
 
   /**
-   * Uma conversão Supabase → app user por vez por `auth.users.id`.
-   * Evita N× `db.select(users)` em paralelo (hidratação + onAuthStateChange + TOKEN_REFRESHED),
-   * que disputam o lock de storage do GoTrue e estouram timeout.
+   * BOOT vs LOGIN: enquanto o fluxo manual de login é dono do pipeline, o listener passivo ignora SIGNED_IN
+   * (hidratação + navegação vêm só do submit).
    */
-  private _supabaseUserToAppUserInflight = new Map<string, Promise<User | null>>();
+  private _manualLoginPipelineId: string | null = null;
+  private _diagPipelineId: number | null = null;
+  private _diagAttemptId: number | null = null;
 
   /**
    * Sincroniza tenant_id no user_metadata (JWT) — só chama API se ainda não estiver no token/cache.
@@ -156,11 +172,7 @@ class AuthService {
       void run();
       return;
     }
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(() => void run(), { timeout: 3000 });
-    } else {
-      globalThis.setTimeout(() => void run(), 0);
-    }
+    scheduleDeferredBootstrap('post_login_tenant_audit', run);
   }
 
   /**
@@ -361,6 +373,84 @@ class AuthService {
     return u;
   }
 
+  /**
+   * Perfil mínimo síncrono só a partir de Auth (sem I/O). Usado no shell paralelo do login.
+   */
+  private buildSyncMinimalAppUserFromAuthUser(supabaseUser: any): User {
+    const email = (supabaseUser?.email || '').trim().toLowerCase();
+    let fallbackRole: User['role'] = 'employee';
+    const metaRoleRaw =
+      supabaseUser.app_metadata?.role ??
+      supabaseUser.user_metadata?.role ??
+      (Array.isArray(supabaseUser.app_metadata?.roles) ? supabaseUser.app_metadata.roles[0] : undefined);
+    if (typeof metaRoleRaw === 'string') {
+      const r = metaRoleRaw.toLowerCase();
+      if (r === 'admin' || r === 'hr' || r === 'supervisor' || r === 'employee') {
+        fallbackRole = r as User['role'];
+      }
+    }
+    if (email === 'admin@smartponto.com' || email === 'desenvolvedor@smartponto.com') {
+      fallbackRole = 'admin';
+    }
+    if (email === 'funcionario@smartponto.com') {
+      fallbackRole = 'employee';
+    }
+    const meta = supabaseUser.user_metadata as { tenant_id?: string; company_id?: string } | undefined;
+    const cid = meta?.tenant_id || meta?.company_id || '';
+    return {
+      id: supabaseUser.id,
+      nome: supabaseUser.user_metadata?.nome || (email ? email.split('@')[0] : 'Usuário'),
+      email: supabaseUser.email || '',
+      cargo: 'Colaborador',
+      role: fallbackRole,
+      createdAt: new Date(),
+      companyId: cid,
+      tenantId: cid,
+      departmentId: '',
+      avatar: supabaseUser.user_metadata?.avatar_url,
+      preferences: { notifications: true, theme: 'light', allowManualPunch: true, language: 'pt-BR' },
+    };
+  }
+
+  private extractTenantHintSync(authUser: any): string | null {
+    const m = authUser?.user_metadata as { tenant_id?: string; company_id?: string } | undefined;
+    const tid = m?.tenant_id || m?.company_id;
+    return tid ? String(tid) : null;
+  }
+
+  private extractPermissionsHintSync(authUser: any): string {
+    const r =
+      authUser?.user_metadata?.role ??
+      authUser?.app_metadata?.role ??
+      (Array.isArray(authUser?.app_metadata?.roles) ? authUser.app_metadata.roles[0] : undefined);
+    return typeof r === 'string' ? r : '';
+  }
+
+  /** Diagnóstico de trace (App.tsx). */
+  setLoginDiagnostics(ctx: { pipelineId: number | null; attemptId: number | null }): void {
+    this._diagPipelineId = ctx.pipelineId;
+    this._diagAttemptId = ctx.attemptId;
+    setAuthDuplicateContext(ctx);
+  }
+
+  clearLoginDiagnostics(): void {
+    this._diagPipelineId = null;
+    this._diagAttemptId = null;
+    clearAuthDuplicateContext();
+  }
+
+  acquireManualLoginPipeline(): string {
+    const id = `ml:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
+    this._manualLoginPipelineId = id;
+    return id;
+  }
+
+  releaseManualLoginPipeline(token: string): void {
+    if (this._manualLoginPipelineId === token) {
+      this._manualLoginPipelineId = null;
+    }
+  }
+
   private isOnline(): boolean {
     return typeof navigator === 'undefined' || navigator.onLine !== false;
   }
@@ -412,7 +502,11 @@ class AuthService {
         if (!client) {
           throw new Error('Supabase não inicializado.');
         }
-        const { data, error } = await client.auth.signInWithPassword({ email, password });
+        const { data, error } = await measureSupabaseAsync(
+          'signInWithPassword',
+          () => client.auth.signInWithPassword({ email, password }),
+          { attempt: attempt + 1, maxAttempts },
+        );
         const sessionSummary = data?.session
           ? {
               expires_at: data.session.expires_at,
@@ -429,20 +523,6 @@ class AuthService {
                 }
               : null,
           });
-        }
-        try {
-          const after = await client.auth.getSession();
-          if (typeof console !== 'undefined') {
-            console.log('[SESSION AFTER LOGIN]', {
-              hasSession: !!after.data?.session,
-              error: after.error?.message ?? null,
-              userId: after.data?.session?.user?.id ?? null,
-            });
-          }
-        } catch (afterErr: unknown) {
-          if (typeof console !== 'undefined') {
-            console.log('[SESSION AFTER LOGIN]', { hasSession: false, error: String(afterErr) });
-          }
         }
         if (!error && data?.user) {
           return { user: data.user, session: data.session };
@@ -541,22 +621,27 @@ class AuthService {
   }
 
   /**
-   * Converte Supabase User para User do sistema (com deduplicação por id de auth).
+   * Converte Supabase User para User do sistema (single-flight global por auth id).
    */
   private async supabaseUserToAppUser(supabaseUser: any): Promise<User | null> {
     const id = supabaseUser?.id as string | undefined;
     if (!id) {
       return this.supabaseUserToAppUserImpl(supabaseUser);
     }
-    const existing = this._supabaseUserToAppUserInflight.get(id);
-    if (existing) return existing;
-    const p = this.supabaseUserToAppUserImpl(supabaseUser).finally(() => {
-      if (this._supabaseUserToAppUserInflight.get(id) === p) {
-        this._supabaseUserToAppUserInflight.delete(id);
-      }
-    });
-    this._supabaseUserToAppUserInflight.set(id, p);
-    return p;
+    auditProfileRequestStart(id);
+    try {
+      return await runProfileHydrationSingleFlight(
+        id,
+        () => this.supabaseUserToAppUserImpl(supabaseUser),
+        {
+          reason: 'supabaseUserToAppUser',
+          pipelineId: this._diagPipelineId,
+          attemptId: this._diagAttemptId,
+        },
+      );
+    } finally {
+      auditProfileRequestEnd(id);
+    }
   }
 
   private async supabaseUserToAppUserImpl(supabaseUser: any, attempt = 0): Promise<User | null> {
@@ -829,20 +914,6 @@ class AuthService {
       }
       await clearLocalAuthSession();
 
-      try {
-        if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          const { data: sessPre, error: sessPreErr } = await supabase.auth.getSession();
-          console.log('[SUPABASE SESSION TEST]', {
-            hasSession: !!sessPre?.session,
-            error: sessPreErr?.message ?? null,
-          });
-        }
-      } catch (sessionTestErr: unknown) {
-        if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.log('[SUPABASE SESSION TEST]', { hasSession: false, error: String(sessionTestErr) });
-        }
-      }
-
       let signPayload: { user: any; session: any };
       try {
         signPayload = await this.signInWithPasswordWithColdStartRetry(resolvedEmail, password);
@@ -850,83 +921,62 @@ class AuthService {
         throw signErr;
       }
 
-      try {
-        if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          const { data: sessPost, error: sessPostErr } = await supabase.auth.getSession();
-          console.log('[SUPABASE SESSION TEST POST]', {
-            hasSession: !!sessPost?.session,
-            error: sessPostErr?.message ?? null,
-          });
-        }
-      } catch (sessionPostErr: unknown) {
-        if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.log('[SUPABASE SESSION TEST POST]', { hasSession: false, error: String(sessionPostErr) });
-        }
+      const norm = normalizeAuthenticatedSession({
+        session: signPayload.session,
+        user: signPayload.user,
+      });
+      if (!norm.ok) {
+        return {
+          user: null,
+          error: norm.reason === 'missing_user' ? 'Erro ao fazer login. Tente novamente.' : 'Sessão inválida após login.',
+        };
+      }
+      const authUser = norm.authUser;
+
+      traceLoginStep(getActiveLoginTrace(), 'user_fetch_start');
+      const tenantHint = this.extractTenantHintSync(authUser);
+      const { appUser } = createMinimalSessionShell(authUser, signPayload.session);
+      traceLoginStep(getActiveLoginTrace(), 'user_fetch_success');
+
+      persistCurrentUserToProfileStore(appUser);
+      setCachedAuthProfile(
+        appUser.id,
+        resolveTenantId(appUser) || appUser.companyId || tenantHint || '_',
+        appUser,
+      );
+
+      if (appUser.companyId) {
+        void LoggingService.log({
+          severity: LogSeverity.INFO,
+          action: 'LOGIN_SUCCESS',
+          userId: appUser.id,
+          userName: appUser.nome,
+          companyId: appUser.companyId,
+          details: {
+            role: appUser.role,
+            email: appUser.email,
+            mode: 'minimal_shell_immediate',
+          },
+        });
       }
 
-      const data = { user: signPayload.user, session: signPayload.session };
-
-      if (!data || !data.user) {
-        return { user: null, error: 'Erro ao fazer login. Tente novamente.' };
-      }
-
-      // Não bloquear o login por refresh extra de sessão.
-      // O token já vem válido no signIn; esse refresh é apenas reforço.
-      void supabase.auth.refreshSession().catch(() => {
-        // ignora falha de refresh pós-login
+      scheduleDeferredBootstrap('login_full_profile', async () => {
+        try {
+          const full = await measureSupabaseAsync('login_profile_deferred', () => this.supabaseUserToAppUser(authUser), {
+            source: 'signInWithEmail_deferred',
+          }).catch(() => null as User | null);
+          if (full && full.id === appUser.id) {
+            persistCurrentUserToProfileStore(full);
+            setCachedAuthProfile(full.id, resolveTenantId(full) || full.companyId || tenantHint || '_', full);
+            dispatchProfileEnriched(full);
+          }
+        } catch {
+          // perfil completo é opcional; shell já navegou
+        }
       });
 
-      if (data.user) {
-        /**
-         * Timeout curto no caminho de login: se o perfil completo demorar, seguimos com o
-         * perfil mínimo e o `onAuthStateChanged` (SIGNED_IN) substitui pelo completo logo
-         * em seguida — evita spinner travado que faz o usuário "ter que atualizar o navegador".
-         */
-        const PROFILE_LOAD_TIMEOUT_MS = 2_500;
-        const appUser = await Promise.race([
-          this.supabaseUserToAppUser(data.user).catch(() => null as User | null),
-          new Promise<User | null>((resolve) =>
-            setTimeout(() => {
-              if (import.meta.env?.DEV && typeof console !== 'undefined') {
-                console.info('[Auth] Perfil completo ainda carregando; usando perfil mínimo (será refinado em segundo plano).');
-              }
-              resolve(null);
-            }, PROFILE_LOAD_TIMEOUT_MS)
-          ),
-        ]);
-        if (appUser) {
-          persistCurrentUserToProfileStore(appUser);
-          if (appUser.companyId) {
-            void LoggingService.log({
-              severity: LogSeverity.INFO,
-              action: 'LOGIN_SUCCESS',
-              userId: appUser.id,
-              userName: appUser.nome,
-              companyId: appUser.companyId,
-              details: { role: appUser.role, email: appUser.email },
-            });
-          }
-          this.enqueuePostLoginSideEffects(appUser, data.user);
-          return { user: appUser, error: null };
-        }
-        // Fallback: perfil não carregou a tempo (timeout) — mesmo fluxo que onAuthStateChanged (não deslogar)
-        const minimalUser = await this.buildMinimalAppUserFromAuthUser(data.user);
-        persistCurrentUserToProfileStore(minimalUser);
-        if (minimalUser.companyId) {
-          void LoggingService.log({
-            severity: LogSeverity.INFO,
-            action: 'LOGIN_SUCCESS',
-            userId: minimalUser.id,
-            userName: minimalUser.nome,
-            companyId: minimalUser.companyId,
-            details: { role: minimalUser.role, email: minimalUser.email, mode: 'fallback_minimal_profile' },
-          });
-        }
-        this.enqueuePostLoginSideEffects(minimalUser, data.user);
-        return { user: minimalUser, error: null };
-      }
-
-      return { user: null, error: 'Erro ao fazer login. Tente novamente.' };
+      this.enqueuePostLoginSideEffects(appUser, authUser as { user_metadata?: Record<string, unknown> });
+      return { user: appUser, error: null };
     } catch (error: any) {
       let errorMessage = 'Erro ao fazer login';
       const msg = error?.message ?? '';
@@ -1064,7 +1114,10 @@ class AuthService {
     const startedAt = Date.now();
     // Sinaliza para o listener onAuthStateChanged ignorar eventos de sessão nula durante o logout.
     this._isSigningOut = true;
-    this._supabaseUserToAppUserInflight.clear();
+    this._manualLoginPipelineId = null;
+    clearAuthProfileCache();
+    clearProfileHydrationInflight();
+    this.clearLoginDiagnostics();
     try {
       // 1) Derruba a sessão local imediatamente (instantâneo).
       // Isso evita ficar preso num estado “meio logado” no PWA.
@@ -1354,8 +1407,13 @@ class AuthService {
 
     let session: any = null;
     try {
-      const { data: sessionData } = await auth.getSession();
-      session = sessionData?.session ?? null;
+      auditSessionRequestStart('getCurrentUser_getSession');
+      try {
+        const { data: sessionData } = await auth.getSession();
+        session = sessionData?.session ?? null;
+      } finally {
+        auditSessionRequestEnd('getCurrentUser_getSession');
+      }
     } catch (error) {
       // Rede/DNS instável: não forçar logout; devolve cache quando possível.
       if (this.isNetworkLikeError(error)) {
@@ -1392,11 +1450,22 @@ class AuthService {
     }
 
     const supabaseUser = session.user;
+    const tenantCacheKey = this.extractTenantHintSync(supabaseUser) || '_';
+    const memHit = getCachedAuthProfile(supabaseUser.id, tenantCacheKey);
+    if (memHit) {
+      persistCurrentUserToProfileStore(memHit);
+      return memHit;
+    }
 
     try {
       const appUser = await this.supabaseUserToAppUser(supabaseUser);
       if (appUser) {
         persistCurrentUserToProfileStore(appUser);
+        setCachedAuthProfile(
+          appUser.id,
+          resolveTenantId(appUser) || appUser.companyId || tenantCacheKey,
+          appUser,
+        );
         return appUser;
       }
     } catch (error: any) {
@@ -1413,6 +1482,11 @@ class AuthService {
 
     const minimal = await this.buildMinimalAppUserFromAuthUser(supabaseUser);
     persistCurrentUserToProfileStore(minimal);
+    setCachedAuthProfile(
+      minimal.id,
+      resolveTenantId(minimal) || minimal.companyId || tenantCacheKey,
+      minimal,
+    );
     return minimal;
   }
 
@@ -1466,6 +1540,19 @@ class AuthService {
        * A flag _isSigningOut é liberada 500ms após o signOut concluir.
        */
       if (this._isSigningOut) {
+        return;
+      }
+
+      /**
+       * LOGIN FLOW (owned): submit já autentica, hidrata e navega — o listener não é dono do SIGNED_IN manual.
+       */
+      if (event === 'SIGNED_IN' && this._manualLoginPipelineId != null) {
+        if (typeof console !== 'undefined') {
+          console.info('[AUTH PASSIVE OBSERVER]', {
+            action: 'skip_signed_in_manual_login_owned',
+            pipelineToken: this._manualLoginPipelineId,
+          });
+        }
         return;
       }
 

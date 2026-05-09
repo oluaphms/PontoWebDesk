@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef, useReducer } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef, useReducer, Profiler } from 'react';
 import { flushSync } from 'react-dom';
 import { Routes, Route, Navigate, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -17,6 +17,7 @@ import { PontoService, getRecordCreatedAtDate } from './services/pontoService';
 import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { queryCache } from './src/services/queryCache';
+import { beginPostLoginRequestBudgetWindow } from './src/performance/requestBudget';
 import { clearTenantScopedCaches } from './src/domain/operational/cache/tenantCacheIsolation';
 import {
   checkSupabaseConfigured,
@@ -71,6 +72,31 @@ import {
   initialAuthFlowState,
   isAuthFlowBusy,
 } from './src/auth/authFlowReducer';
+import {
+  createLoginTrace,
+  traceLoginStep,
+  finalizeLoginTrace,
+  getActiveLoginTrace,
+  getSlowestLoginStep,
+} from './src/auth/authPerformanceTrace';
+import { pushCriticalLoginPath, popCriticalLoginPath, scheduleDeferredBootstrap } from './src/auth/authBootstrapPriority';
+import { requestAuthNavigation, resetAuthNavigationCoordinator } from './src/auth/navigationCoordinator';
+import {
+  beginHydration,
+  createHydrationOwner,
+  endHydration,
+  isHydrationOwnerActive,
+  withHydrationTimeout,
+  getActiveHydrationOwnerToken,
+} from './src/auth/authHydrationCoordinator';
+import { logAuthWatchdogDump } from './src/auth/authWatchdog';
+import { measureSupabaseAsync } from './src/auth/supabaseAuthLatency';
+import { setLongTaskPipelineContext } from './src/performance/longTaskMonitor';
+import { createReactProfilerOnRender } from './src/performance/reactRenderTrace';
+import { useEffectStormProbe } from './src/performance/reactEffectStorm';
+import { useDeferredPortalChrome } from './src/hooks/useDeferredPortalChrome';
+import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from './src/app/appShellBootstrap';
+import { markLoginSubmitStarted, markLoginUiComplete, markFirstRouteIfNeeded } from './src/app/loginPerformanceBudgets';
 import AdminLayout from './src/layouts/AdminLayout';
 import EmployeeLayout from './src/layouts/EmployeeLayout';
 import {
@@ -260,12 +286,12 @@ const AppMain: React.FC = () => {
   const loginAttemptSeqRef = useRef(0);
   const activeLoginAttemptIdRef = useRef<number | null>(null);
   const loginStartedAtRef = useRef<number | null>(null);
-  const authHydrationLockRef = useRef(false);
   const sessionRecoveryLockRef = useRef(false);
   const activeAuthPipelineRef = useRef<{ pipelineId: number; startedAt: number; eventType: string } | null>(null);
   const authPipelineSeqRef = useRef(0);
   const alreadyAuthenticatedRef = useRef(false);
   const authEffectRunCountRef = useRef<Record<string, number>>({});
+  const authWatchdogDumpAtRef = useRef<number | null>(null);
 
   // Theme State (para tela de login) — alinhado a ThemeService (chave `theme` + legado)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -276,6 +302,9 @@ const AppMain: React.FC = () => {
   });
 
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
+  /** Chrome operacional (badges/polling leve no layout) só após idle — reduz cascata pós setUser. */
+  const portalChromeReady = useDeferredPortalChrome(user?.id);
+  useEffectStormProbe('AppMain.user-identity', [user?.id, user?.companyId, user?.role]);
   const recordsRef = useRef(records);
   recordsRef.current = records;
   const { settings: globalSettings } = useSettings();
@@ -324,7 +353,19 @@ const AppMain: React.FC = () => {
   );
 
   const startAuthPipeline = useCallback(
-    (eventType: string) => {
+    (eventType: string, opts?: { reuseIfLoginInFlight?: boolean }) => {
+      if (
+        opts?.reuseIfLoginInFlight &&
+        activeLoginAttemptIdRef.current !== null &&
+        activeAuthPipelineRef.current &&
+        (eventType === 'SIGNED_IN_OR_REFRESHED' || eventType.includes('SIGNED_IN'))
+      ) {
+        logAuth('[AUTH PIPELINE REUSE]', {
+          pipelineId: activeAuthPipelineRef.current.pipelineId,
+          eventType,
+        });
+        return activeAuthPipelineRef.current.pipelineId;
+      }
       const prev = activeAuthPipelineRef.current;
       if (prev) {
         logAuth('[AUTH PIPELINE CANCELLED]', {
@@ -347,12 +388,32 @@ const AppMain: React.FC = () => {
   );
 
   useEffect(() => {
+    setLongTaskPipelineContext(activeAuthPipelineRef.current?.pipelineId ?? null);
+  }, [location.pathname, authFlow.loading, authFlow.status, user?.id]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!window.location.hash.includes('type=recovery')) return;
     if (location.pathname === '/reset-password') return;
 
     navigate(`/reset-password${window.location.hash}`, { replace: true });
   }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+    markFirstRouteIfNeeded(location.pathname);
+  }, [location.pathname, user]);
+
+  useEffect(() => {
+    const onEnrich = (e: Event) => {
+      const ce = e as CustomEvent<User>;
+      const next = ce.detail;
+      if (!next?.id) return;
+      setUser((prev) => (prev?.id === next.id ? next : prev));
+    };
+    window.addEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
+    return () => window.removeEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
+  }, []);
 
   // Aplicar idioma padrão das configurações quando não houver preferência no navegador
   useEffect(() => {
@@ -380,6 +441,7 @@ const AppMain: React.FC = () => {
     let timeoutId: ReturnType<typeof setTimeout>;
     let isMounted = true;
 
+    /** BOOT FLOW (restore session / silent hydration) — ownership separado do LOGIN FLOW em `handleLogin`. */
     const initApp = async () => {
       try {
         // Rede de segurança: getSession + getCurrentUser têm timeouts próprios; isto evita spinner eterno se algo travar.
@@ -430,16 +492,18 @@ const AppMain: React.FC = () => {
 
         if (isMounted && currentUser) {
           setUser(currentUser);
-          try {
-            const comp = await Promise.race([
-              PontoService.getCompany(currentUser.companyId),
-              new Promise<Company | null>((resolve) => setTimeout(() => resolve(null), 2000))
-            ]).catch(() => null);
-
-            if (comp && isMounted) setCompany(comp);
-          } catch (error) {
-            console.error('Error loading company:', error);
-          }
+          beginPostLoginRequestBudgetWindow('session_restored');
+          scheduleDeferredBootstrap('init_company', async () => {
+            try {
+              const comp = await Promise.race([
+                PontoService.getCompany(currentUser.companyId),
+                new Promise<Company | null>((resolve) => setTimeout(() => resolve(null), 2000)),
+              ]).catch(() => null);
+              if (comp && isMounted) setCompany(comp);
+            } catch (error) {
+              console.error('Error loading company:', error);
+            }
+          });
 
           let hasSeenOnboarding = null;
           try {
@@ -471,7 +535,14 @@ const AppMain: React.FC = () => {
       try {
         unsubscribe = authService.onAuthStateChanged((authUser) => {
           if (!isMounted) return;
-          const pipelineId = startAuthPipeline(authUser ? 'SIGNED_IN_OR_REFRESHED' : 'INITIAL_SESSION_OR_SIGNED_OUT');
+          const pipelineId = startAuthPipeline(
+            authUser ? 'SIGNED_IN_OR_REFRESHED' : 'INITIAL_SESSION_OR_SIGNED_OUT',
+            { reuseIfLoginInFlight: Boolean(authUser && activeLoginAttemptIdRef.current !== null) },
+          );
+          traceLoginStep(getActiveLoginTrace(), 'auth_listener_triggered', {
+            pipelineId,
+            hasAuthUser: Boolean(authUser),
+          });
           logAuth('[AUTH LISTENER EVENT]', {
             pipelineId,
             authUserExists: Boolean(authUser),
@@ -810,6 +881,7 @@ const AppMain: React.FC = () => {
     });
   }, [records, historyTypeFilter, historyMethodFilter, historyDateFilter]);
 
+  /** LOGIN FLOW (owned): autenticação + hidratação + navegação sem depender do listener para SIGNED_IN. */
   const handleLogin = async (identifier: string, password: string, role: LoginRole) => {
     if (activeLoginAttemptIdRef.current !== null || isLoggingIn) {
       logAuth('[AUTH DEADLOCK DETECTED]', {
@@ -821,6 +893,7 @@ const AppMain: React.FC = () => {
     const attemptId = ++loginAttemptSeqRef.current;
     activeLoginAttemptIdRef.current = attemptId;
     loginStartedAtRef.current = Date.now();
+    markLoginSubmitStarted();
     alreadyAuthenticatedRef.current = false;
     pendingLoginRoleRef.current = role;
     dispatchAuthFlow({ type: 'LOGIN_START', attemptId });
@@ -856,81 +929,6 @@ const AppMain: React.FC = () => {
       window.dispatchEvent(new Event('current_user_changed'));
     };
 
-    const hydrateUserFromSessionIfExists = async (): Promise<boolean> => {
-      if (authHydrationLockRef.current) {
-        logAuth('[AUTH HYDRATION START]', {
-          attemptId,
-          skipped: true,
-          reason: 'hydration_lock_active',
-        });
-        return false;
-      }
-      authHydrationLockRef.current = true;
-      dispatchAuthFlow({ type: 'HYDRATION_START', attemptId, pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null });
-      logAuth('[AUTH HYDRATION START]', { attemptId });
-      try {
-        const client = getSupabaseClient();
-        if (!client) return false;
-        const { data } = await client.auth.getSession();
-        logAuth('[LOGIN SESSION FOUND]', {
-          attemptId,
-          hasSession: Boolean(data?.session?.user),
-        });
-        if (data?.session?.user) {
-          dispatchAuthFlow({ type: 'SESSION_DETECTED', attemptId });
-        }
-        if (!data?.session?.user) return false;
-        const hydratedUser = await authService.getCurrentUser();
-        if (!hydratedUser) return false;
-        logAuth('[LOGIN SESSION HYDRATED]', {
-          attemptId,
-          hydratedUserId: hydratedUser.id,
-          hydratedRole: hydratedUser.role,
-        });
-        logAuth('[AUTH HYDRATION SUCCESS]', {
-          attemptId,
-          hydratedUserId: hydratedUser.id,
-          hydratedRole: hydratedUser.role,
-        });
-        if (!isRoleAllowedForSelection(role, hydratedUser.role)) {
-          await forceLogoutAfterRoleMismatch();
-          setLoginError(getRoleMismatchMessage(role));
-          pendingLoginRoleRef.current = null;
-          return false;
-        }
-        setUser(hydratedUser);
-        alreadyAuthenticatedRef.current = true;
-        setIsInitialLoading(false);
-        window.dispatchEvent(new Event('current_user_changed'));
-        if (hydratedUser.role === 'admin' || hydratedUser.role === 'hr') {
-          setActiveTab('admin');
-          navigate('/admin/dashboard', { replace: true });
-        } else {
-          setActiveTab('dashboard');
-          navigate('/employee/dashboard', { replace: true });
-        }
-        pendingLoginRoleRef.current = null;
-        dispatchAuthFlow({
-          type: 'AUTHENTICATED',
-          attemptId,
-          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
-        });
-        logAuth('[LOGIN SESSION RECOVERED]', {
-          attemptId,
-          routeTarget:
-            hydratedUser.role === 'admin' || hydratedUser.role === 'hr'
-              ? '/admin/dashboard'
-              : '/employee/dashboard',
-        });
-        return true;
-      } catch {
-        logAuth('[AUTH HYDRATION FAILED]', { attemptId });
-        dispatchAuthFlow({ type: 'FAILED', attemptId, error: 'hydration_failed' });
-        return false;
-      } finally {
-        authHydrationLockRef.current = false;
-      }
-    };
     try {
       if (typeof window !== 'undefined') {
         const q = new URLSearchParams(window.location.search);
@@ -965,7 +963,130 @@ const AppMain: React.FC = () => {
     }
     setLoginError(null);
 
+    const pipelineId = startAuthPipeline('manual_login');
+    const loginTrace = createLoginTrace(attemptId, pipelineId);
+    let traceFinalized = false;
+    const endLoginTrace = (outcome: string) => {
+      if (traceFinalized || !loginTrace) return;
+      traceFinalized = true;
+      const slow = getSlowestLoginStep(loginTrace);
+      if (slow && typeof console !== 'undefined') {
+        console.info('[AUTH TRACE]', { summary: 'slowest_step', ...slow, outcome });
+      }
+      finalizeLoginTrace(loginTrace, outcome);
+    };
+
+    pushCriticalLoginPath();
+    authService.setLoginDiagnostics({ pipelineId, attemptId });
+    const manualPipelineToken = authService.acquireManualLoginPipeline();
+
+    const hydrateUserFromSessionIfExists = async (): Promise<boolean> => {
+      const owner = createHydrationOwner(`hydrate-${attemptId}`);
+      beginHydration(owner);
+      dispatchAuthFlow({
+        type: 'HYDRATION_START',
+        attemptId,
+        pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+      });
+      logAuth('[AUTH HYDRATION START]', { attemptId, owner });
+      try {
+        const client = getSupabaseClient();
+        if (!client) return false;
+
+        const sessionPack = await withHydrationTimeout(owner, 12_000, () =>
+          measureSupabaseAsync('getSession_hydrate', () => client.auth.getSession()),
+        );
+        if (sessionPack === 'hydration_timeout') {
+          logAuth('[AUTH HYDRATION FAILED]', { attemptId, reason: 'session_hydration_timeout' });
+          dispatchAuthFlow({ type: 'FAILED', attemptId, error: 'hydration_timeout' });
+          return false;
+        }
+        const { data } = sessionPack as Awaited<ReturnType<typeof client.auth.getSession>>;
+        traceLoginStep(getActiveLoginTrace(), 'session_received', { hasUser: Boolean(data?.session?.user) });
+        logAuth('[LOGIN SESSION FOUND]', {
+          attemptId,
+          hasSession: Boolean(data?.session?.user),
+        });
+        if (data?.session?.user) {
+          dispatchAuthFlow({ type: 'SESSION_DETECTED', attemptId });
+        }
+        if (!data?.session?.user) return false;
+        if (!isHydrationOwnerActive(owner)) {
+          logAuth('[AUTH HYDRATION STALE]', { attemptId, phase: 'post_session' });
+          return false;
+        }
+
+        const hydratedUserResult = await withHydrationTimeout(owner, 45_000, () => authService.getCurrentUser());
+        if (hydratedUserResult === 'hydration_timeout') {
+          logAuth('[AUTH HYDRATION FAILED]', { attemptId, reason: 'user_hydration_timeout' });
+          return false;
+        }
+        const hydratedUser = hydratedUserResult as User | null;
+        if (!hydratedUser) return false;
+        if (!isHydrationOwnerActive(owner)) {
+          logAuth('[AUTH HYDRATION STALE]', { attemptId, phase: 'post_user' });
+          return false;
+        }
+
+        logAuth('[LOGIN SESSION HYDRATED]', {
+          attemptId,
+          hydratedUserId: hydratedUser.id,
+          hydratedRole: hydratedUser.role,
+        });
+        logAuth('[AUTH HYDRATION SUCCESS]', {
+          attemptId,
+          hydratedUserId: hydratedUser.id,
+          hydratedRole: hydratedUser.role,
+        });
+        if (!isRoleAllowedForSelection(role, hydratedUser.role)) {
+          await forceLogoutAfterRoleMismatch();
+          setLoginError(getRoleMismatchMessage(role));
+          pendingLoginRoleRef.current = null;
+          return false;
+        }
+        setUser(hydratedUser);
+        beginPostLoginRequestBudgetWindow('manual_login_hydrated');
+        alreadyAuthenticatedRef.current = true;
+        setIsInitialLoading(false);
+        window.dispatchEvent(new Event('current_user_changed'));
+        const targetRoute =
+          hydratedUser.role === 'admin' || hydratedUser.role === 'hr'
+            ? '/admin/dashboard'
+            : '/employee/dashboard';
+        if (hydratedUser.role === 'admin' || hydratedUser.role === 'hr') {
+          setActiveTab('admin');
+        } else {
+          setActiveTab('dashboard');
+        }
+        traceLoginStep(getActiveLoginTrace(), 'navigation_start', { targetRoute });
+        requestAuthNavigation({
+          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+          target: targetRoute,
+          replace: true,
+          navigate,
+        });
+        pendingLoginRoleRef.current = null;
+        dispatchAuthFlow({
+          type: 'AUTHENTICATED',
+          attemptId,
+          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+        });
+        logAuth('[LOGIN SESSION RECOVERED]', {
+          attemptId,
+          routeTarget: targetRoute,
+        });
+        return true;
+      } catch {
+        logAuth('[AUTH HYDRATION FAILED]', { attemptId });
+        dispatchAuthFlow({ type: 'FAILED', attemptId, error: 'hydration_failed' });
+        return false;
+      } finally {
+        endHydration(owner);
+      }
+    };
+
     try {
+      traceLoginStep(loginTrace, 'auth_request_start');
       // Pré-check rápido para reduzir espera percebida quando o projeto Supabase está pausado.
       const FAST_PRECHECK_TIMEOUT_MS = 3000;
       const precheckResult = await Promise.race([
@@ -992,6 +1113,9 @@ const AppMain: React.FC = () => {
           30000,
           'login',
         );
+        if (!result.error) {
+          traceLoginStep(loginTrace, 'auth_request_success');
+        }
       } catch (authErr: any) {
         logAuth('[LOGIN TIMEOUT]', {
           attemptId,
@@ -999,6 +1123,7 @@ const AppMain: React.FC = () => {
         });
         const recovered = await hydrateUserFromSessionIfExists();
         if (recovered) {
+          endLoginTrace('recovered_via_hydrate_after_timeout');
           return;
         }
         const errText = String(
@@ -1063,12 +1188,14 @@ const AppMain: React.FC = () => {
           reason: 'auth_exception',
           error: authErr?.message ?? String(authErr),
         });
+        endLoginTrace('failed:auth_exception');
         return;
       }
 
       if (result.error) {
         const recovered = await hydrateUserFromSessionIfExists();
         if (recovered) {
+          endLoginTrace('recovered_via_hydrate_after_error');
           return;
         }
         const normalizedError = String(result.error || '').toLowerCase();
@@ -1099,6 +1226,7 @@ const AppMain: React.FC = () => {
           reason: 'auth_service_error',
           error: result.error,
         });
+        endLoginTrace('failed:auth_service_error');
         return;
       }
 
@@ -1108,12 +1236,14 @@ const AppMain: React.FC = () => {
             attemptId,
             reason: 'already_authenticated_before_manual_setuser',
           });
+          endLoginTrace('ignored:already_authenticated');
           return;
         }
         if (!isRoleAllowedForSelection(role, result.user.role)) {
           await forceLogoutAfterRoleMismatch();
           setLoginError(getRoleMismatchMessage(role));
           pendingLoginRoleRef.current = null;
+          endLoginTrace('failed:role_mismatch');
           return;
         }
 
@@ -1142,7 +1272,13 @@ const AppMain: React.FC = () => {
         } else {
           setActiveTab('dashboard');
         }
-        navigate(targetRoute, { replace: true });
+        traceLoginStep(loginTrace, 'navigation_start', { targetRoute });
+        requestAuthNavigation({
+          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+          target: targetRoute,
+          replace: true,
+          navigate,
+        });
         dispatchAuthFlow({
           type: 'AUTHENTICATED',
           attemptId,
@@ -1200,11 +1336,13 @@ const AppMain: React.FC = () => {
           userId: result.user.id,
           role: result.user.role,
         });
+        endLoginTrace('success');
       }
     } catch (error: any) {
       console.error('Erro no handleLogin:', error);
       const recovered = await hydrateUserFromSessionIfExists();
       if (recovered) {
+        endLoginTrace('recovered_via_hydrate_after_exception');
         return;
       }
       const errorText = String(
@@ -1234,6 +1372,7 @@ const AppMain: React.FC = () => {
             : 'Falha de rede ao acessar o Supabase. Tente novamente em instantes.'
         );
         pendingLoginRoleRef.current = null;
+        endLoginTrace('failed:network');
         return;
       }
 
@@ -1245,12 +1384,25 @@ const AppMain: React.FC = () => {
         reason: 'unexpected_exception',
         error: error?.message ?? String(error),
       });
+      endLoginTrace('failed:unexpected_exception');
     } finally {
+      /** Libera após um tick curto: GoTrue pode emitir SIGNED_IN logo após o await do signIn (mobile). */
+      const releaseToken = manualPipelineToken;
+      window.setTimeout(() => {
+        authService.releaseManualLoginPipeline(releaseToken);
+        authService.clearLoginDiagnostics();
+      }, 160);
+      popCriticalLoginPath();
+      traceLoginStep(loginTrace, 'loading_released');
+      if (!traceFinalized) {
+        endLoginTrace('released_implicit');
+      }
       if (activeLoginAttemptIdRef.current === attemptId) {
         dispatchAuthFlow({ type: 'RELEASE_LOADING' });
         activeLoginAttemptIdRef.current = null;
       }
       logAuth('[LOGIN STATE RELEASED]', { attemptId });
+      markLoginUiComplete('login_pipeline_released');
       if (!roleMismatchHandlingRef.current && pendingLoginRoleRef.current !== null) {
         pendingLoginRoleRef.current = null;
       }
@@ -1272,6 +1424,19 @@ const AppMain: React.FC = () => {
       if (!startedAt) return;
       const elapsed = Date.now() - startedAt;
       if (elapsed < 8000) return;
+      if (authWatchdogDumpAtRef.current !== startedAt) {
+        authWatchdogDumpAtRef.current = startedAt;
+        logAuthWatchdogDump({
+          ...getAuthDebugContext(),
+          authFlowStatus: authFlow.status,
+          authFlowLoading: authFlow.loading,
+          hydrationOwner: getActiveHydrationOwnerToken(),
+          activeLoginTraceAttempt: getActiveLoginTrace()?.attemptId ?? null,
+          pendingLoginRole: pendingLoginRoleRef.current,
+          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+          route: typeof window !== 'undefined' ? window.location.pathname : '',
+        });
+      }
       const hardTimedOut = elapsed >= 30000;
       if (hardTimedOut) {
         logAuth('[LOGIN HARD TIMEOUT]', {
@@ -1303,7 +1468,12 @@ const AppMain: React.FC = () => {
           hydrated.role === 'admin' || hydrated.role === 'hr'
             ? '/admin/dashboard'
             : '/employee/dashboard';
-        navigate(targetRoute, { replace: true });
+        requestAuthNavigation({
+          pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
+          target: targetRoute,
+          replace: true,
+          navigate,
+        });
         logAuth('[LOGIN SESSION RECOVERED]', {
           source,
           targetRoute,
@@ -1350,7 +1520,49 @@ const AppMain: React.FC = () => {
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('online', onOnline);
     };
-  }, [isLoggingIn, logAuth, navigate]);
+  }, [isLoggingIn, logAuth, navigate, authFlow.status, authFlow.loading]);
+
+  /** PWA/WebView: ao voltar ao foreground, revalidar sessão e destravar loading sem reload. */
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    const reconcile = () => {
+      if (document.visibilityState !== 'visible') return;
+      void (async () => {
+        try {
+          if (!checkSupabaseConfigured()) return;
+          const client = getSupabaseClient();
+          if (!client) return;
+          const { data } = await withTimeout(client.auth.getSession(), 6000, 'foreground_resume_session');
+          if (!data?.session?.user) return;
+          if (isLoggingIn && loginStartedAtRef.current && Date.now() - loginStartedAtRef.current > 4000) {
+            dispatchAuthFlow({ type: 'RELEASE_LOADING' });
+            activeLoginAttemptIdRef.current = null;
+            logAuth('[AUTH FOREGROUND RECONCILE]', { action: 'release_stuck_loading' });
+          }
+          if (!user && data.session.user) {
+            const u = await withTimeout(authService.getCurrentUser(), 8000, 'foreground_resume_hydrate');
+            if (u) {
+              flushSync(() => {
+                setUser(u);
+                alreadyAuthenticatedRef.current = true;
+                setIsInitialLoading(false);
+              });
+              window.dispatchEvent(new Event('current_user_changed'));
+              logAuth('[AUTH FOREGROUND RECONCILE]', { action: 'hydrated_from_session' });
+            }
+          }
+        } catch (e) {
+          logAuth('[AUTH FOREGROUND RECONCILE]', { error: String(e) });
+        }
+      })();
+    };
+    document.addEventListener('visibilitychange', reconcile);
+    window.addEventListener('pageshow', reconcile);
+    return () => {
+      document.removeEventListener('visibilitychange', reconcile);
+      window.removeEventListener('pageshow', reconcile);
+    };
+  }, [isLoggingIn, user, logAuth, dispatchAuthFlow]);
 
   /** Limpa sessão e estado para tentar login de novo (timeout, 400 ou sessão quebrada). */
   const handleClearSessionAndRetry = async () => {
@@ -1386,6 +1598,7 @@ const AppMain: React.FC = () => {
     alreadyAuthenticatedRef.current = false;
     activeAuthPipelineRef.current = null;
     dispatchAuthFlow({ type: 'RESET' });
+    resetAuthNavigationCoordinator();
 
     // Limpa caches para não vazar dados entre sessões (memória + React Query)
     queryCache.clear();
@@ -1729,7 +1942,13 @@ const AppMain: React.FC = () => {
 
   if (isPortalRoute) {
     return (
-      <LayoutComponent user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
+      <LayoutComponent
+        user={user}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={handleLogout}
+        operationalChromeReady={portalChromeReady}
+      >
         <React.Suspense
           key={`route-load-${routeLoadAttempt}`}
           fallback={<RouteLoadingFallback message="Carregando página..." onRetry={handleRouteRetry} />}
@@ -1916,7 +2135,13 @@ const AppMain: React.FC = () => {
   }
 
   return (
-    <Layout user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
+    <Layout
+      user={user}
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      onLogout={handleLogout}
+      operationalChromeReady={portalChromeReady}
+    >
       {showOnboarding && (
         <Onboarding
           onComplete={() => {
@@ -2305,14 +2530,35 @@ const AppMain: React.FC = () => {
   );
 };
 
+const appMainProfilerOnRender = createReactProfilerOnRender();
+
+/** Badge de schema: não compete com o primeiro paint pós-login. */
+const DeferredSchemaGuardBadge: React.FC = () => {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const run = () => setShow(true);
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(run, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = window.setTimeout(run, 1200);
+    return () => window.clearTimeout(t);
+  }, []);
+  if (!show) return null;
+  return <SchemaGuardBadge />;
+};
+
 const AppContent: React.FC = () =>
   !checkSupabaseConfigured() ? (
     <ConfigSupabaseScreen />
   ) : (
     <QueryClientProvider client={queryClient}>
       <SettingsProvider>
-        <AppMain />
-        <SchemaGuardBadge />
+        <Profiler id="AppMain" onRender={appMainProfilerOnRender}>
+          <AppMain />
+        </Profiler>
+        <DeferredSchemaGuardBadge />
       </SettingsProvider>
     </QueryClientProvider>
   );

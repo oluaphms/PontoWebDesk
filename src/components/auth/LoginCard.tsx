@@ -3,6 +3,7 @@ import { User, Shield, ArrowLeft, Eye, EyeOff, Lock, AlertTriangle } from 'lucid
 import { Button } from '../../../components/UI';
 import { i18n } from '../../../lib/i18n';
 import ForgotPasswordModal from './ForgotPasswordModal';
+import { recordLoginFormSubmit } from '../../auth/authPerformanceTrace';
 
 export type LoginRole = 'admin' | 'employee' | null;
 
@@ -47,6 +48,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    recordLoginFormSubmit();
     // Salvar preferência de "Lembrar-me"
     if (typeof window !== 'undefined') {
       localStorage.setItem('pontowebdesk_remember_me', rememberMe ? 'true' : 'false');

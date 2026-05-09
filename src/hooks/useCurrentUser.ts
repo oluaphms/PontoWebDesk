@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase, isSupabaseConfigured } from '../services/supabaseClient';
+import { supabase, isSupabaseConfigured, getUserProfileStorage } from '../services/supabaseClient';
 import { handleError } from '../utils/handleError';
 
 export interface User {
@@ -50,6 +50,51 @@ function mapRowToUser(row: Record<string, unknown>): User {
     phone: strOrUndef(row.phone),
     avatar: strOrUndef((row as { avatar?: unknown }).avatar),
   };
+}
+
+function userFromProfileStoreJson(parsed: Record<string, unknown>): User | null {
+  try {
+    const id = String(parsed.id ?? '');
+    if (!id) return null;
+    const cid = String(parsed.companyId ?? parsed.company_id ?? '').trim();
+    const roleRaw = String(parsed.role ?? 'employee').toLowerCase();
+    const role: User['role'] =
+      roleRaw === 'admin' || roleRaw === 'hr' || roleRaw === 'employee'
+        ? (roleRaw as User['role'])
+        : roleRaw === 'supervisor'
+          ? 'hr'
+          : 'employee';
+    const dept = strOrUndef(parsed.department_id ?? parsed.departmentId);
+    return {
+      id,
+      email: parsed.email != null ? String(parsed.email) : undefined,
+      nome: parsed.nome != null ? String(parsed.nome) : undefined,
+      cargo: strOrUndef(parsed.cargo) ?? 'Colaborador',
+      role,
+      company_id: cid || undefined,
+      companyId: cid || undefined,
+      department_id: dept,
+      departmentId: dept,
+      schedule_id: strOrUndef(parsed.schedule_id),
+      shift_id: strOrUndef(parsed.shift_id),
+      phone: strOrUndef(parsed.phone),
+      avatar: strOrUndef(parsed.avatar),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readUserFromProfileStore(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = getUserProfileStorage().getItem('current_user');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return userFromProfileStoreJson(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function minimalUserFromAuthSession(sessionUser: {
@@ -190,8 +235,8 @@ async function runSharedLoadUser(): Promise<void> {
 }
 
 export function useCurrentUser() {
-  const [user, setUser] = useState<User | null>(() => readCachedUser());
-  const [loading, setLoading] = useState(() => readCachedUser() == null);
+  const [user, setUser] = useState<User | null>(() => readCachedUser() ?? readUserFromProfileStore());
+  const [loading, setLoading] = useState(() => (readCachedUser() ?? readUserFromProfileStore()) == null);
 
   const loadUser = useCallback(async () => {
     if (!isSupabaseConfigured()) {
@@ -207,6 +252,25 @@ export function useCurrentUser() {
     await loadUserInflight;
     setUser(readCachedUser());
     setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncFromProfileStore = () => {
+      const u = readUserFromProfileStore();
+      if (u) {
+        cachedUser = u;
+        cacheTimestamp = Date.now();
+        setUser(u);
+        setLoading(false);
+      }
+    };
+    window.addEventListener('current_user_changed', syncFromProfileStore);
+    syncFromProfileStore();
+
+    return () => {
+      window.removeEventListener('current_user_changed', syncFromProfileStore);
+    };
   }, []);
 
   useEffect(() => {

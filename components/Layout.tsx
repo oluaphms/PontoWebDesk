@@ -26,12 +26,26 @@ interface LayoutProps {
   setActiveTab: (tab: string) => void;
   onLogout: () => void | Promise<void>;
   layoutVariant?: LayoutVariant;
+  /**
+   * Quando false, adia polling de sinais operacionais (ex. badge auditoria) até o shell estar idle — pós-login fluido.
+   * Default true (atalhos legados / testes).
+   */
+  operationalChromeReady?: boolean;
 }
 
-const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab, onLogout, layoutVariant }) => {
+const Layout: React.FC<LayoutProps> = ({
+  user,
+  children,
+  activeTab,
+  setActiveTab,
+  onLogout,
+  layoutVariant,
+  operationalChromeReady = true,
+}) => {
   const navigate = useNavigate();
   const tenantId = resolveTenantId(user);
-  const auditNavEnabled = user?.role === 'admin' || user?.role === 'hr';
+  const auditNavEnabled =
+    operationalChromeReady && (user?.role === 'admin' || user?.role === 'hr');
   const { signal: auditHeaderSignal } = useTimeAttendanceAuditMenuSignal(tenantId || null, auditNavEnabled);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = user?.preferences?.theme;
@@ -50,6 +64,7 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
   }, [user?.preferences?.theme]);
 
   useEffect(() => {
+    if (!operationalChromeReady) return;
     const loadUnread = async () => {
       const count = await NotificationService.getUnreadCount(user.id);
       setUnreadCount(count);
@@ -57,7 +72,7 @@ const Layout: React.FC<LayoutProps> = ({ user, children, activeTab, setActiveTab
     loadUnread();
     const interval = setInterval(loadUnread, 30000);
     return () => clearInterval(interval);
-  }, [user.id]);
+  }, [user.id, operationalChromeReady]);
 
   const toggleTheme = useCallback(() => {
     const nextTheme = theme === 'light' ? 'dark' : 'light';

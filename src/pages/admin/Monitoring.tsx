@@ -3,7 +3,7 @@
  * Atualização via Supabase Realtime (um canal, debounce).
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
@@ -15,6 +15,7 @@ import { validateCoordinateOrder } from '../../services/geolocation/geoIntegrity
 import { recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
+import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import {
   EmployeeOperationalStatus,
   deriveOperationalStatusFromLastPunch,
@@ -335,11 +336,12 @@ const AdminMonitoring: React.FC = () => {
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
           debounce = null;
+          if (isPollingSuppressedByVisibility()) return;
           clearGeocodeCache();
           queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
           queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
           void refresh();
-        }, 400);
+        }, getMonitoringRealtimeDebounceMs());
       })
       .subscribe();
     return () => {
@@ -570,4 +572,7 @@ function PresenceSection({
   );
 }
 
-export default AdminMonitoring;
+/**
+ * Estado ao vivo (Realtime) confinado a esta rota — não há provider global de monitoramento.
+ */
+export default memo(AdminMonitoring);

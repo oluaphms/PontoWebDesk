@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { memo, useState, useCallback, useMemo } from 'react';
 import {
   LayoutDashboard,
   History,
@@ -135,11 +135,35 @@ export interface SmartSidebarProps {
   layoutVariant?: LayoutVariant;
 }
 
+/** Badges via React Query isolados — atualizações de contagem não rerenderizam o chrome inteiro da sidebar. */
+const SmartSidebarBadgedNav = memo(function SmartSidebarBadgedNav({
+  user,
+  collapsed,
+  effectiveVariant,
+}: {
+  user: User;
+  collapsed: boolean;
+  effectiveVariant: LayoutVariant;
+}) {
+  const { requestsCount, notificationsCount } = useNavigationBadges(user);
+  return (
+    <NavMenuContent
+      user={user}
+      collapsed={collapsed}
+      layoutVariant={effectiveVariant}
+      requestsCount={requestsCount}
+      notificationsCount={notificationsCount}
+    />
+  );
+});
+
 const SmartSidebar: React.FC<SmartSidebarProps> = ({ user, onLogout, onCollapsedChange, layoutVariant }) => {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
-  const { requestsCount, notificationsCount } = useNavigationBadges(user);
-  const effectiveVariant = layoutVariant ?? (user.role === 'admin' || user.role === 'hr' ? 'admin' : 'employee');
+  const effectiveVariant = useMemo(
+    () => layoutVariant ?? (user.role === 'admin' || user.role === 'hr' ? 'admin' : 'employee'),
+    [layoutVariant, user.role],
+  );
 
   const handleToggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
@@ -203,13 +227,7 @@ const SmartSidebar: React.FC<SmartSidebarProps> = ({ user, onLogout, onCollapsed
             )}
           </div>
 
-          <NavMenuContent
-            user={user}
-            collapsed={collapsed}
-            layoutVariant={effectiveVariant}
-            requestsCount={requestsCount}
-            notificationsCount={notificationsCount}
-          />
+          <SmartSidebarBadgedNav user={user} collapsed={collapsed} effectiveVariant={effectiveVariant} />
         </div>
 
         <div className={`pt-4 mt-auto border-t border-slate-100 dark:border-slate-800 ${collapsed ? 'px-0' : 'px-2'}`}>

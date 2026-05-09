@@ -10,6 +10,9 @@ import { ToastProvider } from './src/components/ToastProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LanguageProvider } from './src/contexts/LanguageContext';
 import { AppInitializer } from './src/components/AppInitializer';
+import { startLongTaskMonitor } from './src/performance/longTaskMonitor';
+import { focusManager } from '@tanstack/react-query';
+import { isPostLoginQueryCooldownActive } from './src/app/postLoginQueryGate';
 
 try {
   initSentry();
@@ -52,6 +55,25 @@ if (typeof window !== 'undefined') {
 
 ThemeService.init();
 i18n.init();
+startLongTaskMonitor();
+
+if (typeof document !== 'undefined') {
+  focusManager.setEventListener((handleFocus) => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (isPostLoginQueryCooldownActive()) {
+          if (import.meta.env.DEV && typeof console !== 'undefined') {
+            console.info('[QUERY WINDOW FOCUS REFETCH SUPPRESSED]', { reason: 'post_login_cooldown' });
+          }
+          return;
+        }
+        handleFocus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility, false);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  });
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Could not find root element to mount to');

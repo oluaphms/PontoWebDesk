@@ -1,4 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
+import { patchQueryClientInvalidationAudit } from '../performance/queryInvalidationAudit';
 
 /**
  * QueryClient Configuration
@@ -32,3 +33,5 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+patchQueryClientInvalidationAudit(queryClient);

@@ -3,21 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { i18n } from '../../lib/i18n';
-import { useSmartNavigation } from './useSmartNavigation';
-import { getNavigationGroupsByRole } from './navigationSchema';
+import { useSmartNavigationSelector } from './useSmartNavigation';
 import { getNavIcon } from './iconMap';
 import type { NavigationItemSchema } from './navigationSchema';
 
 const CommandPalette: React.FC = () => {
   const navigate = useNavigate();
   useLanguage();
-  const { commandPaletteOpen, setCommandPaletteOpen, flatItems, user } = useSmartNavigation();
+  const commandPaletteOpen = useSmartNavigationSelector((s) => s.commandPaletteOpen);
+  const setCommandPaletteOpen = useSmartNavigationSelector((s) => s.setCommandPaletteOpen);
+  const flatItems = useSmartNavigationSelector((s) => s.flatItems);
+  const groups = useSmartNavigationSelector((s) => s.groups);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  const groups = getNavigationGroupsByRole(user?.role ?? 'employee');
 
   const results = query.trim()
     ? flatItems.filter((item) =>

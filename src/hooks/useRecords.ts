@@ -6,6 +6,8 @@ import { OfflinePunchService } from '../../services/offlinePunchService';
 import { getTimeRecordsByUser } from '../../services/timeRecords.service';
 import { invalidateAfterPunch } from '../services/queryCache';
 import { isSupabaseConfigured, supabase } from '../../services/supabase';
+import { isLowNetworkMode } from '../performance/networkMode';
+import { startDeferredRealtime } from '../performance/deferredRealtime';
 import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
 
@@ -29,10 +31,32 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
     staleTime: 0,
   });
 
-  // Realtime: invalida cache automaticamente quando time_records recebe INSERT
-  // Isso garante que batidas do relógio aparecem sem refresh manual.
+  const [realtimeReady, setRealtimeReady] = useState(false);
   useEffect(() => {
-    if (!userId || !companyId) return;
+    if (!userId || !companyId) {
+      setRealtimeReady(false);
+      return;
+    }
+    setRealtimeReady(false);
+    return startDeferredRealtime(() => setRealtimeReady(true));
+  }, [userId, companyId]);
+
+  // Realtime: invalida cache automaticamente quando time_records recebe INSERT
+  // Adiado até idle pós-mount para não competir com paint do login/dashboard.
+  useEffect(() => {
+    if (!userId || !companyId || !realtimeReady) return;
+
+    let batchedTimer: ReturnType<typeof setTimeout> | null = null;
+    const debounceMs = isLowNetworkMode() ? 900 : 380;
+
+    const scheduleRealtimeCoalesce = () => {
+      if (batchedTimer) return;
+      batchedTimer = setTimeout(() => {
+        batchedTimer = null;
+        queryClient.invalidateQueries({ queryKey: ['records', userId] });
+        invalidateAfterPunch(userId, companyId);
+      }, debounceMs);
+    };
 
     const channel = supabase
       .channel(`time_records:${userId}`)
@@ -45,16 +69,16 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
           filter: `company_id=eq.${companyId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['records', userId] });
-          invalidateAfterPunch(userId, companyId);
+          scheduleRealtimeCoalesce();
         }
       )
       .subscribe();
 
     return () => {
+      if (batchedTimer) clearTimeout(batchedTimer);
       supabase.removeChannel(channel);
     };
-  }, [userId, companyId, queryClient]);
+  }, [userId, companyId, queryClient, realtimeReady]);
 
   const refreshRecords = useCallback(async (force = false) => {
     if (force) {

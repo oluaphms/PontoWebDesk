@@ -1747,7 +1747,10 @@ const AdminTimesheet: React.FC = () => {
                   const dayRecs = day.records.filter((r) => !isStatusRecord(r));
                   return (
                     <React.Fragment key={date}>
-                    <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <tr
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 52px' }}
+                    >
                       <td className="px-3 py-2 text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
                         <div className="flex items-center gap-2 flex-wrap">
                           {dayRecs.length > 0 ? (

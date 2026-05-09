@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import L from 'leaflet';
 
 const LEAFLET_CSS_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
@@ -41,7 +41,7 @@ interface MonitoringMapProps {
 const DEFAULT_CENTER: L.LatLngTuple = [-15.7942, -47.8822]; // Brasília
 const DEFAULT_ZOOM = 4;
 
-const MonitoringMap: React.FC<MonitoringMapProps> = ({
+const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
   employees,
   className = '',
   height = '420px',
@@ -170,4 +170,5 @@ function escapeHtml(s: string): string {
   return div.innerHTML;
 }
 
+const MonitoringMap = memo(MonitoringMapInner);
 export default MonitoringMap;

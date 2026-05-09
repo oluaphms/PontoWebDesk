@@ -1,5 +1,7 @@
 import { db } from '../../services/supabaseClient';
 import { queryCache, TTL } from './queryCache';
+import { runSingleFlight } from '../performance/fetchSingleFlight';
+import { recordCriticalRequest } from '../performance/requestBudget';
 import { handleError } from '../utils/handleError';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
 import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
@@ -256,11 +258,183 @@ function resolveDashboardDisplayInstant(record: any): {
   return { instant: null, hasAnomaly: true, anomalyReason: 'data inválida' };
 }
 
+function buildAdminLastRecordsForToday(
+  recentRecords: any[],
+  users: any[],
+  todayLocal: string,
+): AdminDashboardLastRecord[] {
+  const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
+  const allRecentRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
+    const tInfo = resolveDashboardDisplayInstant(r);
+    const t = tInfo.instant;
+    const geo = readGeoFromRecord(r);
+    const streetAddress = readStreetAddressFromGeoSnapshot(r);
+    const geoAddressParts = readGeoAddressPartsFromSnapshot(r);
+    const timeStr =
+      t && Number.isFinite(t.getTime())
+        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+        : '—';
+    const dateStr =
+      t && Number.isFinite(t.getTime())
+        ? t.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            timeZone: 'America/Sao_Paulo',
+          })
+        : '—';
+    return {
+      id: String(r.id ?? ''),
+      userId: String(r.user_id ?? ''),
+      employeeName: nameMap.get(String(r.user_id)) ?? String(r.user_id ?? '').slice(0, 8) ?? '—',
+      type: String(r.type ?? ''),
+      typeLabel: typeLabel(r.type),
+      date: dateStr,
+      time: timeStr,
+      location: geo ? `${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` : formatLatLng(r),
+      originLabel: resolvePunchOrigin(r).label,
+      lat: geo?.lat ?? null,
+      lng: geo?.lng ?? null,
+      accuracy: geo?.accuracy ?? null,
+      sourceRecordId: String(r.id ?? ''),
+      hasTimeAnomaly: tInfo.hasAnomaly,
+      timeAnomalyReason: tInfo.anomalyReason,
+      streetAddress,
+      streetResolved: !!streetAddress,
+      geoStreet: geoAddressParts.street,
+      geoDistrict: geoAddressParts.district,
+      geoPostalCode: geoAddressParts.postalCode,
+      geoCity: geoAddressParts.city,
+      geoState: geoAddressParts.state,
+    };
+  });
+  return allRecentRecords
+    .filter((r) => {
+      if (r.date === '—') return false;
+      const [dd, mm, yyyy] = r.date.split('/');
+      const ymd = `${yyyy}-${mm}-${dd}`;
+      return ymd === todayLocal;
+    })
+    .sort((a, b) => {
+      const am = parseInt(a.time.replace(':', ''), 10);
+      const bm = parseInt(b.time.replace(':', ''), 10);
+      return Number.isFinite(bm) && Number.isFinite(am) ? bm - am : 0;
+    })
+    .slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT);
+}
+
+/**
+ * Cards do painel sem gráfico semanal (primeiro paint mais leve).
+ */
+export async function getAdminDashboardCardsQuick(companyId: string): Promise<AdminDashboardCards | null> {
+  return runSingleFlight(`adminDashCardsQuick:${companyId}`, async () => {
+    recordCriticalRequest('adminDashCardsQuick');
+    try {
+      const todayLocal = localTodayYmd();
+      const [usersRows, recentRecordsRaw] = await Promise.all([
+        queryCache.getOrFetch(
+          `users:${companyId}:minimal`,
+          () =>
+            db.select(
+              'users',
+              [{ column: 'company_id', operator: 'eq', value: companyId }],
+              undefined,
+              1000,
+              'id,nome,email,role,status',
+            ) as Promise<any[]>,
+          TTL.SHORT,
+        ),
+        queryCache.getOrFetch(
+          `time_records:admin_dash:recent:${companyId}`,
+          () =>
+            db.select(
+              'time_records',
+              [
+                { column: 'company_id', operator: 'eq', value: companyId },
+                { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
+                { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+              ],
+              { column: 'created_at', ascending: false },
+              40,
+            ) as Promise<any[]>,
+          TTL.REALTIME,
+        ),
+      ]);
+      const users = usersRows ?? [];
+      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []);
+      const activeIds = new Set<string>();
+      todayRecords.forEach((r: any) => {
+        if (r?.user_id) activeIds.add(String(r.user_id));
+      });
+      const expectedEmployees = users.filter((u: any) => u.role !== 'admin' && u.role !== 'hr').length;
+      const absentToday = Math.max(0, expectedEmployees - activeIds.size);
+      return {
+        totalEmployees: users.length,
+        activeEmployees: users.filter((u: any) => u.status !== 'inactive').length,
+        recordsToday: todayRecords.length,
+        absentToday,
+      };
+    } catch (e) {
+      handleError(e, 'getAdminDashboardCardsQuick');
+      return null;
+    }
+  });
+}
+
+/**
+ * Últimos registros do dia (GEO/reverse geocode ficam no painel, lazy).
+ */
+export async function getAdminDashboardLastRecordsOnly(companyId: string): Promise<AdminDashboardLastRecord[]> {
+  return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
+    recordCriticalRequest('adminDashLastRecOnly');
+    try {
+      const todayLocal = localTodayYmd();
+      const [usersRows, recentRecordsRaw] = await Promise.all([
+        queryCache.getOrFetch(
+          `users:${companyId}:minimal`,
+          () =>
+            db.select(
+              'users',
+              [{ column: 'company_id', operator: 'eq', value: companyId }],
+              undefined,
+              1000,
+              'id,nome,email,role,status',
+            ) as Promise<any[]>,
+          TTL.SHORT,
+        ),
+        queryCache.getOrFetch(
+          `time_records:admin_dash:recent:${companyId}`,
+          () =>
+            db.select(
+              'time_records',
+              [
+                { column: 'company_id', operator: 'eq', value: companyId },
+                { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
+                { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+              ],
+              { column: 'created_at', ascending: false },
+              40,
+            ) as Promise<any[]>,
+          TTL.REALTIME,
+        ),
+      ]);
+      const users = usersRows ?? [];
+      const recentRecords = recentRecordsRaw ?? [];
+      return buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+    } catch (e) {
+      handleError(e, 'getAdminDashboardLastRecordsOnly');
+      return [];
+    }
+  });
+}
+
 /**
  * Agrega dados do painel admin em chamadas controladas (evita N queries na UI).
  */
 export async function getAdminDashboardData(companyId: string): Promise<AdminDashboardPayload | null> {
-  try {
+  return runSingleFlight(`getAdminDashboardData:${companyId}`, async () => {
+    recordCriticalRequest('getAdminDashboardData');
+    try {
     const todayLocal = localTodayYmd();
     const startChart = new Date();
     startChart.setDate(startChart.getDate() - 13);
@@ -335,8 +509,6 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       absentToday,
     };
 
-    const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
-
     const weekDays: string[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -409,61 +581,12 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       lowCount: low.count,
     };
 
-    // Usar recentRecords diretamente (já vem ordenado do banco)
-    const allRecentRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
-      const tInfo = resolveDashboardDisplayInstant(r);
-      const t = tInfo.instant;
-      const geo = readGeoFromRecord(r);
-      const streetAddress = readStreetAddressFromGeoSnapshot(r);
-      const geoAddressParts = readGeoAddressPartsFromSnapshot(r);
-      const timeStr = t && Number.isFinite(t.getTime())
-        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
-        : '—';
-      const dateStr = t && Number.isFinite(t.getTime())
-        ? t.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' })
-        : '—';
-      return {
-        id: String(r.id ?? ''),
-        userId: String(r.user_id ?? ''),
-        employeeName: nameMap.get(String(r.user_id)) ?? String(r.user_id ?? '').slice(0, 8) ?? '—',
-        type: String(r.type ?? ''),
-        typeLabel: typeLabel(r.type),
-        date: dateStr,
-        time: timeStr,
-        location: geo ? `${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` : formatLatLng(r),
-        originLabel: resolvePunchOrigin(r).label,
-        lat: geo?.lat ?? null,
-        lng: geo?.lng ?? null,
-        accuracy: geo?.accuracy ?? null,
-        sourceRecordId: String(r.id ?? ''),
-        hasTimeAnomaly: tInfo.hasAnomaly,
-        timeAnomalyReason: tInfo.anomalyReason,
-        streetAddress,
-        streetResolved: !!streetAddress,
-        geoStreet: geoAddressParts.street,
-        geoDistrict: geoAddressParts.district,
-        geoPostalCode: geoAddressParts.postalCode,
-        geoCity: geoAddressParts.city,
-        geoState: geoAddressParts.state,
-      };
-    });
-    const lastRecords = allRecentRecords
-      .filter((r) => {
-        if (r.date === '—') return false;
-        const [dd, mm, yyyy] = r.date.split('/');
-        const ymd = `${yyyy}-${mm}-${dd}`;
-        return ymd === todayLocal;
-      })
-      .sort((a, b) => {
-        const am = parseInt(a.time.replace(':', ''), 10);
-        const bm = parseInt(b.time.replace(':', ''), 10);
-        return Number.isFinite(bm) && Number.isFinite(am) ? bm - am : 0;
-      })
-      .slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT);
+    const lastRecords = buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
 
     return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
-  } catch (e) {
-    handleError(e, 'getAdminDashboardData');
-    return null;
-  }
+    } catch (e) {
+      handleError(e, 'getAdminDashboardData');
+      return null;
+    }
+  });
 }
