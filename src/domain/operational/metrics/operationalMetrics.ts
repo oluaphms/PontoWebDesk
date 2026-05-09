@@ -1,3 +1,5 @@
+import { operationalNowUtcIso } from '../../../utils/operationalDateHardLock';
+
 export type OperationalMetricName =
   | 'rpc_latency_ms'
   | 'replay_duration_ms'
@@ -18,7 +20,21 @@ export type OperationalMetricName =
   | 'cache_entries_growth'
   | 'pending_rep_punch_logs_volume'
   | 'circuit_breaker_activations'
-  | 'replay_throughput';
+  | 'replay_throughput'
+  | 'cos_reconciliation_runs'
+  | 'cos_drift_detected_count'
+  | 'cos_stale_snapshot_count'
+  | 'cos_orphan_snapshot_count'
+  | 'cos_repaired_count'
+  | 'cos_snapshot_overwrite_blocked'
+  | 'cos_refresh_execution_ms'
+  | 'geo_invalid_realtime_movement'
+  | 'live_location_stale_count'
+  | 'geo_reliability_eval'
+  | 'geo_teleport_detected'
+  | 'geo_mock_suspected'
+  | 'geo_stale_coordinate_blocked'
+  | 'future_operational_timestamp_blocked';
 
 export type OperationalMetricTags = {
   company_id?: string | null;
@@ -67,7 +83,7 @@ export function recordOperationalMetric(
   METRIC_STORE.push({
     name,
     value,
-    created_at: new Date().toISOString(),
+    created_at: operationalNowUtcIso(),
     tags,
   });
   purgeOldOperationalMetrics();

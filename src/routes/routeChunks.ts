@@ -44,6 +44,7 @@ const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/operational-recovery': () => import('../pages/admin/OperationalRecovery'),
   '/admin/operational-health-check': () => import('../pages/admin/OperationalHealthCheck'),
   '/admin/operational-observability': () => import('../pages/admin/OperationalObservability'),
+  '/admin/production-control-center': () => import('../pages/admin/ProductionControlCenter'),
   '/admin/operational-load-report': () => import('../pages/admin/OperationalLoadReport'),
   '/admin/rep-operational-health': () => import('../pages/admin/RepOperationsCenter'),
   '/admin/rep-operations-center': () => import('../pages/admin/RepOperationsCenter'),

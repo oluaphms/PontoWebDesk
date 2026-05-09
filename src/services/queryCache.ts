@@ -8,6 +8,7 @@ import { useCatalogStore } from '../stores/catalogStore';
 import {
   assertTenantScopedCacheKey,
   buildTenantCacheKey,
+  bumpGeoCacheGeneration,
   registerTenantScopedCache,
   type TenantScope,
 } from '../domain/operational/cache/tenantCacheIsolation';
@@ -103,6 +104,7 @@ export const queryCache = {
 
   /** Limpa todo o cache (ex: no logout) */
   clear(): void {
+    bumpGeoCacheGeneration('query_cache_clear_all');
     const size = store.size;
     store.clear();
     inflightMap.clear();
@@ -130,6 +132,7 @@ function bootstrapTenantCacheRegistry(): void {
         if (
           key.startsWith('users:') ||
           key.startsWith('time_records:') ||
+          key.startsWith('current_operational_state:') ||
           key.startsWith('admin_report:') ||
           key.startsWith('admin_bank_hours:')
         ) {
@@ -145,6 +148,32 @@ function bootstrapTenantCacheRegistry(): void {
   });
 }
 bootstrapTenantCacheRegistry();
+
+/** Invalidação dura de caches sensíveis a GEO / tenant (mobile, troca de aba, rede). */
+export function invalidateOperationalGeoCaches(reason: string): void {
+  bumpGeoCacheGeneration(reason);
+  if (typeof console !== 'undefined') {
+    console.info('[GEO CACHE HARD INVALIDATION]', { reason });
+  }
+  queryCache.invalidate('current_operational_state:');
+  queryCache.invalidate('time_records:admin_dash:');
+  queryCache.invalidate('time_records:week:');
+}
+
+function installOperationalGeoCacheListeners(): void {
+  if (typeof window === 'undefined') return;
+  const g = globalThis as unknown as { __pontowebdeskGeoCacheListeners?: boolean };
+  if (g.__pontowebdeskGeoCacheListeners) return;
+  g.__pontowebdeskGeoCacheListeners = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      invalidateOperationalGeoCaches('visibilitychange');
+    }
+  });
+  window.addEventListener('online', () => invalidateOperationalGeoCaches('online'));
+  window.addEventListener('offline', () => invalidateOperationalGeoCaches('offline'));
+}
+installOperationalGeoCacheListeners();
 
 export function buildTenantQueryCacheKey(scope: Partial<TenantScope>, ...parts: Array<string | number>): string {
   const key = buildTenantCacheKey(scope, ...parts);
@@ -168,6 +197,7 @@ export function invalidateCompanyListCaches(companyId: string): void {
   queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:chart:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:recent:${companyId}`);
+  queryCache.invalidate(`current_operational_state:${companyId}`);
   queryCache.invalidate(`users:${companyId}:minimal`);
   queryCache.invalidate(`admin_report:${companyId}`);
   useCatalogStore.getState().clearCompany(companyId);

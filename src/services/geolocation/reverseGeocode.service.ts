@@ -18,6 +18,12 @@ import {
   retryBackoff,
   retryBudget,
 } from '../../domain/operational/resilience';
+import {
+  normalizeOperationalAddressCached,
+  normalizeOperationalAddressShape,
+  operationalGeocodeResolvedAtIso,
+  type OperationalAddressShape,
+} from './addressNormalizer.service';
 
 export type GeocodeSnapshot = {
   street: string | null;
@@ -81,6 +87,35 @@ function cacheKey(lat: number, lng: number, provider: string): string | null {
   return key;
 }
 
+function finalizeGeocodeSnapshotWithNormalizer(lat: number, lng: number, provider: string, base: GeocodeSnapshot): GeocodeSnapshot {
+  const scopeKey = cacheKey(lat, lng, provider);
+  const dedupeKey = `${scopeKey ?? `no_scope|${lat}|${lng}|${provider}`}|addr_norm`;
+  const shape: OperationalAddressShape = {
+    street: base.street,
+    district: base.district,
+    city: base.city,
+    state: base.state,
+    postal_code: base.postal_code,
+    country: base.country,
+    formatted: base.formatted,
+    formatted_address: base.formatted_address ?? base.formatted,
+  };
+  const norm = normalizeOperationalAddressCached(dedupeKey, shape);
+  return {
+    street: norm.street,
+    district: norm.district,
+    city: norm.city,
+    state: norm.state,
+    postal_code: norm.postal_code,
+    country: norm.country,
+    provider: base.provider,
+    resolved_at: operationalGeocodeResolvedAtIso(),
+    formatted: norm.formatted,
+    formatted_address: norm.formatted_address ?? norm.formatted,
+    reverse_geocode_status: base.reverse_geocode_status,
+  };
+}
+
 function getOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
   return 'http://localhost:3010';
@@ -104,18 +139,28 @@ function toSnapshotFromAddress(
   const country = (addr?.country ?? null) as string | null;
   const formatted =
     [street, district, city, state].filter((x) => x && String(x).trim()).join(' - ') || fallbackText;
-  return {
+  const norm = normalizeOperationalAddressShape({
     street,
     district,
     city,
     state,
     postal_code: postal,
     country,
-    provider,
-    resolved_at: new Date().toISOString(),
     formatted,
-    reverse_geocode_status: 'ok',
     formatted_address: formatted,
+  });
+  return {
+    street: norm.street,
+    district: norm.district,
+    city: norm.city,
+    state: norm.state,
+    postal_code: norm.postal_code,
+    country: norm.country,
+    provider,
+    resolved_at: operationalGeocodeResolvedAtIso(),
+    formatted: norm.formatted,
+    reverse_geocode_status: 'ok',
+    formatted_address: norm.formatted_address ?? norm.formatted,
   };
 }
 
@@ -240,15 +285,6 @@ export function normalizeReverseGeocodeAddress(payload: {
     country,
     formatted_address: formattedAddress,
   };
-  console.info('[GEO ADDRESS NORMALIZED]', {
-    provider: payload.provider ?? 'unknown',
-    street: normalized.street,
-    district: normalized.district,
-    city: normalized.city,
-    state: normalized.state,
-    postal_code: normalized.postal_code,
-    formatted_address: normalized.formatted_address,
-  });
   return normalized;
 }
 
@@ -308,7 +344,7 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
   if (data.status === 'timeout') {
     console.info('[GEO PROVIDER TIMEOUT]', { lat, lng, provider: data.provider ?? 'unknown' });
   }
-  const finalAddress = {
+  const finalAddress = finalizeGeocodeSnapshotWithNormalizer(lat, lng, data.provider || 'nominatim', {
     street: normalized.street,
     district: normalized.district,
     city: normalized.city,
@@ -316,11 +352,11 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
     postal_code: normalized.postal_code,
     country: normalized.country,
     provider: data.provider || 'nominatim',
-    resolved_at: new Date().toISOString(),
+    resolved_at: '',
     formatted: normalized.formatted_address || '',
     formatted_address: normalized.formatted_address,
     reverse_geocode_status: data.status ?? (hasAnyAddressPart ? 'ok' : 'partial'),
-  };
+  });
   console.info('[GEO ADDRESS FINAL]', {
     lat,
     lng,
@@ -400,7 +436,7 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
       normalized.country ||
       normalized.formatted_address,
   );
-  const finalAddress = {
+  const finalAddress = finalizeGeocodeSnapshotWithNormalizer(lat, lng, 'nominatim_direct', {
     street: normalized.street,
     district: normalized.district,
     city: normalized.city,
@@ -408,11 +444,11 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
     postal_code: normalized.postal_code,
     country: normalized.country,
     provider: 'nominatim_direct',
-    resolved_at: new Date().toISOString(),
+    resolved_at: '',
     formatted: normalized.formatted_address || '',
     formatted_address: normalized.formatted_address,
     reverse_geocode_status: hasAnyAddressPart ? 'ok' : 'partial',
-  };
+  });
   console.info('[GEO ADDRESS FINAL]', {
     lat,
     lng,

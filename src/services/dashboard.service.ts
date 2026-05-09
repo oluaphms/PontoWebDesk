@@ -5,7 +5,21 @@ import { recordCriticalRequest } from '../performance/requestBudget';
 import { handleError } from '../utils/handleError';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
 import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
-import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../utils/localDateTimeToIso';
+import {
+  currentOperationalStateCacheKey,
+  fetchCurrentOperationalStateByCompany,
+  type CurrentOperationalStateRow,
+} from './currentOperationalState.service';
+import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from './liveEmployeeLocation.service';
+import {
+  punchInstantOperationalYmd,
+  readGeoSnapshot,
+  validateOperationalTimestamp,
+  type OperationalPunchRecord,
+} from './monitoring/monitoringGeoHardLock.service';
+import { resolveBestRealtimeLocation } from './geolocation/realtimeGeoSourcePriority.service';
+import { buildOperationalDayRange, getOperationalTodayYmd } from '../utils/operationalDateHardLock';
+import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
 
 export interface AdminDashboardCards {
   totalEmployees: number;
@@ -74,12 +88,13 @@ export interface AdminDashboardPayload {
 
 const ADMIN_DASHBOARD_LAST_RECORDS_LIMIT = 8;
 
-function localTodayYmd(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function operationalDashboardTodayYmd(): string {
+  return getOperationalTodayYmd();
+}
+
+function operationalDayQueryBounds(todayYmd: string): { startUtcIso: string; endUtcIso: string } {
+  const r = buildOperationalDayRange(todayYmd);
+  return { startUtcIso: r.startUtcIso, endUtcIso: r.endUtcIso };
 }
 
 /**
@@ -323,6 +338,127 @@ function buildAdminLastRecordsForToday(
     .slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT);
 }
 
+function originLabelFromOperationalSnapshot(origin: string | null | undefined, method: string | null | undefined): string {
+  const o = String(origin ?? '').trim().toLowerCase();
+  if (o === 'rep') return 'Relógio';
+  if (o === 'admin') return 'Manual / RH';
+  if (o === 'mobile' || o === 'app') return 'App';
+  const m = String(method ?? '').trim().toLowerCase();
+  if (m === 'rep') return 'Relógio';
+  if (m === 'admin' || m === 'manual') return 'Manual / RH';
+  return 'App';
+}
+
+function mergeAdminLastRecordGeoFromSources(
+  row: AdminDashboardLastRecord,
+  cos: CurrentOperationalStateRow,
+  liveByEmployee: Map<string, LiveEmployeeLocationRow>,
+  recentRecord: OperationalPunchRecord | null,
+  nowMs: number,
+): AdminDashboardLastRecord {
+  const live = liveByEmployee.get(row.userId) ?? null;
+  const recordGeo = recentRecord ? readGeoSnapshot(recentRecord) : null;
+  const record = recordGeo
+    ? {
+        lat: recordGeo.lat,
+        lng: recordGeo.lng,
+        accuracy: recordGeo.accuracy,
+        capturedAt: recordGeo.capturedAt,
+        provider: recordGeo.provider,
+        recordId: String(recentRecord!.id),
+      }
+    : null;
+  let previousAccepted: { latitude: number; longitude: number; atMs: number } | null = null;
+  if (cos.map_captured_at && cos.map_latitude != null && cos.map_longitude != null) {
+    const v = validateOperationalTimestamp(cos.map_captured_at, nowMs);
+    previousAccepted = {
+      latitude: Number(cos.map_latitude),
+      longitude: Number(cos.map_longitude),
+      atMs: v.ok ? v.instantMs : nowMs,
+    };
+  }
+  const resolved = resolveBestRealtimeLocation({
+    nowMs,
+    employeeId: row.userId,
+    companyId: cos.company_id,
+    live,
+    cos,
+    record,
+    previousAccepted,
+    log: false,
+  });
+  if (!resolved || resolved.geoConfidence === 'INVALID') {
+    return row;
+  }
+  return {
+    ...row,
+    lat: resolved.latitude,
+    lng: resolved.longitude,
+    accuracy: resolved.accuracy,
+    location: `${resolved.latitude.toFixed(4)}, ${resolved.longitude.toFixed(4)}`,
+  };
+}
+
+/** Últimos registros do dia a partir de `current_operational_state` (fonte única com monitoramento). */
+function buildAdminLastRecordsFromOperationalState(
+  cosRows: CurrentOperationalStateRow[],
+  users: any[],
+  todayLocal: string,
+): AdminDashboardLastRecord[] {
+  const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
+  const filtered = cosRows.filter((r) => {
+    if (!r.last_punch_at) return false;
+    const ymd = punchInstantOperationalYmd({ timestamp: r.last_punch_at, created_at: r.last_punch_at });
+    return ymd === todayLocal;
+  });
+  filtered.sort((a, b) => {
+    const ta = new Date(a.last_punch_at!).getTime();
+    const tb = new Date(b.last_punch_at!).getTime();
+    return tb - ta;
+  });
+  return filtered.slice(0, ADMIN_DASHBOARD_LAST_RECORDS_LIMIT).map((r) => {
+    const t = r.last_punch_at ? new Date(r.last_punch_at) : null;
+    const timeStr =
+      t && Number.isFinite(t.getTime())
+        ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+        : '—';
+    const dateStr =
+      t && Number.isFinite(t.getTime())
+        ? t.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            timeZone: 'America/Sao_Paulo',
+          })
+        : '—';
+    const hasGeo = r.map_latitude != null && r.map_longitude != null;
+    return {
+      id: String(r.last_punch_record_id ?? ''),
+      userId: String(r.employee_id ?? ''),
+      employeeName: nameMap.get(String(r.employee_id)) ?? String(r.employee_id ?? '').slice(0, 8) ?? '—',
+      type: String(r.last_punch_type ?? ''),
+      typeLabel: typeLabel(r.last_punch_type),
+      date: dateStr,
+      time: timeStr,
+      location: hasGeo ? `${Number(r.map_latitude).toFixed(4)}, ${Number(r.map_longitude).toFixed(4)}` : '—',
+      originLabel: originLabelFromOperationalSnapshot(r.last_punch_origin, r.last_punch_method),
+      lat: r.map_latitude != null ? Number(r.map_latitude) : null,
+      lng: r.map_longitude != null ? Number(r.map_longitude) : null,
+      accuracy: r.map_accuracy != null ? Number(r.map_accuracy) : null,
+      sourceRecordId: String(r.last_punch_record_id ?? ''),
+      hasTimeAnomaly: false,
+      timeAnomalyReason: null,
+      streetAddress: null,
+      streetResolved: false,
+      geoStreet: null,
+      geoDistrict: null,
+      geoPostalCode: null,
+      geoCity: null,
+      geoState: null,
+    };
+  });
+}
+
 /**
  * Cards do painel sem gráfico semanal (primeiro paint mais leve).
  */
@@ -330,7 +466,8 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
   return runSingleFlight(`adminDashCardsQuick:${companyId}`, async () => {
     recordCriticalRequest('adminDashCardsQuick');
     try {
-      const todayLocal = localTodayYmd();
+      const todayLocal = operationalDashboardTodayYmd();
+      const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
       const [usersRows, recentRecordsRaw] = await Promise.all([
         queryCache.getOrFetch(
           `users:${companyId}:minimal`,
@@ -351,8 +488,8 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
               'time_records',
               [
                 { column: 'company_id', operator: 'eq', value: companyId },
-                { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
-                { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+                { column: 'created_at', operator: 'gte', value: startUtcIso },
+                { column: 'created_at', operator: 'lte', value: endUtcIso },
               ],
               { column: 'created_at', ascending: false },
               40,
@@ -388,8 +525,10 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
   return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
     recordCriticalRequest('adminDashLastRecOnly');
     try {
-      const todayLocal = localTodayYmd();
-      const [usersRows, recentRecordsRaw] = await Promise.all([
+      const todayLocal = operationalDashboardTodayYmd();
+      const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
+      const nowMs = Date.now();
+      const [usersRows, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
         queryCache.getOrFetch(
           `users:${companyId}:minimal`,
           () =>
@@ -409,17 +548,36 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
               'time_records',
               [
                 { column: 'company_id', operator: 'eq', value: companyId },
-                { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
-                { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+                { column: 'created_at', operator: 'gte', value: startUtcIso },
+                { column: 'created_at', operator: 'lte', value: endUtcIso },
               ],
               { column: 'created_at', ascending: false },
               40,
             ) as Promise<any[]>,
           TTL.REALTIME,
         ),
+        queryCache.getOrFetch(
+          currentOperationalStateCacheKey(companyId),
+          () => fetchCurrentOperationalStateByCompany(companyId),
+          TTL.REALTIME,
+        ),
+        fetchLiveLocationsForCompany(companyId),
       ]);
       const users = usersRows ?? [];
       const recentRecords = recentRecordsRaw ?? [];
+      const liveBy = new Map(flagStaleLiveLocations(liveRaw, nowMs).map((r) => [r.employee_id, r]));
+      const recordById = new Map(recentRecords.map((r: any) => [String(r.id), r]));
+      const cosBy = new Map(cosRows.map((c) => [c.employee_id, c]));
+      if (cosRows.length > 0) {
+        const built = buildAdminLastRecordsFromOperationalState(cosRows, users, todayLocal);
+        return built.map((row) => {
+          const cos = cosBy.get(row.userId);
+          if (!cos) return row;
+          const recId = cos.last_punch_record_id ? String(cos.last_punch_record_id) : '';
+          const rec = recId ? (recordById.get(recId) as OperationalPunchRecord | undefined) ?? null : null;
+          return mergeAdminLastRecordGeoFromSources(row, cos, liveBy, rec, nowMs);
+        });
+      }
       return buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
     } catch (e) {
       handleError(e, 'getAdminDashboardLastRecordsOnly');
@@ -435,14 +593,15 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
   return runSingleFlight(`getAdminDashboardData:${companyId}`, async () => {
     recordCriticalRequest('getAdminDashboardData');
     try {
-    const todayLocal = localTodayYmd();
+    const todayLocal = operationalDashboardTodayYmd();
+    const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
     const startChart = new Date();
     startChart.setDate(startChart.getDate() - 13);
     startChart.setHours(0, 0, 0, 0);
     const minInstantMs = startChart.getTime() - 36e6; // margem TZ
 
     // Otimização: buscar apenas campos necessários dos usuários
-    const [usersRows, recordsRaw, recentRecordsRaw] = await Promise.all([
+    const [usersRows, recordsRaw, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
       queryCache.getOrFetch(
         `users:${companyId}:minimal`,
         () => db.select('users', 
@@ -476,23 +635,33 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
             'time_records',
             [
               { column: 'company_id', operator: 'eq', value: companyId },
-              { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(todayLocal) },
-              { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(todayLocal) },
+              { column: 'created_at', operator: 'gte', value: startUtcIso },
+              { column: 'created_at', operator: 'lte', value: endUtcIso },
             ],
             { column: 'created_at', ascending: false },
             40,
           ) as Promise<any[]>,
         TTL.REALTIME,
       ),
+      queryCache.getOrFetch(
+        currentOperationalStateCacheKey(companyId),
+        () => fetchCurrentOperationalStateByCompany(companyId),
+        TTL.REALTIME,
+      ),
+      fetchLiveLocationsForCompany(companyId),
     ]);
 
     const users = usersRows ?? [];
     const records = dedupeTimeRecordsByRepKey(recordsRaw ?? []);
     const recentRecords = recentRecordsRaw ?? [];
+    const nowMsDash = Date.now();
+    const liveByDash = new Map(flagStaleLiveLocations(liveRaw, nowMsDash).map((r) => [r.employee_id, r]));
+    const recordByIdDash = new Map(recentRecords.map((r: any) => [String(r.id), r]));
+    const cosByDash = new Map(cosRows.map((c) => [c.employee_id, c]));
 
     const todayRecords = records.filter((r: any) => {
-      const iso = recordPunchInstantIso(r);
-      return extractLocalCalendarDateFromIso(iso) === todayLocal;
+      const ymd = punchInstantOperationalYmd(r);
+      return ymd === todayLocal;
     });
 
     const activeIds = new Set<string>();
@@ -581,7 +750,16 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       lowCount: low.count,
     };
 
-    const lastRecords = buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+    const lastRecords =
+      cosRows.length > 0
+        ? buildAdminLastRecordsFromOperationalState(cosRows, users, todayLocal).map((row) => {
+            const cos = cosByDash.get(row.userId);
+            if (!cos) return row;
+            const recId = cos.last_punch_record_id ? String(cos.last_punch_record_id) : '';
+            const rec = recId ? (recordByIdDash.get(recId) as OperationalPunchRecord | undefined) ?? null : null;
+            return mergeAdminLastRecordGeoFromSources(row, cos, liveByDash, rec, nowMsDash);
+          })
+        : buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
 
     return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
     } catch (e) {

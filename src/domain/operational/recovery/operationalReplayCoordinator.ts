@@ -7,6 +7,7 @@ import { commitOperationalTransaction, pushGovernanceUpdate, pushHealthUpdate } 
 import type { OperationalDeadLetterPayloadV1, OperationalDeadLetterRow } from './operationalDeadLetterQueue';
 import { operationalLog } from '../observability';
 import { runRepGovernanceAfterReconciliationAction } from '../../../services/repOperationalIntegrity.service';
+import { refreshCurrentOperationalStateRpc } from '../../../services/currentOperationalState.service';
 
 function persistedSet(rollback: OperationalDeadLetterPayloadV1['rollback']): Set<string> {
   return new Set(rollback.persisted_entities);
@@ -93,5 +94,17 @@ export async function replayOperationalDeadLetter(
   }
 
   const commit = await commitOperationalTransaction(client, ctx);
+  if (commit.ok) {
+    const emp = raw.recovery_meta?.rep_reconciliation?.employeeId;
+    if (emp) {
+      void refreshCurrentOperationalStateRpc(row.company_id, emp, {
+        source: 'recovery',
+        eventAt: new Date().toISOString(),
+        force: true,
+        correlationId: replayCorrelationId,
+        client,
+      });
+    }
+  }
   return { ok: commit.ok, commit, error: commit.ok ? undefined : commit.rollback.message };
 }

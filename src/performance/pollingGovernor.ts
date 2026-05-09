@@ -1,5 +1,6 @@
 import { isDegradedMobileRuntime } from './mobileCpuBudget';
 import { isLowNetworkMode } from './networkMode';
+import { getRealtimeSheddingDebounceFactor } from './realtimeLoadShedding';
 
 /** Poller slots ativos (evita rajadas de timers concorrentes). */
 let activePollSlots = 0;
@@ -42,7 +43,8 @@ export function pollingGovernorReleaseSlot(): void {
 }
 
 export function getMonitoringRealtimeDebounceMs(): number {
-  if (isLowNetworkMode()) return 1200;
-  if (isDegradedMobileRuntime()) return 700;
-  return 400;
+  let base = 400;
+  if (isLowNetworkMode()) base = 1200;
+  else if (isDegradedMobileRuntime()) base = 700;
+  return Math.min(5000, Math.round(base * getRealtimeSheddingDebounceFactor()));
 }

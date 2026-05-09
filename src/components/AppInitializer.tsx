@@ -12,6 +12,7 @@ import { getSchemaGuardError } from '@/services/schemaGuard';
 import { readAuditLogsTenantIdFromEnv } from '@/services/schemaColumnDetection';
 import { reportSchemaGuardState } from '@/services/schemaGuardReporter';
 import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/timesheetCalculationAudit';
+import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -148,6 +149,10 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         }
       } catch {
         /* quota / modo privado */
+      }
+
+      if (typeof window !== 'undefined') {
+        installMobileRuntimeStability();
       }
 
       if (mounted) setIsReady(true);

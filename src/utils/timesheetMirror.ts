@@ -389,18 +389,36 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
     return source.filter((r) => !used.has(extractTime(recordEffectiveMirrorInstant(r, dayDateStr))));
   };
 
-  // Regra principal: com jornada configurada, classificar por proximidade ao horário previsto.
+  // Regra principal: com jornada configurada, usar proximidade só como complemento.
+  // Tipos explícitos (entrada, intervalo_saida, intervalo_volta, saida) têm prioridade —
+  // senão batidas corretas no banco “mudam de coluna” quando o horário difere da escala.
   if (schedule) {
-    entradaInicio = null;
-    saidaIntervalo = null;
-    voltaIntervalo = null;
-    saidaFinal = null;
     const classified = classifyRecordsByScheduleProximity(sorted, dayDateStr, schedule);
-    /** Proximidade à escala; se vazio, usa o horário inferido pelo tipo da batida — exceto saída final (ver abaixo). */
-    entradaInicio = classified.bySlot.entrada ?? semEntrada;
-    saidaIntervalo = classified.bySlot.saida_intervalo ?? semSaidaInt;
-    voltaIntervalo = classified.bySlot.volta_intervalo ?? semVolta;
-    saidaFinal = classified.bySlot.saida_final ?? null;
+    entradaInicio = semEntrada ?? classified.bySlot.entrada ?? null;
+    saidaIntervalo = semSaidaInt ?? classified.bySlot.saida_intervalo ?? null;
+    voltaIntervalo = semVolta ?? classified.bySlot.volta_intervalo ?? null;
+    saidaFinal = classified.bySlot.saida_final ?? semSaida ?? null;
+    const saidaNormRecords = sorted.filter((r) => normalizeRecordTypeForMirror(r.type) === 'saida');
+    if (
+      saidaNormRecords.length === 1 &&
+      classified.inconsistentRecordIds.has(saidaNormRecords[0]!.id) &&
+      !classified.bySlot.saida_final
+    ) {
+      saidaFinal = null;
+    }
+
+    if (
+      saidaFinal &&
+      voltaIntervalo &&
+      saidaFinal === voltaIntervalo &&
+      sorted.filter((r) => !isStatusRecord(r)).length === 1
+    ) {
+      if (classified.bySlot.saida_final == null && classified.bySlot.volta_intervalo != null) {
+        saidaFinal = null;
+      } else if (classified.bySlot.volta_intervalo == null && classified.bySlot.saida_final != null) {
+        voltaIntervalo = null;
+      }
+    }
 
     if (!saidaFinal && semSaida) {
       const conflictsSlot =

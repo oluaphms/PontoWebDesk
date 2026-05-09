@@ -168,6 +168,7 @@ import {
   OperationalRecoveryPage,
   OperationalHealthCheckPage,
   OperationalObservabilityPage,
+  ProductionControlCenterPage,
   OperationalLoadReportPage,
   RepOperationsCenterPage,
   TimeBalancePage,
@@ -1974,6 +1975,7 @@ const AppMain: React.FC = () => {
               <Route path="operational-recovery" element={<OperationalRecoveryPage />} />
               <Route path="operational-health-check" element={<OperationalHealthCheckPage />} />
               <Route path="operational-observability" element={<OperationalObservabilityPage />} />
+              <Route path="production-control-center" element={<ProductionControlCenterPage />} />
               <Route path="operational-load-report" element={<OperationalLoadReportPage />} />
               <Route path="rep-operational-health" element={<RepOperationsCenterPage />} />
               <Route path="rep-operations-center" element={<RepOperationsCenterPage />} />

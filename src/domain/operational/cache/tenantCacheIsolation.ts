@@ -18,6 +18,18 @@ type CacheRegistryEntry = {
 const CACHE_REGISTRY = new Map<string, CacheRegistryEntry>();
 const GEO_COORD_PRECISION = 5;
 
+let geoCacheGeneration = 0;
+
+export function getGeoCacheGenerationToken(): number {
+  return geoCacheGeneration;
+}
+
+export function bumpGeoCacheGeneration(reason: string): number {
+  geoCacheGeneration += 1;
+  console.info('[GEO CACHE GENERATION]', { generation: geoCacheGeneration, reason });
+  return geoCacheGeneration;
+}
+
 function scopePart(value: unknown, fallback: string): string {
   const v = String(value ?? '').trim();
   return v.length > 0 ? v : fallback;

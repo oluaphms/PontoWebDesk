@@ -706,18 +706,22 @@ export function summarizeDayRecords(records: RawTimeRecord[]): {
 
   for (const r of sorted) {
     const t = new Date(recordEventInstantMs(r));
-    const typ = (r.type || '').toLowerCase();
+    const typRaw = String(r.type ?? '').trim();
+    const typ = typRaw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '');
 
     if (typ === 'entrada') {
       if (!firstEntrada) firstEntrada = t;
-    } else if (typ === 'intervalo_saida') {
+    } else if (typ === 'intervalo_saida' || typ === 'pausa' || typ === 'p') {
       if (!displayInicioInt) displayInicioInt = t;
       intervaloSaidaAt = t;
     } else if (typ === 'intervalo_volta') {
       if (!displayFimInt) displayFimInt = t;
       if (intervaloSaidaAt) breakMs += t.getTime() - intervaloSaidaAt.getTime();
       intervaloSaidaAt = null;
-    } else if (typ === 'saida' || typ === 'saída') {
+    } else if (typ === 'saida') {
       lastSaida = t;
     }
   }

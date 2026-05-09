@@ -314,4 +314,47 @@ describe('buildDayMirrorSummary — classificação por jornada (proximidade)', 
     expect(dm?.voltaIntervalo).toBe('14:02');
     expect(dm?.batidasExtra.map((r) => r.id)).toContain('2');
   });
+
+  it('tipo explícito manda na coluna mesmo fora da tolerância da escala (entrada cedo)', () => {
+    const records = [
+      tr({
+        id: 'e1',
+        user_id: 'u',
+        created_at: `${day}T12:00:00.000Z`,
+        timestamp: `${day}T06:02:00.000-03:00`,
+        type: 'entrada',
+        source: 'mobile',
+      }),
+    ];
+    const map = buildDayMirrorSummary(records, day, day, { scheduleByDay: () => schedule });
+    const dm = map.get(day);
+    expect(dm?.entradaInicio).toBe('06:02');
+    expect(dm?.saidaIntervalo).toBeNull();
+    expect(dm?.inconsistencias.map((r) => r.id)).not.toContain('e1');
+  });
+
+  it('intervalo_saida explícito preenche Saída int. ainda que longe do horário de almoço previsto', () => {
+    const records = [
+      tr({
+        id: 'e1',
+        user_id: 'u',
+        created_at: `${day}T12:00:00.000Z`,
+        timestamp: `${day}T08:00:00.000-03:00`,
+        type: 'entrada',
+        source: 'mobile',
+      }),
+      tr({
+        id: 'i1',
+        user_id: 'u',
+        created_at: `${day}T15:00:00.000Z`,
+        timestamp: `${day}T11:30:00.000-03:00`,
+        type: 'intervalo_saida',
+        source: 'mobile',
+      }),
+    ];
+    const map = buildDayMirrorSummary(records, day, day, { scheduleByDay: () => schedule });
+    const dm = map.get(day);
+    expect(dm?.entradaInicio).toBe('08:00');
+    expect(dm?.saidaIntervalo).toBe('11:30');
+  });
 });

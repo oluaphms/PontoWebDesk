@@ -14,6 +14,7 @@ import {
 } from '../src/services/timeAttendanceTimeline.constants';
 import { extractLocalCalendarDateFromIso } from '../src/utils/calendarUtils';
 import { runRepGovernanceAfterManualMirrorAdjustment } from '../src/services/repOperationalIntegrity.service';
+import { assertNoFutureOperationalPunch } from '../src/services/monitoring/monitoringGeoHardLock.service';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -145,6 +146,10 @@ export async function createTimeRecord(row: Record<string, unknown>): Promise<vo
   const refIso =
     (typeof row.timestamp === 'string' && row.timestamp.trim() ? row.timestamp : null) ||
     (typeof row.created_at === 'string' && row.created_at.trim() ? row.created_at : null);
+
+  if (refIso) {
+    assertNoFutureOperationalPunch(refIso);
+  }
 
   if (companyId && employeeId) {
     await throwIfTimesheetClosedForPunchMutation({
@@ -328,6 +333,8 @@ export async function insertAdminMirrorTimeRecord(
   if (!userId || !type || !createdAt) {
     throw new Error('insertAdminMirrorTimeRecord: user_id, type e created_at são obrigatórios.');
   }
+
+  assertNoFutureOperationalPunch(createdAt);
 
   await throwIfTimesheetClosedForPunchMutation({
     companyId,

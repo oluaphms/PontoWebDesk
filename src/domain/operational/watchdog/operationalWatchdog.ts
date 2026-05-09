@@ -1,6 +1,7 @@
 import { summarizeOperationalMetrics } from '../metrics/operationalMetrics';
 import { degradedMode } from '../resilience/operationalCircuitBreaker';
 import { operationalLog } from '../observability';
+import { operationalNowUtcIso } from '../../../utils/operationalDateHardLock';
 
 export type WatchdogAlert = {
   code: string;
@@ -109,8 +110,35 @@ export const operationalWatchdog = {
       });
     }
 
+    const cosDrift = summaries.find((s) => s.name === 'cos_drift_detected_count');
+    if (cosDrift && cosDrift.last > 0) {
+      alerts.push({
+        code: 'cos_drift',
+        severity: 'warning',
+        message: `Divergência em current_operational_state detectada (last=${cosDrift.last.toFixed(0)}).`,
+      });
+    }
+
+    const staleSnap = summaries.find((s) => s.name === 'cos_stale_snapshot_count');
+    if (staleSnap && staleSnap.p95 > 2) {
+      alerts.push({
+        code: 'cos_stale_snapshot',
+        severity: 'warning',
+        message: `Snapshots stale frequentes (p95=${staleSnap.p95.toFixed(1)}).`,
+      });
+    }
+
+    const geoTeleport = summaries.find((s) => s.name === 'geo_invalid_realtime_movement');
+    if (geoTeleport && geoTeleport.p95 > 0) {
+      alerts.push({
+        code: 'geo_impossible_movement',
+        severity: 'warning',
+        message: `Movimento realtime rejeitado (p95=${geoTeleport.p95.toFixed(2)}).`,
+      });
+    }
+
     const snapshot: WatchdogSnapshot = {
-      created_at: new Date().toISOString(),
+      created_at: operationalNowUtcIso(),
       alerts,
       degraded_tenants: degradedMode.listDegradedTenants(),
     };

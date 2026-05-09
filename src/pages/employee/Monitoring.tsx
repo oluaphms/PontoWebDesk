@@ -1,139 +1,68 @@
-import React, { memo, useEffect, useState } from 'react';
+/**
+ * Mapa colaborador: mesmo resolver unificado que o monitoramento admin (GEO priorizado).
+ */
+
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
-import { extractLatLng } from '../../utils/reverseGeocode';
-import { recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
 import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
-import {
-  EmployeeOperationalStatus,
-  deriveOperationalStatusFromLastPunch,
-} from '../../types/employeeOperationalStatus';
 import { LoadingState } from '../../../components/UI';
-import { MapPin, RefreshCw } from 'lucide-react';
-
-type Status = 'Trabalhando' | 'Em pausa' | 'Em intervalo' | 'Fora da jornada';
-
-interface EmployeeStatus {
-  userId: string;
-  userName: string;
-  status: Status;
-  lastRecordType?: string;
-  lastRecordAt?: string;
-  lat?: number;
-  lng?: number;
-  accuracy?: number | null;
-  sourceRecordId?: string;
-}
-
-type TimeRecordRow = {
-  id: string;
-  user_id: string;
-  type: string;
-  timestamp?: string | null;
-  created_at: string;
-  accuracy?: number | null;
-  raw_data?: {
-    geo_snapshot?: {
-      latitude_original?: number | null;
-      longitude_original?: number | null;
-      accuracy_meters?: number | null;
-      captured_at?: string | null;
-    };
-  } | null;
-};
-
-function toStatusLabel(status: EmployeeOperationalStatus): Status {
-  if (status === EmployeeOperationalStatus.WORKING) return 'Trabalhando';
-  if (status === EmployeeOperationalStatus.BREAK) return 'Em pausa';
-  if (status === EmployeeOperationalStatus.LUNCH) return 'Em intervalo';
-  return 'Fora da jornada';
-}
-
-function readGeoSnapshot(record: TimeRecordRow) {
-  const geo = record.raw_data?.geo_snapshot;
-  if (geo) {
-    const lat = Number(geo.latitude_original);
-    const lng = Number(geo.longitude_original);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return {
-        lat,
-        lng,
-        accuracy: geo.accuracy_meters == null ? null : Number(geo.accuracy_meters),
-        capturedAt: geo.captured_at ?? recordPunchInstantIso(record),
-      };
-    }
-  }
-  const fallback = extractLatLng(record);
-  if (!fallback) return null;
-  return {
-    lat: fallback.lat,
-    lng: fallback.lng,
-    accuracy: record.accuracy == null ? null : Number(record.accuracy),
-    capturedAt: recordPunchInstantIso(record),
-  };
-}
+import { buildMapEmployeeFromPipelineRow, getCompanyTodayYmd, type MonitoringPipelineEmployeeRow } from '../../services/monitoring/monitoringGeoHardLock.service';
+import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany } from '../../services/currentOperationalState.service';
+import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../services/liveEmployeeLocation.service';
+import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
+import { operationalClockMs } from '../../utils/operationalDateHardLock';
+import { RefreshCw } from 'lucide-react';
 
 const EmployeeMonitoring: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const [list, setList] = useState<EmployeeStatus[]>([]);
+  const [pipelineRows, setPipelineRows] = useState<MonitoringPipelineEmployeeRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [usingCos, setUsingCos] = useState(false);
 
   const load = async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     setLoadingData(true);
+    const nowMs = operationalClockMs();
     try {
-      const [usersRows, recordsRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        listTimeRecords(
-          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-          { column: 'created_at', ascending: false },
-          500,
-        ) as Promise<TimeRecordRow[]>,
-      ]);
+      const usersRows = (await db.select(
+        'users',
+        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+        { column: 'nome', ascending: true },
+        500,
+      )) as { id: string; nome?: string; email?: string }[];
       const users = usersRows ?? [];
-      const records = [...(recordsRows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
-      const lastByUser = new Map<string, TimeRecordRow>();
-      const lastGpsByUser = new Map<string, { lat: number; lng: number; at: string; accuracy: number | null; recordId: string }>();
-      records.forEach((r: TimeRecordRow) => {
-        if (!lastByUser.has(r.user_id)) {
-          lastByUser.set(r.user_id, r);
-        }
-        if (!lastGpsByUser.has(r.user_id)) {
-          const geo = readGeoSnapshot(r);
-          if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
-            lastGpsByUser.set(r.user_id, {
-              lat: geo.lat,
-              lng: geo.lng,
-              at: geo.capturedAt,
-              accuracy: geo.accuracy,
-              recordId: r.id,
-            });
-          }
-        }
+
+      const [cos, liveRaw] = await Promise.all([
+        fetchCurrentOperationalStateByCompany(user.companyId),
+        fetchLiveLocationsForCompany(user.companyId),
+      ]);
+      queryCache.set(currentOperationalStateCacheKey(user.companyId), cos, 15_000);
+      const liveByEmployee = new Map(flagStaleLiveLocations(liveRaw, nowMs).map((r) => [r.employee_id, r]));
+      const recordLimit = cos.length > 0 ? 500 : 800;
+      const timeRecords = (await listTimeRecords(
+        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+        { column: 'created_at', ascending: false },
+        recordLimit,
+      )) as import('../../services/monitoring/monitoringGeoHardLock.service').OperationalPunchRecord[];
+
+      const unified = resolveUnifiedOperationalState({
+        companyId: user.companyId,
+        users,
+        cosRows: cos,
+        timeRecords,
+        liveByEmployee,
+        todayYmd: getCompanyTodayYmd(),
+        nowMs,
       });
-      const statusList: EmployeeStatus[] = users.map((u: any) => {
-        const last = lastByUser.get(u.id);
-        const lastGps = lastGpsByUser.get(u.id);
-        const status = toStatusLabel(deriveOperationalStatusFromLastPunch(last?.type));
-        return {
-          userId: u.id,
-          userName: u.nome || u.email || '—',
-          status,
-          lastRecordType: last?.type,
-          lastRecordAt: last ? new Date(recordPunchInstantIso(last)).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : undefined,
-          lat: lastGps?.lat,
-          lng: lastGps?.lng,
-          accuracy: lastGps?.accuracy,
-          sourceRecordId: lastGps?.recordId,
-        };
-      });
-      setList(statusList);
+      setUsingCos(unified.usingOperationalStateTable);
+      setPipelineRows(unified.pipelineRows);
     } catch (e) {
       console.error(e);
     } finally {
@@ -142,30 +71,50 @@ const EmployeeMonitoring: React.FC = () => {
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, [user?.companyId]);
 
   useEffect(() => {
     if (!getSupabaseClient() || !user?.companyId) return;
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase
-      .channel('time_records_monitoring_employee')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_records', filter: `company_id=eq.${user.companyId}` }, () => {
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          debounce = null;
-          if (isPollingSuppressedByVisibility()) return;
-          clearGeocodeCache();
-          queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
-          load();
-        }, getMonitoringRealtimeDebounceMs());
-      })
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        debounce = null;
+        if (isPollingSuppressedByVisibility()) return;
+        clearGeocodeCache();
+        queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
+        queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
+        void load();
+      }, getMonitoringRealtimeDebounceMs());
+    };
+
+    const ch = supabase
+      .channel('time_records_monitoring_employee_cos')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'current_operational_state', filter: `company_id=eq.${user.companyId}` },
+        schedule,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'time_records', filter: `company_id=eq.${user.companyId}` },
+        schedule,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'live_employee_location', filter: `company_id=eq.${user.companyId}` },
+        schedule,
+      )
       .subscribe();
+
     return () => {
       if (debounce) clearTimeout(debounce);
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ch);
     };
   }, [user?.companyId]);
+
+  const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
@@ -184,21 +133,12 @@ const EmployeeMonitoring: React.FC = () => {
         </button>
       </div>
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Localização em tempo real dos colegas que bateram ponto com GPS. Atualização automática.
+        {usingCos ? 'Fonte: snapshot operacional + live GPS (prioridade automática).' : 'Modo legado: últimas batidas com GEO aceitável.'}
       </p>
-
-      <div className="space-y-2">
-        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-          <MapPin className="w-5 h-5 text-emerald-500" />
-          Mapa em tempo real
-        </h2>
-        <MonitoringMap employees={list} height="420px" className="w-full" />
-      </div>
-
-      {!loadingData && list.length === 0 && (
-        <p className="text-center text-slate-500 dark:text-slate-400 py-8">
-          Nenhuma localização recente. Os colegas aparecem aqui ao bater ponto com GPS.
-        </p>
+      {loadingData ? (
+        <LoadingState message="Carregando mapa..." />
+      ) : (
+        <MonitoringMap employees={mapEmployees} height="min(420px, 55vh)" className="w-full" />
       )}
     </div>
   );
