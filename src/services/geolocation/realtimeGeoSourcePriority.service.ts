@@ -1,5 +1,8 @@
 /**
  * Prioridade de fonte para GEO em tempo real: live_employee_location > current_operational_state > time_record.
+ *
+ * @deprecated Produção deve usar apenas {@link resolveRealtimeMonitoringLocation} (`monitoringGeoSourceResolver.ts`).
+ * Mantido para compatibilidade temporária; remoção após migração completa dos chamadores.
  */
 
 import { DateTime } from 'luxon';
@@ -82,8 +85,15 @@ export type ResolveBestRealtimeLocationInput = {
 
 /**
  * Escolhe a melhor posição: menor idade, melhor accuracy, maior confiança, prioridade de fonte.
+ * @deprecated Ver `resolveRealtimeMonitoringLocation`.
  */
 export function resolveBestRealtimeLocation(input: ResolveBestRealtimeLocationInput): ResolvedRealtimeLocation | null {
+  if (typeof console !== 'undefined') {
+    console.warn('[LEGACY GEO RESOLVER DETECTED]', {
+      employee_id: input.employeeId,
+      resolver: 'resolveBestRealtimeLocation',
+    });
+  }
   const log = input.log !== false;
   const candidates: Candidate[] = [];
 

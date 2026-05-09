@@ -2,7 +2,7 @@
  * Mapa colaborador: mesmo resolver unificado que o monitoramento admin (GEO priorizado).
  */
 
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
@@ -11,7 +11,7 @@ import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
-import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
+import { isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import { LoadingState } from '../../../components/UI';
 import { buildMapEmployeeFromPipelineRow, getCompanyTodayYmd, type MonitoringPipelineEmployeeRow } from '../../services/monitoring/monitoringGeoHardLock.service';
 import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany } from '../../services/currentOperationalState.service';
@@ -19,12 +19,32 @@ import {
   fetchLiveLocationsForCompany,
   flagStaleLiveLocations,
   upsertLiveEmployeeLocation,
+  type LiveEmployeeLocationRow,
 } from '../../services/liveEmployeeLocation.service';
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
-import { operationalClockMs } from '../../utils/operationalDateHardLock';
+import { operationalClockMs } from '../../utils/operationalClock';
+import { isDegradedMobileRuntime } from '../../performance/mobileCpuBudget';
+import {
+  commitMonitoringGeoRegistryFromFetch,
+  shouldProcessRealtimeCosPayload,
+  shouldProcessRealtimeLivePayload,
+} from '../../services/monitoring/realtimeMonitoringGeoRegistry';
+import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { RefreshCw } from 'lucide-react';
+import { enqueueOfflineGeoOperationalSample, replayOfflineGeoOperationalBuffer } from '../../services/geolocation/offlineGeoOperationalBuffer';
+import {
+  resolveBatteryStateLabel,
+  resolveNetworkStateLabel,
+  upsertOperationalHeartbeat,
+} from '../../services/operationalHeartbeat.service';
+import { EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
+import { getRealtimeGeoStreamCoordinator } from '../../services/monitoring/realtimeGeoStreamCoordinator';
+import { setOperationalMonitoringIdentity } from '../../performance/operationalMonitoringContext';
+import { syncServerOperationalClockOffset } from '../../services/serverOperationalClock.service';
+import { operationalReliabilitySLO } from '../../domain/operational/reliability/operationalReliabilitySLO';
+import { reportDeviceOperationalReputationEvent } from '../../services/deviceOperationalReputation.service';
 
-const LIVE_UPSERT_MIN_MS = 12_000;
+const LIVE_UPSERT_MIN_MS = isDegradedMobileRuntime() ? 4_000 : 10_000;
 
 const EmployeeMonitoring: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -32,11 +52,18 @@ const EmployeeMonitoring: React.FC = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [usingCos, setUsingCos] = useState(false);
   const lastLiveUpsertRef = useRef(0);
+  const refreshGenerationRef = useRef(0);
+  const lastGpsHealthRef = useRef<string>('unknown');
+  const lastHeartbeatOkAtRef = useRef(0);
+  const myOperationalStatusRef = useRef<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
+    const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     const nowMs = operationalClockMs();
+    const tLoad0 = typeof performance !== 'undefined' ? performance.now() : 0;
+    let liveRows: LiveEmployeeLocationRow[] = [];
     try {
       const usersRows = (await db.select(
         'users',
@@ -51,7 +78,9 @@ const EmployeeMonitoring: React.FC = () => {
         fetchLiveLocationsForCompany(user.companyId),
       ]);
       queryCache.set(currentOperationalStateCacheKey(user.companyId), cos, 15_000);
-      const liveByEmployee = new Map(flagStaleLiveLocations(liveRaw, nowMs).map((r) => [r.employee_id, r]));
+      liveRows = flagStaleLiveLocations(liveRaw, nowMs);
+      trackGeoSnapshotChecksumDrift(user.companyId, cos, liveRows);
+      const liveByEmployee = new Map(liveRows.map((r) => [r.employee_id, r]));
       const recordLimit = cos.length > 0 ? 500 : 800;
       const timeRecords = (await listTimeRecords(
         [{ column: 'company_id', operator: 'eq', value: user.companyId }],
@@ -68,18 +97,123 @@ const EmployeeMonitoring: React.FC = () => {
         todayYmd: getCompanyTodayYmd(),
         nowMs,
       });
+      if (gen !== refreshGenerationRef.current) return;
+      commitMonitoringGeoRegistryFromFetch(user.companyId, cos);
       setUsingCos(unified.usingOperationalStateTable);
       setPipelineRows(unified.pipelineRows);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoadingData(false);
+      if (typeof performance !== 'undefined') {
+        operationalReliabilitySLO.recordMonitoringRefreshMs(performance.now() - tLoad0);
+      }
+      if (liveRows.length > 0) {
+        const st = liveRows.filter((r) => r.is_stale).length;
+        operationalReliabilitySLO.recordStaleRate(st / liveRows.length);
+      }
+      if (gen === refreshGenerationRef.current) {
+        setLoadingData(false);
+      }
     }
-  };
+  }, [user?.companyId]);
+
+  useEffect(() => {
+    if (user?.companyId && user?.id) {
+      setOperationalMonitoringIdentity({ companyId: user.companyId, employeeId: user.id });
+      void syncServerOperationalClockOffset();
+    } else {
+      setOperationalMonitoringIdentity(null);
+    }
+    return () => setOperationalMonitoringIdentity(null);
+  }, [user?.companyId, user?.id]);
+
+  const myRow = useMemo(() => pipelineRows.find((r) => r.userId === user?.id), [pipelineRows, user?.id]);
+  const isWorking = myRow?.status === EmployeeOperationalStatus.WORKING;
+
+  useEffect(() => {
+    myOperationalStatusRef.current = myRow?.status != null ? String(myRow.status) : null;
+  }, [myRow?.status]);
 
   useEffect(() => {
     void load();
-  }, [user?.companyId]);
+  }, [load]);
+
+  useEffect(() => {
+    if (!user?.companyId || !user?.id || !getSupabaseClient()) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    void (async () => {
+      await replayOfflineGeoOperationalBuffer({
+        companyId: user.companyId,
+        employeeId: user.id,
+        client: getSupabaseClient(),
+      });
+      void load();
+    })();
+  }, [user?.companyId, user?.id, load]);
+
+  /** Heartbeat leve só em jornada ativa (trabalhando). */
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !getSupabaseClient() || !user?.companyId || !user?.id || !isWorking) return;
+
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+    let wasLost = false;
+
+    const scheduleNext = (delay: number) => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => void tick(), delay);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      const base = typeof document !== 'undefined' && document.visibilityState === 'hidden' ? 90_000 : 45_000;
+      const delay = failures > 0 ? Math.min(120_000, Math.round(base * (1 + failures * 0.25))) : base;
+
+      const net = resolveNetworkStateLabel();
+      const bat = await resolveBatteryStateLabel();
+      const res = await upsertOperationalHeartbeat({
+        companyId: user.companyId!,
+        employeeId: user.id!,
+        appState: typeof document !== 'undefined' ? document.visibilityState : null,
+        networkState: net,
+        batteryState: bat,
+        gpsHealth: lastGpsHealthRef.current,
+      });
+
+      if (cancelled) return;
+      if (res.ok) {
+        failures = 0;
+        const prevOk = lastHeartbeatOkAtRef.current;
+        if (prevOk > 0) {
+          operationalReliabilitySLO.recordHeartbeatGapMs(Date.now() - prevOk);
+        }
+        lastHeartbeatOkAtRef.current = Date.now();
+        if (wasLost) {
+          console.info('[HEARTBEAT RECOVERED]', { employee_id: user.id });
+          wasLost = false;
+        }
+      } else {
+        failures += 1;
+        if (failures >= 3 && !wasLost) {
+          wasLost = true;
+          console.warn('[HEARTBEAT LOST]', { employee_id: user.id, error: res.error });
+          void reportDeviceOperationalReputationEvent({
+            companyId: user.companyId!,
+            employeeId: user.id!,
+            event: 'heartbeat_lost',
+          });
+        }
+      }
+      scheduleNext(delay);
+    };
+
+    scheduleNext(8_000);
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [user?.companyId, user?.id, isWorking]);
 
   /** Publica posição na tabela `live_employee_location` (consumida pelo resolver de mapa). */
   useEffect(() => {
@@ -89,21 +223,52 @@ const EmployeeMonitoring: React.FC = () => {
     let watchId: number | null = null;
     const onPosition = (pos: GeolocationPosition) => {
       if (isPollingSuppressedByVisibility()) return;
-      const now = Date.now();
+      const now = operationalClockMs();
       if (now - lastLiveUpsertRef.current < LIVE_UPSERT_MIN_MS) return;
       lastLiveUpsertRef.current = now;
       const ts = pos.timestamp;
-      void upsertLiveEmployeeLocation({
-        companyId: user.companyId!,
-        employeeId: user.id!,
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-        accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
-        capturedAtMs: ts != null && Number.isFinite(ts) ? Math.round(ts) : now,
-        provider: null,
-        speedMps: pos.coords.speed != null && Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
-        headingDeg: pos.coords.heading != null && Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
-      });
+      const capturedAtMs = ts != null && Number.isFinite(ts) ? Math.round(ts) : now;
+      const accuracy = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
+
+      const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+      if (offline) {
+        void enqueueOfflineGeoOperationalSample({
+          companyId: user.companyId!,
+          employeeId: user.id!,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy,
+          capturedAtMs,
+          operationalStatus: myOperationalStatusRef.current,
+        });
+        return;
+      }
+
+      void (async () => {
+        const res = await upsertLiveEmployeeLocation({
+          companyId: user.companyId!,
+          employeeId: user.id!,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy,
+          capturedAtMs,
+          provider: null,
+          speedMps: pos.coords.speed != null && Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
+          headingDeg: pos.coords.heading != null && Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
+        });
+        if (res.confidence) lastGpsHealthRef.current = res.confidence;
+        if (!res.ok && res.error) {
+          void enqueueOfflineGeoOperationalSample({
+            companyId: user.companyId!,
+            employeeId: user.id!,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy,
+            capturedAtMs,
+            operationalStatus: myOperationalStatusRef.current,
+          });
+        }
+      })();
     };
 
     watchId = navigator.geolocation.watchPosition(onPosition, () => {}, {
@@ -118,26 +283,61 @@ const EmployeeMonitoring: React.FC = () => {
   }, [user?.companyId, user?.id]);
 
   useEffect(() => {
-    if (!getSupabaseClient() || !user?.companyId) return;
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        debounce = null;
-        if (isPollingSuppressedByVisibility()) return;
-        clearGeocodeCache();
-        queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
-        queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
+    const onForce = () => void load();
+    window.addEventListener('smartponto:force-monitoring-refresh', onForce);
+    return () => window.removeEventListener('smartponto:force-monitoring-refresh', onForce);
+  }, [load]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      if (!user?.companyId || !user?.id) return;
+      void (async () => {
+        await replayOfflineGeoOperationalBuffer({
+          companyId: user.companyId,
+          employeeId: user.id,
+          client: getSupabaseClient(),
+        });
         void load();
-      }, getMonitoringRealtimeDebounceMs());
+      })();
     };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [load, user?.companyId, user?.id]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        lastLiveUpsertRef.current = 0;
+        console.info('[MAP FOREGROUND RESYNC]', { scope: 'employee_monitoring' });
+        void load();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [load]);
+
+  useEffect(() => {
+    if (!getSupabaseClient() || !user?.companyId) return;
+    const coord = getRealtimeGeoStreamCoordinator(`${user.companyId}:employee:monitoring`);
+    const run = () => {
+      if (isPollingSuppressedByVisibility()) return;
+      clearGeocodeCache();
+      queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
+      queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
+      void load();
+    };
+    const schedule = () => coord.requestFlush('postgres_changes', run);
 
     const ch = supabase
       .channel('time_records_monitoring_employee_cos')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'current_operational_state', filter: `company_id=eq.${user.companyId}` },
-        schedule,
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!shouldProcessRealtimeCosPayload(user.companyId!, row)) return;
+          schedule();
+        },
       )
       .on(
         'postgres_changes',
@@ -147,15 +347,19 @@ const EmployeeMonitoring: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'live_employee_location', filter: `company_id=eq.${user.companyId}` },
-        schedule,
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!shouldProcessRealtimeLivePayload(user.companyId!, row)) return;
+          schedule();
+        },
       )
       .subscribe();
 
     return () => {
-      if (debounce) clearTimeout(debounce);
-      supabase.removeChannel(ch);
+      coord.cancel();
+      void supabase.removeChannel(ch);
     };
-  }, [user?.companyId]);
+  }, [user?.companyId, load]);
 
   const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);
 
@@ -168,7 +372,7 @@ const EmployeeMonitoring: React.FC = () => {
         <PageHeader title="Mapa em tempo real" />
         <button
           type="button"
-          onClick={() => load()}
+          onClick={() => void load()}
           disabled={loadingData}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium disabled:opacity-50"
         >

@@ -17,6 +17,7 @@ export const SettingsPage = React.lazy(ROUTE_LOADERS['/settings']);
 export const TimeAttendancePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance']);
 export const TimeAttendanceAuditPage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-audit']);
 export const GeolocationAuditPage = React.lazy(ROUTE_LOADERS['/admin/geolocation-audit']);
+export const OperationalGeoPlaybackPage = React.lazy(ROUTE_LOADERS['/admin/operational-geo-playback']);
 export const TimeAttendanceTimelinePage = React.lazy(ROUTE_LOADERS['/admin/time-attendance-timeline']);
 export const OperationalIncidentsPage = React.lazy(ROUTE_LOADERS['/admin/operational-incidents']);
 export const OperationalRecoveryPage = React.lazy(ROUTE_LOADERS['/admin/operational-recovery']);

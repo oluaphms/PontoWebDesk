@@ -21,6 +21,9 @@ const DEFAULT_FORBIDDEN_CROSS = [
   { from: '/domain/operational/', to: '/services/supabaseClient', reason: 'Acesso infra direto fora ACL.' },
   { from: '/domain/geo/', to: '/domain/rep/', reason: 'Cross-context GEO -> REP sem contrato.' },
   { from: '/domain/rep/', to: '/domain/geo/', reason: 'Cross-context REP -> GEO sem contrato.' },
+  { from: '/services/', to: '/pages/', reason: 'Serviços não importam páginas (fronteira UI).' },
+  { from: '/domain/', to: '/pages/', reason: 'Domínio não importa páginas React.' },
+  { from: '/domain/', to: '/components/', reason: 'Domínio não importa componentes de UI.' },
 ];
 
 const CONFIG = fs.existsSync(CONFIG_PATH)

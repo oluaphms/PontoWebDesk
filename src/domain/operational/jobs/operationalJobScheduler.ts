@@ -9,6 +9,7 @@ import { operationalNowUtcIso } from '../../../utils/operationalDateHardLock';
 
 export type OperationalJobId =
   | 'current_state_self_heal'
+  | 'scheduled_operational_geo_reconciliation'
   | 'cleanup_live_locations'
   | 'purge_old_traces'
   | 'purge_old_metrics'
@@ -213,6 +214,21 @@ function bootstrapDefaultOperationalJobs(): void {
       }
       const { runOperationalStateSelfHeal } = await import('../operationalStateSelfHealing');
       await runOperationalStateSelfHeal(ctx.supabaseClient, ctx.companyId);
+    },
+  });
+
+  registerOperationalJob('scheduled_operational_geo_reconciliation', {
+    timeoutMs: 180_000,
+    concurrencyKey: () => 'scheduled_geo_recon',
+    retryBudgetKey: 'job:scheduled_operational_geo_reconciliation',
+    circuitKey: 'circuit:scheduled_operational_geo_reconciliation',
+    run: async (ctx) => {
+      if (!ctx.supabaseClient || !ctx.companyId) {
+        console.info('[JOB SKIPPED]', { job: 'scheduled_operational_geo_reconciliation', reason: 'missing_company_or_client' });
+        return;
+      }
+      const { scheduledOperationalGeoReconciliation } = await import('../reconciliation/scheduledOperationalGeoReconciliation');
+      await scheduledOperationalGeoReconciliation({ client: ctx.supabaseClient, companyId: ctx.companyId });
     },
   });
 

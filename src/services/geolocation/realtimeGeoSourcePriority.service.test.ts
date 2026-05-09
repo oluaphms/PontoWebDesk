@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { resolveBestRealtimeLocation } from './realtimeGeoSourcePriority.service';
+import { resolveRealtimeMonitoringLocation } from './monitoringGeoSourceResolver';
 import type { LiveEmployeeLocationRow } from '../liveEmployeeLocation.service';
 import type { CurrentOperationalStateRow } from '../currentOperationalState.service';
 
-describe('resolveBestRealtimeLocation', () => {
+describe('resolveRealtimeMonitoringLocation (pipeline único)', () => {
   beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
   });
@@ -22,7 +23,7 @@ describe('resolveBestRealtimeLocation', () => {
       map_accuracy: 20,
       map_captured_at: new Date(nowMs - 4000).toISOString(),
     });
-    const r = resolveBestRealtimeLocation({
+    const r = resolveRealtimeMonitoringLocation({
       nowMs,
       employeeId: 'e1',
       companyId: 'c1',
@@ -32,14 +33,13 @@ describe('resolveBestRealtimeLocation', () => {
       previousAccepted: null,
       log: false,
     });
-    expect(r).not.toBeNull();
-    expect(r!.source).toBe('live_employee_location');
-    expect(r!.latitude).toBe(-15.1);
+    expect(r.source).toBe('live_employee_location');
+    expect(r.latitude).toBe(-15.1);
   });
 
   it('cai para time_record quando live e COS inválidos', () => {
     const nowMs = 1_700_000_000_000;
-    const r = resolveBestRealtimeLocation({
+    const r = resolveRealtimeMonitoringLocation({
       nowMs,
       employeeId: 'e1',
       companyId: 'c1',
@@ -56,8 +56,36 @@ describe('resolveBestRealtimeLocation', () => {
       previousAccepted: null,
       log: false,
     });
-    expect(r).not.toBeNull();
-    expect(r!.source).toBe('time_record');
+    expect(r.source).toBe('time_record');
+  });
+});
+
+describe('resolveBestRealtimeLocation (deprecated)', () => {
+  it('emite [LEGACY GEO RESOLVER DETECTED]', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nowMs = 1_700_000_000_000;
+    resolveBestRealtimeLocation({
+      nowMs,
+      employeeId: 'e-legacy',
+      companyId: 'c1',
+      live: null,
+      cos: null,
+      record: {
+        lat: -15.2,
+        lng: -47.2,
+        accuracy: 40,
+        capturedAt: new Date(nowMs - 10_000).toISOString(),
+        provider: 'gps',
+        recordId: 'r1',
+      },
+      previousAccepted: null,
+      log: false,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      '[LEGACY GEO RESOLVER DETECTED]',
+      expect.objectContaining({ employee_id: 'e-legacy' }),
+    );
+    warn.mockRestore();
   });
 });
 

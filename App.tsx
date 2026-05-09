@@ -18,6 +18,7 @@ import { useRecords } from './src/hooks/useRecords';
 import { authService } from './services/authService';
 import { queryCache } from './src/services/queryCache';
 import { beginPostLoginRequestBudgetWindow } from './src/performance/requestBudget';
+import { installMobileClockDriftGuard } from './src/performance/mobileClockDriftGuard';
 import { clearTenantScopedCaches } from './src/domain/operational/cache/tenantCacheIsolation';
 import {
   checkSupabaseConfigured,
@@ -163,6 +164,7 @@ import {
   TimeAttendancePage,
   TimeAttendanceAuditPage,
   GeolocationAuditPage,
+  OperationalGeoPlaybackPage,
   TimeAttendanceTimelinePage,
   OperationalIncidentsPage,
   OperationalRecoveryPage,
@@ -414,6 +416,10 @@ const AppMain: React.FC = () => {
     };
     window.addEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
     return () => window.removeEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
+  }, []);
+
+  useEffect(() => {
+    installMobileClockDriftGuard();
   }, []);
 
   // Aplicar idioma padrão das configurações quando não houver preferência no navegador
@@ -1970,6 +1976,7 @@ const AppMain: React.FC = () => {
               <Route path="time-attendance" element={<TimeAttendancePage />} />
               <Route path="time-attendance-audit" element={<TimeAttendanceAuditPage />} />
               <Route path="geolocation-audit" element={<GeolocationAuditPage />} />
+              <Route path="operational-geo-playback" element={<OperationalGeoPlaybackPage />} />
               <Route path="time-attendance-timeline" element={<TimeAttendanceTimelinePage />} />
               <Route path="operational-incidents" element={<OperationalIncidentsPage />} />
               <Route path="operational-recovery" element={<OperationalRecoveryPage />} />

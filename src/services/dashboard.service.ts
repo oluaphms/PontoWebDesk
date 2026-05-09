@@ -4,7 +4,12 @@ import { runSingleFlight } from '../performance/fetchSingleFlight';
 import { recordCriticalRequest } from '../performance/requestBudget';
 import { handleError } from '../utils/handleError';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
-import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
+import {
+  extractLocalCalendarDateFromIso,
+  normalizeRecordTypeForMirror,
+  type NormalizedMirrorRecordType,
+} from '../utils/timesheetMirror';
+import { inferDashboardPunchDisplayMirrorType, type RawTimeRecord } from './timeProcessingService';
 import {
   currentOperationalStateCacheKey,
   fetchCurrentOperationalStateByCompany,
@@ -17,8 +22,9 @@ import {
   validateOperationalTimestamp,
   type OperationalPunchRecord,
 } from './monitoring/monitoringGeoHardLock.service';
-import { resolveBestRealtimeLocation } from './geolocation/realtimeGeoSourcePriority.service';
+import { resolveRealtimeMonitoringLocation } from './geolocation/monitoringGeoSourceResolver';
 import { buildOperationalDayRange, getOperationalTodayYmd } from '../utils/operationalDateHardLock';
+import { operationalClockMs } from '../utils/operationalClock';
 import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
 
 export interface AdminDashboardCards {
@@ -131,13 +137,58 @@ function normalizeType(raw: unknown): string {
     .replace(/\p{M}/gu, '');
 }
 
+function typeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType, rawFallback: unknown): string {
+  switch (norm) {
+    case 'entrada':
+      return 'Entrada';
+    case 'saida':
+      return 'Saída';
+    case 'intervalo_saida':
+      return 'Intervalo (saída)';
+    case 'intervalo_volta':
+      return 'Intervalo (retorno)';
+    default: {
+      const s = String(rawFallback ?? '').trim();
+      return s || '—';
+    }
+  }
+}
+
 function typeLabel(rawType: unknown): string {
-  const t = normalizeType(rawType);
-  if (t === 'entrada') return 'Entrada';
-  if (t === 'saida') return 'Saída';
-  if (t === 'pausa') return 'Pausa';
-  if (t === 'intervalo_saida') return 'Volta intervalo';
-  return String(rawType ?? '—');
+  return typeLabelFromMirrorNorm(normalizeRecordTypeForMirror(String(rawType ?? '')), rawType);
+}
+
+/** Mesma regra do dashboard do colaborador: segunda «entrada» tolerante → saída de intervalo no rótulo. */
+function buildAdminLastRecordTypeInferenceMap(recentRecords: any[], todayLocal: string): Map<string, NormalizedMirrorRecordType> {
+  const out = new Map<string, NormalizedMirrorRecordType>();
+  const byUser = new Map<string, any[]>();
+  for (const r of recentRecords ?? []) {
+    const ymd = extractLocalCalendarDateFromIso(recordPunchInstantIso(r));
+    if (ymd !== todayLocal) continue;
+    const uid = String(r.user_id ?? '').trim();
+    if (!uid) continue;
+    if (!byUser.has(uid)) byUser.set(uid, []);
+    byUser.get(uid)!.push(r);
+  }
+  for (const [, list] of byUser) {
+    const sorted = [...list].sort((a, b) => recordPunchInstantMs(a) - recordPunchInstantMs(b));
+    sorted.forEach((rec, idx) => {
+      const id = String(rec.id ?? '').trim();
+      if (!id) return;
+      let norm = inferDashboardPunchDisplayMirrorType(sorted as RawTimeRecord[], idx);
+      if (
+        sorted.length === 2 &&
+        idx === 1 &&
+        normalizeRecordTypeForMirror(sorted[0]!.type) === 'entrada' &&
+        normalizeRecordTypeForMirror(sorted[1]!.type) === 'entrada' &&
+        norm === 'intervalo_saida'
+      ) {
+        norm = 'saida';
+      }
+      out.set(id, norm);
+    });
+  }
+  return out;
 }
 
 function readGeoFromRecord(r: any): { lat: number; lng: number; accuracy: number | null } | null {
@@ -204,7 +255,7 @@ function resolveDashboardDisplayInstant(record: any): {
 } {
   const primary = parseInstantSafe(record?.timestamp);
   const fallback = parseInstantSafe(record?.created_at);
-  const now = Date.now();
+  const now = operationalClockMs();
   const primaryDeltaHours = primary ? (primary.getTime() - now) / 36e5 : null;
   const fallbackDeltaHours = fallback ? (fallback.getTime() - now) / 36e5 : null;
 
@@ -279,6 +330,7 @@ function buildAdminLastRecordsForToday(
   todayLocal: string,
 ): AdminDashboardLastRecord[] {
   const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
+  const inferById = buildAdminLastRecordTypeInferenceMap(recentRecords, todayLocal);
   const allRecentRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
     const tInfo = resolveDashboardDisplayInstant(r);
     const t = tInfo.instant;
@@ -298,12 +350,14 @@ function buildAdminLastRecordsForToday(
             timeZone: 'America/Sao_Paulo',
           })
         : '—';
+    const rid = String(r.id ?? '').trim();
+    const normForLabel = inferById.get(rid) ?? normalizeRecordTypeForMirror(r.type);
     return {
       id: String(r.id ?? ''),
       userId: String(r.user_id ?? ''),
       employeeName: nameMap.get(String(r.user_id)) ?? String(r.user_id ?? '').slice(0, 8) ?? '—',
       type: String(r.type ?? ''),
-      typeLabel: typeLabel(r.type),
+      typeLabel: typeLabelFromMirrorNorm(normForLabel, r.type),
       date: dateStr,
       time: timeStr,
       location: geo ? `${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` : formatLatLng(r),
@@ -376,7 +430,7 @@ function mergeAdminLastRecordGeoFromSources(
       atMs: v.ok ? v.instantMs : nowMs,
     };
   }
-  const resolved = resolveBestRealtimeLocation({
+  const resolved = resolveRealtimeMonitoringLocation({
     nowMs,
     employeeId: row.userId,
     companyId: cos.company_id,
@@ -386,9 +440,27 @@ function mergeAdminLastRecordGeoFromSources(
     previousAccepted,
     log: false,
   });
-  if (!resolved || resolved.geoConfidence === 'INVALID') {
+  if (
+    !resolved.source ||
+    resolved.latitude == null ||
+    resolved.longitude == null ||
+    resolved.stale ||
+    resolved.confidence === 'INVALID'
+  ) {
+    console.info('[DASHBOARD STALE RECORD BLOCKED]', {
+      user_id: row.userId,
+      source: resolved.source,
+      invalid_reason: resolved.invalid_reason,
+      stale: resolved.stale,
+    });
     return row;
   }
+  console.info('[DASHBOARD GEO CONSISTENCY]', {
+    user_id: row.userId,
+    source: resolved.source,
+    freshness_ms: resolved.freshness_ms,
+    checksum_note: 'aligns_with_monitoring_resolver',
+  });
   return {
     ...row,
     lat: resolved.latitude,
@@ -483,7 +555,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
     try {
       const todayLocal = operationalDashboardTodayYmd();
       const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
-      const nowMs = Date.now();
+      const nowMs = operationalClockMs();
       const [usersRows, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
         queryCache.getOrFetch(
           `users:${companyId}:minimal`,
@@ -602,7 +674,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
     const users = usersRows ?? [];
     const records = dedupeTimeRecordsByRepKey(recordsRaw ?? []);
     const recentRecords = recentRecordsRaw ?? [];
-    const nowMsDash = Date.now();
+    const nowMsDash = operationalClockMs();
     const liveByDash = new Map(flagStaleLiveLocations(liveRaw, nowMsDash).map((r) => [r.employee_id, r]));
     const recordByIdDash = new Map(recentRecords.map((r: any) => [String(r.id), r]));
     const cosByDash = new Map(cosRows.map((c) => [c.employee_id, c]));

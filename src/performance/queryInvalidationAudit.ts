@@ -1,5 +1,7 @@
 import type { QueryClient, InvalidateQueryFilters } from '@tanstack/react-query';
 import { isPostLoginQueryCooldownActive, isCriticalReactQueryKey } from '../app/postLoginQueryGate';
+import { reportDeviceOperationalReputationFromMonitoringContext } from '../services/deviceOperationalReputation.service';
+import { reportGeoCircuitSignal } from '../domain/operational/geo/geoOperationalCircuitBreaker';
 
 type InvalidationRecord = { t: number; kind: string; detail: string };
 
@@ -25,6 +27,8 @@ function bump(kind: string, detail: string): void {
       threshold: STORM_THRESHOLD,
       sample: recent.slice(-6),
     });
+    reportGeoCircuitSignal('stream_congestion');
+    reportDeviceOperationalReputationFromMonitoringContext('query_invalidation_storm');
   }
 }
 

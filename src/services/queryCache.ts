@@ -13,6 +13,8 @@ import {
   type TenantScope,
 } from '../domain/operational/cache/tenantCacheIsolation';
 import { recordMemoryCacheInvalidation } from '../performance/queryInvalidationAudit';
+import { clearGeocodeCache } from './geolocation/reverseGeocode.service';
+import { recordBrowserOnlineReconnectForOperationalResilience } from '../performance/reconnectLoopGuard';
 
 interface CacheEntry<T> {
   data: T;
@@ -170,10 +172,36 @@ function installOperationalGeoCacheListeners(): void {
       invalidateOperationalGeoCaches('visibilitychange');
     }
   });
-  window.addEventListener('online', () => invalidateOperationalGeoCaches('online'));
+  window.addEventListener('online', () => {
+    recordBrowserOnlineReconnectForOperationalResilience();
+    invalidateOperationalGeoCaches('online');
+  });
   window.addEventListener('offline', () => invalidateOperationalGeoCaches('offline'));
 }
 installOperationalGeoCacheListeners();
+
+/**
+ * Invalidação dura por colaborador: COS, registros recentes, enrich GEO e listeners de mapa.
+ */
+export function invalidateRealtimeGeoEntity(employeeId: string, companyId?: string): void {
+  if (!employeeId) return;
+  bumpGeoCacheGeneration(`invalidateRealtimeGeoEntity:${employeeId}`);
+  clearGeocodeCache();
+  if (companyId) {
+    queryCache.invalidate(`current_operational_state:${companyId}`);
+    queryCache.invalidate(`time_records:admin_dash:recent:${companyId}`);
+    queryCache.invalidate(`time_records:admin_dash:chart:${companyId}`);
+  } else {
+    queryCache.invalidate('current_operational_state:');
+    queryCache.invalidate('time_records:admin_dash:');
+  }
+  console.info('[GEO ENTITY CACHE INVALIDATED]', { employeeId, companyId });
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('smartponto:force-monitoring-refresh', { detail: { employeeId, companyId } }),
+    );
+  }
+}
 
 export function buildTenantQueryCacheKey(scope: Partial<TenantScope>, ...parts: Array<string | number>): string {
   const key = buildTenantCacheKey(scope, ...parts);

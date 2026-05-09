@@ -4,7 +4,7 @@
  * Realtime: postgres_changes em current_operational_state (+ time_records como rede de segurança).
  */
 
-import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
@@ -13,7 +13,13 @@ import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
-import { getMonitoringRealtimeDebounceMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
+import {
+  commitMonitoringGeoRegistryFromFetch,
+  shouldProcessRealtimeCosPayload,
+  shouldProcessRealtimeLivePayload,
+} from '../../services/monitoring/realtimeMonitoringGeoRegistry';
+import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
+import { isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import { operationalStatusColor } from '../../types/employeeOperationalStatus';
 import { LoadingState } from '../../../components/UI';
 import {
@@ -37,6 +43,7 @@ import {
   Zap,
   Calendar,
 } from 'lucide-react';
+import { getRealtimeGeoStreamCoordinator } from '../../services/monitoring/realtimeGeoStreamCoordinator';
 
 type UserRow = { id: string; nome: string; email?: string };
 
@@ -51,9 +58,11 @@ const AdminMonitoring: React.FC = () => {
   const [usingOperationalStateTable, setUsingOperationalStateTable] = useState(false);
   const [todayYmd, setTodayYmd] = useState(() => getCompanyTodayYmd());
   const [presenceList, setPresenceList] = useState<EmployeePresenceFromState[]>([]);
+  const refreshGenerationRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
+    const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
     const nowMs = operationalClockMs();
@@ -73,6 +82,7 @@ const AdminMonitoring: React.FC = () => {
       queryCache.set(currentOperationalStateCacheKey(user.companyId), cos, 15_000);
 
       const liveRows = flagStaleLiveLocations(liveRaw, nowMs);
+      trackGeoSnapshotChecksumDrift(user.companyId, cos, liveRows);
       const liveByEmployee = new Map(liveRows.map((r) => [r.employee_id, r]));
 
       const recordLimit = cos.length > 0 ? 500 : 800;
@@ -92,6 +102,8 @@ const AdminMonitoring: React.FC = () => {
         nowMs,
       });
 
+      if (gen !== refreshGenerationRef.current) return;
+      commitMonitoringGeoRegistryFromFetch(user.companyId, cos);
       setUsingOperationalStateTable(unified.usingOperationalStateTable);
       setTodayUsers(users);
       setPipelineRows(unified.pipelineRows);
@@ -99,7 +111,9 @@ const AdminMonitoring: React.FC = () => {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoadingData(false);
+      if (gen === refreshGenerationRef.current) {
+        setLoadingData(false);
+      }
     }
   }, [user?.companyId]);
 
@@ -108,27 +122,51 @@ const AdminMonitoring: React.FC = () => {
   }, [refresh]);
 
   useEffect(() => {
-    if (!getSupabaseClient() || !user?.companyId) return;
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        debounce = null;
-        if (isPollingSuppressedByVisibility()) return;
-        clearGeocodeCache();
-        queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
-        queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
-        queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
+    const onForce = () => void refresh();
+    window.addEventListener('smartponto:force-monitoring-refresh', onForce);
+    return () => window.removeEventListener('smartponto:force-monitoring-refresh', onForce);
+  }, [refresh]);
+
+  useEffect(() => {
+    const onOnline = () => void refresh();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [refresh]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        console.info('[MAP FOREGROUND RESYNC]', { scope: 'admin_monitoring' });
         void refresh();
-      }, getMonitoringRealtimeDebounceMs());
+      }
     };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!getSupabaseClient() || !user?.companyId) return;
+    const coord = getRealtimeGeoStreamCoordinator(`${user.companyId}:admin:monitoring`);
+    const run = () => {
+      if (isPollingSuppressedByVisibility()) return;
+      clearGeocodeCache();
+      queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
+      queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
+      queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
+      void refresh();
+    };
+    const schedule = () => coord.requestFlush('postgres_changes', run);
 
     const ch = supabase
       .channel('admin_monitoring_operational_state')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'current_operational_state', filter: `company_id=eq.${user.companyId}` },
-        schedule,
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!shouldProcessRealtimeCosPayload(user.companyId!, row)) return;
+          schedule();
+        },
       )
       .on(
         'postgres_changes',
@@ -138,12 +176,16 @@ const AdminMonitoring: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'live_employee_location', filter: `company_id=eq.${user.companyId}` },
-        schedule,
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!shouldProcessRealtimeLivePayload(user.companyId!, row)) return;
+          schedule();
+        },
       )
       .subscribe();
 
     return () => {
-      if (debounce) clearTimeout(debounce);
+      coord.cancel();
       void supabase.removeChannel(ch);
     };
   }, [user?.companyId, refresh]);
@@ -168,7 +210,10 @@ const AdminMonitoring: React.FC = () => {
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
-  const statusColorForRow = (r: MonitoringPipelineEmployeeRow) => operationalStatusColor(r.status);
+  const statusColorForRow = (r: MonitoringPipelineEmployeeRow) =>
+    r.geoLocationExpired
+      ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+      : operationalStatusColor(r.status);
 
   const tabBtn = (id: TabId, label: string, icon: React.ReactNode) => (
     <button
@@ -261,7 +306,7 @@ const AdminMonitoring: React.FC = () => {
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold text-slate-900 dark:text-white truncate">{emp.userName}</span>
                       <span className={`px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 ${statusColorForRow(emp)}`}>
-                        {emp.statusLabel}
+                        {emp.geoLocationExpired ? 'Localização expirada' : emp.statusLabel}
                       </span>
                     </div>
                     {emp.lastRecordAt && (

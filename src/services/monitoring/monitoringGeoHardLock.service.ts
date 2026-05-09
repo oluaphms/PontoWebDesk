@@ -15,8 +15,10 @@ import {
   OPERATIONAL_FUTURE_TOLERANCE_MS,
   OPERATIONAL_TIMEZONE,
 } from '../../utils/operationalDateHardLock';
+import { operationalClockMs } from '../../utils/operationalClock';
 import { validateCoordinateOrder } from '../geolocation/geoIntegrity.service';
 import { calculateGeoConfidence, type GeoConfidenceLevel } from '../geolocation/geoConfidence.service';
+import { detectAndHandleGhostLocation } from '../geolocation/ghostLocationDetector.service';
 import { recordOperationalMetric } from '../../domain/operational/metrics/operationalMetrics';
 import {
   EmployeeOperationalStatus,
@@ -117,7 +119,7 @@ function monitoringGeoSourceLabel(
  */
 export function validateOperationalTimestamp(
   isoInput: string | null | undefined,
-  nowMs: number = Date.now(),
+  nowMs: number = operationalClockMs(),
 ): OperationalTimestampResult {
   const raw = isoInput != null ? String(isoInput).trim() : '';
   if (!raw) return { ok: false, code: 'invalid_parse', raw };
@@ -137,7 +139,7 @@ export function validateOperationalTimestamp(
 
 /** Insert / RPC client-side: bloqueia apenas futuro acima da tolerância. */
 export function assertNoFutureOperationalPunch(isoInput: string | null | undefined, nowMs?: number): void {
-  const now = nowMs ?? Date.now();
+  const now = nowMs ?? operationalClockMs();
   if (isFutureOperationalTimestamp(isoInput, now)) {
     const n = normalizeOperationalDate(isoInput, { quiet: true });
     const diffMs = n ? n.instantMs - now : 0;
@@ -274,7 +276,7 @@ export function listOperationalPunchesForUserSorted(
 export function evaluateRealtimeGeoForMonitoring(
   sortedOperationalNewestFirst: OperationalPunchRecord[],
   employeeId: string,
-  nowMs: number = Date.now(),
+  nowMs: number = operationalClockMs(),
 ): RealtimeGeoDecision {
   for (const r of sortedOperationalNewestFirst) {
     const geo = readGeoSnapshot(r);
@@ -394,12 +396,14 @@ export type MonitoringPipelineEmployeeRow = {
   geoBearingDeg?: number | null;
   geoIsMocked?: boolean;
   geoGpsAgeMs?: number | null;
+  /** Localização válida expirou para exibição no mapa (alinhado ao resolver único). */
+  geoLocationExpired?: boolean;
 };
 
 export function buildMonitoringPipelineRow(
   user: { id: string; nome?: string; email?: string },
   records: OperationalPunchRecord[],
-  nowMs: number = Date.now(),
+  nowMs: number = operationalClockMs(),
 ): MonitoringPipelineEmployeeRow {
   const userRaw = records.filter((r) => r.user_id === user.id);
   const sortedValid = listOperationalPunchesForUserSorted(records, user.id);
@@ -582,10 +586,45 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
   lat?: number;
   lng?: number;
   leafletMarkerKey?: string;
+  markerVersionKey?: string;
   geoBadge?: string;
   geoDetailLine?: string;
   geoConfidence?: GeoConfidenceLevel;
 } {
+  detectAndHandleGhostLocation({
+    employeeId: row.userId,
+    companyId: undefined,
+    hasRealtimeUpdate: row.positionAgeMs != null && row.positionAgeMs <= 15_000,
+    positionAgeMs: row.positionAgeMs ?? null,
+    isOffline: row.status === EmployeeOperationalStatus.OFF_DUTY,
+  });
+  if (row.geoLocationExpired) {
+    console.info('[STALE MARKER HIDDEN]', { userId: row.userId, reason: 'geo_location_expired_card' });
+    return {
+      userId: row.userId,
+      userName: row.userName,
+      status: 'Localização expirada',
+      lastRecordAt: row.lastRecordAt,
+      leafletMarkerKey: row.mapMarkerKey ?? `${row.userId}|expired`,
+      markerVersionKey: row.mapMarkerKey,
+      geoBadge: 'Localização expirada',
+      geoDetailLine: 'Atualize o app ou aguarde nova posição válida.',
+      geoConfidence: 'INVALID',
+    };
+  }
+  if (row.lat == null || row.lng == null) {
+    return {
+      userId: row.userId,
+      userName: row.userName,
+      status: 'Aguardando consenso',
+      lastRecordAt: row.lastRecordAt,
+      leafletMarkerKey: row.mapMarkerKey ?? `${row.userId}|pending_consensus`,
+      markerVersionKey: row.mapMarkerKey,
+      geoBadge: 'Aguardando consenso',
+      geoDetailLine: 'Verificando localização...',
+      geoConfidence: 'INVALID',
+    };
+  }
   if (
     row.lat != null &&
     row.lng != null &&
@@ -600,6 +639,7 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
       status: row.statusLabel,
       lastRecordAt: row.lastRecordAt,
       leafletMarkerKey: row.mapMarkerKey ?? `${row.userId}|blocked`,
+      markerVersionKey: row.mapMarkerKey,
       geoBadge: 'GPS bloqueado (precisão)',
       geoDetailLine: `Precisão ${Math.round(row.accuracy)} m — acima do limite do mapa`,
       geoConfidence: 'INVALID',
@@ -607,6 +647,14 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
   }
 
   const badgeText = geoPrecisionBadgeLabel(row.geoPrecisionBadge);
+  const resolvedBadge =
+    row.geoConfidenceLevel === 'HIGH'
+      ? 'Localização confirmada'
+      : row.geoConfidenceLevel === 'MEDIUM'
+      ? 'Localização instável'
+      : row.geoConfidenceLevel === 'LOW'
+      ? 'Posição bloqueada'
+      : badgeText || 'Aguardando consenso';
   const detailParts: string[] = [];
   if (row.geoConfidenceLevel) {
     detailParts.push(`Confiança: ${row.geoConfidenceLevel}`);
@@ -635,7 +683,8 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
     lat: row.lat,
     lng: row.lng,
     leafletMarkerKey: row.mapMarkerKey ?? `${row.userId}|${row.mapRenderTimestamp}`,
-    geoBadge: badgeText || undefined,
+    markerVersionKey: row.mapMarkerKey,
+    geoBadge: resolvedBadge,
     geoDetailLine: detailParts.length ? detailParts.join(' · ') : undefined,
     geoConfidence: row.geoConfidenceLevel,
   };

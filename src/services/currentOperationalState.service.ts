@@ -17,7 +17,8 @@ import {
   type MonitoringPipelineEmployeeRow,
 } from './monitoring/monitoringGeoHardLock.service';
 import { calculateGeoConfidence, type GeoConfidenceLevel } from './geolocation/geoConfidence.service';
-import { operationalNowUtcIso } from '../utils/operationalDateHardLock';
+import { normalizeOperationalDate, operationalNowUtcIso } from '../utils/operationalDateHardLock';
+import { operationalClockMs } from '../utils/operationalClock';
 
 export type CurrentOperationalStateRow = {
   company_id: string;
@@ -43,6 +44,8 @@ export type CurrentOperationalStateRow = {
   last_event_sequence: number | null;
   state_source: string | null;
   last_event_at: string | null;
+  /** md5(lat|lng|accuracy|captured_utc|state_version) — ver migração geo_checksum. */
+  geo_snapshot_checksum?: string | null;
 };
 
 export function currentOperationalStateCacheKey(companyId: string): string {
@@ -58,7 +61,7 @@ export async function fetchCurrentOperationalStateByCompany(
   const { data, error } = await client
     .from('current_operational_state')
     .select(
-      'company_id, employee_id, operational_status, last_punch_type, last_punch_record_id, last_punch_at, last_punch_origin, last_punch_method, map_latitude, map_longitude, map_accuracy, map_captured_at, geo_provider, geo_origin_kind, location_confidence, is_online, journey, updated_at, last_update_source, state_version, last_event_sequence, state_source, last_event_at',
+      'company_id, employee_id, operational_status, last_punch_type, last_punch_record_id, last_punch_at, last_punch_origin, last_punch_method, map_latitude, map_longitude, map_accuracy, map_captured_at, geo_provider, geo_origin_kind, location_confidence, is_online, journey, updated_at, last_update_source, state_version, last_event_sequence, state_source, last_event_at, geo_snapshot_checksum',
     )
     .eq('company_id', companyId);
   if (error) {
@@ -96,8 +99,10 @@ function confidenceToBadge(conf: string | null | undefined): GeoPrecisionBadge |
 }
 
 function cosRowToGeoConfidence(row: CurrentOperationalStateRow, nowMs: number): GeoConfidenceLevel {
-  const posAge =
-    row.map_captured_at != null ? nowMs - new Date(row.map_captured_at).getTime() : null;
+  const cap = row.map_captured_at != null
+    ? normalizeOperationalDate(row.map_captured_at, { quiet: true, source: 'cosRowToGeoConfidence' })
+    : null;
+  const posAge = cap ? nowMs - cap.instantMs : null;
   const base = String(row.location_confidence ?? '').toLowerCase();
   const impossible = base === 'invalid';
   return calculateGeoConfidence(
@@ -121,7 +126,7 @@ function normalizeGeoOrigin(raw: string | null | undefined): MonitoringGeoSource
 export function operationalStateRowToMonitoringPipelineRow(
   row: CurrentOperationalStateRow,
   user: { id: string; nome?: string; email?: string },
-  nowMs: number = Date.now(),
+  nowMs: number = operationalClockMs(),
 ): MonitoringPipelineEmployeeRow {
   const status = parseOperationalStatusEnum(row.operational_status);
   const lastIso = row.last_punch_at ?? undefined;
@@ -168,7 +173,7 @@ export function operationalStateRowToMonitoringPipelineRow(
 
 export function emptyMonitoringPipelineRowForUser(
   user: { id: string; nome?: string; email?: string },
-  nowMs: number = Date.now(),
+  nowMs: number = operationalClockMs(),
 ): MonitoringPipelineEmployeeRow {
   const status = EmployeeOperationalStatus.NO_SHIFT;
   return {

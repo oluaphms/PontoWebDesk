@@ -4,6 +4,7 @@
 
 import { isLowNetworkMode, isAndroidOrWebViewUa } from './networkMode';
 import { isDegradedMobileRuntime } from './mobileCpuBudget';
+import { getGeoOperationalCircuitDegradeFactor } from '../domain/operational/geo/geoOperationalCircuitBreaker';
 
 let invalidateBurst = 0;
 let invalidateWindowStart = 0;
@@ -57,6 +58,8 @@ export function getRealtimeSheddingDebounceFactor(): number {
   if (invalidateBurst > 10) f *= 1.45;
   if (longTaskBursts >= 2) f *= 1.4;
   f = Math.min(6, f);
+  f *= getGeoOperationalCircuitDegradeFactor();
+  f = Math.min(8, f);
   logShedding(f);
   return f;
 }

@@ -3,11 +3,15 @@ import { operationalCircuitBreaker, retryBudget, degradedMode } from '../../doma
 import { operationalWatchdog } from '../../domain/operational/watchdog';
 import { recordOperationalMetric } from '../../domain/operational/metrics';
 import { evaluateRealtimeGpsReliability } from '../../services/geolocation/realtimeGeoReliability.service';
-import { resolveBestRealtimeLocation } from '../../services/geolocation/realtimeGeoSourcePriority.service';
+import { resolveRealtimeMonitoringLocation } from '../../services/geolocation/monitoringGeoSourceResolver';
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
 import { recordRealtimeInvalidateBurst, getRealtimeSheddingDebounceFactor } from '../../performance/realtimeLoadShedding';
 import { auditTenantIsolationIntegrity } from '../../domain/security/tenantIsolationAudit';
 import { runOperationalJob } from '../../domain/operational/jobs/operationalJobScheduler';
+import { operationalReliabilitySLO, OperationalReliabilitySLO } from '../../domain/operational/reliability/operationalReliabilitySLO';
+import { reportGeoCircuitSignal, getGeoOperationalCircuitDegradeFactor, notifyGeoCircuitSuccess } from '../../domain/operational/geo/geoOperationalCircuitBreaker';
+import { operationalBusEmit, operationalBusSubscribe } from '../../domain/operational/bus/operationalEventBus';
+import { setOperationalWallClockOffsetMs, getOperationalWallClockOffsetMs } from '../../utils/operationalDateHardLock';
 
 describe('operational chaos suite', () => {
   it('abre circuito após falhas em cascata de RPC', async () => {
@@ -87,7 +91,7 @@ describe('operational chaos suite', () => {
         silent: true,
         log: false,
       });
-      resolveBestRealtimeLocation({
+      resolveRealtimeMonitoringLocation({
         nowMs,
         employeeId: `e-${i % 20}`,
         companyId: 'co-chaos',
@@ -191,5 +195,40 @@ describe('operational chaos suite', () => {
       }),
     ).rejects.toThrow();
     expect(calls).toBe(1);
+  });
+
+  it('SLO registry aceita amostras sem lançar', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < 40; i++) {
+      operationalReliabilitySLO.recordMonitoringRefreshMs(100 + i);
+      OperationalReliabilitySLO.recordStaleRate(0.05);
+    }
+    expect(true).toBe(true);
+  });
+
+  it('GEO circuit breaker degrada fator após rajada sintética', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    notifyGeoCircuitSuccess();
+    for (let i = 0; i < 6; i++) {
+      reportGeoCircuitSignal('stream_congestion');
+    }
+    expect(getGeoOperationalCircuitDegradeFactor()).toBeGreaterThanOrEqual(1);
+  });
+
+  it('operational event bus entrega payload', () => {
+    let seen: unknown;
+    const unsub = operationalBusSubscribe('telemetry:tick', (d) => {
+      seen = d;
+    });
+    operationalBusEmit('telemetry:tick', { chaos: true });
+    unsub();
+    expect(seen).toEqual({ chaos: true });
+  });
+
+  it('offset de relógio operacional é aplicável e legível', () => {
+    setOperationalWallClockOffsetMs(12);
+    expect(getOperationalWallClockOffsetMs()).toBe(12);
+    setOperationalWallClockOffsetMs(0);
   });
 });

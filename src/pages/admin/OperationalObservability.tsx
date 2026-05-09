@@ -9,6 +9,7 @@ import { listOperationalTraces } from '../../domain/operational/tracing';
 import { listOperationalMetricSamples, summarizeOperationalMetrics } from '../../domain/operational/metrics';
 import { degradedMode } from '../../domain/operational/resilience';
 import { operationalWatchdog } from '../../domain/operational/watchdog';
+import { calculateOperationalGeoHealth } from '../../domain/operational/geo/operationalGeoHealth';
 
 function summarizeGeoReliabilityFromSamples(samples: ReturnType<typeof listOperationalMetricSamples>): Record<string, number> {
   const rel = samples.filter((s) => s.name === 'geo_reliability_eval');
@@ -67,6 +68,8 @@ const OperationalObservability: React.FC = () => {
     return { stale: stale?.last ?? 0, geoInv: geoInv?.last ?? 0 };
   }, [metricSummary]);
 
+  const geoHealthScore = useMemo(() => calculateOperationalGeoHealth(), [refreshIndex]);
+
   useEffect(() => {
     console.info('[OBSERVABILITY GEO HEALTH]', {
       geo_reliability: geoReliabilityDist,
@@ -100,6 +103,17 @@ const OperationalObservability: React.FC = () => {
 
         <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-4">
           <h2 className="font-semibold mb-3">Saúde GEO e tempo real</h2>
+          <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/80 dark:bg-slate-800/40">
+            <p className="text-xs font-medium text-slate-500 mb-1">Operational GEO health score</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              {geoHealthScore.score}/100 ·{' '}
+              <span className="text-sm font-semibold uppercase">{geoHealthScore.status}</span>
+            </p>
+            <p className="text-xs text-slate-500 mt-1 font-mono">
+              stale≈{geoHealthScore.staleBlocks.toFixed(1)} · teleport_samples={geoHealthScore.teleportDetections} ·
+              invalid_p95={geoHealthScore.invalidMovementP95.toFixed(2)}
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
               <p className="text-xs font-medium text-slate-500 mb-1">GEO Reliability (amostras)</p>
@@ -115,6 +129,14 @@ const OperationalObservability: React.FC = () => {
               <p className="text-xs font-medium text-slate-500 mb-1">GPS drift / teleporte</p>
               <p className="text-slate-800 dark:text-slate-200">Eventos teleporte (amostras): {teleportCount}</p>
               <p className="text-xs text-slate-500 mt-1">Movimento inválido (último P95): {pipelineHealth.geoInv.toFixed(2)}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:col-span-2 lg:col-span-3">
+              <p className="text-xs font-medium text-slate-500 mb-1">Operational GEO telemetry (resumo)</p>
+              <p className="text-xs text-slate-700 dark:text-slate-300">
+                Reconciliações (último agregado): {metricSummary.find((m) => m.name === 'cos_reconciliation_runs')?.last ?? 0} ·
+                Reparos COS: {metricSummary.find((m) => m.name === 'cos_repaired_count')?.last ?? 0} · Amostras reliability:{' '}
+                {latestSamples.filter((s) => s.name === 'geo_reliability_eval').length}
+              </p>
             </div>
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
               <p className="text-xs font-medium text-slate-500 mb-1">Timestamps futuros bloqueados</p>

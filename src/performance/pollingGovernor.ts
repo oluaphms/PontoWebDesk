@@ -1,6 +1,7 @@
 import { isDegradedMobileRuntime } from './mobileCpuBudget';
 import { isLowNetworkMode } from './networkMode';
 import { getRealtimeSheddingDebounceFactor } from './realtimeLoadShedding';
+import { getGeoOperationalCircuitDegradeFactor } from '../domain/operational/geo/geoOperationalCircuitBreaker';
 
 /** Poller slots ativos (evita rajadas de timers concorrentes). */
 let activePollSlots = 0;
@@ -46,5 +47,5 @@ export function getMonitoringRealtimeDebounceMs(): number {
   let base = 400;
   if (isLowNetworkMode()) base = 1200;
   else if (isDegradedMobileRuntime()) base = 700;
-  return Math.min(5000, Math.round(base * getRealtimeSheddingDebounceFactor()));
+  return Math.min(8000, Math.round(base * getRealtimeSheddingDebounceFactor() * getGeoOperationalCircuitDegradeFactor()));
 }

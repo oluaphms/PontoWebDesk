@@ -20,8 +20,12 @@ import {
   type CurrentOperationalStateRow,
   type EmployeePresenceFromState,
 } from '../../services/currentOperationalState.service';
-import { resolveBestRealtimeLocation, type ResolvedRealtimeLocation } from '../../services/geolocation/realtimeGeoSourcePriority.service';
+import {
+  resolveRealtimeMonitoringLocation,
+  type ResolveRealtimeMonitoringLocationResult,
+} from '../../services/geolocation/monitoringGeoSourceResolver';
 import { assertOperationalStateConsistency } from './assertOperationalStateConsistency';
+import { auditRealtimeGeoConsistency } from './auditRealtimeGeoConsistency';
 
 export type UnifiedOperationalResolverInput = {
   companyId: string;
@@ -76,47 +80,77 @@ function cosPreviousAccepted(
   };
 }
 
+function geoLabelForMonitoringSource(
+  source: ResolveRealtimeMonitoringLocationResult['source'],
+  row: MonitoringPipelineEmployeeRow,
+): MonitoringPipelineEmployeeRow['geoSourceLabel'] {
+  if (source === 'live_employee_location') return 'Realtime';
+  if (source === 'current_operational_state') return row.geoSourceLabel;
+  if (source === 'time_record') return 'Cache';
+  return row.geoSourceLabel;
+}
+
 function applyResolvedGeo(
   row: MonitoringPipelineEmployeeRow,
-  resolved: ResolvedRealtimeLocation | null,
+  resolved: ResolveRealtimeMonitoringLocationResult,
   nowMs: number,
+  live: LiveEmployeeLocationRow | null,
 ): MonitoringPipelineEmployeeRow {
-  if (!resolved) return row;
-  if (resolved.geoConfidence === 'INVALID') {
+  if (!resolved.source || resolved.latitude == null || resolved.longitude == null) {
     return {
       ...row,
-      geoConfidenceLevel: 'INVALID',
       lat: undefined,
       lng: undefined,
       accuracy: null,
+      capturedAt: undefined,
+      geoConfidenceLevel: 'INVALID',
+      geoLocationExpired: false,
+      mapRenderTimestamp: nowMs,
     };
   }
-  const mapMarkerKey = [
-    resolved.source,
-    resolved.sourceRecordId ?? row.sourceRecordId ?? '',
-    resolved.capturedAt,
-    resolved.latitude,
-    resolved.longitude,
-    row.stateVersion ?? '',
-  ].join(':');
+
+  if (resolved.stale || resolved.confidence === 'INVALID') {
+    console.info('[MAP MARKER HARD REFRESH]', {
+      employee_id: row.userId,
+      reason: resolved.stale ? 'stale_threshold' : 'invalid_confidence',
+      freshness_ms: resolved.freshness_ms,
+    });
+    return {
+      ...row,
+      lat: undefined,
+      lng: undefined,
+      accuracy: null,
+      capturedAt: undefined,
+      geoConfidenceLevel: 'INVALID',
+      geoLocationExpired: true,
+      positionAgeMs: resolved.freshness_ms,
+      mapRenderTimestamp: nowMs,
+    };
+  }
+
+  const mapMarkerKey = [row.userId, resolved.captured_at, String(resolved.version), resolved.lineage_updated_at ?? ''].join('|');
+  console.info('[MAP MARKER VERSION CHANGE]', { employee_id: row.userId, map_marker_version_key: mapMarkerKey });
 
   return {
     ...row,
     lat: resolved.latitude,
     lng: resolved.longitude,
     accuracy: resolved.accuracy,
-    capturedAt: resolved.capturedAt,
-    sourceRecordId: resolved.sourceRecordId ?? row.sourceRecordId,
-    geoConfidenceLevel: resolved.geoConfidence,
-    geoSourceLabel: resolved.source === 'live_employee_location' ? 'Realtime' : row.geoSourceLabel,
-    positionAgeMs: resolved.ageMs,
+    capturedAt: resolved.captured_at ?? undefined,
+    sourceRecordId: resolved.source_record_id ?? row.sourceRecordId,
+    geoConfidenceLevel: resolved.confidence,
+    geoSourceLabel: geoLabelForMonitoringSource(resolved.source, row),
+    positionAgeMs: resolved.freshness_ms,
     mapMarkerKey,
     mapRenderTimestamp: nowMs,
-    geoSpeedMps: resolved.speedMps ?? null,
-    geoHeadingDeg: resolved.headingDeg ?? null,
-    geoBearingDeg: resolved.bearingDeg ?? null,
-    geoIsMocked: resolved.isMocked ?? false,
-    geoGpsAgeMs: resolved.gpsAgeMs ?? resolved.ageMs,
+    geoLocationExpired: false,
+    geoSpeedMps: live?.speed != null && Number.isFinite(Number(live.speed)) ? Number(live.speed) : row.geoSpeedMps ?? null,
+    geoHeadingDeg:
+      live?.heading != null && Number.isFinite(Number(live.heading)) ? Number(live.heading) : row.geoHeadingDeg ?? null,
+    geoBearingDeg:
+      live?.heading != null && Number.isFinite(Number(live.heading)) ? Number(live.heading) : row.geoBearingDeg ?? null,
+    geoIsMocked: row.geoIsMocked,
+    geoGpsAgeMs: resolved.freshness_ms,
   };
 }
 
@@ -137,7 +171,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
       const live = liveByEmployee.get(u.id) ?? null;
       const last = getLastOperationalPunchForUser(timeRecords, u.id);
       const record = recordGeoCandidate(last);
-      const resolved = resolveBestRealtimeLocation({
+      const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
         employeeId: u.id,
         companyId,
@@ -147,7 +181,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         previousAccepted: cosPreviousAccepted(cos, nowMs),
         log: false,
       });
-      return applyResolvedGeo(base, resolved, nowMs);
+      return applyResolvedGeo(base, resolved, nowMs, live);
     });
   } else {
     pipelineRows = users.map((u) => {
@@ -155,7 +189,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
       const live = liveByEmployee.get(u.id) ?? null;
       const last = getLastOperationalPunchForUser(timeRecords, u.id);
       const record = recordGeoCandidate(last);
-      const resolved = resolveBestRealtimeLocation({
+      const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
         employeeId: u.id,
         companyId,
@@ -165,7 +199,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         previousAccepted: null,
         log: false,
       });
-      return applyResolvedGeo(base, resolved, nowMs);
+      return applyResolvedGeo(base, resolved, nowMs, live);
     });
   }
 
@@ -192,6 +226,13 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
   }
 
   assertOperationalStateConsistency({
+    companyId,
+    usingCos: usingOperationalStateTable,
+    cosByEmployee,
+    pipelineRows,
+  });
+
+  auditRealtimeGeoConsistency({
     companyId,
     usingCos: usingOperationalStateTable,
     cosByEmployee,

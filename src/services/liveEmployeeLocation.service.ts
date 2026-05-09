@@ -8,7 +8,10 @@ import { getSupabaseClient } from './supabaseClient';
 import { detectImpossibleRealtimeMovement, type GeoConfidenceLevel } from './geolocation/geoConfidence.service';
 import { evaluateRealtimeGpsReliability } from './geolocation/realtimeGeoReliability.service';
 import { recordOperationalMetric } from '../domain/operational/metrics/operationalMetrics';
-import { operationalNowUtcIso } from '../utils/operationalDateHardLock';
+import { normalizeOperationalDate, operationalNowUtcIso } from '../utils/operationalDateHardLock';
+import { operationalClockMs } from '../utils/operationalClock';
+import { reportDeviceOperationalReputationEvent } from './deviceOperationalReputation.service';
+import { reportGeoCircuitSignal } from '../domain/operational/geo/geoOperationalCircuitBreaker';
 
 export const LIVE_LOCATION_TTL_MS = 45_000;
 
@@ -26,6 +29,7 @@ export type LiveEmployeeLocationRow = {
   is_stale: boolean;
   expires_at: string;
   updated_at: string;
+  geo_snapshot_checksum?: string | null;
 };
 
 export type UpsertLiveLocationInput = {
@@ -42,7 +46,7 @@ export type UpsertLiveLocationInput = {
 };
 
 function expiresAtIso(ttlMs: number): string {
-  return DateTime.fromMillis(Date.now() + ttlMs, { zone: 'utc' }).toUTC().toISO() ?? '';
+  return DateTime.fromMillis(operationalClockMs() + ttlMs, { zone: 'utc' }).toUTC().toISO() ?? '';
 }
 
 export async function fetchLiveLocationsForCompany(
@@ -54,7 +58,7 @@ export async function fetchLiveLocationsForCompany(
   const { data, error } = await client
     .from('live_employee_location')
     .select(
-      'company_id, employee_id, latitude, longitude, accuracy, captured_at, provider, confidence, speed, heading, is_stale, expires_at, updated_at',
+      'company_id, employee_id, latitude, longitude, accuracy, captured_at, provider, confidence, speed, heading, is_stale, expires_at, updated_at, geo_snapshot_checksum',
     )
     .eq('company_id', companyId);
   if (error) {
@@ -71,7 +75,7 @@ export async function upsertLiveEmployeeLocation(
 ): Promise<{ ok: boolean; confidence?: GeoConfidenceLevel; error?: string; skipped?: boolean }> {
   const client = clientOverride ?? getSupabaseClient();
   if (!client) return { ok: false, error: 'no_client' };
-  const nowMs = input.capturedAtMs ?? Date.now();
+  const nowMs = input.capturedAtMs ?? operationalClockMs();
   const capIso = DateTime.fromMillis(nowMs, { zone: 'utc' }).toUTC().toISO() ?? '';
 
   const { data: existing } = await client
@@ -83,7 +87,8 @@ export async function upsertLiveEmployeeLocation(
 
   let previous: { latitude: number; longitude: number; atMs: number } | null = null;
   if (existing && existing.latitude != null && existing.longitude != null) {
-    const prevMs = new Date(String(existing.captured_at)).getTime();
+    const prevN = normalizeOperationalDate(String(existing.captured_at), { quiet: true, source: 'liveLocationPrev' });
+    const prevMs = prevN ? prevN.instantMs : operationalClockMs();
     previous = { latitude: Number(existing.latitude), longitude: Number(existing.longitude), atMs: prevMs };
     const mov = detectImpossibleRealtimeMovement(
       { latitude: previous.latitude, longitude: previous.longitude, atMs: prevMs },
@@ -94,6 +99,12 @@ export async function upsertLiveEmployeeLocation(
         company_id: input.companyId,
         employee_id: input.employeeId,
         source: 'live_location',
+      });
+      reportGeoCircuitSignal('stale_flood');
+      void reportDeviceOperationalReputationEvent({
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        event: 'impossible_movement_blocked',
       });
       return { ok: true, confidence: 'INVALID', skipped: true };
     }
@@ -113,6 +124,14 @@ export async function upsertLiveEmployeeLocation(
   });
 
   if (!rel.accepted) {
+    const ev = rel.blockedReason === 'mock' ? 'mock_surge_blocked' : 'stale_geo_blocked';
+    if (rel.blockedReason === 'mock') reportGeoCircuitSignal('mock_surge');
+    else reportGeoCircuitSignal('stale_flood');
+    void reportDeviceOperationalReputationEvent({
+      companyId: input.companyId,
+      employeeId: input.employeeId,
+      event: ev,
+    });
     return { ok: true, confidence: 'INVALID', skipped: true };
   }
 
@@ -162,10 +181,11 @@ export async function runLiveLocationCleanup(clientOverride?: SupabaseClient | n
 }
 
 /** Marca linhas acima do TTL lógico como stale (sem apagar), para métricas/UI. */
-export function flagStaleLiveLocations(rows: LiveEmployeeLocationRow[], nowMs: number = Date.now()): LiveEmployeeLocationRow[] {
+export function flagStaleLiveLocations(rows: LiveEmployeeLocationRow[], nowMs: number = operationalClockMs()): LiveEmployeeLocationRow[] {
   let staleCount = 0;
   const out = rows.map((r) => {
-    const exp = new Date(r.expires_at).getTime();
+    const expN = normalizeOperationalDate(r.expires_at, { quiet: true, source: 'liveExpires' });
+    const exp = expN ? expN.instantMs : NaN;
     if (Number.isFinite(exp) && exp < nowMs) {
       staleCount += 1;
       if (!r.is_stale) {

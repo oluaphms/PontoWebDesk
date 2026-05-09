@@ -17,6 +17,24 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
   readonly VITE_FIREBASE_APP_ID?: string;
   readonly VITE_SENTRY_DSN?: string;
+  /** Feature flags operacionais — `false` desliga o módulo (prefixo VITE_OP_). */
+  readonly VITE_OP_REPLAY_OFFLINE?: string;
+  readonly VITE_OP_AUTO_RECOVERY?: string;
+  readonly VITE_OP_STREAM_COORDINATOR?: string;
+  readonly VITE_OP_CIRCUIT_BREAKER?: string;
+  readonly VITE_OP_GEO_FORENSICS?: string;
+  readonly VITE_OP_PROFILER?: string;
+  readonly VITE_OP_AGGRESSIVE_TELEMETRY?: string;
+  readonly VITE_OP_REALTIME_BUFFERING?: string;
+  readonly VITE_OP_GEO_CONSENSUS_ENABLED?: string;
+  readonly VITE_OP_NATIVE_GPS_ENABLED?: string;
+  readonly VITE_OP_REALTIME_COORDINATOR_ENABLED?: string;
+  readonly VITE_OP_GEO_FORENSICS_ENABLED?: string;
+  readonly VITE_OP_OPERATIONAL_INCIDENTS_ENABLED?: string;
+  readonly VITE_OP_SCALE_MODE_ENABLED?: string;
+  readonly VITE_OP_COS_STRICT_MODE?: string;
+  readonly VITE_OP_MAP_STALE_BLOCK_ENABLED?: string;
+  readonly VITE_OP_GEO_HEALTH_GUARD_ENABLED?: string;
 }
 
 interface ImportMeta {

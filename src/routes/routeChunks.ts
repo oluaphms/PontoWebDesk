@@ -39,6 +39,7 @@ const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/time-attendance': () => import('../pages/TimeAttendance'),
   '/admin/time-attendance-audit': () => import('../pages/admin/TimeAttendanceAudit'),
   '/admin/geolocation-audit': () => import('../pages/admin/GeolocationAudit'),
+  '/admin/operational-geo-playback': () => import('../pages/admin/OperationalGeoPlayback'),
   '/admin/time-attendance-timeline': () => import('../pages/admin/TimeAttendanceTimeline'),
   '/admin/operational-incidents': () => import('../pages/admin/OperationalIncidents'),
   '/admin/operational-recovery': () => import('../pages/admin/OperationalRecovery'),

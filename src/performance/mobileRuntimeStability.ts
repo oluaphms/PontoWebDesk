@@ -5,6 +5,9 @@
 import { invalidateOperationalGeoCaches } from '../services/queryCache';
 import { isAndroidOrWebViewUa } from './networkMode';
 import { installRealtimeLoadSheddingObservers } from './realtimeLoadShedding';
+import { installOperationalPerformanceProfiler } from './operationalPerformanceProfiler';
+import { isOperationalProfilerEnabled } from '../domain/operational/governance/operationalFeatureFlags';
+import { installOperationalLegalAuditShadowListeners } from '../services/operationalLegalAuditTrail.service';
 
 let installed = false;
 let lastIntervalTick = Date.now();
@@ -42,6 +45,10 @@ export function installMobileRuntimeStability(): void {
   installed = true;
 
   installRealtimeLoadSheddingObservers();
+  if (isOperationalProfilerEnabled()) {
+    installOperationalPerformanceProfiler();
+  }
+  installOperationalLegalAuditShadowListeners();
 
   if (isAndroidOrWebViewUa()) {
     console.info('[WEBVIEW DEGRADED]', { note: 'telemetry_only' });

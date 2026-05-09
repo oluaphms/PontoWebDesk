@@ -85,9 +85,20 @@ export function logInvalidOperationalDateSource(
   console.warn('[INVALID OPERATIONAL DATE SOURCE]', { reason, caller: source ?? 'unknown', ...extra });
 }
 
-/** Relógio monotônico em ms (mesma base que `Date.now`, documentado para uso operacional). */
+/** Ajuste opcional alinhado ao `operational_server_epoch_ms()` (Supabase); 0 = relógio local bruto. */
+let operationalWallClockOffsetMs = 0;
+
+export function setOperationalWallClockOffsetMs(ms: number): void {
+  operationalWallClockOffsetMs = Number.isFinite(ms) ? ms : 0;
+}
+
+export function getOperationalWallClockOffsetMs(): number {
+  return operationalWallClockOffsetMs;
+}
+
+/** Relógio operacional: `Date.now()` + offset de servidor quando sincronizado. */
 export function operationalClockMs(): number {
-  return Date.now();
+  return Date.now() + operationalWallClockOffsetMs;
 }
 
 /**

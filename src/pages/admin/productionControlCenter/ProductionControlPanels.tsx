@@ -1,5 +1,6 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { summarizeOperationalMetrics, listOperationalMetricSamples, summarizeOperationalGrowthByTenant } from '../../../domain/operational/metrics';
+import { calculateOperationalGeoHealth } from '../../../domain/operational/geo/operationalGeoHealth';
 import { operationalWatchdog } from '../../../domain/operational/watchdog';
 import { degradedMode } from '../../../domain/operational/resilience';
 import {
@@ -54,6 +55,16 @@ export const JobsPanel = memo(function JobsPanel({ companyId }: { companyId: str
         {companyId ? (
           <Button type="button" variant="secondary" className="text-xs" onClick={() => void run('current_state_self_heal')}>
             self-heal COS
+          </Button>
+        ) : null}
+        {companyId ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="text-xs"
+            onClick={() => void run('scheduled_operational_geo_reconciliation')}
+          >
+            reconciliação GEO
           </Button>
         ) : null}
         {companyId ? (
@@ -212,13 +223,82 @@ export const LiveLocPanel = memo(function LiveLocPanel() {
   );
 });
 
+export const OperationalGeoHealthPanel = memo(function OperationalGeoHealthPanel() {
+  const h = useMemo(() => calculateOperationalGeoHealth(), []);
+  const tone =
+    h.status === 'HEALTHY'
+      ? 'text-emerald-700 dark:text-emerald-400'
+      : h.status === 'DEGRADED'
+        ? 'text-amber-700 dark:text-amber-400'
+        : 'text-rose-700 dark:text-rose-400';
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-2">
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">GEO health (operacional)</h3>
+      <p className={`text-2xl font-bold ${tone}`}>
+        {h.score} <span className="text-sm font-semibold">/ 100</span>
+      </p>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{h.status}</p>
+      <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-0.5 font-mono">
+        <li>stale_blocks≈{h.staleBlocks.toFixed(1)}</li>
+        <li>teleport_samples={h.teleportDetections}</li>
+        <li>invalid_mv_p95={h.invalidMovementP95.toFixed(2)}</li>
+        <li>future_blocked={h.futureBlockedSamples}</li>
+      </ul>
+    </div>
+  );
+});
+
+export const OperationalGeoTelemetryPanel = memo(function OperationalGeoTelemetryPanel() {
+  const summary = useMemo(() => summarizeOperationalMetrics(), []);
+  const samples = useMemo(() => listOperationalMetricSamples(400), []);
+  const names = [
+    'live_location_stale_count',
+    'geo_invalid_realtime_movement',
+    'geo_teleport_detected',
+    'future_operational_timestamp_blocked',
+    'cos_repaired_count',
+    'cos_reconciliation_runs',
+    'cos_drift_detected_count',
+    'geo_reliability_eval',
+  ];
+  const slice = useMemo(() => summary.filter((s) => names.includes(s.name)), [summary]);
+  const staleBlocks = samples.filter((s) => s.name === 'live_location_stale_count').length;
+  const driftDet = samples.filter((s) => s.name === 'geo_teleport_detected').length;
+  const relEval = samples.filter((s) => s.name === 'geo_reliability_eval').length;
+  useEffect(() => {
+    console.info('[OPERATIONAL GEO TELEMETRY]', {
+      summary_rows: slice.length,
+      sample_stale_events: staleBlocks,
+      sample_teleport: driftDet,
+      reliability_eval_samples: relEval,
+    });
+  }, [slice.length, staleBlocks, driftDet, relEval]);
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-2 md:col-span-2 xl:col-span-3">
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Operational GEO telemetry</h3>
+      <p className="text-xs text-slate-500">
+        Amostras em memória (cliente) — stale blocks, drift, reliability, reconciliações. Ver também Observability.
+      </p>
+      <ul className="text-xs font-mono max-h-48 overflow-y-auto space-y-1">
+        {slice.map((r) => (
+          <li key={r.name}>
+            {r.name} · last={r.last.toFixed(2)} · p95={r.p95.toFixed(2)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+});
+
 export default function ProductionControlPanels({ companyId }: { companyId?: string }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <JobsPanel companyId={companyId} />
+      <OperationalGeoHealthPanel />
       <RealtimePanel />
       <DriftPanel />
       <GeoPanel />
+      <OperationalGeoTelemetryPanel />
       <TenantsPanel />
       <QueryCostPanel />
       <WatchdogPanel />
