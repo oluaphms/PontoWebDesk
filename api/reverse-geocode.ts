@@ -3,7 +3,6 @@ export const config = {
   maxDuration: 10,
 };
 
-const FALLBACK = 'Endereço não disponível para este ponto';
 /** Deve cobrir 2× Nominatim (4,5s) + pausa — sem cortar a 2ª tentativa antes do fim. */
 const HARD_CAP_MS = 9800;
 
@@ -67,21 +66,37 @@ function buildNominatimUrl(lat: number, lng: number): string {
  * Nominatim com timeout por tentativa e 2ª tentativa após falha (rede/timeout/429).
  * Mantém o total abaixo de ~9,5s para caber no limite Hobby (10s).
  */
+type ReverseGeocodeApiResult = {
+  address: string;
+  address_parts: Record<string, unknown> | null;
+  provider: string;
+  status: 'ok' | 'partial' | 'timeout' | 'provider_error';
+  response: unknown;
+};
+
 async function resolveAddressFromCoordinates(
   lat: number,
   lng: number,
-): Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }> {
+): Promise<ReverseGeocodeApiResult> {
   const NOMINATIM_MS = 4500;
   const NOMINATIM_HEADERS = {
     Accept: 'application/json',
     'User-Agent': `PontoWebDesk/1.0 (reverse-geocode; ${CONTACT_HINT})`,
   } as const;
 
-  const tryOnce = async (): Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }> => {
+  const tryOnce = async (): Promise<ReverseGeocodeApiResult> => {
     const nomRes = await fetchWithTimeout(buildNominatimUrl(lat, lng), NOMINATIM_MS, {
       headers: NOMINATIM_HEADERS,
     });
-    if (!nomRes.ok) return { address: '', address_parts: null, provider: 'nominatim' };
+    if (!nomRes.ok) {
+      return {
+        address: '',
+        address_parts: null,
+        provider: 'nominatim',
+        status: nomRes.status === 429 ? 'provider_error' : 'provider_error',
+        response: { http_status: nomRes.status },
+      };
+    }
     const nomData = (await nomRes.json()) as { display_name?: string; address?: Record<string, unknown> };
     const fromAddress = nomData.address ? formatNominatimAddress(nomData.address).trim() : '';
     const text = fromAddress || String(nomData.display_name || '').trim();
@@ -89,6 +104,8 @@ async function resolveAddressFromCoordinates(
       address: text,
       address_parts: nomData.address ?? null,
       provider: 'nominatim',
+      status: text ? 'ok' : 'partial',
+      response: nomData,
     };
   };
 
@@ -109,9 +126,11 @@ async function resolveAddressFromCoordinates(
   }
 
   return {
-    address: FALLBACK,
+    address: '',
     address_parts: null,
-    provider: 'fallback',
+    provider: 'nominatim',
+    status: 'provider_error',
+    response: { reason: 'empty_after_retries' },
   };
 }
 
@@ -139,14 +158,14 @@ export default async function handler(request: Request): Promise<Response> {
 
     const geo = await Promise.race([
       resolveAddressFromCoordinates(lat, lon),
-      new Promise<{ address: string; address_parts: Record<string, unknown> | null; provider: string }>((resolve) => {
-        setTimeout(() => resolve({ address: FALLBACK, address_parts: null, provider: 'timeout_fallback' }), HARD_CAP_MS);
+      new Promise<ReverseGeocodeApiResult>((resolve) => {
+        setTimeout(() => resolve({ address: '', address_parts: null, provider: 'nominatim', status: 'timeout', response: { reason: 'hard_cap_timeout' } }), HARD_CAP_MS);
       }),
     ]);
 
     return Response.json(geo, { status: 200, headers: corsHeaders });
   } catch (e) {
     console.error('Reverse geocode handler error:', e);
-    return Response.json({ address: FALLBACK, address_parts: null, provider: 'error_fallback' }, { status: 200, headers: corsHeaders });
+    return Response.json({ address: '', address_parts: null, provider: 'nominatim', status: 'provider_error', response: { reason: 'handler_error', message: e instanceof Error ? e.message : String(e) } }, { status: 200, headers: corsHeaders });
   }
 }

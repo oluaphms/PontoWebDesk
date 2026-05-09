@@ -71,6 +71,22 @@ type PunchGeoSnapshot = {
   accuracy_meters?: number | null;
   provider?: string | null;
   captured_at?: string | null;
+  street?: string | null;
+  district?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  formatted_address?: string | null;
+  formatted?: string | null;
+  geocode_snapshot?: {
+    street?: string | null;
+    district?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    formatted_address?: string | null;
+    formatted?: string | null;
+  } | null;
 };
 
 function getGeoSnapshot(row: any): PunchGeoSnapshot | null {
@@ -79,6 +95,32 @@ function getGeoSnapshot(row: any): PunchGeoSnapshot | null {
   const snap = (raw as { geo_snapshot?: unknown }).geo_snapshot;
   if (!snap || typeof snap !== 'object') return null;
   return snap as PunchGeoSnapshot;
+}
+
+function shouldRenderStreetSeparately(formattedAddress?: string | null, street?: string | null): boolean {
+  if (!street) return false;
+  if (!formattedAddress) return true;
+  return !formattedAddress.toLowerCase().includes(street.toLowerCase());
+}
+
+function readGeoAddress(row: any): {
+  street: string | null;
+  district: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  formattedAddress: string | null;
+} {
+  const geo = getGeoSnapshot(row);
+  const nested = geo?.geocode_snapshot ?? null;
+  return {
+    street: nested?.street ?? geo?.street ?? null,
+    district: nested?.district ?? geo?.district ?? null,
+    city: nested?.city ?? geo?.city ?? null,
+    state: nested?.state ?? geo?.state ?? null,
+    postalCode: nested?.postal_code ?? geo?.postal_code ?? null,
+    formattedAddress: nested?.formatted_address ?? nested?.formatted ?? geo?.formatted_address ?? geo?.formatted ?? null,
+  };
 }
 
 const EmployeeTimesheet: React.FC = () => {
@@ -693,6 +735,7 @@ const EmployeeTimesheet: React.FC = () => {
                               {dayRecs.map((r: any) => {
                                 const ll = extractLatLng(r);
                                 const geoSnap = getGeoSnapshot(r);
+                                const geoAddress = readGeoAddress(r);
                                 const accuracy = Number(
                                   geoSnap?.accuracy_meters ?? r?.accuracy ?? Number.NaN,
                                 );
@@ -726,7 +769,36 @@ const EmployeeTimesheet: React.FC = () => {
                                     <div className="min-w-0 flex-1 basis-[min(100%,18rem)] max-w-xl">
                                       {ll ? (
                                         <div className="space-y-1">
-                                          <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
+                                          {geoAddress.formattedAddress ? (
+                                            <div className="text-[10px] text-slate-600 dark:text-slate-300 break-words">
+                                              <span className="font-semibold">Endereço:</span> {geoAddress.formattedAddress}
+                                            </div>
+                                          ) : (
+                                            <ExpandableStreetCell lat={ll.lat} lng={ll.lng} previewMaxLength={28} />
+                                          )}
+                                          {(!geoAddress.formattedAddress ||
+                                            shouldRenderStreetSeparately(geoAddress.formattedAddress, geoAddress.street)) &&
+                                            geoAddress.street && (
+                                              <div className="text-[10px] text-slate-500 dark:text-slate-400 break-words">
+                                                <span className="font-semibold">Rua:</span> {geoAddress.street}
+                                              </div>
+                                            )}
+                                          {geoAddress.district && (
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 break-words">
+                                              <span className="font-semibold">Bairro:</span> {geoAddress.district}
+                                            </div>
+                                          )}
+                                          {geoAddress.postalCode && (
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 break-words">
+                                              <span className="font-semibold">CEP:</span> {geoAddress.postalCode}
+                                            </div>
+                                          )}
+                                          {(geoAddress.city || geoAddress.state) && (
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 break-words">
+                                              <span className="font-semibold">Cidade/UF:</span> {geoAddress.city ?? ''}
+                                              {geoAddress.state ? `/${geoAddress.state}` : ''}
+                                            </div>
+                                          )}
                                           <div className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
                                             GPS: {ll.lat.toFixed(6)}, {ll.lng.toFixed(6)}
                                           </div>

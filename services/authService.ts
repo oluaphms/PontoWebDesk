@@ -1440,6 +1440,26 @@ class AuthService {
    */
   onAuthStateChanged(callback: (user: User | null) => void): () => void {
     const { data } = auth.onAuthStateChange(async (event, session) => {
+      if (typeof console !== 'undefined') {
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+        const isWebView =
+          /\bwv\b|WebView|(iPhone|iPod|iPad)(?!.*Safari\/)|Android.*Version\/[\d.]+/i.test(ua);
+        const basePayload = {
+          timestamp: new Date().toISOString(),
+          event,
+          hasSession: Boolean(session?.user),
+          route: typeof window !== 'undefined' ? window.location.pathname : '',
+          visibilityState: typeof document !== 'undefined' ? document.visibilityState : 'unknown',
+          online: typeof navigator === 'undefined' ? true : navigator.onLine,
+          isMobile,
+          isWebView,
+        };
+        console.info('[AUTH LISTENER EVENT]', basePayload);
+        if (event === 'SIGNED_IN') console.info('[AUTH LISTENER SIGNED_IN]', basePayload);
+        if (event === 'TOKEN_REFRESHED') console.info('[AUTH LISTENER TOKEN_REFRESHED]', basePayload);
+        if (event === 'INITIAL_SESSION') console.info('[AUTH LISTENER INITIAL_SESSION]', basePayload);
+      }
       /**
        * Durante o logout, ignorar qualquer evento do listener para evitar o loop:
        * signOut → SIGNED_OUT → listener tenta recuperar sessão → re-loga o usuário.

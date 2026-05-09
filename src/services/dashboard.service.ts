@@ -51,6 +51,13 @@ export interface AdminDashboardLastRecord {
   sourceRecordId: string;
   hasTimeAnomaly: boolean;
   timeAnomalyReason: string | null;
+  streetAddress: string | null;
+  streetResolved: boolean;
+  geoStreet: string | null;
+  geoDistrict: string | null;
+  geoPostalCode: string | null;
+  geoCity: string | null;
+  geoState: string | null;
 }
 
 export interface AdminDashboardPayload {
@@ -133,6 +140,36 @@ function readGeoFromRecord(r: any): { lat: number; lng: number; accuracy: number
     return { lat, lng, accuracy: Number.isFinite(accuracy as number) ? accuracy : null };
   }
   return null;
+}
+
+function readStreetAddressFromGeoSnapshot(r: any): string | null {
+  const geocodeSnapshot = r?.raw_data?.geo_snapshot?.geocode_snapshot;
+  if (!geocodeSnapshot || typeof geocodeSnapshot !== 'object') return null;
+  const street = String(geocodeSnapshot.street ?? '').trim();
+  const district = String(geocodeSnapshot.district ?? '').trim();
+  const city = String(geocodeSnapshot.city ?? '').trim();
+  if (!street) return null;
+  const suffix = [district, city].filter(Boolean).join(' - ');
+  return suffix ? `${street} - ${suffix}` : street;
+}
+
+function readGeoAddressPartsFromSnapshot(r: any): {
+  street: string | null;
+  district: string | null;
+  postalCode: string | null;
+  city: string | null;
+  state: string | null;
+} {
+  const geocodeSnapshot = r?.raw_data?.geo_snapshot?.geocode_snapshot;
+  if (!geocodeSnapshot || typeof geocodeSnapshot !== 'object') {
+    return { street: null, district: null, postalCode: null, city: null, state: null };
+  }
+  const street = String(geocodeSnapshot.street ?? '').trim() || null;
+  const district = String(geocodeSnapshot.district ?? '').trim() || null;
+  const postalCode = String(geocodeSnapshot.postal_code ?? '').trim() || null;
+  const city = String(geocodeSnapshot.city ?? '').trim() || null;
+  const state = String(geocodeSnapshot.state ?? '').trim() || null;
+  return { street, district, postalCode, city, state };
 }
 
 function parseInstantSafe(raw: unknown): Date | null {
@@ -377,6 +414,8 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       const tInfo = resolveDashboardDisplayInstant(r);
       const t = tInfo.instant;
       const geo = readGeoFromRecord(r);
+      const streetAddress = readStreetAddressFromGeoSnapshot(r);
+      const geoAddressParts = readGeoAddressPartsFromSnapshot(r);
       const timeStr = t && Number.isFinite(t.getTime())
         ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
         : '—';
@@ -399,6 +438,13 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
         sourceRecordId: String(r.id ?? ''),
         hasTimeAnomaly: tInfo.hasAnomaly,
         timeAnomalyReason: tInfo.anomalyReason,
+        streetAddress,
+        streetResolved: !!streetAddress,
+        geoStreet: geoAddressParts.street,
+        geoDistrict: geoAddressParts.district,
+        geoPostalCode: geoAddressParts.postalCode,
+        geoCity: geoAddressParts.city,
+        geoState: geoAddressParts.state,
       };
     });
     const lastRecords = allRecentRecords

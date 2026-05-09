@@ -7,7 +7,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState, Button } from '../../../components/UI';
-import { FileDown, FileSpreadsheet, Lock, Plus, RefreshCw, Unlock, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileDown, FileSpreadsheet, Lock, Plus, RefreshCw, Unlock, Upload } from 'lucide-react';
 import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
 import { SkeletonFiltro, TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
@@ -58,6 +58,7 @@ import {
 import { LoggingService } from '../../../services/loggingService';
 import { LogSeverity } from '../../../types';
 import { mapTimesheetForUI, type TimesheetUIRow } from '../../services/timesheetProcessingStatus';
+import { reverseGeocodeSnapshot, type GeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
 import {
   computePeriodHealthSummary,
   deriveOperationalDisplayStatus,
@@ -160,6 +161,110 @@ type DayIssuesModalState = {
   repPending: PendingRepPunch[];
 } | null;
 
+function GeoDetailsToggle({
+  recordId,
+  lat,
+  lng,
+  notApplicable,
+  accuracy,
+}: {
+  recordId: string;
+  lat: number | null;
+  lng: number | null;
+  notApplicable: boolean;
+  accuracy: number | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+  const [geo, setGeo] = useState<GeocodeSnapshot | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!expanded || lat == null || lng == null || geo) return;
+    setLoadingGeo(true);
+    void reverseGeocodeSnapshot(lat, lng)
+      .then(({ snapshot }) => {
+        if (!cancelled) setGeo(snapshot);
+      })
+      .catch((error) => {
+        console.error('[GEO ESPELHO ENRICH ERROR]', error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingGeo(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, lat, lng, geo]);
+
+  const gpsText = lat != null && lng != null ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—';
+  const formattedAddress = geo?.formatted_address ?? geo?.formatted ?? null;
+  const street = geo?.street ?? null;
+  const shouldShowStreet = Boolean(street && (!formattedAddress || !formattedAddress.toLowerCase().includes(street.toLowerCase())));
+  const geoQuality =
+    accuracy == null || !Number.isFinite(accuracy)
+      ? null
+      : accuracy > 300
+        ? 'GPS degradado'
+        : accuracy > 100
+          ? 'Localização aproximada'
+          : null;
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="inline-flex items-center gap-1 text-left hover:underline"
+      >
+        <span className="font-semibold">GPS:</span> <span className="tabular-nums">{gpsText}</span>
+      </button>
+      {geoQuality && (
+        <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+          {geoQuality}
+        </span>
+      )}
+      {expanded && (
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
+          {lat == null || lng == null ? (
+            <div>{notApplicable ? 'GPS não se aplica (Relógio REP).' : 'Registro sem geolocalização (lançado via desktop/admin).'}</div>
+          ) : loadingGeo ? (
+            <div>Resolvendo endereço...</div>
+          ) : (
+            <>
+              {formattedAddress && (
+                <div>
+                  <span className="font-semibold">Endereço:</span> <span>{formattedAddress}</span>
+                </div>
+              )}
+              {shouldShowStreet && (
+                <div>
+                  <span className="font-semibold">Rua:</span> <span>{street}</span>
+                </div>
+              )}
+              {geo?.district && (
+                <div>
+                  <span className="font-semibold">Bairro:</span> <span>{geo.district}</span>
+                </div>
+              )}
+              {geo?.postal_code && (
+                <div>
+                  <span className="font-semibold">CEP:</span> <span>{geo.postal_code}</span>
+                </div>
+              )}
+              {(geo?.city || geo?.state) && (
+                <div>
+                  <span className="font-semibold">Cidade/UF:</span> <span>{geo?.city ?? ''}{geo?.state ? `/${geo.state}` : ''}</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AdminTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const toast = useToast();
@@ -206,6 +311,7 @@ const AdminTimesheet: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [recordToEdit, setRecordToEdit] = useState<TimeRecord | null>(null);
   const [issuesModal, setIssuesModal] = useState<DayIssuesModalState>(null);
+  const [detailOpenByDate, setDetailOpenByDate] = useState<Record<string, boolean>>({});
 
   /** Evita `loadEspelho` com período vazio antes de ler sessionStorage (caso típico: novo login → batidas “sumiam”). */
   const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -1638,11 +1744,33 @@ const AdminTimesheet: React.FC = () => {
                     }
                     return renderTimeCell(null, undefined);
                   };
+                  const dayRecs = day.records.filter((r) => !isStatusRecord(r));
                   return (
-                    <tr key={date} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <React.Fragment key={date}>
+                    <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                       <td className="px-3 py-2 text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span>{formatDateBR(date)}</span>
+                          {dayRecs.length > 0 ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1.5 hover:underline"
+                              onClick={() =>
+                                setDetailOpenByDate((prev) => ({
+                                  ...prev,
+                                  [date]: !prev[date],
+                                }))
+                              }
+                            >
+                              {detailOpenByDate[date] ? (
+                                <ChevronDown className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
+                              )}
+                              <span>{formatDateBR(date)}</span>
+                            </button>
+                          ) : (
+                            <span>{formatDateBR(date)}</span>
+                          )}
                           {dailyCalcUiByDate.has(date) &&
                             (() => {
                               const ui = dailyCalcUiByDate.get(date)!;
@@ -1733,6 +1861,50 @@ const AdminTimesheet: React.FC = () => {
                               : EMPTY_DASH}
                       </td>
                     </tr>
+                    {dayRecs.length > 0 && detailOpenByDate[date] === true && (
+                      <tr className="bg-slate-50/80 dark:bg-slate-800/40 print:bg-transparent">
+                        <td colSpan={6} className="px-3 py-3">
+                          <div className="space-y-2">
+                            {dayRecs.map((r) => {
+                              const whenIso = recordEffectiveMirrorInstant(r, date);
+                              const when = whenIso
+                                ? new Date(whenIso).toLocaleTimeString('pt-BR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '—';
+                              const lat = typeof r.latitude === 'number' ? r.latitude : null;
+                              const lng = typeof r.longitude === 'number' ? r.longitude : null;
+                              const raw = (r as TimeRecord & { raw_data?: { geo_snapshot?: { accuracy_meters?: number | null } } }).raw_data;
+                              const accuracyRaw = raw?.geo_snapshot?.accuracy_meters ?? (r as TimeRecord & { accuracy?: number | null }).accuracy ?? null;
+                              const accuracy = typeof accuracyRaw === 'number' && Number.isFinite(accuracyRaw) ? accuracyRaw : null;
+                              const origin = resolvePunchOrigin(r);
+                              return (
+                                <div key={r.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 text-xs">
+                                  <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400 shrink-0">{when}</span>
+                                  <span className="uppercase text-[10px] px-2 py-0.5 rounded-md bg-slate-200/90 dark:bg-slate-700 text-slate-800 dark:text-slate-100 shrink-0">
+                                    {(r.type || '—').toString()}
+                                  </span>
+                                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100/90 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-200 shrink-0">
+                                    {origin.label}
+                                  </span>
+                                  <div className="min-w-0 flex-1 basis-[min(100%,22rem)] max-w-2xl">
+                                    <GeoDetailsToggle
+                                      recordId={r.id}
+                                      lat={lat}
+                                      lng={lng}
+                                      notApplicable={origin.kind === 'rep'}
+                                      accuracy={accuracy}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

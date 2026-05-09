@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { reverseGeocode } from '../utils/reverseGeocode';
+import { reverseGeocodeStreet } from '../utils/reverseGeocode';
 
 type Props = {
   lat: number;
@@ -8,14 +8,14 @@ type Props = {
 };
 
 /**
- * Exibe endereço por rua (geocodificação reversa), sem coordenadas.
+ * Exibe nome da rua da coordenada (com fallback explícito).
  */
 export const StreetAddress: React.FC<Props> = ({ lat, lng, className = '' }) => {
-  const [line, setLine] = useState('Carregando endereço…');
+  const [line, setLine] = useState('Carregando rua…');
 
   useEffect(() => {
     let cancelled = false;
-    void reverseGeocode(lat, lng).then((t) => {
+    void reverseGeocodeStreet(lat, lng).then((t) => {
       if (!cancelled) setLine(t);
     });
     return () => {

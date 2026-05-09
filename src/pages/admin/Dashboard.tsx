@@ -18,6 +18,8 @@ import {
   getAdminDashboardData,
   type AdminDashboardLastRecord,
 } from '../../services/dashboard.service';
+import { reverseGeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
+import { validateCoordinateOrder } from '../../services/geolocation/geoIntegrity.service';
 
 interface CardData {
   totalEmployees: number;
@@ -54,6 +56,22 @@ const AdminDashboard: React.FC = () => {
     absentToday: 0,
   });
   const [lastRecords, setLastRecords] = useState<AdminDashboardLastRecord[]>([]);
+  const [resolvedAddressByRecord, setResolvedAddressByRecord] = useState<
+    Record<
+      string,
+      {
+        status: 'loading' | 'resolved' | 'unresolved' | 'timeout' | 'error';
+        street: string | null;
+        district: string | null;
+        postalCode: string | null;
+        city: string | null;
+        state: string | null;
+        formattedAddress: string | null;
+      }
+    >
+  >({});
+  const [gpsDetailsExpandedByRecord, setGpsDetailsExpandedByRecord] = useState<Record<string, boolean>>({});
+  const activeGeoRequests = new Set<string>();
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
@@ -87,6 +105,245 @@ const AdminDashboard: React.FC = () => {
     void load();
   }, [user?.companyId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const recordsWithGeo = lastRecords.filter((r) => {
+      const hasLatLng = r.lat != null && r.lng != null;
+      if (!hasLatLng) {
+        console.warn('[GEO ENRICH SKIPPED]', {
+          reason: 'missing_coordinates',
+          record_id: r.id,
+          employee_id: r.userId,
+          lat: r.lat ?? null,
+          lng: r.lng ?? null,
+        });
+      }
+      return hasLatLng;
+    });
+    console.info('[GEO DASHBOARD ENRICH START]', {
+      total_records: lastRecords.length,
+      records_with_geo: recordsWithGeo.length,
+    });
+    if (recordsWithGeo.length === 0) {
+      setResolvedAddressByRecord({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setResolvedAddressByRecord((prev) => {
+      const next: typeof prev = {};
+      for (const r of recordsWithGeo) {
+        if (r.geoStreet || r.geoDistrict || r.geoPostalCode || r.geoCity || r.geoState) {
+          next[r.id] = {
+            status: 'resolved',
+            street: r.geoStreet,
+            district: r.geoDistrict,
+            postalCode: r.geoPostalCode,
+            city: r.geoCity,
+            state: r.geoState,
+            formattedAddress: r.streetAddress,
+          };
+        } else {
+          next[r.id] = prev[r.id] ?? {
+            status: 'loading',
+            street: null,
+            district: null,
+            postalCode: null,
+            city: null,
+            state: null,
+            formattedAddress: null,
+          };
+        }
+      }
+      return next;
+    });
+
+    const unresolved = recordsWithGeo.filter(
+      (r) => !(r.geoStreet || r.geoDistrict || r.geoPostalCode || r.geoCity || r.geoState),
+    );
+    console.info('[GEO DASHBOARD ENRICH PENDING]', {
+      unresolved_count: unresolved.length,
+      unresolved_record_ids: unresolved.map((r) => r.id),
+    });
+
+    void Promise.allSettled(
+      unresolved.map(async (r) => {
+        console.info('[GEO ENRICH PIPELINE START]', {
+          lat: r.lat,
+          lng: r.lng,
+          record_id: r.id,
+          employee_id: r.userId,
+        });
+        try {
+          if (cancelled) {
+            console.warn('[GEO ENRICH SKIPPED]', {
+              reason: 'stale_request_cancelled',
+              record_id: r.id,
+              employee_id: r.userId,
+            });
+            return;
+          }
+          if (!navigator.onLine) {
+            console.warn('[GEO ENRICH SKIPPED]', {
+              reason: 'offline',
+              record_id: r.id,
+              employee_id: r.userId,
+              lat: r.lat,
+              lng: r.lng,
+            });
+            setResolvedAddressByRecord((prev) => ({
+              ...prev,
+              [r.id]: {
+                status: 'error',
+                street: null,
+                district: null,
+                postalCode: null,
+                city: null,
+                state: null,
+                formattedAddress: null,
+              },
+            }));
+            return;
+          }
+          const coordIssues = validateCoordinateOrder(Number(r.lat), Number(r.lng));
+          console.info('[GEO VALIDATION RESULT]', {
+            lat: r.lat,
+            lng: r.lng,
+            validation: {
+              valid: coordIssues.length === 0 || !coordIssues.includes('invalid_range'),
+              issues: coordIssues,
+            },
+            record_id: r.id,
+            employee_id: r.userId,
+          });
+          if (coordIssues.includes('invalid_range')) {
+            console.warn('[GEO ENRICH SKIPPED]', {
+              reason: 'invalid_coordinate_range',
+              record_id: r.id,
+              employee_id: r.userId,
+              lat: r.lat,
+              lng: r.lng,
+              issues: coordIssues,
+            });
+            setResolvedAddressByRecord((prev) => ({
+              ...prev,
+              [r.id]: {
+                status: 'error',
+                street: null,
+                district: null,
+                postalCode: null,
+                city: null,
+                state: null,
+                formattedAddress: null,
+              },
+            }));
+            return;
+          }
+          console.info('[GEO REVERSE FUNCTION]', {
+            reverseGeocodeExists: typeof reverseGeocodeSnapshot === 'function',
+            record_id: r.id,
+            employee_id: r.userId,
+          });
+          console.info('[GEO DASHBOARD ENRICH REQUEST]', {
+            source_record_id: r.id,
+            lat: r.lat,
+            lng: r.lng,
+          });
+          activeGeoRequests.add(r.id);
+          console.info('[GEO ENRICH REQUEST COUNT]', {
+            activeRequests: activeGeoRequests.size,
+          });
+          const { snapshot } = await reverseGeocodeSnapshot(Number(r.lat), Number(r.lng));
+          activeGeoRequests.delete(r.id);
+          console.info('[GEO ENRICH REQUEST COUNT]', {
+            activeRequests: activeGeoRequests.size,
+          });
+          if (cancelled) return;
+          if (snapshot.street || snapshot.district || snapshot.city || snapshot.state || snapshot.postal_code) {
+            console.info('[GEO ADDRESS ENRICH]', {
+              source_record_id: r.id,
+              lat: r.lat,
+              lng: r.lng,
+              street: snapshot.street ?? null,
+              district: snapshot.district ?? null,
+              city: snapshot.city ?? null,
+              state: snapshot.state ?? null,
+              postal_code: snapshot.postal_code ?? null,
+            });
+          }
+          console.info('[GEO DASHBOARD ENRICH RESULT]', {
+            source_record_id: r.id,
+            status: snapshot.reverse_geocode_status ?? 'ok',
+            provider: snapshot.provider,
+          });
+          setResolvedAddressByRecord((prev) => ({
+            ...prev,
+            [r.id]: {
+              status:
+                snapshot.reverse_geocode_status === 'timeout'
+                  ? 'timeout'
+                  : snapshot.reverse_geocode_status === 'provider_error'
+                    ? 'error'
+                  : snapshot.street || snapshot.district || snapshot.postal_code || snapshot.city || snapshot.state
+                    ? 'resolved'
+                    : 'unresolved',
+              street: snapshot.street ?? null,
+              district: snapshot.district ?? null,
+              postalCode: snapshot.postal_code ?? null,
+              city: snapshot.city ?? null,
+              state: snapshot.state ?? null,
+              formattedAddress: snapshot.formatted_address ?? snapshot.formatted ?? null,
+            },
+          }));
+        } catch (error: any) {
+          activeGeoRequests.delete(r.id);
+          console.info('[GEO ENRICH REQUEST COUNT]', {
+            activeRequests: activeGeoRequests.size,
+          });
+          console.error('[GEO ENRICH PIPELINE FAILURE]', {
+            error,
+            message: error?.message ?? null,
+            stack: error?.stack ?? null,
+            cause: error?.cause ?? null,
+            lat: r.lat,
+            lng: r.lng,
+            record_id: r.id,
+            employee_id: r.userId,
+          });
+          console.error('[GEO DASHBOARD ENRICH ERROR]', error);
+          console.error('[GEO DASHBOARD ENRICH ERROR DETAILS]', {
+            name: error instanceof Error ? error.name : null,
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : null,
+            cause: error instanceof Error ? (error as Error & { cause?: unknown }).cause ?? null : null,
+            lat: r.lat,
+            lng: r.lng,
+            employee_id: r.userId,
+            record_id: r.id,
+          });
+          if (cancelled) return;
+          setResolvedAddressByRecord((prev) => ({
+            ...prev,
+            [r.id]: {
+              status: 'error',
+              street: null,
+              district: null,
+              postalCode: null,
+              city: null,
+              state: null,
+              formattedAddress: null,
+            },
+          }));
+        }
+      }),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lastRecords]);
+
   if (loading) return <LoadingState message={i18n.t('common.loading')} />;
   if (!user) return <Navigate to="/" replace />;
 
@@ -108,6 +365,22 @@ const AdminDashboard: React.FC = () => {
     if (accuracy > 300) return 'GPS degradado';
     if (accuracy > 100) return 'Localização aproximada';
     return null;
+  };
+
+  const shouldRenderStreetSeparately = (
+    formattedAddress?: string | null,
+    street?: string | null,
+  ) => {
+    if (!street) return false;
+    if (!formattedAddress) return true;
+    const duplicated = formattedAddress.toLowerCase().includes(street.toLowerCase());
+    if (duplicated) {
+      console.warn('[GEO DUPLICATE STREET DETECTED]', {
+        formatted_address: formattedAddress,
+        street,
+      });
+    }
+    return !duplicated;
   };
 
   return (
@@ -157,6 +430,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {lastRecords.map((r) => {
+                  const resolvedAddress = resolvedAddressByRecord[r.id];
                   const quality = geoQuality(r.accuracy);
                   const mapHref =
                     r.lat != null && r.lng != null
@@ -190,8 +464,83 @@ const AdminDashboard: React.FC = () => {
                         )}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">
-                        <span className="font-semibold">GPS:</span>{' '}
-                        <span className="break-all">{r.location === '—' ? '—' : r.location}</span>
+                        {r.lat != null && r.lng != null && gpsDetailsExpandedByRecord[r.id] && (
+                          <div className="mb-2 space-y-0.5">
+                            {resolvedAddress?.formattedAddress && (
+                              <div>
+                                <span className="font-semibold">Endereço:</span>{' '}
+                                <span className="break-words">{resolvedAddress.formattedAddress}</span>
+                              </div>
+                            )}
+                            {(!resolvedAddress?.formattedAddress || shouldRenderStreetSeparately(resolvedAddress?.formattedAddress, resolvedAddress?.street)) && (
+                              <div>
+                                <span className="font-semibold">Rua:</span>{' '}
+                                {resolvedAddress?.status === 'loading' ? (
+                                  <span>Resolvendo...</span>
+                                ) : resolvedAddress?.street ? (
+                                  <span className="break-words">{resolvedAddress.street}</span>
+                                ) : resolvedAddress?.status === 'resolved' &&
+                                  (resolvedAddress?.district ||
+                                    resolvedAddress?.city ||
+                                    resolvedAddress?.state ||
+                                    resolvedAddress?.postalCode) ? (
+                                  <span>Não disponível</span>
+                                ) : (
+                                  <span className="text-amber-700 dark:text-amber-300">Falha temporária ao resolver endereço.</span>
+                                )}
+                              </div>
+                            )}
+                            {resolvedAddress?.district && (
+                              <div>
+                                <span className="font-semibold">Bairro:</span>{' '}
+                                <span>{resolvedAddress.district}</span>
+                              </div>
+                            )}
+                            {resolvedAddress?.postalCode && (
+                              <div>
+                                <span className="font-semibold">CEP:</span>{' '}
+                                <span>{resolvedAddress.postalCode}</span>
+                              </div>
+                            )}
+                            {(resolvedAddress?.city || resolvedAddress?.state) && (
+                              <div>
+                                <span className="font-semibold">Cidade/UF:</span>{' '}
+                                <span>
+                                  {resolvedAddress?.city ?? ''}
+                                  {resolvedAddress?.state ? `/${resolvedAddress.state}` : ''}
+                                </span>
+                              </div>
+                            )}
+                            {resolvedAddress?.status === 'timeout' && (
+                              <div className="text-amber-700 dark:text-amber-300">
+                                Falha temporária ao resolver endereço.
+                              </div>
+                            )}
+                            {resolvedAddress?.status === 'error' && (
+                              <div className="text-amber-700 dark:text-amber-300">
+                                Falha temporária ao resolver endereço.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {gpsDetailsExpandedByRecord[r.id] && (r.lat == null || r.lng == null) && (
+                          <div className="mb-2 text-amber-700 dark:text-amber-300">
+                            Registro sem geolocalização (lançado via desktop/admin).
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGpsDetailsExpandedByRecord((prev) => ({
+                              ...prev,
+                              [r.id]: !prev[r.id],
+                            }))
+                          }
+                          className="inline-flex items-center gap-1 text-left hover:underline"
+                        >
+                          <span className="font-semibold">GPS:</span>{' '}
+                          <span className="break-all">{r.location === '—' ? '—' : r.location}</span>
+                        </button>
                       </div>
                       {mapHref && (
                         <a

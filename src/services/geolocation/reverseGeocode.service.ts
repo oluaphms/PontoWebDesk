@@ -29,6 +29,8 @@ export type GeocodeSnapshot = {
   provider: string;
   resolved_at: string;
   formatted: string;
+  reverse_geocode_status?: 'ok' | 'partial' | 'timeout' | 'provider_error';
+  formatted_address?: string | null;
 };
 
 type ReverseResult = {
@@ -39,7 +41,7 @@ type ReverseResult = {
 const CACHE = new Map<string, GeocodeSnapshot>();
 const IN_FLIGHT = new Map<string, Promise<GeocodeSnapshot>>();
 const CACHE_MAX = 500;
-const VERSION = 'v1';
+const VERSION = 'v2';
 
 function readCurrentUserScope(): TenantScope {
   if (typeof window === 'undefined') return { companyId: 'no-company', userId: 'no-user' };
@@ -56,10 +58,22 @@ function readCurrentUserScope(): TenantScope {
   }
 }
 
-function cacheKey(lat: number, lng: number, provider: string): string {
+function hasValidTenantScope(scope: TenantScope): boolean {
+  return (
+    Boolean(scope.companyId && scope.companyId !== 'no-company') &&
+    Boolean(scope.userId && scope.userId !== 'no-user')
+  );
+}
+
+function cacheKey(lat: number, lng: number, provider: string): string | null {
+  const scope = readCurrentUserScope();
+  if (!hasValidTenantScope(scope)) {
+    return null;
+  }
+  const providerVersioned = `${String(provider).replace(/[^a-z0-9_-]/gi, '_')}_v${VERSION.replace(/[^a-z0-9_-]/gi, '')}`;
   const key = buildTenantGeoCacheKey({
-    scope: readCurrentUserScope(),
-    provider,
+    scope,
+    provider: providerVersioned,
     lat,
     lng,
   });
@@ -100,21 +114,332 @@ function toSnapshotFromAddress(
     provider,
     resolved_at: new Date().toISOString(),
     formatted,
+    reverse_geocode_status: 'ok',
+    formatted_address: formatted,
   };
+}
+
+type NormalizedReverseAddress = {
+  street: string | null;
+  district: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  formatted_address: string | null;
+};
+
+function buildFormattedAddress(parts: {
+  street?: string | null;
+  district?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): string | null {
+  const text = [parts.street, parts.district, parts.city, parts.state]
+    .filter((v) => Boolean(v && String(v).trim()))
+    .join(' — ')
+    .trim();
+  return text || null;
+}
+
+function pickAddressComponent(
+  components: Array<{ long_name?: string; short_name?: string; types?: string[] }>,
+  targetTypes: string[],
+): string | null {
+  const found = components.find((c) => (c.types ?? []).some((t) => targetTypes.includes(t)));
+  if (!found) return null;
+  return String(found.long_name ?? found.short_name ?? '').trim() || null;
+}
+
+export function normalizeReverseGeocodeAddress(payload: {
+  provider?: string;
+  address_parts?: Record<string, unknown> | null;
+  response?: unknown;
+  address?: string | null;
+}): NormalizedReverseAddress {
+  const provider = String(payload.provider ?? '').toLowerCase();
+  const response = payload.response as Record<string, unknown> | null;
+  const fallbackFormatted = String(payload.address ?? '').trim() || null;
+  if (provider.includes('google')) {
+    const components = Array.isArray(response?.address_components)
+      ? (response?.address_components as Array<{ long_name?: string; short_name?: string; types?: string[] }>)
+      : [];
+    const street = pickAddressComponent(components, ['route']);
+    const number = pickAddressComponent(components, ['street_number']);
+    const district = pickAddressComponent(components, ['sublocality', 'sublocality_level_1', 'neighborhood', 'administrative_area_level_3']);
+    const city = pickAddressComponent(components, ['locality', 'administrative_area_level_2', 'administrative_area_level_1']);
+    const state = pickAddressComponent(components, ['administrative_area_level_1']);
+    const postalCode = pickAddressComponent(components, ['postal_code']);
+    const country = pickAddressComponent(components, ['country']);
+    const streetWithNumber = [street, number].filter(Boolean).join(', ') || null;
+    const formatted = String(response?.formatted_address ?? fallbackFormatted ?? '').trim() || null;
+    const built = buildFormattedAddress({
+      street: streetWithNumber,
+      district,
+      city,
+      state,
+    });
+    const finalFormatted = built || formatted;
+    return {
+      street: streetWithNumber,
+      district,
+      city,
+      state,
+      postal_code: postalCode,
+      country,
+      formatted_address: finalFormatted,
+    };
+  }
+  if (provider.includes('mapbox')) {
+    const features = Array.isArray(response?.features) ? (response?.features as Array<Record<string, unknown>>) : [];
+    const first = features[0] ?? null;
+    const context = Array.isArray(first?.context) ? (first?.context as Array<Record<string, unknown>>) : [];
+    const district = context.find((c) => String(c.id ?? '').startsWith('neighborhood'))?.text;
+    const city = context.find((c) => String(c.id ?? '').startsWith('place'))?.text;
+    const state = context.find((c) => String(c.id ?? '').startsWith('region'))?.text;
+    const postal = context.find((c) => String(c.id ?? '').startsWith('postcode'))?.text;
+    const country = context.find((c) => String(c.id ?? '').startsWith('country'))?.text;
+    const built = buildFormattedAddress({
+      street: String(first?.text ?? '').trim() || null,
+      district: String(district ?? '').trim() || null,
+      city: String(city ?? '').trim() || null,
+      state: String(state ?? '').trim() || null,
+    });
+    const formatted = String(first?.place_name ?? fallbackFormatted ?? '').trim() || null;
+    return {
+      street: String(first?.text ?? '').trim() || null,
+      district: String(district ?? '').trim() || null,
+      city: String(city ?? '').trim() || null,
+      state: String(state ?? '').trim() || null,
+      postal_code: String(postal ?? '').trim() || null,
+      country: String(country ?? '').trim() || null,
+      formatted_address: built || formatted,
+    };
+  }
+  const addr = payload.address_parts ?? {};
+  const baseStreet =
+    addr.road ??
+    addr.pedestrian ??
+    addr.residential ??
+    addr.footway ??
+    addr.path ??
+    null;
+  const street = [baseStreet, addr.house_number].filter(Boolean).map(String).join(', ') || null;
+  const district = (addr.suburb ?? addr.neighbourhood ?? addr.city_district ?? addr.quarter ?? null) as string | null;
+  const city = (addr.city ?? addr.town ?? addr.municipality ?? addr.village ?? addr.county ?? null) as string | null;
+  const state = (addr.state ?? null) as string | null;
+  const postal = (addr.postcode ?? addr.postal_code ?? addr.zip ?? null) as string | null;
+  const country = (addr.country ?? null) as string | null;
+  const formattedAddress = buildFormattedAddress({ street, district, city, state }) || fallbackFormatted;
+  const normalized = {
+    street,
+    district,
+    city,
+    state,
+    postal_code: postal,
+    country,
+    formatted_address: formattedAddress,
+  };
+  console.info('[GEO ADDRESS NORMALIZED]', {
+    provider: payload.provider ?? 'unknown',
+    street: normalized.street,
+    district: normalized.district,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+    formatted_address: normalized.formatted_address,
+  });
+  return normalized;
 }
 
 async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> {
   const u = new URL('/api/reverse-geocode', getOrigin());
   u.searchParams.set('lat', String(lat));
   u.searchParams.set('lon', String(lng));
+  console.info('[GEO REVERSE REQUEST]', { lat, lng, provider: 'api_reverse_geocode', url: u.toString() });
   const res = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`reverse_geocode_http_${res.status}`);
-  const data = (await res.json()) as { address?: string; address_parts?: Record<string, unknown>; provider?: string };
-  const formatted = String(data.address || '').trim() || `Coordenadas: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  return toSnapshotFromAddress(data.address_parts, formatted, data.provider || 'nominatim');
+  if (!res.ok) {
+    console.info('[GEO REVERSE HTTP ERROR]', { lat, lng, status: res.status, status_text: res.statusText });
+    throw new Error(`reverse_geocode_http_${res.status}`);
+  }
+  const data = (await res.json()) as {
+    address?: string;
+    address_parts?: Record<string, unknown> | null;
+    provider?: string;
+    status?: 'ok' | 'partial' | 'timeout' | 'provider_error';
+    response?: unknown;
+  };
+  console.info('[GEO REVERSE RAW RESPONSE]', {
+    lat,
+    lng,
+    provider: data.provider ?? 'unknown',
+    response: data.response ?? data,
+  });
+  console.info('[GEO REVERSE RESPONSE]', {
+    lat,
+    lng,
+    provider: data.provider ?? 'unknown',
+    response: data,
+  });
+  const normalized = normalizeReverseGeocodeAddress({
+    provider: data.provider,
+    address_parts: data.address_parts,
+    response: data.response,
+    address: data.address,
+  });
+  console.info('[GEO ADDRESS PARSED]', {
+    lat,
+    lng,
+    street: normalized.street,
+    district: normalized.district,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+  });
+  const hasAnyAddressPart = Boolean(
+    normalized.street ||
+      normalized.district ||
+      normalized.city ||
+      normalized.state ||
+      normalized.postal_code ||
+      normalized.country ||
+      normalized.formatted_address,
+  );
+  if (data.status === 'timeout') {
+    console.info('[GEO PROVIDER TIMEOUT]', { lat, lng, provider: data.provider ?? 'unknown' });
+  }
+  const finalAddress = {
+    street: normalized.street,
+    district: normalized.district,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+    country: normalized.country,
+    provider: data.provider || 'nominatim',
+    resolved_at: new Date().toISOString(),
+    formatted: normalized.formatted_address || '',
+    formatted_address: normalized.formatted_address,
+    reverse_geocode_status: data.status ?? (hasAnyAddressPart ? 'ok' : 'partial'),
+  };
+  console.info('[GEO ADDRESS FINAL]', {
+    lat,
+    lng,
+    street: finalAddress.street,
+    district: finalAddress.district,
+    city: finalAddress.city,
+    state: finalAddress.state,
+    postal_code: finalAddress.postal_code,
+    formatted_address: finalAddress.formatted_address,
+    provider: finalAddress.provider,
+    status: finalAddress.reverse_geocode_status,
+  });
+  console.info('[GEO FORMATTED ADDRESS]', {
+    lat,
+    lng,
+    formatted_address: finalAddress.formatted_address,
+  });
+  console.info('[GEO POSTAL CODE]', {
+    lat,
+    lng,
+    postal_code: finalAddress.postal_code,
+  });
+  return finalAddress;
+}
+
+async function fetchDirectFromNominatim(lat: number, lng: number): Promise<GeocodeSnapshot> {
+  const url = new URL('https://nominatim.openstreetmap.org/reverse');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('lat', String(lat));
+  url.searchParams.set('lon', String(lng));
+  url.searchParams.set('accept-language', 'pt-BR');
+  console.info('[GEO REVERSE REQUEST]', {
+    lat,
+    lng,
+    provider: 'nominatim_direct',
+    url: url.toString(),
+  });
+  console.info('[GEO REVERSE DIRECT PROVIDER FALLBACK]', { lat, lng, url: url.toString() });
+  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    throw new Error(`reverse_geocode_direct_http_${res.status}`);
+  }
+  const response = (await res.json()) as Record<string, unknown>;
+  console.info('[GEO REVERSE RAW RESPONSE]', {
+    lat,
+    lng,
+    provider: 'nominatim_direct',
+    response,
+  });
+  console.info('[GEO REVERSE RESPONSE]', {
+    lat,
+    lng,
+    provider: 'nominatim_direct',
+    response,
+  });
+  const normalized = normalizeReverseGeocodeAddress({
+    provider: 'nominatim',
+    address_parts: (response.address as Record<string, unknown> | undefined) ?? null,
+    response,
+    address: String(response.display_name ?? ''),
+  });
+  console.info('[GEO ADDRESS PARSED]', {
+    lat,
+    lng,
+    street: normalized.street,
+    district: normalized.district,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+  });
+  const hasAnyAddressPart = Boolean(
+    normalized.street ||
+      normalized.district ||
+      normalized.city ||
+      normalized.state ||
+      normalized.postal_code ||
+      normalized.country ||
+      normalized.formatted_address,
+  );
+  const finalAddress = {
+    street: normalized.street,
+    district: normalized.district,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+    country: normalized.country,
+    provider: 'nominatim_direct',
+    resolved_at: new Date().toISOString(),
+    formatted: normalized.formatted_address || '',
+    formatted_address: normalized.formatted_address,
+    reverse_geocode_status: hasAnyAddressPart ? 'ok' : 'partial',
+  };
+  console.info('[GEO ADDRESS FINAL]', {
+    lat,
+    lng,
+    street: finalAddress.street,
+    district: finalAddress.district,
+    city: finalAddress.city,
+    state: finalAddress.state,
+    postal_code: finalAddress.postal_code,
+    formatted_address: finalAddress.formatted_address,
+    provider: finalAddress.provider,
+    status: finalAddress.reverse_geocode_status,
+  });
+  console.info('[GEO FORMATTED ADDRESS]', {
+    lat,
+    lng,
+    formatted_address: finalAddress.formatted_address,
+  });
+  console.info('[GEO POSTAL CODE]', {
+    lat,
+    lng,
+    postal_code: finalAddress.postal_code,
+  });
+  return finalAddress;
 }
 
 let reverseGeoCacheIsolationBootstrapped = false;
+let reverseGeoCacheDevResetDone = false;
 function bootstrapReverseGeoCacheIsolation(): void {
   if (reverseGeoCacheIsolationBootstrapped || typeof window === 'undefined') return;
   reverseGeoCacheIsolationBootstrapped = true;
@@ -140,6 +465,12 @@ function bootstrapReverseGeoCacheIsolation(): void {
   window.addEventListener('current_user_changed', () => {
     clearTenantScopedCaches();
   });
+  if (import.meta.env?.DEV && !reverseGeoCacheDevResetDone) {
+    reverseGeoCacheDevResetDone = true;
+    CACHE.clear();
+    IN_FLIGHT.clear();
+    logGeo('[GEO CACHE INVALIDATION]', { reason: 'dev_boot_clear_legacy', version: VERSION });
+  }
 }
 
 export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<ReverseResult> {
@@ -153,8 +484,17 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
     source: 'reverseGeocodeSnapshot',
   });
   const key = cacheKey(lat, lng, 'nominatim');
-  const cached = CACHE.get(key);
-  if (cached) {
+  if (!key) {
+    logGeo('[GEO CACHE BYPASS]', {
+      reason: 'missing_tenant_scope',
+      lat,
+      lng,
+      company_id: scope.companyId,
+      user_id: scope.userId,
+    });
+  }
+  const cached = key ? CACHE.get(key) : null;
+  if (key && cached) {
     appendOperationalTraceSpan({
       trace_id: trace.trace_id,
       type: 'CACHE_ACCESS',
@@ -169,7 +509,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
       source: 'reverse_geocode',
       operation_type: 'cache',
     });
-    logGeo('[GEO TENANT CACHE]', { lat, lng, key, source: 'app', hit: true });
+    logGeo('[GEO CACHE HIT]', { lat, lng, key, source: 'app', hit: true, version: VERSION });
     finalizeOperationalTrace(trace.trace_id);
     return { snapshot: cached, cacheHit: true };
   }
@@ -179,8 +519,8 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
     source: 'reverse_geocode',
     operation_type: 'cache',
   });
-  const pending = IN_FLIGHT.get(key);
-  if (pending) {
+  const pending = key ? IN_FLIGHT.get(key) : null;
+  if (key && pending) {
     appendOperationalTraceSpan({
       trace_id: trace.trace_id,
       type: 'CACHE_ACCESS',
@@ -205,11 +545,56 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
           throw new Error('retry_budget_exceeded_reverse_geocode');
         }
         try {
-          return await fetchFromApi(lat, lng);
+          try {
+            return await fetchFromApi(lat, lng);
+          } catch (apiError) {
+            console.error('[GEO REVERSE ERROR RAW]', apiError);
+            console.error('[GEO REVERSE ERROR DETAILS]', {
+              name: apiError instanceof Error ? apiError.name : null,
+              message: apiError instanceof Error ? apiError.message : String(apiError),
+              stack: apiError instanceof Error ? apiError.stack : null,
+              cause:
+                apiError instanceof Error
+                  ? (apiError as Error & { cause?: unknown }).cause ?? null
+                  : null,
+              lat,
+              lng,
+              provider: 'api_reverse_geocode',
+            });
+            console.info('[GEO REVERSE API FALLBACK]', {
+              lat,
+              lng,
+              error: apiError instanceof Error ? apiError.message : String(apiError),
+            });
+            return await fetchDirectFromNominatim(lat, lng);
+          }
         } catch (error) {
           if (attempt < 3) {
             await new Promise((resolve) => setTimeout(resolve, retryBackoff.computeDelayMs(attempt)));
-            return fetchFromApi(lat, lng);
+            try {
+              return await fetchFromApi(lat, lng);
+            } catch (apiError) {
+              console.error('[GEO REVERSE ERROR RAW]', apiError);
+              console.error('[GEO REVERSE ERROR DETAILS]', {
+                name: apiError instanceof Error ? apiError.name : null,
+                message: apiError instanceof Error ? apiError.message : String(apiError),
+                stack: apiError instanceof Error ? apiError.stack : null,
+                cause:
+                  apiError instanceof Error
+                    ? (apiError as Error & { cause?: unknown }).cause ?? null
+                    : null,
+                lat,
+                lng,
+                provider: 'api_reverse_geocode',
+              });
+              console.info('[GEO REVERSE API FALLBACK]', {
+                lat,
+                lng,
+                error: apiError instanceof Error ? apiError.message : String(apiError),
+                retry_attempt: attempt,
+              });
+              return fetchDirectFromNominatim(lat, lng);
+            }
           }
           throw error;
         }
@@ -226,11 +611,15 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
       const first = CACHE.keys().next().value;
       if (first !== undefined) CACHE.delete(first);
     }
-    CACHE.set(key, snap);
-    logGeo('[GEO CACHE ISOLATION]', { lat, lng, provider: snap.provider, key, version: VERSION, source: 'app' });
+    if (key) {
+      CACHE.set(key, snap);
+      logGeo('[GEO CACHE ISOLATION]', { lat, lng, provider: snap.provider, key, version: VERSION, source: 'app' });
+    }
     return snap;
   })();
-  IN_FLIGHT.set(key, run);
+  if (key) {
+    IN_FLIGHT.set(key, run);
+  }
   try {
     const snapshot = await run;
     appendOperationalTraceSpan({
@@ -244,6 +633,11 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
     finalizeOperationalTrace(trace.trace_id);
     return { snapshot, cacheHit: false };
   } catch (error) {
+    console.info('[GEO REVERSE FETCH ERROR]', {
+      lat,
+      lng,
+      error: error instanceof Error ? error.message : String(error),
+    });
     appendOperationalTraceSpan({
       trace_id: trace.trace_id,
       type: 'RPC_CALL',
@@ -255,7 +649,9 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
     failOperationalTrace(trace.trace_id, error);
     throw error;
   } finally {
-    IN_FLIGHT.delete(key);
+    if (key) {
+      IN_FLIGHT.delete(key);
+    }
   }
 }
 

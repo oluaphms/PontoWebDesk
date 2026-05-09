@@ -9,10 +9,6 @@
 import { reverseGeocodeSnapshot } from '../services/geolocation/reverseGeocode.service';
 import { validateCoordinateOrder } from '../services/geolocation/geoIntegrity.service';
 
-function formatCoordFallback(lat: number, lng: number): string {
-  return `Coordenadas: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-}
-
 function pairFromNumbers(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
   if (lat == null || lng == null) return null;
   const la = Number(lat);
@@ -79,9 +75,40 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
   }
   try {
     const { snapshot } = await reverseGeocodeSnapshot(lat, lng);
+    if (snapshot.reverse_geocode_status === 'timeout') {
+      return 'Falha temporária ao resolver endereço.';
+    }
     const text = (snapshot.formatted || '').trim();
-    return text || formatCoordFallback(lat, lng);
+    return text || 'Endereço não resolvido para esta coordenada.';
   } catch {
-    return formatCoordFallback(lat, lng);
+    return 'Falha temporária ao resolver endereço.';
+  }
+}
+
+/**
+ * Retorna linha curta priorizando nome da rua (quando disponível no provider).
+ */
+export async function reverseGeocodeStreet(lat: number, lng: number): Promise<string> {
+  const coordIssues = validateCoordinateOrder(lat, lng);
+  if (coordIssues.length > 0 && typeof console !== 'undefined') {
+    console.info('[GEO INVALID COORDINATE ORDER]', { lat, lng, issues: coordIssues, source: 'ui' });
+  }
+  try {
+    const { snapshot } = await reverseGeocodeSnapshot(lat, lng);
+    if (snapshot.reverse_geocode_status === 'timeout') {
+      return 'Falha temporária ao resolver endereço.';
+    }
+    const street = String(snapshot.street ?? '').trim();
+    const district = String(snapshot.district ?? '').trim();
+    const city = String(snapshot.city ?? '').trim();
+    if (street) {
+      const suffix = [district, city].filter(Boolean).join(' - ');
+      return suffix ? `${street} - ${suffix}` : street;
+    }
+    const formatted = String(snapshot.formatted ?? '').trim();
+    if (formatted) return formatted;
+    return 'Endereço não resolvido para esta coordenada.';
+  } catch {
+    return 'Falha temporária ao resolver endereço.';
   }
 }
