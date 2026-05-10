@@ -11,6 +11,7 @@ import PunchModal from './components/PunchModal';
 import Onboarding from './components/Onboarding';
 import { Button, Badge, LoadingState, SuccessOverlay, Input } from './components/UI';
 import RouteLoadingFallback from './src/components/RouteLoadingFallback';
+import AppErrorBoundary from './components/ErrorBoundary';
 import { getWorkInsights } from './services/geminiService';
 import { isAiDashboardInsightsAutoEnabled } from './services/geminiEnv';
 import { PontoService, getRecordCreatedAtDate } from './services/pontoService';
@@ -1962,7 +1963,16 @@ const AppMain: React.FC = () => {
         >
           <Routes>
             {/* Rotas Admin: /admin redireciona pelo index; não duplicar Route path="/admin" (quebra sub-rotas como /admin/bank-hours). */}
-            <Route path="/admin" element={<ProtectedRoute user={user} allowedRoles={['admin', 'hr']}><Outlet /></ProtectedRoute>}>
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute user={user} allowedRoles={['admin', 'hr']}>
+                  <AppErrorBoundary>
+                    <Outlet />
+                  </AppErrorBoundary>
+                </ProtectedRoute>
+              }
+            >
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="employees" element={<AdminEmployees />} />
@@ -2031,7 +2041,9 @@ const AppMain: React.FC = () => {
               path="/employee"
               element={
                 <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
-                  <Outlet />
+                  <AppErrorBoundary>
+                    <Outlet />
+                  </AppErrorBoundary>
                 </RoleGuard>
               }
             >

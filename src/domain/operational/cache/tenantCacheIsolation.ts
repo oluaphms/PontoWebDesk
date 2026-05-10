@@ -1,3 +1,5 @@
+import { opLog } from '../../../utils/operationalLogger';
+
 export type TenantScope = {
   companyId: string;
   userId: string;
@@ -24,9 +26,13 @@ export function getGeoCacheGenerationToken(): number {
   return geoCacheGeneration;
 }
 
+/**
+ * Em produção/silenciado por opLog — evita poluir o console quando o sistema entra
+ * em ciclos legítimos de invalidação (ex.: realtime + visibilitychange + ghost detection).
+ */
 export function bumpGeoCacheGeneration(reason: string): number {
   geoCacheGeneration += 1;
-  console.info('[GEO CACHE GENERATION]', { generation: geoCacheGeneration, reason });
+  opLog.diag('GEO CACHE GENERATION', { generation: geoCacheGeneration, reason });
   return geoCacheGeneration;
 }
 
@@ -72,18 +78,14 @@ export function clearTenantScopedCaches(scope?: Partial<TenantScope>): void {
     try {
       entry.clear(scope);
     } catch (error) {
-      if (typeof console !== 'undefined') {
-        console.warn('[TENANT CACHE RESET]', { cache: entry.name, error });
-      }
+      opLog.warn('TENANT CACHE RESET', { cache: entry.name, error });
     }
   }
-  if (typeof console !== 'undefined') {
-    console.info('[TENANT CACHE RESET]', {
-      company_id: scope?.companyId ?? scope?.tenantId ?? null,
-      user_id: scope?.userId ?? null,
-      total_caches: CACHE_REGISTRY.size,
-    });
-  }
+  opLog.diag('TENANT CACHE RESET', {
+    company_id: scope?.companyId ?? scope?.tenantId ?? null,
+    user_id: scope?.userId ?? null,
+    total_caches: CACHE_REGISTRY.size,
+  });
 }
 
 export function validateTenantMemoryIsolation(): { ok: boolean; issues: string[] } {

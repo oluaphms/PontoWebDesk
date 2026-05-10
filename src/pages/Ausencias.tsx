@@ -4,8 +4,9 @@ import { CalendarDays, Download, Filter } from 'lucide-react';
 import RoleGuard from '../components/auth/RoleGuard';
 import PageHeader from '../components/PageHeader';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db, isSupabaseConfigured, supabase } from '../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { LoadingState } from '../../components/UI';
+import { fetchAusenciasReport } from '../services/ausenciasReport.service';
 
 type AusenciaRow = {
   user_id: string;
@@ -73,28 +74,20 @@ const AdminAusencias: React.FC = () => {
     setLoadingData(true);
     setErrorMsg(null);
     try {
-      const { data, error } = await supabase.rpc('rel_ausencias', {
-        p_data_ini: dataIni,
-        p_data_fim: dataFim,
-        p_user_id: employeeId || null,
-        p_department_id: departmentId || null,
-        p_carga_diaria_minutos: cargaDiaria,
-        p_extra_minutos: extraMin === '' ? null : Number(extraMin),
-        p_falta_minutos: faltaMin === '' ? null : Number(faltaMin),
-        p_almoco_min_min: almocoMin === '' ? null : Number(almocoMin),
-        p_almoco_min_max: almocoMax === '' ? null : Number(almocoMax),
-        p_interjornada_min_min: interjMin === '' ? null : Number(interjMin),
-        p_interjornada_min_max: interjMax === '' ? null : Number(interjMax),
-        // p_company_id não é necessário no app; usa auth.uid()
+      const data = await fetchAusenciasReport({
+        dataIni,
+        dataFim,
+        employeeId,
+        departmentId,
+        cargaDiaria,
+        extraMin,
+        faltaMin,
+        almocoMin,
+        almocoMax,
+        interjMin,
+        interjMax,
       });
-
-      if (error) {
-        console.error(error);
-        setErrorMsg(error.message || 'Erro ao carregar ausências.');
-        setRows([]);
-      } else {
-        setRows((data ?? []) as AusenciaRow[]);
-      }
+      setRows(data as AusenciaRow[]);
     } catch (e: any) {
       console.error(e);
       setErrorMsg(e?.message || 'Erro ao carregar ausências.');

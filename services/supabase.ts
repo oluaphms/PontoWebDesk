@@ -29,8 +29,9 @@ export function isSupabaseConfigured(): boolean {
   return !!getSupabaseClient();
 }
 
+/** @deprecated Use `isSupabaseConfigured` para manter nomenclatura única. */
 export function checkSupabaseConfigured(): boolean {
-  return !!getSupabaseClient();
+  return isSupabaseConfigured();
 }
 
 // Storage para autenticação

@@ -6,6 +6,74 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from './supabaseClient';
 import { getOperationalDeviceKey } from './deviceOperationalReputation.service';
 import { operationalBusEmit } from '../domain/operational/bus/operationalEventBus';
+import { opLog } from '../utils/operationalLogger';
+
+/**
+ * Circuit breaker para a trilha de auditoria.
+ *
+ * Quando a RLS rejeita inserts (403/erro de policy), o detector ghost + listener
+ * de `force_monitoring_refresh` podia disparar centenas de inserts consecutivos —
+ * todos rejeitados, todos gerando ruído de rede.
+ *
+ * Após 3 falhas em janela de 30s, suspendemos os inserts por 5 minutos.
+ * O modo aberto é resetado ao próximo sucesso ou ao expirar a janela.
+ */
+const CB_FAILURE_THRESHOLD = 3;
+const CB_FAILURE_WINDOW_MS = 30_000;
+const CB_OPEN_DURATION_MS = 5 * 60_000;
+let cbConsecutiveFailures = 0;
+let cbFirstFailureAt = 0;
+let cbOpenUntil = 0;
+
+function isPermissionError(message: string | undefined | null): boolean {
+  if (!message) return false;
+  const m = String(message).toLowerCase();
+  return m.includes('row-level security') || m.includes('new row violates') || m.includes('permission denied') || m.includes('403');
+}
+
+function noteAuditTrailFailure(rawError: string | null | undefined): void {
+  if (!isPermissionError(rawError)) return;
+  const now = Date.now();
+  if (cbFirstFailureAt && now - cbFirstFailureAt > CB_FAILURE_WINDOW_MS) {
+    cbConsecutiveFailures = 0;
+    cbFirstFailureAt = 0;
+  }
+  if (cbConsecutiveFailures === 0) cbFirstFailureAt = now;
+  cbConsecutiveFailures += 1;
+  if (cbConsecutiveFailures >= CB_FAILURE_THRESHOLD && cbOpenUntil <= now) {
+    cbOpenUntil = now + CB_OPEN_DURATION_MS;
+    opLog.warn('AUDIT TRAIL CIRCUIT OPEN', {
+      consecutive_failures: cbConsecutiveFailures,
+      open_until_iso: new Date(cbOpenUntil).toISOString(),
+      sample_error: rawError ?? null,
+    });
+  }
+}
+
+function noteAuditTrailSuccess(): void {
+  if (cbOpenUntil !== 0 || cbConsecutiveFailures !== 0) {
+    cbOpenUntil = 0;
+    cbConsecutiveFailures = 0;
+    cbFirstFailureAt = 0;
+  }
+}
+
+function isAuditTrailCircuitOpen(): boolean {
+  if (cbOpenUntil === 0) return false;
+  if (Date.now() >= cbOpenUntil) {
+    cbOpenUntil = 0;
+    cbConsecutiveFailures = 0;
+    cbFirstFailureAt = 0;
+    return false;
+  }
+  return true;
+}
+
+export function __resetOperationalLegalAuditCircuitForTests(): void {
+  cbConsecutiveFailures = 0;
+  cbFirstFailureAt = 0;
+  cbOpenUntil = 0;
+}
 
 export type OperationalLegalAuditInput = {
   companyId: string;
@@ -24,7 +92,10 @@ let listenersInstalled = false;
 export async function insertOperationalLegalAuditTrail(
   input: OperationalLegalAuditInput,
   clientOverride?: SupabaseClient | null,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; skipped?: 'circuit_open' }> {
+  if (isAuditTrailCircuitOpen()) {
+    return { ok: false, skipped: 'circuit_open', error: 'audit_trail_circuit_open' };
+  }
   const client = clientOverride ?? getSupabaseClient();
   if (!client) return { ok: false, error: 'no_client' };
   const { error } = await client.from('operational_legal_audit_trail').insert({
@@ -38,7 +109,11 @@ export async function insertOperationalLegalAuditTrail(
     payload_after: input.payloadAfter ?? null,
     correlation_id: input.correlationId ?? null,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    noteAuditTrailFailure(error.message);
+    return { ok: false, error: error.message };
+  }
+  noteAuditTrailSuccess();
   operationalBusEmit('telemetry:tick', { kind: 'legal_audit', action: input.action });
   return { ok: true };
 }

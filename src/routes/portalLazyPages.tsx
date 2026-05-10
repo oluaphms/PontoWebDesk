@@ -26,8 +26,6 @@ export const OperationalObservabilityPage = React.lazy(ROUTE_LOADERS['/admin/ope
 export const ProductionControlCenterPage = React.lazy(ROUTE_LOADERS['/admin/production-control-center']);
 export const OperationalLoadReportPage = React.lazy(ROUTE_LOADERS['/admin/operational-load-report']);
 export const RepOperationsCenterPage = React.lazy(ROUTE_LOADERS['/admin/rep-operations-center']);
-/** Compat: URL antiga `/admin/rep-operational-health` usa o mesmo módulo. */
-export const RepOperationalHealthPage = React.lazy(ROUTE_LOADERS['/admin/rep-operational-health']);
 export const AbsencesPage = React.lazy(ROUTE_LOADERS['/admin/absences']);
 export const RequestsPage = React.lazy(ROUTE_LOADERS['/admin/requests']);
 

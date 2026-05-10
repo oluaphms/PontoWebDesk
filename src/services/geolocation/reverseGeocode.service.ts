@@ -24,6 +24,7 @@ import {
   operationalGeocodeResolvedAtIso,
   type OperationalAddressShape,
 } from './addressNormalizer.service';
+import { opLog } from '../../utils/operationalLogger';
 
 export type GeocodeSnapshot = {
   street: string | null;
@@ -122,8 +123,9 @@ function getOrigin(): string {
 }
 
 function logGeo(tag: string, payload: Record<string, unknown>): void {
-  if (typeof console === 'undefined') return;
-  console.info(tag, payload);
+  // Tag aqui chega no formato "[GEO CACHE INVALIDATION]"; opLog adiciona seus próprios colchetes.
+  const cleanTag = tag.replace(/^\[/, '').replace(/\]$/, '');
+  opLog.diag(cleanTag, payload);
 }
 
 function toSnapshotFromAddress(

@@ -1,3 +1,5 @@
+import { opLog } from '../utils/operationalLogger';
+
 export type OperationalFeatureName =
   | 'geoConsensus'
   | 'nativeGps'
@@ -72,7 +74,7 @@ export function getOperationalFeatureFlag(
     (o) => (tenantId && o.tenantId === tenantId) || (companyId && o.companyId === companyId),
   );
   const value = override?.flags?.[feature] ?? base;
-  console.info(value ? '[FEATURE FLAG ENABLED]' : '[FEATURE FLAG DISABLED]', {
+  opLog.diag(value ? 'FEATURE FLAG ENABLED' : 'FEATURE FLAG DISABLED', {
     feature,
     tenant_id: tenantId,
     company_id: companyId,

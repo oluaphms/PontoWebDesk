@@ -2,7 +2,7 @@
 // Relatório de Segurança / Antifraude - Padrão Profissional
 // ============================================================
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, ShieldAlert, AlertTriangle, MapPin, Smartphone, UserX } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
@@ -10,6 +10,8 @@ import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
+import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
+import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 import {
   KPICards,
   FiltersBar,
@@ -61,6 +63,7 @@ const getRiskLevel = (score: number | null) => {
 
 export default function ReportSecurity() {
   const { user, loading } = useCurrentUser();
+  const { employees: companyEmployees } = useCompanyEmployees(user?.companyId);
   const [records, setRecords] = useState<SecurityRecord[]>([]);
   const [employees, setEmployees] = useState<Map<string, string>>(new Map());
   const [loadingData, setLoadingData] = useState(false);
@@ -74,34 +77,26 @@ export default function ReportSecurity() {
   const [filterRiskLevel, setFilterRiskLevel] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [onlySuspicious, setOnlySuspicious] = useState(true);
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    const cid = user.companyId!;
-    const flag = onlySuspicious ? 'susp' : 'all';
-    const cacheKey = adminReportCacheKey(cid, 'security', periodStart, periodEnd, flag);
-
-    const load = async () => {
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured()) return;
+      const cid = user.companyId;
+      const flag = onlySuspicious ? 'susp' : 'all';
+      const cacheKey = adminReportCacheKey(cid, 'security', periodStart, periodEnd, flag);
       setLoadingData(true);
       try {
         const { list, empMap } = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const [recs, usersRows] = await Promise.all([
-              db.select(
-                'time_records',
-                [{ column: 'company_id', operator: 'eq', value: cid }],
-                { column: 'created_at', ascending: false },
-                5000
-              ) as Promise<any[]>,
-              queryCache.getOrFetch(
-                `users:${cid}`,
-                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-                TTL.NORMAL,
-              ),
-            ]);
+            const recs = (await db.select(
+              'time_records',
+              [{ column: 'company_id', operator: 'eq', value: cid }],
+              { column: 'created_at', ascending: false },
+              5000
+            )) as any[];
 
             const empMap = new Map<string, string>();
-            (usersRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email || u.id?.slice(0, 8)));
+            companyEmployees.forEach((u) => empMap.set(u.id, u.nome));
 
             let list = (recs ?? []).filter((r: any) => {
               const d = (r.created_at || r.timestamp || '').toString().slice(0, 10);
@@ -131,15 +126,15 @@ export default function ReportSecurity() {
           TTL.NORMAL,
         );
 
+        if (isCancelled()) return;
         setEmployees(empMap);
         setRecords(list);
       } finally {
-        setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    };
-
-    load();
-  }, [user?.companyId, periodStart, periodEnd, onlySuspicious]);
+    },
+    [user?.companyId, periodStart, periodEnd, onlySuspicious, companyEmployees],
+  );
 
   // Dados filtrados
   const filteredRecords = useMemo(() => {

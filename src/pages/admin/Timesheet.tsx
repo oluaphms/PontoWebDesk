@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { insertAdminMirrorTimeRecord } from '../../../services/timeRecords.service';
@@ -37,7 +37,6 @@ import {
   isRepPunchEligibleForAssistedSequenceReconciliation,
   type PendingRepPunch,
 } from '../../services/timeAttendanceData';
-import { extractLocalCalendarDateFromIso } from '../../utils/calendarUtils';
 import { RepPendingSequenceResolutionModal } from '../../components/RepPendingSequenceResolutionModal';
 import {
   invalidateAfterPunch,
@@ -57,8 +56,9 @@ import {
 } from '../../services/professionalPDF.service';
 import { LoggingService } from '../../../services/loggingService';
 import { LogSeverity } from '../../../types';
-import { mapTimesheetForUI, type TimesheetUIRow } from '../../services/timesheetProcessingStatus';
+import { type TimesheetUIRow } from '../../services/timesheetProcessingStatus';
 import { reverseGeocodeSnapshot, type GeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
+import { fetchRepPendingByDate, fetchTimesheetsDailyUiByDate } from '../../services/adminTimesheetData.service';
 import {
   computePeriodHealthSummary,
   deriveOperationalDisplayStatus,
@@ -85,19 +85,6 @@ function localDateKey(d = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-/** Limites do dia civil local (espelho / RH) em ISO UTC para filtrar `data_hora`. */
-function localYmdStartIso(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  if (!y || !m || !d) return `${ymd}T00:00:00.000Z`;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
-
-function localYmdEndIso(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  if (!y || !m || !d) return `${ymd}T23:59:59.999Z`;
-  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
 }
 
 /** Meses civis de `startYmd` a `endYmd` (YYYY-MM-DD), inclusive, em ordem cronológica. */
@@ -138,6 +125,8 @@ type AdminEmployee = { id: string; nome: string; department_id?: string; role?: 
 
 /** Célula sem batida (pedido de UX). */
 const EMPTY_DASH = '----';
+const TIMESHEET_ROW_ESTIMATED_HEIGHT = 52;
+const TIMESHEET_OVERSCAN = 12;
 
 type TimeRecord = {
   id: string;
@@ -312,6 +301,8 @@ const AdminTimesheet: React.FC = () => {
   const [recordToEdit, setRecordToEdit] = useState<TimeRecord | null>(null);
   const [issuesModal, setIssuesModal] = useState<DayIssuesModalState>(null);
   const [detailOpenByDate, setDetailOpenByDate] = useState<Record<string, boolean>>({});
+  const [timesheetScrollTop, setTimesheetScrollTop] = useState(0);
+  const timesheetScrollRef = useRef<HTMLDivElement | null>(null);
 
   /** Evita `loadEspelho` com período vazio antes de ler sessionStorage (caso típico: novo login → batidas “sumiam”). */
   const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -532,58 +523,23 @@ const AdminTimesheet: React.FC = () => {
     }
     let cancelled = false;
     (async () => {
-      const start = localYmdStartIso(periodStart);
-      const end = localYmdEndIso(periodEnd);
-      const { data, error } = await supabase
-        .from('rep_punch_logs')
-        .select(
-          'id,resolved_user_id,data_hora,tipo_marcacao,nsr,rep_device_id,source,promotion_error_code,promotion_error_message,promotion_attempts,promotion_status,operational_resolution_status,last_promotion_attempt_at',
-        )
-        .eq('company_id', companyId)
-        .eq('resolved_user_id', filterUserId)
-        .is('time_record_id', null)
-        .eq('ignored', false)
-        .gte('data_hora', start)
-        .lte('data_hora', end)
-        .order('data_hora', { ascending: true });
-      if (cancelled) return;
-      if (error) {
-        console.warn('[Espelho] rep_punch_logs pendentes:', error.message);
+      try {
+        const { byDate, count } = await fetchRepPendingByDate(supabase, {
+          companyId,
+          employeeId: filterUserId,
+          periodStart,
+          periodEnd,
+        });
+        if (cancelled) return;
+        setRepPendingByDate(byDate);
+        setRepPendingReconciliationCount(count);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
         setRepPendingReconciliationCount(null);
         setRepPendingByDate(new Map());
-        return;
+        console.warn('[Espelho] rep_punch_logs pendentes:', message);
       }
-      const byDate = new Map<string, PendingRepPunch[]>();
-      for (const row of data ?? []) {
-        const r = row as Record<string, unknown>;
-        const dh = String(r.data_hora ?? '');
-        if (!dh) continue;
-        const day = extractLocalCalendarDateFromIso(dh);
-        if (day < periodStart.slice(0, 10) || day > periodEnd.slice(0, 10)) continue;
-        const uid = String(r.resolved_user_id ?? '').trim();
-        if (!uid) continue;
-        const p: PendingRepPunch = {
-          id: String(r.id ?? ''),
-          resolved_user_id: uid,
-          data_hora: dh,
-          tipo_marcacao: r.tipo_marcacao != null ? String(r.tipo_marcacao) : null,
-          nsr: typeof r.nsr === 'number' ? r.nsr : r.nsr != null ? Number(r.nsr) : null,
-          rep_device_id: r.rep_device_id != null ? String(r.rep_device_id) : null,
-          source: r.source != null ? String(r.source) : null,
-          promotion_error_code: r.promotion_error_code != null ? String(r.promotion_error_code) : null,
-          promotion_error_message: r.promotion_error_message != null ? String(r.promotion_error_message) : null,
-          promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
-          promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
-          operational_resolution_status:
-            r.operational_resolution_status != null ? String(r.operational_resolution_status) : null,
-          last_promotion_attempt_at:
-            r.last_promotion_attempt_at != null ? String(r.last_promotion_attempt_at) : null,
-        };
-        if (!byDate.has(day)) byDate.set(day, []);
-        byDate.get(day)!.push(p);
-      }
-      setRepPendingByDate(byDate);
-      setRepPendingReconciliationCount(data?.length ?? 0);
     })();
     return () => {
       cancelled = true;
@@ -657,25 +613,21 @@ const AdminTimesheet: React.FC = () => {
     }
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('timesheets_daily')
-        .select('date, raw_data')
-        .eq('employee_id', filterUserId)
-        .eq('company_id', companyId)
-        .gte('date', periodStart)
-        .lte('date', periodEnd);
-      if (cancelled) return;
-      if (error) {
-        console.warn('[Espelho] timesheets_daily:', error.message);
+      try {
+        const map = await fetchTimesheetsDailyUiByDate(supabase, {
+          companyId,
+          employeeId: filterUserId,
+          periodStart,
+          periodEnd,
+        });
+        if (cancelled) return;
+        setDailyCalcUiByDate(map);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('[Espelho] timesheets_daily:', message);
         setDailyCalcUiByDate(new Map());
-        return;
       }
-      const m = new Map<string, TimesheetUIRow>();
-      for (const row of data ?? []) {
-        const dateKey = String(row.date).slice(0, 10);
-        m.set(dateKey, mapTimesheetForUI({ raw_data: (row.raw_data ?? {}) as Record<string, unknown> }));
-      }
-      setDailyCalcUiByDate(m);
     })();
     return () => {
       cancelled = true;
@@ -1139,6 +1091,48 @@ const AdminTimesheet: React.FC = () => {
   }
 
   const selectedEmployee = employees.find((e) => e.id === filterUserId);
+  const hasExpandedDetails = useMemo(
+    () => Object.values(detailOpenByDate).some(Boolean),
+    [detailOpenByDate],
+  );
+  const virtualRowsEnabled = !hasExpandedDetails;
+
+  const timesheetVirtualWindow = useMemo(() => {
+    const total = periodDates.length;
+    if (!virtualRowsEnabled || total === 0) {
+      return {
+        start: 0,
+        end: total,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
+    }
+    const viewportHeight = 700;
+    const start = Math.max(0, Math.floor(timesheetScrollTop / TIMESHEET_ROW_ESTIMATED_HEIGHT) - TIMESHEET_OVERSCAN);
+    const visibleCount = Math.ceil(viewportHeight / TIMESHEET_ROW_ESTIMATED_HEIGHT) + TIMESHEET_OVERSCAN * 2;
+    const end = Math.min(total, start + visibleCount);
+    return {
+      start,
+      end,
+      topSpacerHeight: start * TIMESHEET_ROW_ESTIMATED_HEIGHT,
+      bottomSpacerHeight: Math.max(0, (total - end) * TIMESHEET_ROW_ESTIMATED_HEIGHT),
+    };
+  }, [periodDates.length, timesheetScrollTop, virtualRowsEnabled]);
+
+  const periodDatesForRender = useMemo(() => {
+    if (!virtualRowsEnabled) return periodDates;
+    return periodDates.slice(timesheetVirtualWindow.start, timesheetVirtualWindow.end);
+  }, [periodDates, timesheetVirtualWindow.end, timesheetVirtualWindow.start, virtualRowsEnabled]);
+
+  const handleTimesheetScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!virtualRowsEnabled) return;
+    setTimesheetScrollTop(e.currentTarget.scrollTop);
+  }, [virtualRowsEnabled]);
+
+  useEffect(() => {
+    setTimesheetScrollTop(0);
+    if (timesheetScrollRef.current) timesheetScrollRef.current.scrollTop = 0;
+  }, [periodStart, periodEnd, filterUserId, recordTypeFilter, virtualRowsEnabled]);
 
   return (
     <div className="space-y-6 print:space-y-4">
@@ -1565,7 +1559,11 @@ const AdminTimesheet: React.FC = () => {
               {formatDateBR(periodStart)} a {formatDateBR(periodEnd)}
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <div
+            ref={timesheetScrollRef}
+            className="overflow-auto max-h-[72vh]"
+            onScroll={handleTimesheetScroll}
+          >
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
@@ -1578,7 +1576,12 @@ const AdminTimesheet: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {periodDates.map((date) => {
+                {virtualRowsEnabled && timesheetVirtualWindow.topSpacerHeight > 0 && (
+                  <tr aria-hidden>
+                    <td colSpan={6} className="p-0 border-0" style={{ height: timesheetVirtualWindow.topSpacerHeight }} />
+                  </tr>
+                )}
+                {periodDatesForRender.map((date) => {
                   const day = empMirror.get(date);
                   if (!day) return null;
                   const hasRealRecords = day.records.some((r) => !isStatusRecord(r));
@@ -1910,6 +1913,11 @@ const AdminTimesheet: React.FC = () => {
                     </React.Fragment>
                   );
                 })}
+                {virtualRowsEnabled && timesheetVirtualWindow.bottomSpacerHeight > 0 && (
+                  <tr aria-hidden>
+                    <td colSpan={6} className="p-0 border-0" style={{ height: timesheetVirtualWindow.bottomSpacerHeight }} />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -15,9 +15,14 @@ export const StreetAddress: React.FC<Props> = ({ lat, lng, className = '' }) => 
 
   useEffect(() => {
     let cancelled = false;
-    void reverseGeocodeStreet(lat, lng).then((t) => {
-      if (!cancelled) setLine(t);
-    });
+    void reverseGeocodeStreet(lat, lng)
+      .then((t) => {
+        if (!cancelled) setLine(t);
+      })
+      .catch((error) => {
+        console.warn('[StreetAddress] reverse geocode falhou:', error);
+        if (!cancelled) setLine('Endereço indisponível');
+      });
     return () => {
       cancelled = true;
     };

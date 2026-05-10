@@ -2,7 +2,7 @@
 // Relatório de Inconsistências - Padrão Profissional
 // ============================================================
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, FileDown, FileSpreadsheet } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
@@ -10,6 +10,8 @@ import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState, Button } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
+import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
+import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 import {
   KPICards,
   FiltersBar,
@@ -52,6 +54,7 @@ const severityMap: Record<string, 'Leve' | 'Média' | 'Crítica'> = {
 
 const ReportInconsistencies: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const { employees: companyEmployees } = useCompanyEmployees(user?.companyId);
   const [rows, setRows] = useState<InconsistencyRow[]>([]);
   const [employees, setEmployees] = useState<Map<string, string>>(new Map());
   const [loadingData, setLoadingData] = useState(false);
@@ -68,32 +71,25 @@ const ReportInconsistencies: React.FC = () => {
   const [filterResolved, setFilterResolved] = useState<'all' | 'open' | 'resolved'>('all');
   const [filterSeverity, setFilterSeverity] = useState('');
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    const cid = user.companyId!;
-    setLoadingData(true);
-    const cacheKey = adminReportCacheKey(cid, 'inconsistencies', periodStart, periodEnd);
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured()) return;
+      const cid = user.companyId;
+      setLoadingData(true);
+      const cacheKey = adminReportCacheKey(cid, 'inconsistencies', periodStart, periodEnd);
 
-    (async () => {
       try {
         const mapped = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const [incRows, userRows] = await Promise.all([
-              db.select('time_inconsistencies',
-                [{ column: 'company_id', operator: 'eq', value: cid }],
-                { column: 'date', ascending: false },
-                500
-              ) as Promise<any[]>,
-              queryCache.getOrFetch(
-                `users:${cid}`,
-                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-                TTL.NORMAL,
-              ),
-            ]);
+            const incRows = (await db.select('time_inconsistencies',
+              [{ column: 'company_id', operator: 'eq', value: cid }],
+              { column: 'date', ascending: false },
+              500
+            )) as any[];
 
             const empMap = new Map<string, string>();
-            (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
+            companyEmployees.forEach((u) => empMap.set(u.id, u.nome));
 
             const rowsWithNames = (incRows ?? []).map((r: any) => ({
               ...r,
@@ -106,13 +102,15 @@ const ReportInconsistencies: React.FC = () => {
           TTL.NORMAL,
         );
 
+        if (isCancelled()) return;
         setEmployees(mapped.empMap);
         setRows(mapped.rowsWithNames);
       } finally {
-        setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-  }, [user?.companyId, periodStart, periodEnd]);
+    },
+    [user?.companyId, periodStart, periodEnd, companyEmployees],
+  );
 
   // Dados filtrados
   const filteredRows = useMemo(() => {

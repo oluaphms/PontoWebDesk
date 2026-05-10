@@ -737,20 +737,26 @@ const TimeAttendanceAuditPage: React.FC = () => {
     let cancelled = false;
     setPunchLoading(true);
     void (async () => {
-      const r = await fetchDayTimeRecordsForAudit(
-        effectiveCompanyId,
-        punchModalRow.employee_id,
-        punchModalRow.date,
-      );
-      if (!cancelled) {
-        setPunchRows(r);
-        setPunchLoading(false);
+      try {
+        const r = await fetchDayTimeRecordsForAudit(
+          effectiveCompanyId,
+          punchModalRow.employee_id,
+          punchModalRow.date,
+        );
+        if (!cancelled) setPunchRows(r);
+      } catch (e) {
+        if (!cancelled) {
+          setPunchRows([]);
+          toast.addToast('error', 'Falha ao carregar batidas do dia.');
+        }
+      } finally {
+        if (!cancelled) setPunchLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [punchModalRow, effectiveCompanyId]);
+  }, [punchModalRow, effectiveCompanyId, toast]);
 
   const handleManualRecalc = useCallback(
     async (row: TimeAttendanceRow) => {

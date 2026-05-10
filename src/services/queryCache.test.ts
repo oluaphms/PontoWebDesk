@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   queryCache,
   invalidateCompanyListCaches,
   invalidateAfterPunch,
   invalidateAfterTimesheetMonthClose,
   invalidatePendingRequestsCachesForUsers,
+  invalidateOperationalGeoCaches,
+  invalidateRealtimeGeoEntity,
+  flushPendingGeoCacheInvalidations,
+  __resetCacheInvalidationCoalescersForTests,
 } from './queryCache';
 
 describe('queryCache.invalidate', () => {
@@ -64,5 +68,59 @@ describe('queryCache.invalidate', () => {
     invalidatePendingRequestsCachesForUsers(['u1', 'u2', 'u1']);
     expect(queryCache.get('requests:pending:u1')).toBeNull();
     expect(queryCache.get('requests:pending:u2')).toBeNull();
+  });
+});
+
+describe('coalesce de invalidação geo', () => {
+  beforeEach(() => {
+    __resetCacheInvalidationCoalescersForTests();
+    queryCache.clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetCacheInvalidationCoalescersForTests();
+  });
+
+  it('comprime múltiplas chamadas a invalidateOperationalGeoCaches em 1 flush por janela', async () => {
+    await queryCache.getOrFetch('current_operational_state:co-1:keep', async () => ({}), 60_000);
+    await queryCache.getOrFetch('time_records:admin_dash:co-1:keep', async () => ({}), 60_000);
+
+    invalidateOperationalGeoCaches('reason_a');
+    invalidateOperationalGeoCaches('reason_b');
+    invalidateOperationalGeoCaches('reason_c');
+
+    expect(queryCache.get('current_operational_state:co-1:keep')).not.toBeNull();
+    expect(queryCache.get('time_records:admin_dash:co-1:keep')).not.toBeNull();
+
+    vi.advanceTimersByTime(250);
+    expect(queryCache.get('current_operational_state:co-1:keep')).toBeNull();
+    expect(queryCache.get('time_records:admin_dash:co-1:keep')).toBeNull();
+  });
+
+  it('flushPendingGeoCacheInvalidations executa imediatamente o pending', async () => {
+    await queryCache.getOrFetch('current_operational_state:co-2:foo', async () => ({}), 60_000);
+    invalidateOperationalGeoCaches('immediate_test');
+    expect(queryCache.get('current_operational_state:co-2:foo')).not.toBeNull();
+    flushPendingGeoCacheInvalidations();
+    expect(queryCache.get('current_operational_state:co-2:foo')).toBeNull();
+  });
+
+  it('coalesce por entidade respeita (employeeId, companyId) distintos', async () => {
+    await queryCache.getOrFetch('current_operational_state:co-A:cache1', async () => ({}), 60_000);
+    await queryCache.getOrFetch('current_operational_state:co-B:cache2', async () => ({}), 60_000);
+
+    invalidateRealtimeGeoEntity('emp-1', 'co-A');
+    invalidateRealtimeGeoEntity('emp-1', 'co-A');
+    invalidateRealtimeGeoEntity('emp-2', 'co-B');
+    invalidateRealtimeGeoEntity('emp-1', 'co-A');
+
+    expect(queryCache.get('current_operational_state:co-A:cache1')).not.toBeNull();
+    expect(queryCache.get('current_operational_state:co-B:cache2')).not.toBeNull();
+
+    vi.advanceTimersByTime(300);
+    expect(queryCache.get('current_operational_state:co-A:cache1')).toBeNull();
+    expect(queryCache.get('current_operational_state:co-B:cache2')).toBeNull();
   });
 });

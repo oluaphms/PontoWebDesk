@@ -86,7 +86,7 @@ const EmployeeProfile: React.FC = () => {
           <div className="relative group shrink-0">
             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 text-xl sm:text-2xl font-bold overflow-hidden">
               {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                <img src={avatarUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
               ) : (
                 user.nome.charAt(0)
               )}

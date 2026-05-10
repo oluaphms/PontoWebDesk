@@ -7,6 +7,8 @@ import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { processEmployeeMonth } from '../../../engine/timeEngine';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
+import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
+import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 
 interface Row {
   employeeId: string;
@@ -18,7 +20,7 @@ interface Row {
 
 const ReportWorkHours: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const [employees, setEmployees] = useState<{ id: string; nome: string }[]>([]);
+  const { employees } = useCompanyEmployees(user?.companyId);
   const [month, setMonth] = useState(() => {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
@@ -26,27 +28,13 @@ const ReportWorkHours: React.FC = () => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    (async () => {
-      const cid = user.companyId!;
-      const list = (await queryCache.getOrFetch(
-        `users:${cid}`,
-        () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-        TTL.NORMAL,
-      )) as any[];
-      setEmployees((list ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email })));
-    })();
-  }, [user?.companyId]);
-
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
-    const cid = user.companyId!;
-    const [y, m] = month.split('-').map(Number);
-    let cancelled = false;
-    setLoadingData(true);
-    const cacheKey = adminReportCacheKey(cid, 'work_hours', month);
-    (async () => {
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
+      const cid = user.companyId;
+      const [y, m] = month.split('-').map(Number);
+      setLoadingData(true);
+      const cacheKey = adminReportCacheKey(cid, 'work_hours', month);
       try {
         const result = await queryCache.getOrFetch(
           cacheKey,
@@ -72,13 +60,13 @@ const ReportWorkHours: React.FC = () => {
           },
           TTL.STATIC,
         );
-        if (!cancelled) setRows(result);
+        if (!isCancelled()) setRows(result);
       } finally {
-        if (!cancelled) setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.companyId, month, employees]);
+    },
+    [user?.companyId, month, employees],
+  );
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;

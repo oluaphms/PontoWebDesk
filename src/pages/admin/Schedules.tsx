@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Repeat, CalendarDays, X, UserPlus, Users } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
+import { safeAsyncAction } from '../../utils/safeAsyncAction';
 
 const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -42,6 +43,8 @@ interface EscalaCiclicaRow {
 }
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
+const MENSAL_GRID_ROW_HEIGHT = 36;
+const MENSAL_GRID_OVERSCAN = 8;
 
 const AdminSchedules: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -95,17 +98,36 @@ const AdminSchedules: React.FC = () => {
   const [addEmployeeMensalOpen, setAddEmployeeMensalOpen] = useState(false);
   const [copyMonthOpen, setCopyMonthOpen] = useState(false);
   const [copyTargetPeriod, setCopyTargetPeriod] = useState('');
+  const [mensalGridScrollTop, setMensalGridScrollTop] = useState(0);
+  const mensalGridRef = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     setLoadingData(true);
+    setMessage(null);
     try {
+      let partialError = false;
+      const safeSelectRows = async (table: string, filters: any[]) => {
+        const result = await safeAsyncAction(
+          () => db.select(table, filters) as Promise<any[]>,
+          {
+            onError: (e) => {
+              partialError = true;
+              console.error(`[Schedules] Falha ao carregar ${table}:`, e);
+            },
+          },
+        );
+        return result ?? [];
+      };
       const [schedRows, shiftRows, userRows, ciclicasRows, mensalRow] = await Promise.all([
-        db.select('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-        db.select('escala_ciclica', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []) as Promise<any[]>,
-        db.select('escala_mensal', [{ column: 'company_id', operator: 'eq', value: user.companyId }, { column: 'period', operator: 'eq', value: period }]).catch(() => []) as Promise<any[]>,
+        safeSelectRows('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
+        safeSelectRows('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
+        safeSelectRows('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
+        safeSelectRows('escala_ciclica', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
+        safeSelectRows('escala_mensal', [
+          { column: 'company_id', operator: 'eq', value: user.companyId },
+          { column: 'period', operator: 'eq', value: period },
+        ]),
       ]);
       const shiftMap = new Map((shiftRows ?? []).map((s: any) => [s.id, s.name]));
       setRows((schedRows ?? []).map((r: any) => ({
@@ -144,8 +166,15 @@ const AdminSchedules: React.FC = () => {
         setMensal({ employee_ids: [], shift_colors: {}, grid: {} });
         setMensalShifts([]);
       }
+      if (partialError) {
+        setMessage({
+          type: 'error',
+          text: 'Parte dos dados não pôde ser carregada. Tente atualizar novamente.',
+        });
+      }
     } catch (e) {
       console.error(e);
+      setMessage({ type: 'error', text: 'Não foi possível carregar as escalas.' });
     } finally {
       setLoadingData(false);
     }
@@ -344,23 +373,50 @@ const AdminSchedules: React.FC = () => {
     }
   };
 
-  const filteredEmployeesForPicker = employeeSearch.trim()
-    ? employees.filter((e) => e.nome.toLowerCase().includes(employeeSearch.trim().toLowerCase()))
-    : employees;
+  const filteredEmployeesForPicker = useMemo(() => {
+    const search = employeeSearch.trim().toLowerCase();
+    if (!search) return employees;
+    return employees.filter((e) => e.nome.toLowerCase().includes(search));
+  }, [employeeSearch, employees]);
 
   // --- Escalas mensais ---
   const daysInMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
   const [year, month] = period.split('-').map(Number);
   const numDays = daysInMonth(year, month);
+  const dayNumbers = useMemo(() => Array.from({ length: numDays }, (_, i) => i + 1), [numDays]);
 
-  const loadMensalEmployees = () => {
+  const employeesById = useMemo(() => {
+    return new Map(employees.map((employee) => [employee.id, employee.nome]));
+  }, [employees]);
+
+  const mensalEmployeeList = useMemo(() => {
     if (!mensal?.employee_ids.length) return [];
-    return mensal.employee_ids.map((id) => ({ id, nome: employees.find((e) => e.id === id)?.nome || id }));
-  };
+    return mensal.employee_ids.map((id) => ({ id, nome: employeesById.get(id) || id }));
+  }, [mensal?.employee_ids, employeesById]);
 
-  const mensalEmployeeList = loadMensalEmployees();
+  const mensalShiftById = useMemo(() => {
+    return new Map(mensalShifts.map((shift) => [shift.shift_id, shift]));
+  }, [mensalShifts]);
 
-  const setGridCell = (employeeId: string, day: number, shiftId: string | null) => {
+  const mensalGridWindow = useMemo(() => {
+    const total = mensalEmployeeList.length;
+    const viewportHeight = 560;
+    const start = Math.max(0, Math.floor(mensalGridScrollTop / MENSAL_GRID_ROW_HEIGHT) - MENSAL_GRID_OVERSCAN);
+    const visibleCount = Math.ceil(viewportHeight / MENSAL_GRID_ROW_HEIGHT) + MENSAL_GRID_OVERSCAN * 2;
+    const end = Math.min(total, start + visibleCount);
+    return {
+      start,
+      end,
+      topSpacerHeight: start * MENSAL_GRID_ROW_HEIGHT,
+      bottomSpacerHeight: Math.max(0, (total - end) * MENSAL_GRID_ROW_HEIGHT),
+    };
+  }, [mensalEmployeeList.length, mensalGridScrollTop]);
+
+  const visibleMensalEmployees = useMemo(() => {
+    return mensalEmployeeList.slice(mensalGridWindow.start, mensalGridWindow.end);
+  }, [mensalEmployeeList, mensalGridWindow.end, mensalGridWindow.start]);
+
+  const setGridCell = useCallback((employeeId: string, day: number, shiftId: string | null) => {
     const key = `${employeeId}-${day}`;
     setMensal((prev) => {
       if (!prev) return prev;
@@ -369,11 +425,20 @@ const AdminSchedules: React.FC = () => {
       else delete next.grid[key];
       return next;
     });
-  };
+  }, []);
 
-  const getGridCell = (employeeId: string, day: number): string | undefined => {
+  const getGridCell = useCallback((employeeId: string, day: number): string | undefined => {
     return mensal?.grid[`${employeeId}-${day}`];
-  };
+  }, [mensal]);
+
+  const handleMensalGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setMensalGridScrollTop(e.currentTarget.scrollTop);
+  }, []);
+
+  useEffect(() => {
+    setMensalGridScrollTop(0);
+    if (mensalGridRef.current) mensalGridRef.current.scrollTop = 0;
+  }, [period, mensalEmployeeList.length]);
 
   const saveMensal = async () => {
     if (!user?.companyId || !isSupabaseConfigured() || !mensal) return;
@@ -647,7 +712,11 @@ const AdminSchedules: React.FC = () => {
             ))}
             {selectedShiftColor && <span className="text-xs text-slate-500">Clique em uma célula da grade para pintar com o horário selecionado.</span>}
           </div>
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-x-auto">
+          <div
+            ref={mensalGridRef}
+            className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-auto max-h-[70vh]"
+            onScroll={handleMensalGridScroll}
+          >
             {mensalEmployeeList.length === 0 ? (
               <p className="p-8 text-center text-slate-500 dark:text-slate-400">Adicione funcionários e horários, depois pinte os dias na grade.</p>
             ) : (
@@ -655,13 +724,18 @@ const AdminSchedules: React.FC = () => {
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/50">
                     <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800/50 min-w-[120px]">Funcionário</th>
-                    {Array.from({ length: numDays }, (_, i) => i + 1).map((d) => (
+                    {dayNumbers.map((d) => (
                       <th key={d} className="px-1 py-1 text-center font-medium text-slate-500 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700 w-8">{d}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {mensalEmployeeList.map((emp) => (
+                  {mensalGridWindow.topSpacerHeight > 0 && (
+                    <tr aria-hidden>
+                      <td colSpan={dayNumbers.length + 1} className="p-0 border-0" style={{ height: mensalGridWindow.topSpacerHeight }} />
+                    </tr>
+                  )}
+                  {visibleMensalEmployees.map((emp) => (
                     <tr key={emp.id} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="px-2 py-1 border-r border-slate-200 dark:border-slate-700 sticky left-0 bg-white dark:bg-slate-900/50 font-medium text-slate-800 dark:text-slate-200">
                         <div className="flex items-center gap-1 min-w-0">
@@ -669,9 +743,9 @@ const AdminSchedules: React.FC = () => {
                           <button type="button" onClick={() => removeEmployeeFromMensal(emp.id)} className="text-slate-400 hover:text-red-600 shrink-0" title="Remover"><X className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
-                      {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => {
+                      {dayNumbers.map((day) => {
                         const shiftId = getGridCell(emp.id, day);
-                        const shiftInfo = mensalShifts.find((s) => s.shift_id === shiftId);
+                        const shiftInfo = shiftId ? mensalShiftById.get(shiftId) : undefined;
                         return (
                           <td
                             key={day}
@@ -687,6 +761,11 @@ const AdminSchedules: React.FC = () => {
                       })}
                     </tr>
                   ))}
+                  {mensalGridWindow.bottomSpacerHeight > 0 && (
+                    <tr aria-hidden>
+                      <td colSpan={dayNumbers.length + 1} className="p-0 border-0" style={{ height: mensalGridWindow.bottomSpacerHeight }} />
+                    </tr>
+                  )}
                 </tbody>
               </table>
             )}

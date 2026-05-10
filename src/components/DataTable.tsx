@@ -13,6 +13,28 @@ interface DataTableProps<T> {
   emptyMessage?: string;
 }
 
+interface TableRowProps<T> {
+  row: T;
+  rowKey: string | number;
+  columns: Column<T>[];
+}
+
+const TableRow = React.memo(function TableRow<T extends { id?: string | number }>({
+  row,
+  rowKey,
+  columns,
+}: TableRowProps<T>) {
+  return (
+    <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors" data-row-key={rowKey}>
+      {columns.map((col) => (
+        <td key={String(col.key)} className="px-6 py-4 align-middle text-sm">
+          {col.render ? col.render(row) : String((row as any)[col.key])}
+        </td>
+      ))}
+    </tr>
+  );
+});
+
 export function DataTable<T extends { id?: string | number }>({
   columns,
   data,
@@ -45,18 +67,10 @@ export function DataTable<T extends { id?: string | number }>({
               </td>
             </tr>
           ) : (
-            data.map((row, idx) => (
-              <tr
-                key={(row as any).id ?? idx}
-                className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
-              >
-                {columns.map((col) => (
-                  <td key={String(col.key)} className="px-6 py-4 align-middle text-sm">
-                    {col.render ? col.render(row) : String((row as any)[col.key])}
-                  </td>
-                ))}
-              </tr>
-            ))
+            data.map((row, idx) => {
+              const rowKey = (row as any).id ?? idx;
+              return <TableRow key={rowKey} row={row} rowKey={rowKey} columns={columns} />;
+            })
           )}
         </tbody>
       </table>

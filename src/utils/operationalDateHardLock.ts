@@ -4,6 +4,7 @@
  */
 
 import { DateTime } from 'luxon';
+import { opLog } from './operationalLogger';
 
 export const OPERATIONAL_TIMEZONE = 'America/Sao_Paulo';
 
@@ -151,7 +152,7 @@ export function buildOperationalDayRange(
 ): { startUtcIso: string; endUtcIso: string; dateYmd: string; timezone: string } {
   const start = DateTime.fromISO(dateYmd, { zone: timezone }).startOf('day');
   const end = DateTime.fromISO(dateYmd, { zone: timezone }).endOf('day');
-  console.info('[TIMEZONE HARDLOCK]', {
+  opLog.diag('TIMEZONE HARDLOCK', {
     op: 'buildOperationalDayRange',
     dateYmd,
     timezone,

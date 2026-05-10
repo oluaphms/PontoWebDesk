@@ -3,7 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { Clock, CalendarDays, Activity, Scale, ClipboardList, LogIn, LogOut, FileEdit, FileText, CalendarClock } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, checkSupabaseConfigured, supabase, getSupabaseClient } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured, supabase, getSupabaseClient } from '../../services/supabaseClient';
 import { getTimeRecordsForEmployeeDashboard } from '../../../services/timeRecords.service';
 import { Button, LoadingState } from '../../../components/UI';
 import { calculateWorkedHours } from '../../utils/timeCalculations';
@@ -54,7 +54,7 @@ const EmployeeDashboard: React.FC = () => {
     async (options?: { showLoading?: boolean }) => {
       const showLoading = options?.showLoading !== false;
       if (!user) return;
-      if (!checkSupabaseConfigured()) {
+      if (!isSupabaseConfigured()) {
         setLoadingData(false);
         return;
       }
@@ -200,7 +200,7 @@ const EmployeeDashboard: React.FC = () => {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!user?.id || !getSupabaseClient() || !checkSupabaseConfigured()) return;
+    if (!user?.id || !getSupabaseClient() || !isSupabaseConfigured()) return;
     let t: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel(`employee_dash_records_${user.id}`)

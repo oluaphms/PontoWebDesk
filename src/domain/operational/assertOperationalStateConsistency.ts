@@ -4,6 +4,7 @@
 
 import { parseOperationalStatusEnum, type CurrentOperationalStateRow } from '../../services/currentOperationalState.service';
 import type { MonitoringPipelineEmployeeRow } from '../../services/monitoring/monitoringGeoHardLock.service';
+import { opLog } from '../../utils/operationalLogger';
 
 export function assertOperationalStateConsistency(params: {
   companyId: string;
@@ -13,7 +14,7 @@ export function assertOperationalStateConsistency(params: {
 }): { ok: boolean; driftCount: number } {
   const { companyId, usingCos, cosByEmployee, pipelineRows } = params;
   if (!usingCos) {
-    console.info('[STATE CONSISTENCY CHECK]', { company_id: companyId, skipped: true, reason: 'no_cos_snapshot' });
+    opLog.diag('STATE CONSISTENCY CHECK', { company_id: companyId, skipped: true, reason: 'no_cos_snapshot' });
     return { ok: true, driftCount: 0 };
   }
 
@@ -24,7 +25,7 @@ export function assertOperationalStateConsistency(params: {
     const expected = parseOperationalStatusEnum(cos.operational_status);
     if (expected !== row.status) {
       driftCount += 1;
-      console.warn('[STATE DRIFT DETECTED]', {
+      opLog.warn('STATE DRIFT DETECTED', {
         company_id: companyId,
         employee_id: row.userId,
         cos_status: expected,
@@ -34,6 +35,6 @@ export function assertOperationalStateConsistency(params: {
   }
 
   const ok = driftCount === 0;
-  console.info('[STATE CONSISTENCY CHECK]', { company_id: companyId, ok, driftCount });
+  opLog.diag('STATE CONSISTENCY CHECK', { company_id: companyId, ok, driftCount });
   return { ok, driftCount };
 }

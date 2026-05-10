@@ -15,8 +15,9 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState } from '../../../components/UI';
-import { db, isSupabaseConfigured, auth } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { buscarColaboradores } from '../../../services/api';
+import { runCalcPeriodJob } from '../../services/adminCalcPeriodJob.service';
 import {
   processEmployeeDay,
   type OvertimeResult,
@@ -277,90 +278,11 @@ const AdminCalculos: React.FC = () => {
     setLoadingCalc(true);
     setCalcRows(null);
     try {
-      const base =
-        (import.meta.env.VITE_APP_URL as string) ||
-        (typeof window !== 'undefined' ? window.location.origin : '');
-      const { data: { session } } = await auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        toast.addToast('error', 'Sessão expirada. Faça login novamente.');
-        return;
-      }
-
-      const enqueueUrl = `${base.replace(/\/$/, '')}/api/jobs/calc-period`;
-      console.log('[UI FETCH]', enqueueUrl, new Date().toISOString());
-      const enqueueRes = await fetch(enqueueUrl, {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          employee_id: filterUserId,
-          start_date: periodStart,
-          end_date: periodEnd,
-        }),
+      await runCalcPeriodJob({
+        employeeId: filterUserId,
+        periodStart,
+        periodEnd,
       });
-      const enqueueJson = (await enqueueRes.json().catch(() => ({}))) as {
-        error?: string;
-        details?: string;
-        job_id?: string;
-        success?: boolean;
-        mode?: string;
-        fallback?: string;
-        code?: string;
-      };
-      if (!enqueueRes.ok) {
-        const hint = enqueueJson?.details ? ` (${enqueueJson.details})` : '';
-        throw new Error((enqueueJson?.error || 'Falha ao enfileirar cálculo.') + hint);
-      }
-
-      const directFallbackDone =
-        enqueueJson.mode === 'direct_fallback' ||
-        (enqueueJson.success === true && enqueueJson.fallback === 'calculatePeriodTimesheets');
-
-      if (!directFallbackDone) {
-        const jobId = enqueueJson.job_id;
-        if (!jobId) throw new Error('Resposta sem job_id.');
-
-        const processUrl = `${base.replace(/\/$/, '')}/api/jobs/process`;
-        console.log('[UI FETCH]', processUrl, new Date().toISOString());
-        void fetch(processUrl, {
-          method: 'POST',
-          cache: 'no-store',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({}),
-        });
-
-        const deadline = Date.now() + 15 * 60 * 1000;
-        let lastStatus = 'pending';
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 1500));
-          const statusUrl = `${base.replace(/\/$/, '')}/api/jobs/${jobId}`;
-          console.log('[UI FETCH]', statusUrl, new Date().toISOString());
-          const stRes = await fetch(statusUrl, {
-            cache: 'no-store',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          });
-          const job = (await stRes.json().catch(() => ({}))) as {
-            status?: string;
-            result?: { error?: string };
-          };
-          lastStatus = String(job?.status ?? '');
-          if (lastStatus === 'done') break;
-          if (lastStatus === 'failed') {
-            const msg = job?.result?.error || 'Job falhou.';
-            throw new Error(msg);
-          }
-        }
-
-        if (lastStatus !== 'done') {
-          throw new Error(
-            'Worker indisponível para cálculo em fila. Aplicando cálculo local neste dispositivo.',
-          );
-        }
-      }
 
       const persisted = (await db.select(
         'timesheets_daily',
@@ -416,6 +338,10 @@ const AdminCalculos: React.FC = () => {
       });
       setCalcRows(rows);
     } catch (e: any) {
+      if (typeof e?.message === 'string' && e.message.toLowerCase().includes('sessão expirada')) {
+        toast.addToast('error', e.message);
+        return;
+      }
       console.warn('[Calculos] fallback local ativado:', e);
       // Fallback importante para mobile/offline parcial: cálculo local por dia.
       try {

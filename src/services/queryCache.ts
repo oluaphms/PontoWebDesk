@@ -15,6 +15,7 @@ import {
 import { recordMemoryCacheInvalidation } from '../performance/queryInvalidationAudit';
 import { clearGeocodeCache } from './geolocation/reverseGeocode.service';
 import { recordBrowserOnlineReconnectForOperationalResilience } from '../performance/reconnectLoopGuard';
+import { opLog } from '../utils/operationalLogger';
 
 interface CacheEntry<T> {
   data: T;
@@ -98,9 +99,7 @@ export const queryCache = {
     }
     if (removed > 0) {
       recordMemoryCacheInvalidation(prefix, removed);
-      if (typeof console !== 'undefined') {
-        console.info('[QUERY CACHE INVALIDATION]', { prefix, removed });
-      }
+      opLog.diag('QUERY CACHE INVALIDATION', { prefix, removed });
     }
   },
 
@@ -113,9 +112,7 @@ export const queryCache = {
     if (size > 0) {
       recordMemoryCacheInvalidation('clear_all', size);
     }
-    if (typeof console !== 'undefined') {
-      console.info('[QUERY CACHE INVALIDATION]', { action: 'clear_all', removed: size });
-    }
+    opLog.diag('QUERY CACHE INVALIDATION', { action: 'clear_all', removed: size });
   },
 };
 
@@ -151,15 +148,73 @@ function bootstrapTenantCacheRegistry(): void {
 }
 bootstrapTenantCacheRegistry();
 
-/** Invalidação dura de caches sensíveis a GEO / tenant (mobile, troca de aba, rede). */
-export function invalidateOperationalGeoCaches(reason: string): void {
-  bumpGeoCacheGeneration(reason);
-  if (typeof console !== 'undefined') {
-    console.info('[GEO CACHE HARD INVALIDATION]', { reason });
-  }
+/**
+ * Coalesce de invalidações geo: múltiplas chamadas em rajada (ex.: ghost detector +
+ * realtime stream + visibilitychange) viram UMA única operação dentro da janela.
+ *
+ * Sem coalesce, cada render no admin/Monitoring que dispara invalidate causa um
+ * `bumpGeoCacheGeneration` + N `queryCache.invalidate(prefix)`. Com 30 funcionários
+ * em tela isso vira centenas de operações redundantes por segundo.
+ */
+const GEO_HARD_INVALIDATION_COALESCE_MS = 200;
+let pendingGeoHardInvalidation: { timer: ReturnType<typeof setTimeout>; reasons: Set<string>; coalesced: number } | null = null;
+
+function flushGeoHardInvalidation(): void {
+  if (!pendingGeoHardInvalidation) return;
+  const { reasons, coalesced } = pendingGeoHardInvalidation;
+  pendingGeoHardInvalidation = null;
+  const reasonLabel = reasons.size === 1 ? Array.from(reasons)[0] : `coalesced(${reasons.size})`;
+  bumpGeoCacheGeneration(reasonLabel);
+  opLog.warn('GEO CACHE HARD INVALIDATION', {
+    reasons: Array.from(reasons),
+    coalesced,
+  });
   queryCache.invalidate('current_operational_state:');
   queryCache.invalidate('time_records:admin_dash:');
   queryCache.invalidate('time_records:week:');
+}
+
+/** Invalidação dura de caches sensíveis a GEO / tenant (mobile, troca de aba, rede). */
+export function invalidateOperationalGeoCaches(reason: string): void {
+  if (pendingGeoHardInvalidation) {
+    pendingGeoHardInvalidation.reasons.add(reason);
+    pendingGeoHardInvalidation.coalesced += 1;
+    return;
+  }
+  pendingGeoHardInvalidation = {
+    timer: setTimeout(flushGeoHardInvalidation, GEO_HARD_INVALIDATION_COALESCE_MS),
+    reasons: new Set([reason]),
+    coalesced: 1,
+  };
+}
+
+/** Força flush imediato — útil para testes e para callbacks que precisam ler dados frescos. */
+export function flushPendingGeoCacheInvalidations(): void {
+  if (pendingGeoHardInvalidation) {
+    clearTimeout(pendingGeoHardInvalidation.timer);
+    flushGeoHardInvalidation();
+  }
+  if (pendingEntityInvalidations.size > 0) {
+    for (const [, entry] of pendingEntityInvalidations) {
+      clearTimeout(entry.timer);
+    }
+    const snapshot = Array.from(pendingEntityInvalidations.entries());
+    pendingEntityInvalidations.clear();
+    for (const [, entry] of snapshot) {
+      flushRealtimeGeoEntity(entry.employeeId, entry.companyId, entry.coalesced);
+    }
+  }
+}
+
+export function __resetCacheInvalidationCoalescersForTests(): void {
+  if (pendingGeoHardInvalidation) {
+    clearTimeout(pendingGeoHardInvalidation.timer);
+    pendingGeoHardInvalidation = null;
+  }
+  for (const [, entry] of pendingEntityInvalidations) {
+    clearTimeout(entry.timer);
+  }
+  pendingEntityInvalidations.clear();
 }
 
 function installOperationalGeoCacheListeners(): void {
@@ -181,10 +236,23 @@ function installOperationalGeoCacheListeners(): void {
 installOperationalGeoCacheListeners();
 
 /**
- * Invalidação dura por colaborador: COS, registros recentes, enrich GEO e listeners de mapa.
+ * Coalesce de invalidações por colaborador. Mantém o efeito por entidade
+ * (employeeId, companyId), mas comprime rajadas em 1 execução por janela.
  */
-export function invalidateRealtimeGeoEntity(employeeId: string, companyId?: string): void {
-  if (!employeeId) return;
+const ENTITY_INVALIDATION_COALESCE_MS = 250;
+type PendingEntityEntry = {
+  employeeId: string;
+  companyId?: string;
+  coalesced: number;
+  timer: ReturnType<typeof setTimeout>;
+};
+const pendingEntityInvalidations = new Map<string, PendingEntityEntry>();
+
+function entityKey(employeeId: string, companyId?: string): string {
+  return `${companyId ?? 'no_company'}:${employeeId}`;
+}
+
+function flushRealtimeGeoEntity(employeeId: string, companyId: string | undefined, coalesced: number): void {
   bumpGeoCacheGeneration(`invalidateRealtimeGeoEntity:${employeeId}`);
   clearGeocodeCache();
   if (companyId) {
@@ -195,12 +263,37 @@ export function invalidateRealtimeGeoEntity(employeeId: string, companyId?: stri
     queryCache.invalidate('current_operational_state:');
     queryCache.invalidate('time_records:admin_dash:');
   }
-  console.info('[GEO ENTITY CACHE INVALIDATED]', { employeeId, companyId });
+  opLog.diag('GEO ENTITY CACHE INVALIDATED', { employeeId, companyId, coalesced });
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('smartponto:force-monitoring-refresh', { detail: { employeeId, companyId } }),
     );
   }
+}
+
+/**
+ * Invalidação por colaborador (COS, registros recentes, enrich GEO, listeners de mapa).
+ * Múltiplas chamadas para o mesmo (employeeId, companyId) são coalescidas em janela curta.
+ */
+export function invalidateRealtimeGeoEntity(employeeId: string, companyId?: string): void {
+  if (!employeeId) return;
+  const key = entityKey(employeeId, companyId);
+  const existing = pendingEntityInvalidations.get(key);
+  if (existing) {
+    existing.coalesced += 1;
+    return;
+  }
+  const entry: PendingEntityEntry = {
+    employeeId,
+    companyId,
+    coalesced: 1,
+    timer: setTimeout(() => {
+      const snap = pendingEntityInvalidations.get(key);
+      pendingEntityInvalidations.delete(key);
+      flushRealtimeGeoEntity(employeeId, companyId, snap?.coalesced ?? 1);
+    }, ENTITY_INVALIDATION_COALESCE_MS),
+  };
+  pendingEntityInvalidations.set(key, entry);
 }
 
 export function buildTenantQueryCacheKey(scope: Partial<TenantScope>, ...parts: Array<string | number>): string {

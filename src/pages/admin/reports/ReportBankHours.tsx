@@ -10,6 +10,8 @@ import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
+import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
+import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 import {
   KPICards,
   FiltersBar,
@@ -29,6 +31,7 @@ interface BankRow {
 
 const ReportBankHours: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const { employees } = useCompanyEmployees(user?.companyId);
   const [rows, setRows] = useState<BankRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -37,41 +40,31 @@ const ReportBankHours: React.FC = () => {
   const [filterMinHours, setFilterMinHours] = useState('');
   const [searchEmployee, setSearchEmployee] = useState('');
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    const cid = user.companyId!;
-    setLoadingData(true);
-    const cacheKey = adminReportCacheKey(cid, 'bank_hours_summary');
-
-    (async () => {
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured()) return;
+      const cid = user.companyId;
+      setLoadingData(true);
+      const cacheKey = adminReportCacheKey(cid, 'bank_hours_summary');
       try {
         const list = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const [bankRows, userRows] = await Promise.all([
-              db.select(
-                'bank_hours',
-                [{ column: 'company_id', operator: 'eq', value: cid }],
-                { column: 'date', ascending: false },
-                2000
-              ) as Promise<any[]>,
-              queryCache.getOrFetch(
-                `users:${cid}`,
-                () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-                TTL.NORMAL,
-              ),
-            ]);
+            const bankRows = (await db.select(
+              'bank_hours',
+              [{ column: 'company_id', operator: 'eq', value: cid }],
+              { column: 'date', ascending: false },
+              2000
+            )) as any[];
 
             const empMap = new Map<string, string>();
-            (userRows ?? []).forEach((u: any) => empMap.set(u.id, u.nome || u.email));
+            employees.forEach((u) => empMap.set(u.id, u.nome));
 
             // Agrupar por funcionário (último saldo)
             const byEmployee = new Map<string, { balance: number; last_date: string; last_movement?: 'credit' | 'debit' }>();
 
             (bankRows ?? []).forEach((r: any) => {
               const balanceMinutes = (r.balance_hours || 0) * 60 + (r.balance_minutes || 0);
-              const isPositive = r.movement_type === 'credit' || balanceMinutes >= 0;
-
               if (!byEmployee.has(r.employee_id)) {
                 byEmployee.set(r.employee_id, {
                   balance: balanceMinutes,
@@ -97,12 +90,13 @@ const ReportBankHours: React.FC = () => {
           TTL.NORMAL,
         );
 
-        setRows(list);
+        if (!isCancelled()) setRows(list);
       } finally {
-        setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-  }, [user?.companyId]);
+    },
+    [user?.companyId, employees],
+  );
 
   // Dados filtrados
   const filteredRows = useMemo(() => {

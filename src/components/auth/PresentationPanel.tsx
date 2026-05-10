@@ -28,6 +28,7 @@ export const PresentationPanel: React.FC = () => {
                 alt="PontoWebDesk"
                 width={100}
                 height={100}
+                decoding="async"
                 className="w-[100px] h-[100px] object-contain rounded-[1rem]"
               />
             </div>

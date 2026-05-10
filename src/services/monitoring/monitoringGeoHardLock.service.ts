@@ -20,6 +20,7 @@ import { validateCoordinateOrder } from '../geolocation/geoIntegrity.service';
 import { calculateGeoConfidence, type GeoConfidenceLevel } from '../geolocation/geoConfidence.service';
 import { detectAndHandleGhostLocation } from '../geolocation/ghostLocationDetector.service';
 import { recordOperationalMetric } from '../../domain/operational/metrics/operationalMetrics';
+import { opLog } from '../../utils/operationalLogger';
 import {
   EmployeeOperationalStatus,
   MONITORING_OFFLINE_AFTER_LAST_PUNCH_MS,
@@ -43,6 +44,38 @@ export const GEO_ACCURACY_BLOCK_MARKER_M = 300;
 export type OperationalTimestampResult =
   | { ok: true; instantMs: number; utcIso: string }
   | { ok: false; code: 'invalid_parse' | 'future'; diffMs?: number; raw?: string };
+
+/**
+ * Dedup das emissões de [FUTURE DATE BLOCKED] + métrica `future_operational_timestamp_blocked`.
+ * Quando um único registro com timestamp futuro chega no DB, o resolver de monitoramento o vê
+ * dezenas de vezes por refresh (filtros em getLastOperationalPunchForUser, listOperationalPunchesForUserSorted, etc.).
+ * Sem dedup, isso inflama console e a fila `METRIC_STORE` operacional.
+ */
+const FUTURE_BLOCK_LOG_DEDUP_MS = 60_000;
+const FUTURE_BLOCK_LOG_MAX_ENTRIES = 500;
+const recentFutureBlocks = new Map<string, number>();
+
+function shouldEmitFutureBlock(raw: string): boolean {
+  const wall = Date.now();
+  const last = recentFutureBlocks.get(raw);
+  if (last != null && wall - last < FUTURE_BLOCK_LOG_DEDUP_MS) return false;
+  if (recentFutureBlocks.size >= FUTURE_BLOCK_LOG_MAX_ENTRIES) {
+    const cutoff = wall - FUTURE_BLOCK_LOG_DEDUP_MS;
+    for (const [k, ts] of recentFutureBlocks) {
+      if (ts < cutoff) recentFutureBlocks.delete(k);
+    }
+    if (recentFutureBlocks.size >= FUTURE_BLOCK_LOG_MAX_ENTRIES) {
+      const firstKey = recentFutureBlocks.keys().next().value;
+      if (firstKey !== undefined) recentFutureBlocks.delete(firstKey);
+    }
+  }
+  recentFutureBlocks.set(raw, wall);
+  return true;
+}
+
+export function __resetFutureBlockDedupForTests(): void {
+  recentFutureBlocks.clear();
+}
 
 export type GeoPrecisionBadge = 'preciso' | 'aproximado' | 'stale' | 'sem_sinal' | 'bloqueado';
 
@@ -130,8 +163,10 @@ export function validateOperationalTimestamp(
   }
   const diffMs = normalized.instantMs - nowMs;
   if (diffMs > FUTURE_PUNCH_TOLERANCE_MS) {
-    logFutureOperationalDateBlocked(raw, nowMs, diffMs, { source: 'validateOperationalTimestamp' });
-    recordOperationalMetric('future_operational_timestamp_blocked', 1, { source: 'validateOperationalTimestamp' });
+    if (shouldEmitFutureBlock(raw)) {
+      logFutureOperationalDateBlocked(raw, nowMs, diffMs, { source: 'validateOperationalTimestamp' });
+      recordOperationalMetric('future_operational_timestamp_blocked', 1, { source: 'validateOperationalTimestamp' });
+    }
     return { ok: false, code: 'future', diffMs, raw };
   }
   return { ok: true, instantMs: normalized.instantMs, utcIso: normalized.utcIso };
@@ -172,10 +207,10 @@ export function logTimezoneNormalization(
 ): void {
   const n = normalizeOperationalDateUtcAndLocal(isoInput, timezone);
   if (!n) {
-    console.info('[TIMEZONE NORMALIZATION]', { ...context, error: 'invalid_iso', input: isoInput });
+    opLog.diag('TIMEZONE NORMALIZATION', { ...context, error: 'invalid_iso', input: isoInput });
     return;
   }
-  console.info('[TIMEZONE NORMALIZATION]', {
+  opLog.diag('TIMEZONE NORMALIZATION', {
     utc: n.utc,
     local: n.local,
     timezone: n.timezone,
@@ -257,8 +292,11 @@ export function readGeoSnapshot(record: OperationalPunchRecord): GeoRead | null 
 export function getLastOperationalPunchForUser(
   records: OperationalPunchRecord[],
   userId: string,
+  nowMs: number = operationalClockMs(),
 ): OperationalPunchRecord | null {
-  const valid = records.filter((r) => r.user_id === userId && validateOperationalTimestamp(recordPunchInstantIso(r)).ok);
+  const valid = records.filter(
+    (r) => r.user_id === userId && validateOperationalTimestamp(recordPunchInstantIso(r), nowMs).ok,
+  );
   if (valid.length === 0) return null;
   valid.sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
   return valid[0];

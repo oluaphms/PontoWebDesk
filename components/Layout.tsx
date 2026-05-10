@@ -15,7 +15,7 @@ import {
 import { resolveTenantId } from '../src/services/tenantScope';
 import { useTimeAttendanceAuditMenuSignal } from '../src/hooks/useTimeAttendanceAuditMenuSignal';
 
-/** Cabeçalho: apenas título + busca — sem BrandLogo (evita favicon duplicado; logo nas sidebars). */
+/** Cabeçalho: título + busca; ícone da marca fica no dock/radial, não duplicado aqui. */
 
 export type LayoutVariant = 'admin' | 'employee';
 

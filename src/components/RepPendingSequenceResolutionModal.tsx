@@ -132,7 +132,10 @@ export const RepPendingSequenceResolutionModal: React.FC<RepPendingSequenceResol
       repPunchLogId: selectedLogId,
       reviewedBy: reviewedByUserId,
       supabaseClient: supabase,
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn('[REP SEQ] falha ao marcar investigating:', err);
+      setError((prev) => prev ?? 'Falha ao marcar a batida como em investigação.');
+    });
   }, [open, selectedLogId, reviewedByUserId, companyId]);
 
   const selectedPunch = useMemo(

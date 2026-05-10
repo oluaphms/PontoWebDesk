@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Camera, Eye, EyeOff, Trash2, Download } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { safeAsyncAction } from '../utils/safeAsyncAction';
 
 interface ScreenshotRow {
   id: string;
@@ -103,44 +104,64 @@ const ScreenshotsPage: React.FC = () => {
     load();
   }, [user]);
 
-  const filteredScreenshots = screenshots.filter((s) => {
-    if (filterEmployeeId && s.employee_id !== filterEmployeeId) return false;
-    if (filterProjectId && !s.project_name) return false;
-    if (filterProjectId && s.project_name) {
-      const proj = projects.find((p) => p.id === filterProjectId);
-      if (!proj || proj.name !== s.project_name) return false;
-    }
-    if (filterDate) {
-      const d = s.captured_at?.slice(0, 10);
-      if (d !== filterDate) return false;
-    }
-    return true;
-  });
+  const projectById = useMemo(() => {
+    return new Map(projects.map((project) => [project.id, project.name]));
+  }, [projects]);
+
+  const filteredScreenshots = useMemo(() => {
+    const selectedProjectName = filterProjectId ? projectById.get(filterProjectId) : null;
+    return screenshots.filter((s) => {
+      if (filterEmployeeId && s.employee_id !== filterEmployeeId) return false;
+      if (filterProjectId && (!s.project_name || !selectedProjectName || selectedProjectName !== s.project_name)) {
+        return false;
+      }
+      if (filterDate) {
+        const d = s.captured_at?.slice(0, 10);
+        if (d !== filterDate) return false;
+      }
+      return true;
+    });
+  }, [filterDate, filterEmployeeId, filterProjectId, projectById, screenshots]);
 
   const toggleBlur = async (screenshot: ScreenshotRow) => {
     if (!isSupabaseConfigured()) return;
-    try {
-      await (db as { update: (table: string, id: string, data: any) => Promise<any> }).update(
-        'screenshots',
-        screenshot.id,
-        { blurred: !screenshot.blurred },
-      );
-      setScreenshots((prev) =>
-        prev.map((s) => (s.id === screenshot.id ? { ...s, blurred: !s.blurred } : s)),
-      );
-    } catch (e) {
-      console.error('Erro ao atualizar blur:', e);
-    }
+    setError(null);
+    await safeAsyncAction(
+      () =>
+        (db as { update: (table: string, id: string, data: any) => Promise<any> }).update(
+          'screenshots',
+          screenshot.id,
+          { blurred: !screenshot.blurred },
+        ),
+      {
+        onSuccess: () => {
+          setScreenshots((prev) =>
+            prev.map((s) => (s.id === screenshot.id ? { ...s, blurred: !s.blurred } : s)),
+          );
+        },
+        onError: (e) => {
+          console.error('Erro ao atualizar blur:', e);
+          setError('Não foi possível atualizar a visibilidade da screenshot.');
+        },
+      },
+    );
   };
 
   const deleteScreenshot = async (screenshot: ScreenshotRow) => {
     if (!isSupabaseConfigured()) return;
-    try {
-      await (db as { delete: (table: string, id: string) => Promise<any> }).delete('screenshots', screenshot.id);
-      setScreenshots((prev) => prev.filter((s) => s.id !== screenshot.id));
-    } catch (e) {
-      console.error('Erro ao excluir screenshot:', e);
-    }
+    setError(null);
+    await safeAsyncAction(
+      () => (db as { delete: (table: string, id: string) => Promise<any> }).delete('screenshots', screenshot.id),
+      {
+        onSuccess: () => {
+          setScreenshots((prev) => prev.filter((s) => s.id !== screenshot.id));
+        },
+        onError: (e) => {
+          console.error('Erro ao excluir screenshot:', e);
+          setError('Não foi possível excluir a screenshot.');
+        },
+      },
+    );
   };
 
   const downloadScreenshot = (screenshot: ScreenshotRow) => {
@@ -246,6 +267,8 @@ const ScreenshotsPage: React.FC = () => {
                   <img
                     src={s.image_url}
                     alt={s.employee_name ?? s.employee_id}
+                    loading="lazy"
+                    decoding="async"
                     className={`w-full h-full object-cover ${s.blurred ? 'blur-sm' : ''}`}
                   />
                   {s.blurred && (
@@ -368,6 +391,7 @@ const ScreenshotsPage: React.FC = () => {
               <img
                 src={selectedScreenshot.image_url}
                 alt={selectedScreenshot.employee_name ?? selectedScreenshot.employee_id}
+                decoding="async"
                 className={`max-h-[80vh] w-auto object-contain ${selectedScreenshot.blurred ? 'blur-md' : ''}`}
               />
             </div>

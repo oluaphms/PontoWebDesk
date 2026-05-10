@@ -25,6 +25,7 @@ import {
 import { resolveRealtimeMonitoringLocation } from './geolocation/monitoringGeoSourceResolver';
 import { buildOperationalDayRange, getOperationalTodayYmd } from '../utils/operationalDateHardLock';
 import { operationalClockMs } from '../utils/operationalClock';
+import { opLog } from '../utils/operationalLogger';
 import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
 
 export interface AdminDashboardCards {
@@ -273,7 +274,7 @@ function resolveDashboardDisplayInstant(record: any): {
       delta_hours: Math.round(primaryDeltaHours ?? 0),
     });
     if (fallback) {
-      console.info('[TIMEZONE NORMALIZATION]', {
+      opLog.diag('TIMEZONE NORMALIZATION', {
         source_record_id: String(record?.id ?? ''),
         chosen_source: 'created_at_due_to_timestamp_anomaly',
         timezone: 'America/Sao_Paulo',
@@ -306,7 +307,7 @@ function resolveDashboardDisplayInstant(record: any): {
         anomalyReason: 'created_at fora da janela esperada (>24h)',
       };
     }
-    console.info('[TIMEZONE NORMALIZATION]', {
+    opLog.diag('TIMEZONE NORMALIZATION', {
       source_record_id: String(record?.id ?? ''),
       chosen_source: 'created_at',
       timezone: 'America/Sao_Paulo',

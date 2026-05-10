@@ -2,6 +2,7 @@
  * Dia civil único (fusos locais do runtime) — espelho, filtros `timestamptz` e UI.
  * Centraliza `calendarDateForEspelhoRow`, `localCalendarDayStartUtc`, `localCalendarDayEndUtc`.
  */
+import { opLog } from './operationalLogger';
 
 /** Mínimo para ancorar batida em dia civil (alinhado a `TimeRecord` sem importar timesheetMirror). */
 export type CalendarDayRecordAnchor = {
@@ -94,7 +95,7 @@ export function logCalendarDayConsistencyDebug(params: { user_id: string; date: 
   } catch {
     return;
   }
-  console.info('[CALENDAR DAY CONSISTENCY]', {
+  opLog.diag('CALENDAR DAY CONSISTENCY', {
     user_id: params.user_id,
     date,
     start_utc,

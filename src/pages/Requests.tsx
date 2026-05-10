@@ -17,6 +17,7 @@ import { ExpandableTextCell } from '../components/ClickableFullContent';
 import { invalidateAfterPunch, invalidatePendingRequestsCachesForUsers } from '../services/queryCache';
 import { mapPunchTypeToDb, TIPOS_BATIDA } from '../constants/punchTypes';
 import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
+import { registerApprovedAdjustmentPunch } from '../services/requestApproval.service';
 
 interface RequestRow {
   id: string;
@@ -279,16 +280,14 @@ const RequestsPage: React.FC = () => {
         try {
           const iso = localDateAndTimeToIsoUtc(adj.date, adj.time);
           const dbType = mapPunchTypeToDb(adj.punchType);
-          const { error: rpcError } = await supabase.rpc('insert_time_record_for_user', {
-            p_user_id: row.user_id,
-            p_company_id: companyId,
-            p_type: dbType,
-            p_method: 'admin',
-            p_source: 'request',
-            p_timestamp: iso,
-            p_manual_reason: `Aprovado via solicitação ${row.id}: ${row.reason}`,
+          await registerApprovedAdjustmentPunch(supabase, {
+            userId: row.user_id,
+            companyId,
+            dbType,
+            timestampIso: iso,
+            requestId: row.id,
+            reason: row.reason,
           });
-          if (rpcError) throw rpcError;
           invalidateAfterPunch(row.user_id, companyId);
         } catch (e: unknown) {
           console.error('Erro ao inserir batida da solicitação:', e);

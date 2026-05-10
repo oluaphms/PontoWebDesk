@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Users, UserPlus, Upload, Mail, Pencil, UserX, Send } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -147,11 +147,11 @@ const EmployeesPage: React.FC = () => {
     loadData();
   }, [user]);
 
-  const openAssignSchedule = (emp: EmployeeRow) => {
+  const openAssignSchedule = useCallback((emp: EmployeeRow) => {
     setSelectedEmployee(emp);
     setSelectedScheduleId('');
     setAssignModalOpen(true);
-  };
+  }, []);
 
   const handleAssignSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,7 +258,7 @@ const EmployeesPage: React.FC = () => {
     }
   };
 
-  const handleSendInvitation = async (emp: EmployeeRow) => {
+  const handleSendInvitation = useCallback(async (emp: EmployeeRow) => {
     const result = await inviteEmployeeByEmail({ email: emp.email, nome: emp.nome });
     if (result.success) {
       await NotificationService.create({
@@ -275,7 +275,7 @@ const EmployeesPage: React.FC = () => {
         message: result.error ?? 'Tente novamente.',
       });
     }
-  };
+  }, [user]);
 
   const handleInviteByLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -304,7 +304,7 @@ const EmployeesPage: React.FC = () => {
     }
   };
 
-  const handleDeactivate = async (emp: EmployeeRow) => {
+  const handleDeactivate = useCallback(async (emp: EmployeeRow) => {
     if (!isSupabaseConfigured() || !user) return;
     try {
       const existing = (await db.select('users', [{ column: 'id', operator: 'eq', value: emp.id }])) as any[] | null;
@@ -315,7 +315,46 @@ const EmployeesPage: React.FC = () => {
     } catch (err) {
       console.error('Erro ao desativar:', err);
     }
-  };
+  }, [user]);
+
+  const columns = useMemo(
+    () => [
+      { key: 'nome', header: 'Nome' },
+      { key: 'email', header: 'Email' },
+      {
+        key: 'department_name',
+        header: 'Departamento',
+        render: (row: EmployeeRow) => row.department_name ?? row.department_id ?? '-',
+      },
+      {
+        key: 'role',
+        header: 'Função',
+        render: (row: EmployeeRow) => ROLES.find((r) => r.value === row.role)?.label ?? row.role,
+      },
+      { key: 'schedule_name', header: 'Escala', render: (row: EmployeeRow) => row.schedule_name ?? 'Não atribuída' },
+      { key: 'status', header: 'Status' },
+      {
+        key: 'actions',
+        header: '',
+        render: (row: EmployeeRow) => (
+          <div className="flex gap-2 justify-end flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => openAssignSchedule(row)} title="Atribuir escala">
+              Atribuir escala
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void handleSendInvitation(row)} title="Enviar convite">
+              <Send className="w-4 h-4" />
+            </Button>
+            {row.status === 'Ativo' && (
+              <Button size="sm" variant="outline" onClick={() => void handleDeactivate(row)} title="Desativar">
+                <UserX className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    [handleDeactivate, handleSendInvitation, openAssignSchedule],
+  );
 
   const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -397,44 +436,7 @@ const EmployeesPage: React.FC = () => {
       {isLoadingData ? (
         <LoadingState message="Carregando colaboradores..." />
       ) : (
-        <DataTable<EmployeeRow>
-          columns={[
-            { key: 'nome', header: 'Nome' },
-            { key: 'email', header: 'Email' },
-            {
-              key: 'department_name',
-              header: 'Departamento',
-              render: (row) => row.department_name ?? row.department_id ?? '-',
-            },
-            {
-              key: 'role',
-              header: 'Função',
-              render: (row) => ROLES.find((r) => r.value === row.role)?.label ?? row.role,
-            },
-            { key: 'schedule_name', header: 'Escala', render: (row) => row.schedule_name ?? 'Não atribuída' },
-            { key: 'status', header: 'Status' },
-            {
-              key: 'actions',
-              header: '',
-              render: (row) => (
-                <div className="flex gap-2 justify-end flex-wrap">
-                  <Button size="sm" variant="outline" onClick={() => openAssignSchedule(row)} title="Atribuir escala">
-                    Atribuir escala
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => handleSendInvitation(row)} title="Enviar convite">
-                    <Send className="w-4 h-4" />
-                  </Button>
-                  {row.status === 'Ativo' && (
-                    <Button size="sm" variant="outline" onClick={() => handleDeactivate(row)} title="Desativar">
-                      <UserX className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-          data={rows}
-        />
+        <DataTable<EmployeeRow> columns={columns} data={rows} />
       )}
 
       <ModalForm

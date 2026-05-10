@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../../hooks/useCurrentUser';
 import { db, isSupabaseConfigured, type Filter } from '../../../../services/supabaseClient';
 import { LoadingState } from '../../../../../components/UI';
 import { ReportReadShell } from './ReportReadShell';
+import { useAbortableAsyncEffect } from '../../../../hooks/useAbortableAsyncEffect';
 
 type CiclicaRow = {
   id: string;
@@ -19,13 +20,12 @@ export function EscalasCiclicasRead() {
   const [shiftNames, setShiftNames] = useState<Map<string, string>>(new Map());
   const [loadingData, setLoadingData] = useState(true);
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) {
-      setLoadingData(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured()) {
+        setLoadingData(false);
+        return;
+      }
       setLoadingData(true);
       try {
         const filters: Filter[] = [{ column: 'company_id', operator: 'eq', value: user.companyId }];
@@ -33,7 +33,7 @@ export function EscalasCiclicasRead() {
           db.select('escala_ciclica', filters).catch(() => []) as Promise<any[]>,
           db.select('work_shifts', filters) as Promise<any[]>,
         ]);
-        if (cancelled) return;
+        if (isCancelled()) return;
         const sm = new Map((shifts ?? []).map((s: any) => [s.id, s.name ?? s.description ?? '—']));
         setShiftNames(sm);
         setRows(
@@ -48,13 +48,11 @@ export function EscalasCiclicasRead() {
       } catch (e) {
         console.error(e);
       } finally {
-        if (!cancelled) setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.companyId]);
+    },
+    [user?.companyId],
+  );
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;

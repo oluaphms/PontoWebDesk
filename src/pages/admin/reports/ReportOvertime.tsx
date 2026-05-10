@@ -11,6 +11,8 @@ import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
 import { processEmployeeMonth } from '../../../engine/timeEngine';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
+import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
+import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 import {
   KPICards,
   FiltersBar,
@@ -48,7 +50,7 @@ interface OvertimeRow {
 
 const ReportOvertime: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const { employees } = useCompanyEmployees(user?.companyId);
   const [departments, setDepartments] = useState<Map<string, string>>(new Map());
   const [rows, setRows] = useState<OvertimeRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -63,27 +65,12 @@ const ReportOvertime: React.FC = () => {
   const [filterDept, setFilterDept] = useState('');
   const [minHours, setMinHours] = useState('');
 
-  // Carregar funcionários
+  // Carregar departamentos
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     const cid = user.companyId!;
 
     (async () => {
-      const list = (await queryCache.getOrFetch(
-        `users:${cid}`,
-        () => db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-        TTL.NORMAL,
-      )) as any[];
-
-      setEmployees(
-        (list ?? []).map((u: any) => ({
-          id: u.id,
-          nome: u.nome || u.email,
-          department_id: u.department_id || '',
-        })),
-      );
-
-      // Carregar departamentos
       const depts = (await db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }])) as any[];
       const deptMap = new Map<string, string>();
       (depts ?? []).forEach((d: any) => deptMap.set(d.id, d.name));
@@ -92,16 +79,15 @@ const ReportOvertime: React.FC = () => {
   }, [user?.companyId]);
 
   // Calcular horas extras
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
-    const cid = user.companyId!;
-    const [y, m] = month.split('-').map(Number);
-    let cancelled = false;
-    setLoadingData(true);
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
+      const cid = user.companyId;
+      const [y, m] = month.split('-').map(Number);
+      setLoadingData(true);
 
-    const cacheKey = adminReportCacheKey(cid, 'overtime', month);
+      const cacheKey = adminReportCacheKey(cid, 'overtime', month);
 
-    (async () => {
       try {
         const result = await queryCache.getOrFetch(
           cacheKey,
@@ -154,14 +140,13 @@ const ReportOvertime: React.FC = () => {
           TTL.STATIC,
         );
 
-        if (!cancelled) setRows(result);
+        if (!isCancelled()) setRows(result);
       } finally {
-        if (!cancelled) setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-
-    return () => { cancelled = true; };
-  }, [user?.companyId, month, employees]);
+    },
+    [user?.companyId, month, employees],
+  );
 
   // Dados filtrados
   const filteredRows = useMemo(() => {

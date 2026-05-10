@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FUTURE_PUNCH_TOLERANCE_MS,
+  __resetFutureBlockDedupForTests,
   companyOperationalDayBoundsUtc,
   filterRecordsForOperationalDay,
   getCompanyTodayYmd,
@@ -46,7 +47,7 @@ describe('getLastOperationalPunchForUser', () => {
         timestamp: null,
       },
     ];
-    const last = getLastOperationalPunchForUser(rows, 'u1');
+    const last = getLastOperationalPunchForUser(rows, 'u1', now);
     expect(last?.id).toBe('2');
   });
 });
@@ -94,5 +95,42 @@ describe('getCompanyTodayYmd', () => {
   it('retorna ISO date', () => {
     const y = getCompanyTodayYmd();
     expect(y).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('dedup de [FUTURE DATE BLOCKED]', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    __resetFutureBlockDedupForTests();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    __resetFutureBlockDedupForTests();
+  });
+
+  it('emite log apenas uma vez para o mesmo iso futuro dentro da janela', () => {
+    const now = new Date('2026-05-09T12:00:00.000Z').getTime();
+    const future = new Date(now + FUTURE_PUNCH_TOLERANCE_MS + 60_000).toISOString();
+    for (let i = 0; i < 20; i += 1) {
+      const r = validateOperationalTimestamp(future, now);
+      expect(r.ok).toBe(false);
+    }
+    const futureBlockCalls = warnSpy.mock.calls.filter((c) => c[0] === '[FUTURE DATE BLOCKED]');
+    expect(futureBlockCalls.length).toBe(1);
+  });
+
+  it('emite log para isos distintos mesmo na mesma janela', () => {
+    const now = new Date('2026-05-09T12:00:00.000Z').getTime();
+    const futureA = new Date(now + FUTURE_PUNCH_TOLERANCE_MS + 60_000).toISOString();
+    const futureB = new Date(now + FUTURE_PUNCH_TOLERANCE_MS + 120_000).toISOString();
+    validateOperationalTimestamp(futureA, now);
+    validateOperationalTimestamp(futureB, now);
+    validateOperationalTimestamp(futureA, now);
+    validateOperationalTimestamp(futureB, now);
+    const futureBlockCalls = warnSpy.mock.calls.filter((c) => c[0] === '[FUTURE DATE BLOCKED]');
+    expect(futureBlockCalls.length).toBe(2);
   });
 });

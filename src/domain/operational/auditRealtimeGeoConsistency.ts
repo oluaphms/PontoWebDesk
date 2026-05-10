@@ -4,6 +4,7 @@
 
 import { parseOperationalStatusEnum, type CurrentOperationalStateRow } from '../../services/currentOperationalState.service';
 import type { MonitoringPipelineEmployeeRow } from '../../services/monitoring/monitoringGeoHardLock.service';
+import { opLog } from '../../utils/operationalLogger';
 
 export type RealtimeGeoAuditIssue = {
   code: string;
@@ -50,9 +51,9 @@ export function auditRealtimeGeoConsistency(params: {
   }
 
   if (issues.length > 0) {
-    console.warn('[GEO CONSISTENCY AUDIT]', { company_id: companyId, count: issues.length, issues });
+    opLog.warn('GEO CONSISTENCY AUDIT', { company_id: companyId, count: issues.length, issues });
   } else {
-    console.info('[GEO CONSISTENCY AUDIT]', { company_id: companyId, ok: true, rows: pipelineRows.length });
+    opLog.diag('GEO CONSISTENCY AUDIT', { company_id: companyId, ok: true, rows: pipelineRows.length });
   }
 
   return { ok: issues.length === 0, issues };

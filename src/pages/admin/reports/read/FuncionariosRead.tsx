@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../../hooks/useCurrentUser';
 import { db, isSupabaseConfigured, type Filter } from '../../../../services/supabaseClient';
 import { LoadingState } from '../../../../../components/UI';
 import { ReportReadShell } from './ReportReadShell';
+import { useAbortableAsyncEffect } from '../../../../hooks/useAbortableAsyncEffect';
 
 type U = { id: string; nome: string | null; email: string | null; role: string | null };
 
@@ -12,18 +13,17 @@ export function FuncionariosRead() {
   const [rows, setRows] = useState<U[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) {
-      setLoadingData(false);
-      return;
-    }
-    let c = false;
-    (async () => {
+  useAbortableAsyncEffect(
+    async (isCancelled) => {
+      if (!user?.companyId || !isSupabaseConfigured()) {
+        setLoadingData(false);
+        return;
+      }
       setLoadingData(true);
       try {
         const filters: Filter[] = [{ column: 'company_id', operator: 'eq', value: user.companyId }];
         const data = (await db.select('users', filters)) as any[];
-        if (c) return;
+        if (isCancelled()) return;
         setRows(
           (data ?? []).map((r: any) => ({
             id: r.id,
@@ -35,13 +35,11 @@ export function FuncionariosRead() {
       } catch (e) {
         console.error(e);
       } finally {
-        if (!c) setLoadingData(false);
+        if (!isCancelled()) setLoadingData(false);
       }
-    })();
-    return () => {
-      c = true;
-    };
-  }, [user?.companyId]);
+    },
+    [user?.companyId],
+  );
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;

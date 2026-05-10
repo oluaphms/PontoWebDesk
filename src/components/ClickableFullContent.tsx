@@ -139,12 +139,20 @@ export function ExpandableStreetCell({
     let cancelled = false;
     setLoading(true);
     setLine('');
-    void reverseGeocode(lat, lng).then((t) => {
-      if (!cancelled) {
-        setLine((t || '').trim() || '—');
-        setLoading(false);
-      }
-    });
+    void reverseGeocode(lat, lng)
+      .then((t) => {
+        if (!cancelled) {
+          setLine((t || '').trim() || '—');
+          setLoading(false);
+        }
+      })
+      .catch((error) => {
+        console.warn('[ExpandableStreetCell] reverse geocode falhou:', error);
+        if (!cancelled) {
+          setLine('Endereço indisponível');
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
