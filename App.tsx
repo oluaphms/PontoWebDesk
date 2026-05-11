@@ -1797,8 +1797,8 @@ const AppMain: React.FC = () => {
         {/* Fundo com gradiente - alterna entre modo claro e escuro */}
         <div className={`fixed inset-0 z-0 transition-all duration-500 ${
           theme === 'dark' 
-            ? 'bg-gradient-to-br from-slate-950 via-purple-950 to-indigo-950' 
-            : 'bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700'
+            ? 'bg-gradient-to-br from-slate-950 via-purple-950 to-indigo-950'
+            : 'bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-700'
         }`} />
 
         {/* Padrão de pontos sutis */}
@@ -1809,11 +1809,26 @@ const AppMain: React.FC = () => {
             backgroundSize: '40px 40px',
           }}
         />
+        {/* Grid operacional discreto */}
+        <div
+          className={`fixed inset-0 z-0 pointer-events-none transition-opacity duration-500 ${theme === 'dark' ? 'opacity-[0.14]' : 'opacity-[0.18]'}`}
+          style={{
+            backgroundImage:
+              'linear-gradient(to right, rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.08) 1px, transparent 1px)',
+            backgroundSize: '64px 64px',
+            maskImage: 'radial-gradient(circle at 32% 28%, black 22%, transparent 82%)',
+          }}
+        />
+        {/* Linhas geométricas de profundidade */}
+        <div className="fixed inset-0 z-0 pointer-events-none">
+          <div className="absolute -top-24 -left-24 w-[38rem] h-[38rem] rounded-full border border-white/10" />
+          <div className="absolute -bottom-28 -right-20 w-[32rem] h-[32rem] rounded-full border border-white/10" />
+        </div>
 
         {/* Toggle de tema */}
         <button
           onClick={toggleTheme}
-          className="fixed top-5 right-5 z-50 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl border border-white/20 transition-all group"
+          className="fixed top-5 right-5 z-50 p-3 bg-white/10 hover:bg-white/18 backdrop-blur-md rounded-xl border border-white/25 transition-all duration-300 group shadow-[0_18px_45px_-25px_rgba(15,23,42,0.9)]"
           aria-label={getThemeLabel()}
           title={getThemeLabel()}
         >
@@ -1823,13 +1838,13 @@ const AppMain: React.FC = () => {
         </button>
 
         {/* Área de Apresentação - Esquerda no Desktop, Topo no Mobile */}
-        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center py-10 lg:py-0 ${theme === 'dark' ? 'bg-black/20' : 'bg-white/10'} lg:bg-transparent transition-colors duration-500`}>
+        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center py-8 lg:py-0 ${theme === 'dark' ? 'bg-black/20' : 'bg-white/10'} lg:bg-transparent transition-colors duration-500`}>
           <PresentationPanel />
         </div>
 
         {/* Área de Login - Direita no Desktop, Abaixo no Mobile */}
-        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 py-8 lg:py-0 backdrop-blur-sm transition-colors duration-500 ${
-          theme === 'dark' ? 'bg-slate-950/30' : 'bg-white/10'
+        <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 py-7 lg:py-0 backdrop-blur-sm transition-colors duration-500 ${
+          theme === 'dark' ? 'bg-slate-950/32' : 'bg-white/10'
         } lg:bg-transparent lg:backdrop-blur-none`}>
           <LoginCard
             onLogin={handleLogin}

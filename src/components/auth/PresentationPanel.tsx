@@ -15,65 +15,58 @@ const benefits: BenefitItem[] = [
 
 export const PresentationPanel: React.FC = () => {
   return (
-    <div className="flex flex-col justify-center h-full px-6 sm:px-10 lg:px-16 py-12">
+    <div className="flex flex-col justify-center h-full px-6 sm:px-10 lg:px-16 py-10 sm:py-12">
       {/* Logo com tagline */}
-      <div className="mb-8">
+      <div className="mb-7">
         <div className="flex flex-col items-center lg:items-start">
           <div className="logo-container relative">
-            {/* Fundo roxo para mascarar o fundo branco da logo */}
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/90 to-purple-700/90 rounded-[2rem] blur-md scale-110" />
-            <div className="relative bg-gradient-to-br from-indigo-500/80 to-purple-600/80 backdrop-blur-sm rounded-[1.5rem] p-2 border border-white/20 shadow-2xl">
+            <div className="absolute inset-0 rounded-[1.7rem] bg-gradient-to-br from-indigo-500/35 to-violet-500/30 blur-xl scale-110" />
+            <div className="relative rounded-[1.3rem] p-1.5 bg-white/8 border border-white/25 shadow-[0_24px_70px_-30px_rgba(15,23,42,0.8)] backdrop-blur-md">
               <img
                 src="/res/mipmap-xxxhdpi/ic_launcher.png"
                 alt="PontoWebDesk"
-                width={100}
-                height={100}
+                width={115}
+                height={115}
                 decoding="async"
-                className="w-[100px] h-[100px] object-contain rounded-[1rem]"
+                className="w-[115px] h-[115px] object-contain rounded-[0.95rem]"
               />
             </div>
           </div>
-          <p className="text-white/80 text-sm font-medium tracking-wide mt-4">
-            Gestão inteligente de ponto
+          <p className="text-white/92 text-sm font-semibold tracking-[0.12em] uppercase mt-4">
+            PontoWebDesk Platform
           </p>
         </div>
       </div>
 
       {/* Título Principal */}
-      <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white leading-tight mb-4 text-center lg:text-left">
-        Controle de ponto
-        <br />
-        <span className="text-indigo-200">inteligente e confiável</span>
+      <h1 className="text-[1.85rem] sm:text-[2.35rem] lg:text-[2.95rem] font-extrabold text-white leading-[1.08] mb-4 text-center lg:text-left max-w-[17ch]">
+        Gestão operacional de jornada em tempo real
       </h1>
 
       {/* Subtítulo */}
-      <p className="text-white/70 text-base sm:text-lg mb-8 max-w-md text-center lg:text-left">
-        Gestão completa com geolocalização, segurança e conformidade legal
+      <p className="text-white/90 text-[0.98rem] sm:text-[1.05rem] leading-relaxed mb-8 max-w-[34rem] text-center lg:text-left">
+        Monitoramento de equipes, rastreabilidade GEO e conformidade legal em uma única plataforma.
       </p>
 
       {/* Lista de Benefícios */}
-      <div className="space-y-4 mb-10">
+      <div className="space-y-3.5 mb-8">
         {benefits.map((benefit, index) => (
           <div
             key={index}
-            className="flex items-center gap-3 text-white/80 group"
+            className="flex items-center gap-3.5 text-white/92 group"
           >
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-indigo-200 group-hover:bg-white/20 transition-colors duration-200">
+            <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/15 shadow-[0_10px_30px_-18px_rgba(99,102,241,0.9)] flex items-center justify-center text-indigo-100/95 group-hover:bg-white/14 group-hover:text-white transition-all duration-300">
               {benefit.icon}
             </div>
-            <span className="text-sm sm:text-base">{benefit.text}</span>
+            <span className="text-sm sm:text-[0.98rem] leading-snug font-medium text-white/95">{benefit.text}</span>
           </div>
         ))}
       </div>
 
-      {/* Badge de conformidade */}
-      <div className="flex items-center gap-2 text-emerald-300/90 text-sm">
-        <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <span>Sistema em conformidade com a Portaria 671</span>
+      {/* Linha de autoridade operacional */}
+      <div className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/12 px-3 py-2 text-[0.82rem] text-white/95 tracking-wide">
+        <Clock size={14} className="text-emerald-300/90" />
+        <span>Auditoria operacional • GEO em tempo real • Anti-fraude</span>
       </div>
     </div>
   );
