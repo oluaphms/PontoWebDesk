@@ -12,12 +12,11 @@ import type { PendingRepPunch } from '../../services/timeAttendanceData';
 import {
   buildDayMirrorSummary,
   DayMirror,
+  resolveMirrorSlotRecord,
   formatMinutes,
   getDayStatus,
   isManualRecord,
-  isRepMirrorRecord,
   isStatusRecord,
-  normalizeRecordTypeForMirror,
   recordEffectiveMirrorInstant,
   type TimeRecord as MirrorTimeRecord,
   type DayScheduleWindow,
@@ -593,27 +592,10 @@ const EmployeeTimesheet: React.FC = () => {
                     });
                   const recordIsoForDay = (r: MirrorTimeRecord) => recordEffectiveMirrorInstant(r, date);
                   const fmtRecord = (r: MirrorTimeRecord) => fmt(recordIsoForDay(r));
-                  const pick = (t: string | null, typ: ReturnType<typeof normalizeRecordTypeForMirror>) => {
-                    if (!t) return undefined;
-                    return (
-                      day.records.find((r) => normalizeRecordTypeForMirror(r.type) === typ && fmtRecord(r) === t) ||
-                      day.records.find((r) => fmtRecord(r) === t)
-                    );
-                  };
-                  const entradaRecord = day.entradaInicio
-                    ? (() => {
-                        const sameTime = day.records.filter((r) => fmtRecord(r) === day.entradaInicio);
-                        const rep = sameTime.find((r) => isRepMirrorRecord(r));
-                        return (
-                          rep ||
-                          sameTime.find((r) => normalizeRecordTypeForMirror(r.type) === 'entrada') ||
-                          sameTime[0]
-                        );
-                      })()
-                    : undefined;
-                  const saidaIntRecord = pick(day.saidaIntervalo, 'intervalo_saida');
-                  const voltaIntRecord = pick(day.voltaIntervalo, 'intervalo_volta');
-                  const saidaRecord = pick(day.saidaFinal, 'saida');
+                  const entradaRecord = resolveMirrorSlotRecord(day, 'entrada', 'entrada');
+                  const saidaIntRecord = resolveMirrorSlotRecord(day, 'saida_intervalo', 'intervalo_saida');
+                  const voltaIntRecord = resolveMirrorSlotRecord(day, 'volta_intervalo', 'intervalo_volta');
+                  const saidaRecord = resolveMirrorSlotRecord(day, 'saida_final', 'saida');
                   const withGps = dayRecs.filter((r: any) => extractLatLng(r));
                   const repWithoutGpsCount = dayRecs.filter((r: any) => {
                     const origin = resolvePunchOrigin(r);

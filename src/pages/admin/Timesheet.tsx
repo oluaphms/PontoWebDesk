@@ -14,6 +14,7 @@ import { SkeletonFiltro, TimesheetTableSkeleton } from '../../components/Timeshe
 import {
   buildDayMirrorSummary,
   DayMirror,
+  resolveMirrorSlotRecord,
   isManualRecord,
   isRepMirrorRecord,
   isStatusRecord,
@@ -1609,32 +1610,17 @@ const AdminTimesheet: React.FC = () => {
                   };
                   const recordIsoForDay = (r: TimeRecord) => recordEffectiveMirrorInstant(r, date);
                   const fmtRecord = (r: TimeRecord) => fmt(recordIsoForDay(r));
-                  const pick = (t: string | null, typ: ReturnType<typeof normalizeRecordTypeForMirror>) => {
-                    if (!t) return undefined;
-                    return (
-                      day.records.find((r) => normalizeRecordTypeForMirror(r.type) === typ && fmtRecord(r) === t) ||
-                      day.records.find((r) => fmtRecord(r) === t)
-                    );
-                  };
-                  const entradaRecord = day.entradaInicio
-                    ? (() => {
-                        const sameTime = day.records.filter((r) => fmtRecord(r) === day.entradaInicio);
-                        const rep = sameTime.find((r) => isRepMirrorRecord(r));
-                        return (
-                          rep ||
-                          sameTime.find((r) => normalizeRecordTypeForMirror(r.type) === 'entrada') ||
-                          sameTime[0]
-                        );
-                      })()
-                    : undefined;
-                  const saidaIntRecord = pick(day.saidaIntervalo, 'intervalo_saida');
-                  let voltaIntRecord = pick(day.voltaIntervalo, 'intervalo_volta');
-                  const saidaRecord = pick(day.saidaFinal, 'saida');
+                  const entradaRecord = resolveMirrorSlotRecord(day, 'entrada', 'entrada');
+                  const saidaIntRecord = resolveMirrorSlotRecord(day, 'saida_intervalo', 'intervalo_saida');
+                  let voltaIntRecord = resolveMirrorSlotRecord(day, 'volta_intervalo', 'intervalo_volta');
+                  const saidaRecord = resolveMirrorSlotRecord(day, 'saida_final', 'saida');
                   let voltaSlotTime = day.voltaIntervalo;
 
-                  // Fallback visual: se a volta ficou vazia, mas existe batida entre saída de intervalo e saída final,
-                  // exibe essa batida na coluna "Volta int." para não "sumir" no espelho.
-                  if (!voltaSlotTime && day.saidaIntervalo) {
+                  const hasSlotAssignmentMap =
+                    !!day.slotRecordIds && Object.values(day.slotRecordIds).some((id) => Boolean(id));
+
+                  // Fallback visual (apenas legado sem mapa 1:1): evita duplicar batidas quando `slotRecordIds` existe.
+                  if (!hasSlotAssignmentMap && !voltaSlotTime && day.saidaIntervalo) {
                     const startMin = hhmmToMin(day.saidaIntervalo);
                     const endMin = hhmmToMin(day.saidaFinal);
                     const hasRecord = (r?: TimeRecord) => !!r?.id;
@@ -1655,20 +1641,20 @@ const AdminTimesheet: React.FC = () => {
                       voltaSlotTime = candidates[0]!.time;
                     }
                   }
-                  // Fallback visual para dias inconsistentes:
-                  // se houver batidas do dia que não encaixaram nas colunas padrão,
-                  // preencher as colunas vazias com horários de inconsistência
-                  // (na ordem cronológica) para evitar "----" com batida existente.
+                  // Fallback visual para dias inconsistentes (sem `slotRecordIds` do motor atual).
                   const occupiedTimes = new Set<string>(
                     [day.entradaInicio, day.saidaIntervalo, voltaSlotTime, day.saidaFinal]
                       .filter((x): x is string => !!x && String(x).trim() !== ''),
                   );
-                  const inconsistentTimes = day.inconsistencias
-                    .map((r) => fmtRecord(r))
-                    .filter((t) => !occupiedTimes.has(t));
+                  const inconsistentTimes = !hasSlotAssignmentMap
+                    ? day.inconsistencias
+                        .map((r) => fmtRecord(r))
+                        .filter((t) => !occupiedTimes.has(t))
+                    : [];
                   const uniqueInconsistentTimes = [...new Set(inconsistentTimes)];
                   let fallbackIdx = 0;
                   const nextFallbackTime = (): string | null => {
+                    if (hasSlotAssignmentMap) return null;
                     if (fallbackIdx >= uniqueInconsistentTimes.length) return null;
                     const t = uniqueInconsistentTimes[fallbackIdx]!;
                     fallbackIdx += 1;
