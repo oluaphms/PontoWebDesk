@@ -11,6 +11,67 @@ import { TimeRecord, Company, User, EmployeeSummary, CompanyKPIs } from '../type
 /** Uma busca por companyId por vez evita N× db.select(companies) em paralelo (timeout 28s). */
 const getCompanyInflight = new Map<string, Promise<Company | null>>();
 
+function defaultCompanySettings(): Company['settings'] {
+  return {
+    fence: { lat: 0, lng: 0, radius: 100 },
+    allowManualPunch: true,
+    requirePhoto: false,
+    standardHours: { start: '09:00', end: '18:00' },
+    delayPolicy: { toleranceMinutes: 15 },
+  };
+}
+
+function companyRowFromDb(c: Record<string, unknown>, fallbackId: string): Company {
+  const nome = String(c.nome ?? c.name ?? '');
+  const slugBase = (nome || 'empresa').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const rawSettings = c.settings;
+  const settings: Company['settings'] =
+    rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)
+      ? ({ ...defaultCompanySettings(), ...(rawSettings as Partial<Company['settings']>) } as Company['settings'])
+      : defaultCompanySettings();
+
+  const rf = c.receipt_fields;
+  const receiptFields = Array.isArray(rf) ? rf.map((x) => String(x)) : [];
+
+  const gf = c.geofence;
+  const geofence =
+    gf && typeof gf === 'object' && !Array.isArray(gf)
+      ? {
+          lat: Number((gf as Record<string, unknown>).lat ?? 0),
+          lng: Number((gf as Record<string, unknown>).lng ?? 0),
+          radius: Number((gf as Record<string, unknown>).radius ?? 0),
+        }
+      : undefined;
+
+  return {
+    id: String(c.id ?? fallbackId),
+    name: nome,
+    slug: String(c.slug ?? slugBase),
+    nome,
+    cnpj: c.cnpj != null ? String(c.cnpj) : undefined,
+    inscricaoEstadual: c.inscricao_estadual != null ? String(c.inscricao_estadual) : undefined,
+    responsavelNome: c.responsavel_nome != null ? String(c.responsavel_nome) : undefined,
+    responsavelCargo: c.responsavel_cargo != null ? String(c.responsavel_cargo) : undefined,
+    responsavelEmail: c.responsavel_email != null ? String(c.responsavel_email) : undefined,
+    endereco: c.endereco != null ? String(c.endereco ?? c.address ?? '') : undefined,
+    bairro: c.bairro != null ? String(c.bairro) : undefined,
+    cidade: c.cidade != null ? String(c.cidade) : undefined,
+    cep: c.cep != null ? String(c.cep) : undefined,
+    estado: c.estado != null ? String(c.estado) : undefined,
+    pais: c.pais != null ? String(c.pais) : undefined,
+    telefone: c.telefone != null ? String(c.telefone ?? c.phone ?? '') : undefined,
+    fax: c.fax != null ? String(c.fax) : undefined,
+    cei: c.cei != null ? String(c.cei) : undefined,
+    numeroFolha: c.numero_folha != null ? String(c.numero_folha) : undefined,
+    receiptFields,
+    useDefaultTimezone: Boolean(c.use_default_timezone),
+    timezone: c.timezone != null ? String(c.timezone) : undefined,
+    geofence,
+    settings,
+    createdAt: c.created_at ? new Date(String(c.created_at)) : new Date(),
+  };
+}
+
 function safeGetItem(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -334,35 +395,7 @@ class SupabaseService {
         );
 
         if (companies && companies.length > 0) {
-          const c = companies[0];
-          const nome = c.nome ?? c.name ?? '';
-          return {
-            id: c.id,
-            name: nome,
-            slug: c.slug ?? (nome || 'empresa').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
-            nome,
-            cnpj: c.cnpj,
-            inscricaoEstadual: c.inscricao_estadual,
-            responsavelNome: c.responsavel_nome,
-            responsavelCargo: c.responsavel_cargo,
-            responsavelEmail: c.responsavel_email,
-            endereco: c.endereco ?? c.address,
-            bairro: c.bairro,
-            cidade: c.cidade,
-            cep: c.cep,
-            estado: c.estado,
-            pais: c.pais,
-            telefone: c.telefone ?? c.phone,
-            fax: c.fax,
-            cei: c.cei,
-            numeroFolha: c.numero_folha,
-            receiptFields: c.receipt_fields,
-            useDefaultTimezone: c.use_default_timezone,
-            timezone: c.timezone,
-            geofence: c.geofence,
-            settings: c.settings,
-            createdAt: c.created_at ? new Date(c.created_at) : new Date(),
-          };
+          return companyRowFromDb(companies[0] as Record<string, unknown>, id);
         }
         return null;
       } catch (error: any) {

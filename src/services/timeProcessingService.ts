@@ -394,7 +394,7 @@ async function fetchEmployeeShiftScheduleRows(
       ],
       { column: 'day_of_week', ascending: true },
       20
-    )) as EmployeeShiftScheduleRow[];
+    )) as unknown as EmployeeShiftScheduleRow[];
     return Array.isArray(rows) ? rows : [];
   } catch {
     return [];

@@ -1,7 +1,7 @@
 /**
  * Evita promises pendentes indefinidamente (loading infinito).
  */
-export async function withTimeout<T>(promise: Promise<T>, ms: number, label = 'operação'): Promise<T> {
+export async function withTimeout<T>(promise: Promise<T> | PromiseLike<T>, ms: number, label = 'operação'): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -9,7 +9,7 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, label = 'o
     }, ms);
   });
   try {
-    return await Promise.race([promise, timeoutPromise]);
+    return await Promise.race([Promise.resolve(promise), timeoutPromise]);
   } finally {
     clearTimeout(timer!);
   }

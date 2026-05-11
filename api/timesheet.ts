@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { buildTimesheetForPeriod } from '../src/engine/timeEngine';
+import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
@@ -73,8 +74,11 @@ export default async function handler(request: Request): Promise<Response> {
     });
 
     return Response.json({ timesheet: result }, { status: 200, headers: corsHeaders });
-  } catch (e: any) {
-    return Response.json({ error: e?.message || 'Falha ao gerar espelho' }, { status: 500, headers: corsHeaders });
+  } catch (e: unknown) {
+    return Response.json(
+      { error: messageFromUnknown(e, 'Falha ao gerar espelho') },
+      { status: 500, headers: corsHeaders },
+    );
   }
 }
 

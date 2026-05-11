@@ -13,6 +13,7 @@ import { readAuditLogsTenantIdFromEnv } from '@/services/schemaColumnDetection';
 import { reportSchemaGuardState } from '@/services/schemaGuardReporter';
 import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/timesheetCalculationAudit';
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
+import { messageFromUnknown } from '@/utils/messageFromUnknown';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -30,11 +31,11 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
     let mounted = true;
     const init = async () => {
       const envName =
-        (typeof window !== 'undefined' && (window as any).ENV?.ENVIRONMENT) ||
+        (typeof window !== 'undefined' && window.ENV?.ENVIRONMENT) ||
         import.meta.env.MODE ||
         'dev';
       const envMap =
-        (typeof window !== 'undefined' && (window as any).ENV?.SUPABASES) || {};
+        (typeof window !== 'undefined' && window.ENV?.SUPABASES) || {};
       const envConfig = envMap?.[envName] || null;
 
       let supabaseUrl = '';
@@ -66,16 +67,16 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
             );
           }
         }
-      } catch (error: any) {
-        const message = error?.message || '[ENV] Variáveis ausentes';
+      } catch (error: unknown) {
+        const message = messageFromUnknown(error, '[ENV] Variáveis ausentes');
         setSupabaseInfraFatal(message);
         if (mounted) setError(message);
         return;
       }
 
       if (typeof window !== 'undefined') {
-        (window as any).__VITE_SUPABASE_URL = supabaseUrl;
-        (window as any).__VITE_SUPABASE_ANON_KEY = supabaseKey;
+        window.__VITE_SUPABASE_URL = supabaseUrl;
+        window.__VITE_SUPABASE_ANON_KEY = supabaseKey;
       }
 
       if (typeof console !== 'undefined') {
@@ -121,7 +122,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       }
 
       if (typeof window !== 'undefined') {
-        (window as any).__SUPABASE_OFFLINE_DEV = false;
+        window.__SUPABASE_OFFLINE_DEV = false;
       }
 
       const engineVer = getCurrentEngineVersion();

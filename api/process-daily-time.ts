@@ -5,6 +5,8 @@
  * Variáveis: VITE_SUPABASE_URL (ou SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET
  */
 
+import { messageFromUnknown } from '../src/utils/messageFromUnknown';
+
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -119,8 +121,8 @@ export default async function handler(request: Request): Promise<Response> {
           });
         }
         processed++;
-      } catch (e: any) {
-        errors.push(`${u.id}: ${e?.message || 'Erro'}`);
+      } catch (e: unknown) {
+        errors.push(`${u.id}: ${messageFromUnknown(e, 'Erro')}`);
       }
     }
 
@@ -129,10 +131,10 @@ export default async function handler(request: Request): Promise<Response> {
       { ok: true, processed, date: dateStr, errors: errors.slice(0, 10) },
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.log('[API RESPONSE]', route, Date.now());
     return Response.json(
-      { error: e?.message || 'Erro ao processar', code: 'PROCESS_ERROR' },
+      { error: messageFromUnknown(e, 'Erro ao processar'), code: 'PROCESS_ERROR' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

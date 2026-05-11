@@ -4,7 +4,8 @@
 
 import { Report, ReportType } from '@/types/reports';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
+import type { CellInput, ColumnInput, RowInput } from 'jspdf-autotable';
 
 /**
  * Exporta relatório para PDF
@@ -60,7 +61,7 @@ export const exportReportToPDF = async (report: Report, type: ReportType): Promi
     const tableData = getTableData(report, type);
     const tableColumns = getTableColumns(type);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       columns: tableColumns,
       body: tableData,
       startY: yPosition,
@@ -80,7 +81,7 @@ export const exportReportToPDF = async (report: Report, type: ReportType): Promi
     });
 
     // Rodapé
-    const pageCount = (doc as any).internal.getNumberOfPages();
+    const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
@@ -145,12 +146,16 @@ export const exportReport = async (report: Report, type: ReportType): Promise<vo
 /**
  * Obtém dados da tabela formatados para PDF
  */
-const getTableData = (report: Report, type: ReportType): any[] => {
-  return report.rows.map((row: any) => {
-    const data: any = {};
+const getTableData = (report: Report, type: ReportType): RowInput[] => {
+  return report.rows.map((row) => {
+    const rec = row as Record<string, unknown>;
+    const data: Record<string, CellInput> = {};
     const columns = getTableColumns(type);
-    columns.forEach((col: any) => {
-      data[col.header] = row[col.dataKey] || '';
+    columns.forEach((col) => {
+      const key = typeof col === 'object' && col && 'dataKey' in col ? String(col.dataKey ?? '') : '';
+      const header =
+        typeof col === 'object' && col && 'header' in col ? String(col.header ?? '') : '';
+      if (header && key) data[header] = (rec[key] as CellInput) ?? '';
     });
     return data;
   });
@@ -159,8 +164,8 @@ const getTableData = (report: Report, type: ReportType): any[] => {
 /**
  * Obtém colunas da tabela por tipo de relatório
  */
-const getTableColumns = (type: ReportType): any[] => {
-  const columnMaps: Record<ReportType, any[]> = {
+const getTableColumns = (type: ReportType): ColumnInput[] => {
+  const columnMaps: Record<ReportType, ColumnInput[]> = {
     journey: [
       { header: 'Funcionário', dataKey: 'employee' },
       { header: 'Data', dataKey: 'date' },

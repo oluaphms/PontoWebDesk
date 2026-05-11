@@ -2,6 +2,8 @@
  * Upload de foto do registro de ponto: validação, multipart (File) e retry em falhas temporárias.
  */
 
+import { messageFromUnknown } from './messageFromUnknown';
+
 export type PunchStorage = {
   upload: (bucket: string, path: string, file: File) => Promise<unknown>;
   getPublicUrl: (bucket: string, path: string) => string;
@@ -101,9 +103,7 @@ export async function uploadPunchPhotoWithRetry(
       }
       const transient = isTransientUploadError(e);
       if (!transient || attempt === maxRetries - 1) {
-        const msg =
-          (e as Error)?.message ||
-          (typeof e === 'object' && e && 'message' in e ? String((e as any).message) : 'Erro ao enviar foto.');
+        const msg = messageFromUnknown(e, 'Erro ao enviar foto.');
         return {
           publicUrl: null,
           error: msg,

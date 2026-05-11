@@ -56,6 +56,7 @@ export async function insertIncidentResolution(input: {
     correlation_id?: string | null;
     operation_id?: string | null;
     lifecycle?: string | null;
+    rep_punch_log_id?: string | null;
   };
   supabaseClient?: SupabaseClient | null;
   /** Quando true, não grava o evento companion na timeline (commit transacional coordena). */

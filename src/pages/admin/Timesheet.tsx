@@ -1672,7 +1672,7 @@ const AdminTimesheet: React.FC = () => {
                     if (fallbackIdx >= uniqueInconsistentTimes.length) return null;
                     const t = uniqueInconsistentTimes[fallbackIdx]!;
                     fallbackIdx += 1;
-                    return t;
+                    return String(t);
                   };
                   const pickInconsistentRecord = (time: string | null): TimeRecord | undefined => {
                     if (!time) return undefined;

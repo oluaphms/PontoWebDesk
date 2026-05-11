@@ -1,5 +1,5 @@
 import { supabase, checkSupabaseConfigured, isSupabaseConfigured } from '../../services/supabaseClient';
-import { isDnsError, markSupabaseAsDown } from './supabaseCircuitBreaker';
+import { canRetrySupabase, isDnsError, markSupabaseAsDown } from './supabaseCircuitBreaker';
 
 export type SupabaseConnectionStatus =
   | 'ok'
@@ -8,7 +8,8 @@ export type SupabaseConnectionStatus =
   | 'timeout'
   | 'offline'
   | 'not_configured'
-  | 'unknown';
+  | 'unknown'
+  | 'circuit_breaker';
 
 export type SupabaseConnectionCheckResult = {
   ok: boolean;
@@ -61,6 +62,13 @@ function classifyFailure(error: unknown): SupabaseConnectionCheckResult {
 export async function checkSupabaseConnection(): Promise<SupabaseConnectionCheckResult> {
   if (!isSupabaseConfigured()) {
     return { ok: false, status: 'not_configured', message: 'Supabase não configurado.' };
+  }
+  if (!canRetrySupabase()) {
+    return {
+      ok: false,
+      status: 'circuit_breaker',
+      message: 'Supabase em cooldown após falhas recentes. Aguarde alguns segundos e tente novamente.',
+    };
   }
   try {
     const { error } = await supabase.from('punches').select('id').limit(1);

@@ -9,7 +9,7 @@ import React, {
   ReactNode,
 } from 'react';
 
-type ToastType = 'success' | 'error' | 'info';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface Toast {
   id: string;
@@ -79,8 +79,10 @@ export function ToastProvider({ children }: ToastProviderProps) {
               toast.type === 'success'
                 ? 'bg-emerald-600'
                 : toast.type === 'error'
-                ? 'bg-red-600'
-                : 'bg-slate-800'
+                  ? 'bg-red-600'
+                  : toast.type === 'warning'
+                    ? 'bg-amber-600'
+                    : 'bg-slate-800'
             }`}
           >
             {typeof toast.message === 'string' ? toast.message : String(toast.message)}

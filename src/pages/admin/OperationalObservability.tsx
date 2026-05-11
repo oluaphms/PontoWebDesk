@@ -47,7 +47,7 @@ const OperationalObservability: React.FC = () => {
 
   const geoReliabilityDist = useMemo(() => summarizeGeoReliabilityFromSamples(latestSamples), [latestSamples]);
   const geoReliabilityTotal = useMemo(
-    () => Object.values(geoReliabilityDist).reduce((a, b) => a + b, 0),
+    () => Object.values(geoReliabilityDist).reduce((a, b) => Number(a) + Number(b), 0),
     [geoReliabilityDist],
   );
   const avgAccuracySamples = useMemo(

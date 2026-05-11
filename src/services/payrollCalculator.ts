@@ -4,7 +4,7 @@
  * NÃO calcula valores monetários (salários, impostos) - foco apenas em jornada.
  */
 
-import { db, checkSupabaseConfigured, isSupabaseConfigured } from './supabaseClient';
+import { db, checkSupabaseConfigured, isSupabaseConfigured, type DbRow } from './supabaseClient';
 import { processEmployeeDay } from '../engine/timeEngine';
 import {
   buildPersistDayDecisionTree,
@@ -552,21 +552,22 @@ export async function savePayrollSummary(summary: PayrollSummary): Promise<strin
       { column: 'employee_id', operator: 'eq', value: summary.employee_id },
       { column: 'period_start', operator: 'eq', value: summary.period_start },
       { column: 'period_end', operator: 'eq', value: summary.period_end },
-    ]) as any[];
+    ]) as DbRow[];
 
     if (existing?.[0]?.id) {
-      await db.update('payroll_summaries', existing[0].id, payload);
-      return existing[0].id;
+      await db.update('payroll_summaries', String(existing[0].id), payload);
+      return String(existing[0].id);
     } else {
-      const result = await db.insert('payroll_summaries', {
+      const result = (await db.insert('payroll_summaries', {
         ...payload,
         created_at: new Date().toISOString(),
-      }) as any[];
-      return result?.[0]?.id;
+      })) as DbRow;
+      return result?.id != null ? String(result.id) : undefined;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Se a tabela não existe, loga e retorna ID simulado
-    if (err?.message?.includes('relation') || err?.message?.includes('does not exist')) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('relation') || msg.includes('does not exist')) {
       console.warn('[savePayrollSummary] Tabela payroll_summaries não existe. Execute a migração: 20260417230000_pre_folha_tables.sql');
       return `temp-${summary.employee_id}-${summary.period_start}`;
     }

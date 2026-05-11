@@ -26,8 +26,8 @@ export function useDeferredPortalChrome(userId: string | undefined, idleTimeoutM
       const id = w.requestIdleCallback(finish, { timeout: budget });
       return () => w.cancelIdleCallback(id);
     }
-    const t = w.setTimeout(finish, Math.min(400, budget));
-    return () => w.clearTimeout(t);
+    const t = window.setTimeout(finish, Math.min(400, budget));
+    return () => window.clearTimeout(t);
   }, [userId, budget]);
 
   return ready;

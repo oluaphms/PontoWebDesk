@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Mail, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Button, Input } from '../../../components/UI';
 import { authService } from '../../../services/authService';
+import { messageFromUnknown } from '@/utils/messageFromUnknown';
 
 export interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -40,8 +41,8 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
       } else {
         setError(result.error ?? 'Erro ao enviar email de recuperação.');
       }
-    } catch (err: any) {
-      setError(err?.message ?? 'Erro ao enviar email de recuperação.');
+    } catch (err: unknown) {
+      setError(messageFromUnknown(err, 'Erro ao enviar email de recuperação.'));
     } finally {
       setIsSubmitting(false);
     }

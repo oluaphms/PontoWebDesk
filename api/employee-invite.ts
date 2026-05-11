@@ -4,8 +4,27 @@
  * - POST /api/employee-invite/accept  (via rewrite legada /api/accept-employee-invite)
  */
 
+import type { PostgrestError } from '@supabase/supabase-js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
+
+/** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
+type GoTrueAdminApi = {
+  createUser: (params: {
+    email: string;
+    password: string;
+    email_confirm?: boolean;
+  }) => Promise<{ data: { user?: { id: string }; id?: string } | null; error: { message: string } | null }>;
+  listUsers: (params: { perPage: number }) => Promise<{
+    data: { users?: Array<{ id: string; email?: string }> } | null;
+    error: unknown;
+  }>;
+  updateUserById: (id: string, attrs: { password: string }) => Promise<{ error: unknown }>;
+};
+
+function getGoTrueAdmin(auth: unknown): GoTrueAdminApi {
+  return (auth as { admin: GoTrueAdminApi }).admin;
+}
 
 const ALLOWED_METHODS = 'GET, POST, OPTIONS';
 
@@ -150,14 +169,15 @@ export default async function handler(request: Request): Promise<Response> {
     const role = row.role || 'employee';
     const companyId = row.company_id || '';
     let authUserId: string | null = null;
-    const { data: authData, error: authError } = await (adminSup.auth as any).admin.createUser({ email, password, email_confirm: true });
+    const authAdmin = getGoTrueAdmin(adminSup.auth);
+    const { data: authData, error: authError } = await authAdmin.createUser({ email, password, email_confirm: true });
     if (authError) {
       const msg = String(authError.message || '').toLowerCase();
       if (msg.includes('already') || msg.includes('registered')) {
-        const { data: list } = await (adminSup.auth as any).admin.listUsers({ perPage: 1000 });
-        const existing = list?.users?.find((u: any) => String(u.email || '').toLowerCase() === email);
+        const { data: list } = await authAdmin.listUsers({ perPage: 1000 });
+        const existing = list?.users?.find((u) => String(u.email || '').toLowerCase() === email);
         if (!existing?.id) return Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        const { error: updateErr } = await (adminSup.auth as any).admin.updateUserById(existing.id, { password });
+        const { error: updateErr } = await authAdmin.updateUserById(existing.id, { password });
         if (updateErr) return Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         authUserId = existing.id;
       } else {
@@ -187,8 +207,8 @@ export default async function handler(request: Request): Promise<Response> {
       preferences: { notifications: true, theme: 'light', allowManualPunch: true, language: 'pt-BR' }, created_at: new Date().toISOString(),
     });
     if (userInsertError) {
-      const code = String((userInsertError as any)?.code || '');
-      const msg = String((userInsertError as any)?.message || '').toLowerCase();
+      const code = String((userInsertError as PostgrestError)?.code || '');
+      const msg = String((userInsertError as PostgrestError)?.message || '').toLowerCase();
       if (code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
         const patch: Record<string, unknown> = { nome: name, role, preferences: { notifications: true, theme: 'light', allowManualPunch: true, language: 'pt-BR' }, updated_at: new Date().toISOString() };
         if (companyId && String(companyId).trim() !== '') patch.company_id = companyId;

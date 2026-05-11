@@ -388,6 +388,7 @@ const AdminCalculos: React.FC = () => {
           late_minutes: 0,
           missing_minutes: 0,
           absence_minutes: 0,
+          scheduled_day_off: false,
           entrada: null,
           saida: null,
           inicio_intervalo: null,

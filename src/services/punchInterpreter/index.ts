@@ -84,7 +84,7 @@ export async function interpretPunchSequence(
     ],
     { column: 'created_at', ascending: true },
     50
-  )) as TimeRecordRow[];
+  )) as unknown as TimeRecordRow[];
 
   const records = (rows ?? []).map((r) => ({
     id: r.id,

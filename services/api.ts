@@ -3,7 +3,7 @@
  * Centraliza Promise.all e evita fetch duplicado / ordem inconsistente entre telas.
  */
 
-import { db, type Filter } from './supabaseClient';
+import { db, type DbRow, type Filter } from './supabaseClient';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 
@@ -20,7 +20,7 @@ export async function fetchTimeRecordsForMirrorWindow(
   periodEndYmd: string,
   orderAscending: boolean,
   limit: number
-): Promise<any[]> {
+): Promise<DbRow[]> {
   const periodStartTs = localCalendarDayStartUtc(periodStartYmd);
   const periodEndTs = localCalendarDayEndUtc(periodEndYmd);
   const cap = Math.min(2000, limit);
@@ -71,13 +71,13 @@ export async function fetchTimeRecordsForMirrorWindow(
     ),
   ]);
 
-  const byId = new Map<string, any>();
+  const byId = new Map<string, DbRow>();
   for (const r of [...(main ?? []), ...(legacy ?? []), ...(beforeStart ?? []), ...(afterEnd ?? [])]) {
     if (r?.id) byId.set(String(r.id), r);
   }
   return Array.from(byId.values()).sort((a, b) => {
-    const ta = new Date(a.timestamp ?? a.created_at).getTime();
-    const tb = new Date(b.timestamp ?? b.created_at).getTime();
+    const ta = new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime();
+    const tb = new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime();
     return orderAscending ? ta - tb : tb - ta;
   });
 }
@@ -89,47 +89,47 @@ export type AdminHolidayRow = { id: string; date: string; name: string };
 /** Colaboradores da empresa (admin / espelho). */
 export async function buscarColaboradores(companyId: string): Promise<AdminTimesheetEmployee[]> {
   const cid = String(companyId).trim();
-  const rows = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }])) as any[];
-  return (rows ?? []).map((u: any) => ({
-    id: u.id,
-    nome: u.nome || u.email,
-    department_id: u.department_id,
+  const rows = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }])) as DbRow[];
+  return (rows ?? []).map((u: DbRow) => ({
+    id: String(u.id ?? ''),
+    nome: String(u.nome ?? u.email ?? ''),
+    department_id: u.department_id != null ? String(u.department_id) : undefined,
   }));
 }
 
 /** Departamentos da empresa. */
 export async function buscarDepartamentos(companyId: string): Promise<AdminTimesheetDepartment[]> {
   const cid = String(companyId).trim();
-  const rows = (await db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }])) as any[];
-  return (rows ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+  const rows = (await db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }])) as DbRow[];
+  return (rows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') }));
 }
 
 /** Junta `users` + `employees` (legacy) como na tela Colaboradores — sem excluir admin. */
-function mergeEmployeesForEspelho(usersRows: any[], legacyRows: any[]): AdminTimesheetEmployee[] {
+function mergeEmployeesForEspelho(usersRows: DbRow[], legacyRows: DbRow[]): AdminTimesheetEmployee[] {
   const byEmail = new Map(
     (usersRows ?? [])
-      .filter((u: any) => u?.email)
-      .map((u: any) => [String(u.email).toLowerCase().trim(), u.id as string]),
+      .filter((u: DbRow) => u?.email)
+      .map((u: DbRow) => [String(u.email).toLowerCase().trim(), String(u.id ?? '')]),
   );
-  const fromUsers: AdminTimesheetEmployee[] = (usersRows ?? []).map((u: any) => ({
-    id: u.id,
-    nome: u.nome || u.email || 'Colaborador',
-    department_id: u.department_id,
-    role: u.role,
+  const fromUsers: AdminTimesheetEmployee[] = (usersRows ?? []).map((u: DbRow) => ({
+    id: String(u.id ?? ''),
+    nome: String(u.nome ?? u.email ?? 'Colaborador'),
+    department_id: u.department_id != null ? String(u.department_id) : undefined,
+    role: u.role != null ? String(u.role) : undefined,
   }));
   const fromLegacy: AdminTimesheetEmployee[] = (legacyRows ?? [])
-    .filter((e: any) => {
+    .filter((e: DbRow) => {
       const email = String(e?.email || '')
         .trim()
         .toLowerCase();
       if (!email) return false;
       return !byEmail.has(email);
     })
-    .map((e: any) => ({
-      id: String(e.id || ''),
-      nome: e.nome || e.nome_completo || e.email || 'Colaborador',
-      department_id: e.department_id || e.departamento_id,
-      role: e.role,
+    .map((e: DbRow) => ({
+      id: String(e.id ?? ''),
+      nome: String(e.nome ?? e.nome_completo ?? e.email ?? 'Colaborador'),
+      department_id: (e.department_id ?? e.departamento_id) != null ? String(e.department_id ?? e.departamento_id) : undefined,
+      role: e.role != null ? String(e.role) : undefined,
     }))
     .filter((e) => e.id);
 
@@ -153,13 +153,13 @@ export async function buscarFiltrosEspelhoAdmin(companyId: string): Promise<{
 }> {
   const cid = String(companyId).trim();
   const [usersRows, departmentsRows, legacyRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<any[]>,
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
   ]);
   return {
     employees: mergeEmployeesForEspelho(usersRows, legacyRows),
-    departments: (departmentsRows ?? []).map((d: any) => ({ id: d.id, name: d.name })),
+    departments: (departmentsRows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') })),
   };
 }
 
@@ -168,7 +168,7 @@ export async function buscarEspelhoRegistros(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<any[]> {
+): Promise<DbRow[]> {
   const cid = String(companyId).trim();
   return fetchTimeRecordsForMirrorWindow(
     [{ column: 'company_id', operator: 'eq', value: cid }],
@@ -187,40 +187,40 @@ export async function buscarEspelhoAdmin(
 ): Promise<{
   employees: AdminTimesheetEmployee[];
   departments: AdminTimesheetDepartment[];
-  records: any[];
-  shiftSchedules: any[];
+  records: DbRow[];
+  shiftSchedules: DbRow[];
   holidays: AdminHolidayRow[];
 }> {
   const cid = String(companyId).trim();
 
   const [usersRows, recordsRows, departmentsRows, legacyEmployeesRows, shiftsRows, holidaysRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
     fetchTimeRecordsForMirrorWindow(
       [{ column: 'company_id', operator: 'eq', value: cid }],
       periodStart,
       periodEnd,
       true,
       8000
-    ) as Promise<any[]>,
-    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<any[]>,
-    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<any[]>,
-    db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<any[]>,
+    ) as Promise<DbRow[]>,
+    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
+    db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
     db
       .select('holidays', [{ column: 'company_id', operator: 'eq', value: cid }])
       .catch(() =>
         db.select('feriados', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []),
-      ) as Promise<any[]>,
+      ) as Promise<DbRow[]>,
   ]);
 
   const employees = mergeEmployeesForEspelho(usersRows, legacyEmployeesRows);
-  const departments: AdminTimesheetDepartment[] = (departmentsRows ?? []).map((d: any) => ({
-    id: d.id,
-    name: d.name,
+  const departments: AdminTimesheetDepartment[] = (departmentsRows ?? []).map((d: DbRow) => ({
+    id: String(d.id ?? ''),
+    name: String(d.name ?? ''),
   }));
-  const holidays: AdminHolidayRow[] = (holidaysRows ?? []).map((h: any) => ({
-    id: h.id,
-    date: String(h.date || h.data || '').slice(0, 10),
-    name: h.name || h.descricao || 'Feriado',
+  const holidays: AdminHolidayRow[] = (holidaysRows ?? []).map((h: DbRow) => ({
+    id: String(h.id ?? ''),
+    date: String(h.date ?? h.data ?? '').slice(0, 10),
+    name: String(h.name ?? h.descricao ?? 'Feriado'),
   }));
   const holidayDates = new Set(holidays.map((h) => h.date));
   for (const date of getNationalHolidayDatesForPeriod(periodStart, periodEnd)) {

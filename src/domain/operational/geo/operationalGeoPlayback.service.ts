@@ -3,6 +3,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../../services/supabaseClient';
 import { normalizeOperationalDate } from '../../../utils/operationalDateHardLock';
 import { computeGeoForensicsScore, type GeoForensicsPoint } from './geoForensics.service';
 
@@ -86,7 +87,7 @@ export class OperationalGeoPlayback {
     opts?: { fromIso?: string; toIso?: string; limit?: number },
   ): Promise<{ history: OperationalStateHistoryRow[]; trail: OperationalGeoTrailPoint[] }> {
     if (!client) return { history: [], trail: [] };
-    const history = await fetchOperationalStateHistoryRange(companyId, employeeId, client, opts);
+    const history = await fetchOperationalStateHistoryRange(companyId, employeeId, opts, client);
     const trail = buildGeoTrailFromStateHistory(history);
     return { history, trail };
   }

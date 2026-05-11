@@ -14,7 +14,7 @@ export interface AdjustmentHistoryEntry {
   changed_by: string | null;
   changed_at: string;
   reason: string | null;
-  details: Record<string, any> | null;
+  details: Record<string, unknown> | null;
   company_id: string | null;
   // Enriquecido no frontend
   changed_by_name?: string;
@@ -138,7 +138,7 @@ export const AdjustmentHistoryService = {
     oldStatus: string | null,
     newStatus: string,
     reason: string | null,
-    details: Record<string, any> | null,
+    details: Record<string, unknown> | null,
     companyId: string | null
   ): Promise<void> {
     if (!checkSupabaseConfigured()) {

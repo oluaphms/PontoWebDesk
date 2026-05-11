@@ -57,18 +57,16 @@ export async function openOperationalIncident(
     severity: input.severity,
     code: input.code,
   });
-  operationalBusEmitContract({
-    event_name: 'incident:opened',
-    source: 'operationalIncidentEngine',
+  operationalBusEmitContract('incident:opened', {
+    source: 'bus',
     company_id: input.companyId,
-    employee_id: input.employeeId ?? null,
+    employee_id: input.employeeId ?? undefined,
+    correlation_id: input.correlationId ?? undefined,
     payload: {
       incident_id: data?.id ?? null,
       code: input.code,
       severity: input.severity,
     },
-    correlation_id: input.correlationId ?? null,
-    timestamp: nowIso,
   });
   return { ok: true, id: data?.id };
 }
@@ -94,13 +92,11 @@ export async function resolveOperationalIncident(
     id: input.id,
     company_id: input.companyId,
   });
-  operationalBusEmitContract({
-    event_name: 'incident:resolved',
-    source: 'operationalIncidentEngine',
+  operationalBusEmitContract('incident:resolved', {
+    source: 'bus',
     company_id: input.companyId,
+    correlation_id: input.correlationId ?? undefined,
     payload: { incident_id: input.id },
-    correlation_id: input.correlationId ?? null,
-    timestamp: nowIso,
   });
   return { ok: true };
 }

@@ -198,6 +198,15 @@ export class AgentLogger {
     this.log('info', 'config', '⚙ Configuração carregada', meta);
   }
 
+  /** Atalhos ao nível `agent` (compatível com chamadas `log.info` / `log.warn` em scripts). */
+  info(message: string, meta?: Record<string, unknown>, deviceId?: string): void {
+    this.log('info', 'agent', message, meta, deviceId);
+  }
+
+  warn(message: string, meta?: Record<string, unknown>, deviceId?: string): void {
+    this.log('warn', 'agent', message, meta, deviceId);
+  }
+
   // ===== SINK PARA SyncLogger =====
 
   /** Adapta entradas do SyncLogger para formato AGENT */

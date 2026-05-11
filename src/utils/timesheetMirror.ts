@@ -123,6 +123,9 @@ export interface DayMirror {
   records: TimeRecord[];
   batidasExtra: TimeRecord[];
   inconsistencias: TimeRecord[];
+  /** Opcional: sinaliza atraso/falta quando preenchido pelo espelho/PDF */
+  isLate?: boolean;
+  isMissing?: boolean;
 }
 
 /** Janela da escala no dia (entrada/saída esperadas) — opcional para status “extra” só fora da janela. */

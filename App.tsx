@@ -2559,8 +2559,9 @@ const DeferredSchemaGuardBadge: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const run = () => setShow(true);
-    if ('requestIdleCallback' in window) {
-      const id = window.requestIdleCallback(run, { timeout: 2500 });
+    const ric = window.requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric.call(window, run, { timeout: 2500 });
       return () => window.cancelIdleCallback(id);
     }
     const t = window.setTimeout(run, 1200);

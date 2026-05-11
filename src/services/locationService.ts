@@ -66,7 +66,8 @@ export type GeolocationFailureReason =
   | 'timeout'
   | 'unavailable'
   | 'unsupported'
-  | 'insecure_context';
+  | 'insecure_context'
+  | 'no_samples';
 
 export type LocationResult =
   | { ok: true; position: GeoPosition }
@@ -598,7 +599,10 @@ export async function getCurrentLocationRobustResult(
   }
 
   // Se falhou por permissão ou contexto inseguro, não adianta tentar mais
-  if (!multiSample.ok && ['denied', 'unsupported', 'insecure_context'].includes(multiSample.reason)) {
+  if (
+    multiSample.ok === false &&
+    ['denied', 'unsupported', 'insecure_context'].includes(multiSample.reason)
+  ) {
     return multiSample;
   }
 
@@ -615,7 +619,10 @@ export async function getCurrentLocationRobustResult(
     }
     return second;
   }
-  if (second.reason === 'denied' || second.reason === 'unsupported' || second.reason === 'insecure_context') {
+  if (
+    second.ok === false &&
+    (second.reason === 'denied' || second.reason === 'unsupported' || second.reason === 'insecure_context')
+  ) {
     return second;
   }
 

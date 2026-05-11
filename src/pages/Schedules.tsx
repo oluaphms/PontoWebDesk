@@ -50,7 +50,7 @@ const SchedulesPage: React.FC = () => {
           )) ?? [];
 
         setRows(
-          res.map((r: any) => ({
+          (res as unknown as WorkScheduleRow[]).map((r) => ({
             id: r.id,
             name: r.name,
             start_time: r.start_time,

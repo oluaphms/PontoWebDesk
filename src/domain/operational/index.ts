@@ -1,21 +1,21 @@
 /** Domínio operacional centralizado (REP / jornada / governança). */
 
 export { createOperationalCorrelationId } from './correlationId';
-export { GovernanceViolationCode, type GovernanceViolationCode } from './governance/governanceViolationCode';
+export * from './governance/governanceViolationCode';
 export {
   MAX_REPROMOTE_ATTEMPTS,
   REP_EXPIRE_AFTER_DAYS,
   ZOMBIE_PENDING_DAYS,
 } from './governance/repGovernanceConstants';
-export { OperationalIncidentCode, type OperationalIncidentCode } from './incidents/operationalIncidentCode';
+export * from './incidents/operationalIncidentCode';
 export type {
   OperationalIncidentEnvelope,
   OperationalIncidentSeverity,
   OperationalIncidentCategory,
 } from './incidents/operationalIncidentEnvelope';
 export { operationalLog, type OperationalLogChannel } from './observability';
-export { ReliabilitySignalType, type ReliabilitySignalType } from './reliability/reliabilitySignalType';
-export { ReconciliationAction, type ReconciliationAction } from './reconciliation/reconciliationAction';
+export * from './reliability/reliabilitySignalType';
+export * from './reconciliation/reconciliationAction';
 export {
   OperationalLifecycleStatus,
   type OperationalLifecycleStatusValue,

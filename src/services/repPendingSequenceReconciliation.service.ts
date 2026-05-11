@@ -90,7 +90,7 @@ export async function markRepPunchInvestigating(params: {
   if (row.ignored) return { ok: false, error: 'Batida ignorada.' };
   const fromLifecycle = normalizeOperationalLifecycleStatus(row.operational_resolution_status);
   const toInvestigating = assertRepLifecycleTransition(fromLifecycle, OperationalLifecycleStatus.investigating);
-  if (!toInvestigating.ok) return { ok: false, error: toInvestigating.reason };
+  if (toInvestigating.ok === false) return { ok: false, error: toInvestigating.reason };
   const now = new Date().toISOString();
   const { error } = await client
     .from('rep_punch_logs')
@@ -134,7 +134,7 @@ export async function reconcileRepPunchAsSaida(params: {
 
   const fromLifecycle = normalizeOperationalLifecycleStatus(row.operational_resolution_status);
   const toReconciled = assertRepLifecycleTransition(fromLifecycle, OperationalLifecycleStatus.reconciled);
-  if (!toReconciled.ok) return { ok: false, error: toReconciled.reason };
+  if (toReconciled.ok === false) return { ok: false, error: toReconciled.reason };
 
   const before = {
     rep_punch_log_id: row.id,
@@ -267,7 +267,7 @@ export async function reconcileRepPunchAsSaida(params: {
   );
 
   const commitResult = await commitOperationalTransaction(client, txCtx);
-  if (!commitResult.ok) {
+  if (commitResult.ok === false) {
     return {
       ok: false,
       error: commitResult.rollback.message ?? 'Falha ao consolidar timeline, reviews e governança.',
@@ -364,7 +364,7 @@ export async function insertManualSaidaForRepSequence(params: {
   pushHealthUpdate(txCtx, () => recalcMirrorDay(params.companyId, params.employeeId, params.dateYmd));
 
   const commitResult = await commitOperationalTransaction(client, txCtx);
-  if (!commitResult.ok) {
+  if (commitResult.ok === false) {
     return {
       ok: false,
       error: commitResult.rollback.message ?? 'Falha ao consolidar timeline e reviews.',
@@ -403,7 +403,7 @@ export async function ignoreRepPunchWithReason(params: {
 
   const fromLifecycle = normalizeOperationalLifecycleStatus(row.operational_resolution_status);
   const toIgnored = assertRepLifecycleTransition(fromLifecycle, OperationalLifecycleStatus.ignored);
-  if (!toIgnored.ok) return { ok: false, error: toIgnored.reason };
+  if (toIgnored.ok === false) return { ok: false, error: toIgnored.reason };
 
   const now = new Date().toISOString();
   const { error } = await client
@@ -482,7 +482,7 @@ export async function ignoreRepPunchWithReason(params: {
   );
 
   const commitResult = await commitOperationalTransaction(client, txCtx);
-  if (!commitResult.ok) {
+  if (commitResult.ok === false) {
     return { ok: false, error: commitResult.rollback.message ?? 'Falha ao consolidar timeline, reviews e governança.' };
   }
   return { ok: true };
@@ -504,7 +504,7 @@ export async function tryRepPromoteSingleLogAfterCooldown(params: {
   if (row.ignored) return { ok: false, error: 'Batida ignorada.' };
 
   const gate = await beforeManualRepPromoteRpc(client, params.companyId, params.repPunchLogId);
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (gate.ok === false) return { ok: false, error: gate.error };
 
   const lastAt = row.last_promotion_attempt_at ? new Date(row.last_promotion_attempt_at).getTime() : 0;
   if (lastAt && Date.now() - lastAt < REP_PROMOTE_CLIENT_COOLDOWN_MS) {

@@ -65,7 +65,7 @@ const TimeClockPage: React.FC = () => {
     setIsSaving(true);
     try {
       const locationResult = await getCurrentLocationRobustResult();
-      if (!locationResult.ok) {
+      if (locationResult.ok === false) {
         logGeolocationDebug('timeclock_location_error', {
           reason: locationResult.reason,
           apiMessage: locationResult.apiMessage,
@@ -116,7 +116,7 @@ const TimeClockPage: React.FC = () => {
       });
 
       toast.addToast('success', 'Registro de ponto criado com sucesso.');
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Erro ao registrar ponto:', e);
       const err = normalizePunchRegistrationError(e);
       toast.addToast('error', err?.message || 'Erro ao registrar ponto.');

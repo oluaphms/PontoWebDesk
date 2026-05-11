@@ -7,4 +7,6 @@ export type OperationalBusEventName =
   | 'playback:loaded'
   | 'telemetry:tick'
   | 'incident:recorded'
+  | 'incident:opened'
+  | 'incident:resolved'
   | 'recovery:started';

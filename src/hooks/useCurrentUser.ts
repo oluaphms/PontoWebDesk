@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase, isSupabaseConfigured, getUserProfileStorage } from '../services/supabaseClient';
+import { supabase, isSupabaseConfigured, getUserProfileStorage, getSupabaseClient } from '../services/supabaseClient';
 import { handleError } from '../utils/handleError';
 
 export interface User {
@@ -208,7 +208,7 @@ async function runSharedLoadUser(): Promise<void> {
     if (import.meta.env.DEV) {
       console.info('[useCurrentUser] profile fetch', {
         ok: !!profile && !profileError,
-        code: profileError?.code,
+        code: profileError && 'code' in profileError ? String((profileError as { code?: unknown }).code ?? '') : undefined,
       });
     }
 
@@ -285,7 +285,12 @@ export function useCurrentUser() {
     // Se marcou "Lembrar-me", tenta restaurar sessão do localStorage primeiro
     if (rememberMe) {
       try {
-        const sessionStr = localStorage.getItem('sb-' + supabase.supabaseUrl + '-auth-token');
+        const projectUrl = String(
+          (getSupabaseClient() as unknown as { supabaseUrl?: string } | null)?.supabaseUrl ?? '',
+        );
+        const sessionStr = projectUrl
+          ? localStorage.getItem(`sb-${projectUrl}-auth-token`)
+          : null;
         if (sessionStr) {
           const session = JSON.parse(sessionStr);
           if (session?.user) {

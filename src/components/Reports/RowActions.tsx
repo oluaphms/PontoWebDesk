@@ -25,7 +25,8 @@ export type ActionType =
   | 'audit'
   | 'time'
   | 'verify'
-  | 'alert';
+  | 'alert'
+  | 'check';
 
 export interface RowAction {
   type: ActionType;
@@ -52,6 +53,7 @@ const iconMap: Record<ActionType, React.ReactNode> = {
   time: <Clock className="w-4 h-4" />,
   verify: <UserCheck className="w-4 h-4" />,
   alert: <AlertTriangle className="w-4 h-4" />,
+  check: <CheckCircle className="w-4 h-4" />,
 };
 
 const variantClasses = {

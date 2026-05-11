@@ -90,7 +90,7 @@ describe('commitOperationalTransaction', () => {
 
     const res = await commitOperationalTransaction(mockClient, ctx);
     expect(res.ok).toBe(false);
-    if (!res.ok) {
+    if (res.ok === false) {
       expect(res.rollback.failed_stage).toBe('timeline');
       expect(res.rollback.transaction_failed).toBe(true);
       expect(res.rollback.persisted_entities.some((p) => p.startsWith('incident_review:'))).toBe(true);
@@ -113,7 +113,7 @@ describe('commitOperationalTransaction', () => {
 
     const res = await commitOperationalTransaction(mockClient, ctx);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.rollback.failed_stage).toBe('incident_review');
+    if (res.ok === false) expect(res.rollback.failed_stage).toBe('incident_review');
     expect(appendTimeAttendanceTimelineEventOrThrow).not.toHaveBeenCalled();
   });
 

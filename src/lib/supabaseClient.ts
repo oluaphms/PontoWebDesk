@@ -5,7 +5,7 @@
  * chamadas — especialmente auth/login. O fetch passa sempre pelo interceptor sem throw.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 
 /** Cliente service role injetado pelo worker/API server — não usar no browser. */
 let serviceRoleOverride: SupabaseClient | null = null;
@@ -210,8 +210,8 @@ export async function testSupabaseConnection(
     ]);
     if (!error || error.code === 'PGRST116') return { ok: true };
     return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
-  } catch (e: any) {
-    if (e?.message === 'timeout') {
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message === 'timeout') {
       return { ok: false, message: 'Supabase timeout. Projeto pode estar pausado ou rede lenta.' };
     }
     return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
@@ -222,9 +222,9 @@ export async function testSupabaseConnection(
  * Executa uma promise do Supabase com timeout.
  */
 export async function withSupabaseTimeout<T>(
-  promise: Promise<{ data: T; error: any }>,
+  promise: Promise<{ data: T; error: PostgrestError | null }>,
   ms: number = DEFAULT_CONNECTION_TIMEOUT_MS,
-): Promise<{ data: T; error: any }> {
+): Promise<{ data: T | null; error: PostgrestError | null | { message: string } }> {
   return Promise.race([
     promise,
     new Promise<{ data: null; error: { message: string } }>((_, reject) =>

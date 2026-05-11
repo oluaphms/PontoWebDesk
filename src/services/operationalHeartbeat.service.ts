@@ -62,7 +62,11 @@ export function resolveNetworkStateLabel(): string {
 /** Nível de bateria agregado (quando a API existir). */
 export async function resolveBatteryStateLabel(): Promise<string | null> {
   const nav = typeof navigator !== 'undefined' ? navigator : null;
-  const bat = nav && 'getBattery' in nav && typeof (nav as Navigator).getBattery === 'function' ? await (nav as Navigator).getBattery!() : null;
+  type NavBattery = Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean }> };
+  const bat =
+    nav && 'getBattery' in nav && typeof (nav as NavBattery).getBattery === 'function'
+      ? await (nav as NavBattery).getBattery!()
+      : null;
   if (!bat) return null;
   const level = Math.round(bat.level * 100);
   return `${level}%${bat.charging ? ',charging' : ''}`;

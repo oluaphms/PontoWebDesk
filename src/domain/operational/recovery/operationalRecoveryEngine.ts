@@ -166,7 +166,7 @@ export type OperationalRecoveryAttemptOutcome = 'recovered' | 'requeued' | 'fail
 
 export async function runOperationalRecoveryAttempt(
   client: SupabaseClient,
-  _companyId: string,
+  companyId: string,
   claimed: OperationalDeadLetterRow,
   opts?: { triggeredBy?: string | null },
 ): Promise<OperationalRecoveryAttemptOutcome> {

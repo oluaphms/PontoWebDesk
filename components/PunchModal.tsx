@@ -162,7 +162,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       clearInterval(progressInterval);
       setSamplesCollected(0);
 
-      if (!result.ok) {
+      if (result.ok === false) {
         setIsLocationLoading(false);
         setError(geolocationReasonMessage(result.reason));
         console.warn('Falha ao obter localização:', result.reason);

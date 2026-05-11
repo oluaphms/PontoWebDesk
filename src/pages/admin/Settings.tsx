@@ -62,6 +62,7 @@ const AdminSettings: React.FC = () => {
   });
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [cacheResetDone, setCacheResetDone] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [motorForm, setMotorForm] = useState<{

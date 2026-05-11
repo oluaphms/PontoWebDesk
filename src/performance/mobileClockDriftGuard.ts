@@ -11,7 +11,7 @@ import { syncServerOperationalClockOffset } from '../services/serverOperationalC
 
 let installed = false;
 let lastVisiblePerf = typeof performance !== 'undefined' ? performance.now() : 0;
-let intervalId: ReturnType<typeof setInterval> | null = null;
+let intervalId: number | null = null;
 
 async function recoverFromClockDrift(reason: string): Promise<void> {
   console.warn('[MOBILE CLOCK DRIFT DETECTED]', { reason });

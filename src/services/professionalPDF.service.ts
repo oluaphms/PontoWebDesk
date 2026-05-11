@@ -73,19 +73,19 @@ export interface TimesheetPDFData {
   emitidoPor: string;
 }
 
-// Cores do sistema (Tailwind indigo/purple)
-const COLORS = {
-  primary: [79, 70, 229],      // indigo-600
-  primaryDark: [67, 56, 202],  // indigo-700
-  secondary: [147, 51, 234],   // purple-600
-  text: [15, 23, 42],          // slate-900
-  textLight: [100, 116, 139],  // slate-500
+// Cores do sistema (Tailwind indigo/purple) — tuplas RGB para spreads em jsPDF.
+const COLORS: Record<string, [number, number, number]> = {
+  primary: [79, 70, 229], // indigo-600
+  primaryDark: [67, 56, 202], // indigo-700
+  secondary: [147, 51, 234], // purple-600
+  text: [15, 23, 42], // slate-900
+  textLight: [100, 116, 139], // slate-500
   white: [255, 255, 255],
-  bgLight: [250, 250, 252],    // slate-50
-  border: [226, 232, 240],     // slate-200
-  success: [34, 197, 94],      // green-500
-  warning: [234, 179, 8],        // yellow-500
-  danger: [239, 68, 68],         // red-500
+  bgLight: [250, 250, 252], // slate-50
+  border: [226, 232, 240], // slate-200
+  success: [34, 197, 94], // green-500
+  warning: [234, 179, 8], // yellow-500
+  danger: [239, 68, 68], // red-500
 };
 
 // ============================================================

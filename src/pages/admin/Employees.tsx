@@ -3,7 +3,15 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { UserPlus, Pencil, UserX, Trash2, Eye, EyeOff, UserCheck, Search, Upload, FileDown, X, Camera, User, AlertTriangle, Loader2, Info } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, auth, isSupabaseConfigured, resetSession, getSupabaseClient } from '../../services/supabaseClient';
+import {
+  db,
+  auth,
+  isSupabaseConfigured,
+  resetSession,
+  getSupabaseClient,
+  type DbRow,
+} from '../../services/supabaseClient';
+import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { autoReprocessRepAfterEmployeeIdentityUpdate } from '../../../modules/rep-integration/repResolveCanonicalUser';
 import { resolveTenantId } from '../../services/tenantScope';
 import { invalidateCompanyListCaches } from '../../services/queryCache';
@@ -150,6 +158,29 @@ function parseBooleanFromDb(value: unknown): boolean {
   if (value === true || value === 'true' || value === 1) return true;
   if (value === false || value === 'false' || value === 0 || value === null || value === undefined) return false;
   return !!value;
+}
+
+function dbText(v: unknown, fallback = ''): string {
+  return String(v ?? fallback);
+}
+
+function dbOptionalText(v: unknown): string | undefined {
+  if (v == null || v === '') return undefined;
+  const s = String(v).trim();
+  return s || undefined;
+}
+
+/** Campos comuns em erros do Auth / PostgREST vindos de `catch (unknown)`. */
+function errorProps(err: unknown): { message: string; status: unknown; code: unknown } {
+  if (err && typeof err === 'object') {
+    const r = err as Record<string, unknown>;
+    return {
+      message: typeof r.message === 'string' ? r.message : messageFromUnknown(err),
+      status: r.status ?? r.statusCode,
+      code: r.code,
+    };
+  }
+  return { message: messageFromUnknown(err), status: null, code: '' };
 }
 
 interface ImportResult {
@@ -309,79 +340,97 @@ const AdminEmployees: React.FC = () => {
       const estruturasRows = catalog.estruturas;
 
       const [usersRows, legacyEmployeesRows, schedRows, shiftRows, motivosRows, cidadesRows, estadosCivisRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }], { column: 'created_at', ascending: false }) as Promise<any[]>,
-        db.select('employees', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<any[]>,
-        db.select('schedules', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
-        db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<any[]>,
-        db.select('motivo_demissao', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<any[]>,
-        db.select('cidades', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<any[]>,
-        db.select('estados_civis', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<any[]>,
+        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }], { column: 'created_at', ascending: false }) as Promise<DbRow[]>,
+        db.select('employees', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
+        db.select('schedules', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<DbRow[]>,
+        db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
+        db.select('motivo_demissao', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
+        db.select('cidades', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
+        db.select('estados_civis', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
       ]);
-      const deptMap = new Map((deptRows ?? []).map((d: any) => [d.id, d.name]));
-      const schedMap = new Map((schedRows ?? []).map((s: any) => [s.id, s.name]));
-      const shiftMap = new Map((shiftRows ?? []).map((ws: any) => [ws.id, formatWorkShiftLabel(ws)]));
-      const motivoMap = new Map((motivosRows ?? []).map((m: any) => [m.id, m.name]));
-      const estruturaMap = new Map((estruturasRows ?? []).map((e: any) => [e.id, e.descricao || e.codigo]));
-      const cidadeMap = new Map((cidadesRows ?? []).map((c: any) => [c.id, c.name || '']));
-      const estadoCivilMap = new Map((estadosCivisRows ?? []).map((ec: any) => [ec.id, ec.name || '']));
-      const listFromUsers: EmployeeRow[] = (usersRows ?? []).map((u: any) => {
+      const deptMap = new Map<string, string>(
+        (deptRows ?? []).map((d: DbRow) => [String(d.id ?? ''), String(d.name ?? '')]),
+      );
+      const schedMap = new Map<string, string>(
+        (schedRows ?? []).map((s: DbRow) => [String(s.id ?? ''), String(s.name ?? '')]),
+      );
+      const shiftMap = new Map<string, string>(
+        (shiftRows ?? []).map((ws: DbRow) => [String(ws.id ?? ''), formatWorkShiftLabel(ws)]),
+      );
+      const motivoMap = new Map<string, string>(
+        (motivosRows ?? []).map((m: DbRow) => [String(m.id ?? ''), String(m.name ?? '')]),
+      );
+      const estruturaMap = new Map<string, string>(
+        (estruturasRows ?? []).map((e: DbRow) => [
+          String(e.id ?? ''),
+          String(e.descricao ?? e.codigo ?? ''),
+        ]),
+      );
+      const cidadeMap = new Map<string, string>(
+        (cidadesRows ?? []).map((c: DbRow) => [String(c.id ?? ''), String(c.name ?? '')]),
+      );
+      const estadoCivilMap = new Map<string, string>(
+        (estadosCivisRows ?? []).map((ec: DbRow) => [String(ec.id ?? ''), String(ec.name ?? '')]),
+      );
+      const listFromUsers: EmployeeRow[] = (usersRows ?? []).map((u: DbRow) => {
         // TODO: substituir contagens estáticas por dados reais de atrasos, faltas, ajustes e inconsistências.
         const inputs: ReliabilityInputs = {
-          atrasos: u.atrasos_count ?? 0,
-          faltas: u.faltas_count ?? 0,
-          ajustes: u.ajustes_count ?? 0,
-          inconsistencias: u.inconsistencias_count ?? 0,
+          atrasos: Number(u.atrasos_count ?? 0),
+          faltas: Number(u.faltas_count ?? 0),
+          ajustes: Number(u.ajustes_count ?? 0),
+          inconsistencias: Number(u.inconsistencias_count ?? 0),
         };
         const score = calcularScoreConfiabilidade(inputs);
         return {
-          id: u.id,
-          nome: u.nome || '',
-          cpf: u.cpf,
-          email: u.email || '',
-          phone: u.phone,
-          cargo: u.cargo || 'Colaborador',
-          department_id: u.department_id,
-          department_name: u.department_id ? deptMap.get(u.department_id) : undefined,
-          schedule_id: u.schedule_id,
-          schedule_name: u.schedule_id ? schedMap.get(u.schedule_id) : undefined,
-          shift_id: u.shift_id,
-          shift_label: u.shift_id ? shiftMap.get(u.shift_id) : undefined,
-          estrutura_id: u.estrutura_id,
-          estrutura_name: u.estrutura_id ? estruturaMap.get(u.estrutura_id) : undefined,
-          status: u.status || 'active',
-          created_at: u.created_at,
-          numero_folha: u.numero_folha,
+          id: String(u.id ?? ''),
+          nome: dbText(u.nome),
+          cpf: dbOptionalText(u.cpf),
+          email: dbText(u.email),
+          phone: dbOptionalText(u.phone),
+          cargo: dbText(u.cargo, 'Colaborador'),
+          department_id: dbOptionalText(u.department_id),
+          department_name: u.department_id != null ? deptMap.get(String(u.department_id)) : undefined,
+          schedule_id: dbOptionalText(u.schedule_id),
+          schedule_name: u.schedule_id != null ? schedMap.get(String(u.schedule_id)) : undefined,
+          shift_id: dbOptionalText(u.shift_id),
+          shift_label: u.shift_id != null ? shiftMap.get(String(u.shift_id)) : undefined,
+          estrutura_id: dbOptionalText(u.estrutura_id),
+          estrutura_name: u.estrutura_id != null ? estruturaMap.get(String(u.estrutura_id)) : undefined,
+          status: dbText(u.status, 'active'),
+          created_at: dbText(u.created_at),
+          numero_folha: dbOptionalText(u.numero_folha),
           salario_base: u.salario_base != null ? Number(u.salario_base) : null,
-          pis_pasep: u.pis_pasep,
-          numero_identificador: u.numero_identificador,
-          ctps: u.ctps,
-          admissao: u.admissao,
-          demissao: u.demissao,
-          motivo_demissao_id: u.motivo_demissao_id,
-          motivo_demissao_name: u.motivo_demissao_id ? motivoMap.get(u.motivo_demissao_id) : undefined,
-          observacoes: u.observacoes,
+          pis_pasep: dbOptionalText(u.pis_pasep),
+          numero_identificador: dbOptionalText(u.numero_identificador),
+          ctps: dbOptionalText(u.ctps),
+          admissao: dbOptionalText(u.admissao),
+          demissao: dbOptionalText(u.demissao),
+          motivo_demissao_id: dbOptionalText(u.motivo_demissao_id),
+          motivo_demissao_name:
+            u.motivo_demissao_id != null ? motivoMap.get(String(u.motivo_demissao_id)) : undefined,
+          observacoes: dbOptionalText(u.observacoes),
           invisivel: parseBooleanFromDb(u.invisivel),
-          employee_config: u.employee_config || {},
+          employee_config: (u.employee_config as EmployeeConfig | undefined) || {},
           reliability_score: score,
-          tipo_vinculo: normalizeTipoVinculo(u.tipo_vinculo),
-          contrato_fim: u.contrato_fim,
-          data_nascimento: u.data_nascimento,
-          rg: u.rg,
-          rg_orgao: u.rg_orgao,
+          tipo_vinculo: normalizeTipoVinculo(String(u.tipo_vinculo ?? '')),
+          contrato_fim: dbOptionalText(u.contrato_fim),
+          data_nascimento: dbOptionalText(u.data_nascimento),
+          rg: dbOptionalText(u.rg),
+          rg_orgao: dbOptionalText(u.rg_orgao),
           naturalidade:
             (u.naturalidade != null && String(u.naturalidade).trim()) ||
-            (u.cidade_id ? cidadeMap.get(u.cidade_id) : undefined) ||
+            (u.cidade_id != null ? cidadeMap.get(String(u.cidade_id)) : undefined) ||
             undefined,
           estado_civil_text:
             (u.estado_civil_text != null && String(u.estado_civil_text).trim()) ||
-            (u.estado_civil_id ? estadoCivilMap.get(u.estado_civil_id) : undefined) ||
+            (u.estado_civil_id != null ? estadoCivilMap.get(String(u.estado_civil_id)) : undefined) ||
             undefined,
-          endereco_rua: u.endereco_rua ?? null,
-          endereco_numero: u.endereco_numero ?? null,
-          endereco_bairro: u.endereco_bairro ?? null,
-          endereco_cidade: u.endereco_cidade ?? null,
-          endereco_estado: u.endereco_estado ?? null,
-          endereco_cep: u.endereco_cep ?? null,
+          endereco_rua: u.endereco_rua != null ? String(u.endereco_rua) : null,
+          endereco_numero: u.endereco_numero != null ? String(u.endereco_numero) : null,
+          endereco_bairro: u.endereco_bairro != null ? String(u.endereco_bairro) : null,
+          endereco_cidade: u.endereco_cidade != null ? String(u.endereco_cidade) : null,
+          endereco_estado: u.endereco_estado != null ? String(u.endereco_estado) : null,
+          endereco_cep: u.endereco_cep != null ? String(u.endereco_cep) : null,
         };
       });
 
@@ -394,84 +443,85 @@ const AdminEmployees: React.FC = () => {
       );
 
       const listFromLegacy: EmployeeRow[] = (legacyEmployeesRows ?? [])
-        .filter((e: any) => {
+        .filter((e: DbRow) => {
           const email = (e.email || '').toString().trim().toLowerCase();
           if (!email) return false;
           return !byEmail.has(email);
         })
-        .map((e: any) => {
-          const nome = e.nome || e.nome_completo || '';
-          const email = (e.email || '').toString().trim().toLowerCase();
-          const deptId = e.department_id || e.departamento_id || null;
-          const schedId = e.schedule_id || e.escala_id || null;
-          const legShiftId = e.shift_id || null;
+        .map((e: DbRow) => {
+          const nome = dbText(e.nome ?? e.nome_completo);
+          const email = dbText(e.email).trim().toLowerCase();
+          const deptId = dbOptionalText(e.department_id ?? e.departamento_id);
+          const schedId = dbOptionalText(e.schedule_id ?? e.escala_id);
+          const legShiftId = dbOptionalText(e.shift_id);
           return {
-            id: e.id || `legacy-${email}`,
-            legacy_id: e.id || undefined,
+            id: String(e.id ?? '') || `legacy-${email}`,
+            legacy_id: e.id != null ? String(e.id) : undefined,
             nome,
-            cpf: e.cpf || null,
+            cpf: dbOptionalText(e.cpf),
             email,
-            phone: e.phone || e.telefone || null,
-            cargo: e.cargo || 'Colaborador',
+            phone: dbOptionalText(e.phone ?? e.telefone),
+            cargo: dbText(e.cargo, 'Colaborador'),
             department_id: deptId,
             department_name: deptId ? deptMap.get(deptId) : undefined,
             schedule_id: schedId,
             schedule_name: schedId ? schedMap.get(schedId) : undefined,
-            shift_id: legShiftId || undefined,
+            shift_id: legShiftId,
             shift_label: legShiftId ? shiftMap.get(legShiftId) : undefined,
-            estrutura_id: e.estrutura_id || null,
-            estrutura_name: (e.estrutura_id && estruturaMap.get(e.estrutura_id)) || undefined,
-            status: e.status || 'active',
-            created_at: e.created_at || new Date().toISOString(),
-            numero_folha: e.numero_folha || null,
+            estrutura_id: dbOptionalText(e.estrutura_id),
+            estrutura_name: e.estrutura_id != null ? estruturaMap.get(String(e.estrutura_id)) : undefined,
+            status: dbText(e.status, 'active'),
+            created_at: dbText(e.created_at, new Date().toISOString()),
+            numero_folha: dbOptionalText(e.numero_folha),
             salario_base: e.salario_base != null ? Number(e.salario_base) : null,
-            pis_pasep: e.pis_pasep || null,
-            numero_identificador: e.numero_identificador || null,
-            ctps: e.ctps || null,
-            admissao: e.admissao || null,
-            demissao: e.demissao || null,
-            motivo_demissao_id: e.motivo_demissao_id || null,
-            motivo_demissao_name: e.motivo_demissao_id ? motivoMap.get(e.motivo_demissao_id) : undefined,
-            observacoes: e.observacoes || null,
+            pis_pasep: dbOptionalText(e.pis_pasep),
+            numero_identificador: dbOptionalText(e.numero_identificador),
+            ctps: dbOptionalText(e.ctps),
+            admissao: dbOptionalText(e.admissao),
+            demissao: dbOptionalText(e.demissao),
+            motivo_demissao_id: dbOptionalText(e.motivo_demissao_id),
+            motivo_demissao_name:
+              e.motivo_demissao_id != null ? motivoMap.get(String(e.motivo_demissao_id)) : undefined,
+            observacoes: dbOptionalText(e.observacoes),
             invisivel: parseBooleanFromDb(e.invisivel),
             employee_config: {} as EmployeeConfig,
             reliability_score: undefined,
             company_name: undefined,
-            tipo_vinculo: normalizeTipoVinculo(e.tipo_vinculo),
-            contrato_fim: e.contrato_fim || null,
-            data_nascimento: e.data_nascimento || null,
-            rg: e.rg || null,
-            rg_orgao: e.rg_orgao || null,
+            tipo_vinculo: normalizeTipoVinculo(String(e.tipo_vinculo ?? '')),
+            contrato_fim: dbOptionalText(e.contrato_fim),
+            data_nascimento: dbOptionalText(e.data_nascimento),
+            rg: dbOptionalText(e.rg),
+            rg_orgao: dbOptionalText(e.rg_orgao),
             naturalidade:
               (e.naturalidade != null && String(e.naturalidade).trim()) ||
-              (e.cidade_id ? cidadeMap.get(e.cidade_id) : undefined) ||
+              (e.cidade_id != null ? cidadeMap.get(String(e.cidade_id)) : undefined) ||
               undefined,
             estado_civil_text:
               (e.estado_civil_text != null && String(e.estado_civil_text).trim()) ||
-              (e.estado_civil_id ? estadoCivilMap.get(e.estado_civil_id) : undefined) ||
+              (e.estado_civil_id != null ? estadoCivilMap.get(String(e.estado_civil_id)) : undefined) ||
               undefined,
-            endereco_rua: e.endereco_rua ?? null,
-            endereco_numero: e.endereco_numero ?? null,
-            endereco_bairro: e.endereco_bairro ?? null,
-            endereco_cidade: e.endereco_cidade ?? null,
-            endereco_estado: e.endereco_estado ?? null,
-            endereco_cep: e.endereco_cep ?? null,
+            endereco_rua: e.endereco_rua != null ? String(e.endereco_rua) : null,
+            endereco_numero: e.endereco_numero != null ? String(e.endereco_numero) : null,
+            endereco_bairro: e.endereco_bairro != null ? String(e.endereco_bairro) : null,
+            endereco_cidade: e.endereco_cidade != null ? String(e.endereco_cidade) : null,
+            endereco_estado: e.endereco_estado != null ? String(e.endereco_estado) : null,
+            endereco_cep: e.endereco_cep != null ? String(e.endereco_cep) : null,
           };
         });
 
       const mergedList = [...listFromUsers, ...listFromLegacy];
       setRows(mergedList);
-      setSchedules((schedRows ?? []).map((s: any) => ({ id: s.id, name: s.name })));
+      setSchedules((schedRows ?? []).map((s: DbRow) => ({ id: String(s.id ?? ''), name: String(s.name ?? '') })));
       setWorkShifts(
-        (shiftRows ?? []).map((ws: any) => ({
-          id: ws.id,
+        (shiftRows ?? []).map((ws: DbRow) => ({
+          id: String(ws.id ?? ''),
           label: formatWorkShiftLabel(ws),
         })),
       );
-      setDepartments((deptRows ?? []).map((d: any) => ({ id: d.id, name: d.name })));
-      setEstruturas((estruturasRows ?? []).map((e: any) => ({ id: e.id, codigo: e.codigo || '', descricao: e.descricao || e.codigo || '' })));
-      setCargos((jobTitlesRows ?? []).map((j: any) => ({ id: j.id, name: j.name || '' })));
-      setMotivosDemissao((motivosRows ?? []).map((m: any) => ({ id: m.id, name: m.name || '' })));
+      setDepartments((deptRows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') })));
+      setEstruturas((estruturasRows ?? []).map((e: DbRow) => ({ id: String(e.id ?? ''), codigo: String(e.codigo ?? ''), descricao: String(e.descricao ?? e.codigo ?? '') })));
+      setCargos((jobTitlesRows ?? []).map((j: DbRow) => ({ id: String(j.id ?? ''), name: String(j.name ?? '') })));
+      setMotivosDemissao((motivosRows ?? []).map((m: DbRow) => ({ id: String(m.id ?? ''), name: String(m.name ?? '') })));
     } catch (e) {
       console.error(e);
     } finally {
@@ -653,7 +703,7 @@ const AdminEmployees: React.FC = () => {
     setError(null);
     setSuccess(null);
     try {
-      const payload: Record<string, any> = {
+      const payload: Record<string, unknown> = {
         nome: form.nome.trim(),
         cpf: form.cpf?.trim() || null,
         phone: form.phone?.trim() || null,
@@ -742,12 +792,12 @@ const AdminEmployees: React.FC = () => {
             const legacyRows = await db.select('employees', [
               { column: 'company_id', operator: 'eq', value: effectiveCompanyId },
               { column: 'email', operator: 'eq', value: legacyEmail },
-            ]) as any[];
+            ]) as DbRow[];
             const targetLegacy = legacyRows?.[0];
             if (!targetLegacy?.id) {
               throw new Error('Funcionário legado não encontrado para atualização.');
             }
-            const legacyUpdated = await db.update('employees', targetLegacy.id, payload);
+            const legacyUpdated = await db.update('employees', String(targetLegacy.id), payload);
             updated = !!legacyUpdated;
           } else {
             throw new Error('Não foi possível identificar o funcionário legado para salvar.');
@@ -806,10 +856,8 @@ const AdminEmployees: React.FC = () => {
             await setEmployeePasswordInAuth(email, '123456');
           }
           await confirmEmployeeEmailInAuth(email);
-        } catch (authErr: any) {
-          const msg = String(authErr?.message ?? '');
-          const status = authErr?.status ?? authErr?.statusCode ?? null;
-          const code = authErr?.code ?? '';
+        } catch (authErr: unknown) {
+          const { message: msg, status, code } = errorProps(authErr);
           const lower = msg.toLowerCase();
           const is404 =
             status === 404 ||
@@ -819,7 +867,7 @@ const AdminEmployees: React.FC = () => {
 
           if (!is404) {
             // Para erros "reais" (duplicado, 429, etc.), mantém o comportamento existente.
-            throw authErr;
+            throw authErr instanceof Error ? authErr : new Error(msg);
           }
           // 404: backend de Auth não está disponível.
           // Vamos seguir com cadastro apenas local (sem acesso ao login).
@@ -848,10 +896,8 @@ const AdminEmployees: React.FC = () => {
         invalidateCompanyListCaches(effectiveCompanyId);
         loadData();
       }
-    } catch (e: any) {
-      const msg = String(e?.message ?? '');
-      const code = e?.code ?? '';
-      const status = e?.status ?? e?.statusCode ?? null;
+    } catch (e: unknown) {
+      const { message: msg, status, code } = errorProps(e);
       const lower = msg.toLowerCase();
 
       const isAuthSessionError =
@@ -912,8 +958,8 @@ const AdminEmployees: React.FC = () => {
       setAskInvisivel(null);
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao atualizar');
+    } catch (e: unknown) {
+      setError(messageFromUnknown(e, 'Erro ao atualizar'));
     }
   };
 
@@ -924,8 +970,8 @@ const AdminEmployees: React.FC = () => {
       setSuccess('Funcionário desativado.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao desativar');
+    } catch (e: unknown) {
+      setError(messageFromUnknown(e, 'Erro ao desativar'));
     }
   };
 
@@ -935,8 +981,8 @@ const AdminEmployees: React.FC = () => {
       setSuccess('Funcionário reativado.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao reativar');
+    } catch (e: unknown) {
+      setError(messageFromUnknown(e, 'Erro ao reativar'));
     }
   };
 
@@ -973,8 +1019,8 @@ const AdminEmployees: React.FC = () => {
       setSuccess('Funcionário excluído.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao excluir');
+    } catch (e: unknown) {
+      setError(messageFromUnknown(e, 'Erro ao excluir'));
     }
   };
 
@@ -1084,10 +1130,8 @@ const AdminEmployees: React.FC = () => {
             await setEmployeePasswordInAuth(emailFinal.toLowerCase(), '123456');
           }
           await confirmEmployeeEmailInAuth(emailFinal.toLowerCase());
-        } catch (authErr: any) {
-          const msg = String(authErr?.message ?? '');
-          const status = authErr?.status ?? authErr?.statusCode ?? null;
-          const code = authErr?.code ?? '';
+        } catch (authErr: unknown) {
+          const { message: msg, status, code } = errorProps(authErr);
           const lower = msg.toLowerCase();
           const is404 =
             status === 404 ||
@@ -1096,7 +1140,7 @@ const AdminEmployees: React.FC = () => {
             lower.includes('not found');
           if (!is404) {
             // Motivo real do erro (não genérico); quem chama vai push em failed e continuar.
-            throw authErr;
+            throw authErr instanceof Error ? authErr : new Error(msg);
           }
         }
 
@@ -1111,7 +1155,7 @@ const AdminEmployees: React.FC = () => {
         const adm = parseFlexibleDate(row.admissao);
         const cf = parseFlexibleDate(row.contrato_fim);
         const dn = parseFlexibleDate(row.data_nascimento);
-        const payload: any = {
+        const payload: DbRow = {
           id: userIdLocal,
           auth_user_id: authUserId,
           nome: nomeFinal,
@@ -1152,10 +1196,8 @@ const AdminEmployees: React.FC = () => {
           success++;
           logImportRow(rowNum, emailFinal, 'ok');
         }
-      } catch (err: any) {
-        const msg = String(err?.message ?? '');
-        const code = err?.code ?? '';
-        const status = err?.status ?? err?.statusCode ?? null;
+      } catch (err: unknown) {
+        const { message: msg, status, code } = errorProps(err);
         const lower = msg.toLowerCase();
         const is429 = status === 429 || code === '429' || lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests');
         const isDup = code === '23505' || code === 'USER_ALREADY_EXISTS' || msg.includes('duplicate') || /already registered|already exists|já cadastrado/i.test(msg);
@@ -1172,8 +1214,8 @@ const AdminEmployees: React.FC = () => {
               failed.push({ row: rowNum, email: emailFinal, reason });
               logImportRow(rowNum, emailFinal, 'fail', reason);
             }
-          } catch (retryErr: any) {
-            const reason = (retryErr?.message && String(retryErr.message).trim()) || 'Limite de requisições (429). Importe em lotes menores ou tente mais tarde.';
+          } catch (retryErr: unknown) {
+            const reason = messageFromUnknown(retryErr, 'Limite de requisições (429). Importe em lotes menores ou tente mais tarde.');
             failed.push({ row: rowNum, email: emailFinal, reason });
             logImportRow(rowNum, emailFinal, 'fail', reason);
             await delay(RETRY_AFTER_429_MS);
@@ -1243,8 +1285,8 @@ const AdminEmployees: React.FC = () => {
         invalid,
       });
       setImportStep('preview');
-    } catch (err: any) {
-      setImportParseError(err?.message || 'Erro ao processar arquivo. Formatos: CSV, TXT, XLSX, XLS, PDF, DOC, DOCX.');
+    } catch (err: unknown) {
+      setImportParseError(messageFromUnknown(err, 'Erro ao processar arquivo. Formatos: CSV, TXT, XLSX, XLS, PDF, DOC, DOCX.'));
     } finally {
       e.target.value = '';
       setImporting(false);
@@ -1270,8 +1312,8 @@ const AdminEmployees: React.FC = () => {
       setImportRawRows(null);
       setImportHeaders([]);
       setImportMapping({});
-    } catch (err: any) {
-      setImportError(err?.message || 'Erro ao importar. Verifique a conexão e tente novamente.');
+    } catch (err: unknown) {
+      setImportError(messageFromUnknown(err, 'Erro ao importar. Verifique a conexão e tente novamente.'));
     } finally {
       setImporting(false);
     }

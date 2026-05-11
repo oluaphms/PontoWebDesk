@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { db, isSupabaseConfigured, type DbRealtimePayload } from '../services/supabaseClient';
 
 type EventType = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
-interface RealtimeOptions<TPayload = any> {
+interface RealtimeOptions<TPayload extends DbRealtimePayload = DbRealtimePayload> {
   table: string;
   filter?: string;
   events?: EventType[];
@@ -19,7 +19,7 @@ interface RealtimeOptions<TPayload = any> {
  *   onPayload: (payload) => { ... }
  * });
  */
-export function useSupabaseRealtime<TPayload = any>({
+export function useSupabaseRealtime<TPayload extends DbRealtimePayload = DbRealtimePayload>({
   table,
   filter,
   events = ['*'],
@@ -30,7 +30,7 @@ export function useSupabaseRealtime<TPayload = any>({
     let unsubscribe: (() => void) | undefined;
 
     try {
-      unsubscribe = db.subscribe(table, (payload: any) => {
+      unsubscribe = db.subscribe(table, (payload: DbRealtimePayload) => {
         if (events.includes('*') || events.includes(payload.eventType as EventType)) {
           onPayload(payload as TPayload);
         }

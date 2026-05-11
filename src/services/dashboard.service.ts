@@ -1,4 +1,4 @@
-import { db } from '../../services/supabaseClient';
+import { db, type DbRow } from '../../services/supabaseClient';
 import { queryCache, TTL } from './queryCache';
 import { runSingleFlight } from '../performance/fetchSingleFlight';
 import { recordCriticalRequest } from '../performance/requestBudget';
@@ -504,10 +504,8 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
             db.select(
               'users',
               [{ column: 'company_id', operator: 'eq', value: companyId }],
-              undefined,
-              1000,
-              'id,nome,email,role,status',
-            ) as Promise<any[]>,
+              { columns: 'id,nome,email,role,status', limit: 1000 },
+            ) as Promise<DbRow[]>,
           TTL.SHORT,
         ),
         queryCache.getOrFetch(
@@ -522,7 +520,7 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
               ],
               { column: 'created_at', ascending: false },
               40,
-            ) as Promise<any[]>,
+            ) as Promise<DbRow[]>,
           TTL.REALTIME,
         ),
       ]);
@@ -564,10 +562,8 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
             db.select(
               'users',
               [{ column: 'company_id', operator: 'eq', value: companyId }],
-              undefined,
-              1000,
-              'id,nome,email,role,status',
-            ) as Promise<any[]>,
+              { columns: 'id,nome,email,role,status', limit: 1000 },
+            ) as Promise<DbRow[]>,
           TTL.SHORT,
         ),
         queryCache.getOrFetch(
@@ -582,7 +578,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
               ],
               { column: 'created_at', ascending: false },
               40,
-            ) as Promise<any[]>,
+            ) as Promise<DbRow[]>,
           TTL.REALTIME,
         ),
         queryCache.getOrFetch(
@@ -625,12 +621,11 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
     const [usersRows, recordsRaw, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
       queryCache.getOrFetch(
         `users:${companyId}:minimal`,
-        () => db.select('users', 
-          [{ column: 'company_id', operator: 'eq', value: companyId }],
-          undefined,
-          1000,
-          'id,nome,email,role,status'
-        ) as Promise<any[]>,
+        () =>
+          db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }], {
+            columns: 'id,nome,email,role,status',
+            limit: 1000,
+          }) as Promise<DbRow[]>,
         TTL.SHORT,
       ),
       // Apenas registros dos últimos 14 dias para o gráfico
@@ -645,7 +640,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
             ],
             { column: 'created_at', ascending: false },
             500, // Reduzido de 5000 para 500
-          ) as Promise<any[]>,
+          ) as Promise<DbRow[]>,
         TTL.SHORT,
       ),
       // Apenas 5 registros mais recentes para "lastRecords"
@@ -661,7 +656,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
             ],
             { column: 'created_at', ascending: false },
             40,
-          ) as Promise<any[]>,
+          ) as Promise<DbRow[]>,
         TTL.REALTIME,
       ),
       queryCache.getOrFetch(

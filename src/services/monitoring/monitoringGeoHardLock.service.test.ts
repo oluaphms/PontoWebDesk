@@ -17,7 +17,7 @@ describe('validateOperationalTimestamp', () => {
     const future = new Date(now + FUTURE_PUNCH_TOLERANCE_MS + 60_000).toISOString();
     const r = validateOperationalTimestamp(future, now);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe('future');
+    if (r.ok === false) expect(r.code).toBe('future');
   });
 
   it('aceita instante dentro da tolerância futura', () => {

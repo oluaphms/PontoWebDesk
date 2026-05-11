@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
 import { mapTimesheetForUI, type TimesheetUIRow } from './timesheetProcessingStatus';
-import type { PendingRepPunch } from './timeAttendanceData';
+import type { PendingRepPunch, RepOperationalResolutionStatus } from './timeAttendanceData';
 
 function localYmdStartIso(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -65,7 +65,9 @@ export async function fetchRepPendingByDate(
       promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
       promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
       operational_resolution_status:
-        r.operational_resolution_status != null ? String(r.operational_resolution_status) : null,
+        r.operational_resolution_status != null
+          ? (String(r.operational_resolution_status) as RepOperationalResolutionStatus)
+          : null,
       last_promotion_attempt_at:
         r.last_promotion_attempt_at != null ? String(r.last_promotion_attempt_at) : null,
     };

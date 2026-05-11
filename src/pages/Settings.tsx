@@ -55,7 +55,7 @@ const SettingsPage: React.FC = () => {
         const rows =
           (await db.select('settings', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) ?? [];
         if (rows.length > 0) {
-          const s = rows[0] as SettingsRecord;
+          const s = rows[0] as unknown as SettingsRecord;
           setSettings(s);
           const passwordPolicy = s.password_policy_json ?? {};
           const lang = (s.language === 'pt-BR' || s.language === 'en-US' ? s.language : 'pt-BR') as 'pt-BR' | 'en-US';

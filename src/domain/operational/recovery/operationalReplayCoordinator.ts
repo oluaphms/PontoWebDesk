@@ -79,7 +79,9 @@ export async function replayOperationalDeadLetter(
 
   const hints = raw.recovery_meta?.rep_reconciliation;
   if (needsHealth && hints) {
-    pushHealthUpdate(ctx, () => recalculate_period(hints.employeeId, row.company_id, hints.dateYmd, hints.dateYmd));
+    pushHealthUpdate(ctx, async () => {
+      await recalculate_period(hints.employeeId, row.company_id, hints.dateYmd, hints.dateYmd);
+    });
   }
   if (needsGovernance && hints?.action !== 'manual_saida' && hints?.repPunchLogId) {
     pushGovernanceUpdate(ctx, () =>
@@ -106,5 +108,9 @@ export async function replayOperationalDeadLetter(
       });
     }
   }
-  return { ok: commit.ok, commit, error: commit.ok ? undefined : commit.rollback.message };
+  return {
+    ok: commit.ok,
+    commit,
+    error: commit.ok === false ? commit.rollback.message : undefined,
+  };
 }

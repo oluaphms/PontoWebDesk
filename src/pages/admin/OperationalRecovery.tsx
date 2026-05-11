@@ -14,11 +14,8 @@ import {
   recoverPendingOperationalFailures,
   recoverSingleOperationalDeadLetter,
 } from '../../domain/operational/recovery/operationalRecoveryEngine';
-import {
-  ignoreOperationalDeadLetter,
-  listOperationalDeadLettersForCompany,
-  type OperationalDeadLetterRow,
-} from '../../services/operationalDeadLetter.service';
+import { ignoreOperationalDeadLetter, listOperationalDeadLettersForCompany } from '../../services/operationalDeadLetter.service';
+import type { OperationalDeadLetterRow } from '../../domain/operational/recovery/operationalDeadLetterQueue';
 import {
   listTimeAttendanceTimelinePage,
   type TimeAttendanceTimelineRow,

@@ -213,7 +213,7 @@ const RequestsPage: React.FC = () => {
         for (const admin of admins || []) {
           try {
             await NotificationService.create({
-              userId: admin.id,
+              userId: String(admin.id ?? ''),
               type: 'info',
               title: 'Nova solicitação',
               message: `${user.nome} enviou uma nova solicitação de ${form.type === 'adjustment' ? 'ajuste de ponto' : form.type === 'vacation' ? 'férias' : 'mudança de turno'}.`,

@@ -132,18 +132,23 @@ const AdminDashboard: React.FC = () => {
       })();
     };
 
-    const w = window;
-    if ('requestIdleCallback' in w) {
-      const id = w.requestIdleCallback(run, { timeout: 2400 });
+    if (typeof window !== 'undefined') {
+      const ric = window.requestIdleCallback;
+      if (typeof ric === 'function') {
+        const id = ric.call(window, run, { timeout: 2400 });
+        return () => {
+          cancelled = true;
+          window.cancelIdleCallback(id);
+        };
+      }
+      const tid = window.setTimeout(run, 32);
       return () => {
         cancelled = true;
-        w.cancelIdleCallback(id);
+        window.clearTimeout(tid);
       };
     }
-    const tid = w.setTimeout(run, 32);
     return () => {
       cancelled = true;
-      w.clearTimeout(tid);
     };
   }, [user?.companyId]);
 

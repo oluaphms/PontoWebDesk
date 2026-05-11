@@ -27,7 +27,7 @@ export {
 } from '../src/lib/supabaseClient';
 
 // Criar aliases para db e storage (compatibilidade com código antigo)
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../src/lib/supabaseClient';
 import { withTimeout } from '../src/utils/withTimeout';
 import { DB_SELECT_TIMEOUT_MS } from './supabase';
@@ -75,10 +75,19 @@ export type FilterOperator =
   | 'is'
   | 'contains';
 
+/** Valores aceitos em filtros PostgREST no wrapper legado `db`. */
+export type FilterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Record<string, unknown>;
+
 export interface Filter {
   column: string;
   operator: FilterOperator;
-  value: any;
+  value: FilterValue;
 }
 
 interface OrderBy {
@@ -92,6 +101,8 @@ interface SelectOptions {
   offset?: number;
   orderBy?: OrderBy;
 }
+
+type AuthOnChangeCallback = Parameters<SupabaseClient['auth']['onAuthStateChange']>[0];
 
 // Limite padrão para evitar carregamento de dados excessivos
 const DEFAULT_SELECT_LIMIT = 200;
@@ -224,34 +235,63 @@ export async function safeUserSelectColumns(
   return pickUserColumnsForRequest(userSelectCapabilityCache, requested);
 }
 
+/** Linha genérica retornada por `db.select` / PostgREST até haver tipos gerados. */
+export type DbRow = Record<string, unknown>;
+
+/** Payload mínimo entregue pelo Realtime em `postgres_changes` (sem tipagem gerada). */
+export type DbRealtimePayload = {
+  schema?: string;
+  table?: string;
+  commit_timestamp?: string;
+  eventType?: string;
+  new?: DbRow | null;
+  old?: DbRow | null;
+};
+
 // Interface do db com sobrecargas para compatibilidade
 interface DbInterface {
-  select: (table: string, filters?: Filter[], orderBy?: OrderBy | SelectOptions, limit?: number) => Promise<any[]>;
-  insert: (table: string, data: any) => Promise<any>;
+  select: <T extends DbRow = DbRow>(
+    table: string,
+    filters?: Filter[],
+    orderBy?: OrderBy | SelectOptions,
+    limit?: number,
+  ) => Promise<T[]>;
+  insert: <T extends DbRow = DbRow>(table: string, data: DbRow) => Promise<T>;
   /** PostgREST upsert; onConflict ex.: 'company_id,snapshot_date' */
-  upsert: (table: string, data: any, onConflict: string) => Promise<void>;
-  rpc: <T = any>(
+  upsert: (table: string, data: DbRow, onConflict: string) => Promise<void>;
+  rpc: <T = unknown>(
     fn: string,
-    args?: Record<string, any>
-  ) => Promise<{ data: T | null; error: any }>;
+    args?: DbRow,
+  ) => Promise<{ data: T | null; error: PostgrestError | null }>;
   // Sobrecargas para update: (table, id, data) ou (table, data, filters)
-  update: ((table: string, id: string, data: any) => Promise<any>) & ((table: string, data: any, filters?: Filter[]) => Promise<any>);
+  update: (<T extends DbRow = DbRow>(table: string, id: string, data: DbRow) => Promise<T>) &
+    (<T extends DbRow = DbRow>(table: string, data: DbRow, filters?: Filter[]) => Promise<T>);
   // Sobrecargas para delete: (table, id) ou (table, filters)
   delete: ((table: string, id: string) => Promise<void>) & ((table: string, filters?: Filter[]) => Promise<void>);
-  findById: (table: string, id: string, columns?: string) => Promise<any | null>;
-  selectPaginated: (table: string, options: { columns?: string; filters?: Filter[]; orderBy?: OrderBy; limit?: number; offset?: number; count?: boolean }) => Promise<{ data: any[]; count: number | null }>;
+  findById: <T extends DbRow = DbRow>(table: string, id: string, columns?: string) => Promise<T | null>;
+  selectPaginated: <T extends DbRow = DbRow>(
+    table: string,
+    options: {
+      columns?: string;
+      filters?: Filter[];
+      orderBy?: OrderBy;
+      limit?: number;
+      offset?: number;
+      count?: boolean;
+    },
+  ) => Promise<{ data: T[]; count: number | null }>;
   count: (table: string, filters?: Filter[]) => Promise<number>;
-  subscribe: (table: string, callback: (payload: any) => void, filter?: string) => () => void;
+  subscribe: (table: string, callback: (payload: DbRealtimePayload) => void, filter?: string) => () => void;
 }
 
 // Implementação completa do db com suporte a filtros, ordenação e limite
 export const db: DbInterface = {
-  select: async (
+  select: async <T extends DbRow = DbRow>(
     table: string,
     filters?: Filter[],
     orderBy?: OrderBy | SelectOptions,
     limit?: number
-  ): Promise<any[]> => {
+  ): Promise<T[]> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -293,40 +333,40 @@ export const db: DbInterface = {
         const { column, operator, value } = filter;
         switch (operator) {
           case 'eq':
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
             break;
           case 'neq':
-            query = query.neq(column, value);
+            query = query.neq(column, value as never);
             break;
           case 'gt':
-            query = query.gt(column, value);
+            query = query.gt(column, value as never);
             break;
           case 'gte':
-            query = query.gte(column, value);
+            query = query.gte(column, value as never);
             break;
           case 'lt':
-            query = query.lt(column, value);
+            query = query.lt(column, value as never);
             break;
           case 'lte':
-            query = query.lte(column, value);
+            query = query.lte(column, value as never);
             break;
           case 'like':
-            query = query.like(column, value);
+            query = query.like(column, String(value));
             break;
           case 'ilike':
-            query = query.ilike(column, value);
+            query = query.ilike(column, String(value));
             break;
           case 'in':
             query = query.in(column, Array.isArray(value) ? value : [value]);
             break;
           case 'is':
-            query = query.is(column, value);
+            query = query.is(column, value as null | boolean);
             break;
           case 'contains':
-            query = query.contains(column, value);
+            query = query.contains(column, value as string | readonly unknown[] | Record<string, unknown>);
             break;
           default:
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
         }
       }
     }
@@ -345,7 +385,7 @@ export const db: DbInterface = {
 
     // PostgREST builder é thenable; await explícito evita edge cases com Promise.resolve.
     const { data, error } = await withTimeout(
-      query as unknown as Promise<{ data: any; error: any }>,
+      query as unknown as Promise<{ data: T[] | null; error: PostgrestError | null }>,
       DB_SELECT_TIMEOUT_MS,
       `db.select(${table})`,
     );
@@ -360,10 +400,10 @@ export const db: DbInterface = {
       throw new Error(`Erro ao buscar dados de ${table}: ${error.message}`);
     }
 
-    return data || [];
+    return (data || []) as T[];
   },
 
-  insert: async (table: string, data: any): Promise<any> => {
+  insert: async <T extends DbRow = DbRow>(table: string, data: DbRow): Promise<T> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -374,10 +414,10 @@ export const db: DbInterface = {
       throw new Error(`Erro ao inserir em ${table}: ${error.message}`);
     }
 
-    return result;
+    return result as T;
   },
 
-  upsert: async (table: string, data: any, onConflict: string): Promise<void> => {
+  upsert: async (table: string, data: DbRow, onConflict: string): Promise<void> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -389,14 +429,18 @@ export const db: DbInterface = {
     }
   },
 
-  rpc: async <T = any>(fn: string, args?: Record<string, any>): Promise<{ data: T | null; error: any }> => {
+  rpc: async <T = unknown>(fn: string, args?: DbRow): Promise<{ data: T | null; error: PostgrestError | null }> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
     return client.rpc(fn, args ?? {});
   },
 
-  update: async (table: string, idOrData: string | any, dataOrFilters?: any | Filter[]): Promise<any> => {
+  update: async <T extends DbRow = DbRow>(
+    table: string,
+    idOrData: string | DbRow,
+    dataOrFilters?: DbRow | Filter[],
+  ): Promise<T> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -404,17 +448,17 @@ export const db: DbInterface = {
     // Suporte a duas sintaxes:
     // 1. update(table, id, data) - atualiza por ID
     // 2. update(table, data, filters) - atualiza com filtros
-    let data: any;
+    let data: DbRow;
     let filters: Filter[] | undefined;
-    
+
     if (typeof idOrData === 'string') {
       // Sintaxe: update(table, id, data)
-      data = dataOrFilters;
+      data = dataOrFilters as DbRow;
       filters = [{ column: 'id', operator: 'eq', value: idOrData }];
     } else {
       // Sintaxe: update(table, data, filters)
       data = idOrData;
-      filters = dataOrFilters;
+      filters = dataOrFilters as Filter[] | undefined;
     }
 
     let query = client.from(table).update(data);
@@ -425,13 +469,13 @@ export const db: DbInterface = {
         const { column, operator, value } = filter;
         switch (operator) {
           case 'eq':
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
             break;
           case 'neq':
-            query = query.neq(column, value);
+            query = query.neq(column, value as never);
             break;
           default:
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
         }
       }
     }
@@ -442,7 +486,7 @@ export const db: DbInterface = {
       throw new Error(`Erro ao atualizar em ${table}: ${error.message}`);
     }
 
-    return result;
+    return result as T;
   },
 
   delete: async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
@@ -471,10 +515,10 @@ export const db: DbInterface = {
         const { column, operator, value } = filter;
         switch (operator) {
           case 'eq':
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
             break;
           default:
-            query = query.eq(column, value);
+            query = query.eq(column, value as never);
         }
       }
     }
@@ -487,7 +531,7 @@ export const db: DbInterface = {
   },
 
   // Método auxiliar para buscar um único registro por ID
-  findById: async (table: string, id: string, columns?: string): Promise<any | null> => {
+  findById: async <T extends DbRow = DbRow>(table: string, id: string, columns?: string): Promise<T | null> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -505,11 +549,11 @@ export const db: DbInterface = {
       throw new Error(`Erro ao buscar ${table} por ID: ${error.message}`);
     }
 
-    return data;
+    return data as unknown as T;
   },
 
   // Método otimizado com colunas específicas, paginação e contagem
-  selectPaginated: async (
+  selectPaginated: async <T extends DbRow = DbRow>(
     table: string,
     options: {
       columns?: string;
@@ -518,8 +562,8 @@ export const db: DbInterface = {
       limit?: number;
       offset?: number;
       count?: boolean;
-    }
-  ): Promise<{ data: any[]; count: number | null }> => {
+    },
+  ): Promise<{ data: T[]; count: number | null }> => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -533,18 +577,18 @@ export const db: DbInterface = {
       for (const filter of filters) {
         const { column, operator, value } = filter;
         switch (operator) {
-          case 'eq': query = query.eq(column, value); break;
-          case 'neq': query = query.neq(column, value); break;
-          case 'gt': query = query.gt(column, value); break;
-          case 'gte': query = query.gte(column, value); break;
-          case 'lt': query = query.lt(column, value); break;
-          case 'lte': query = query.lte(column, value); break;
-          case 'like': query = query.like(column, value); break;
-          case 'ilike': query = query.ilike(column, value); break;
+          case 'eq': query = query.eq(column, value as never); break;
+          case 'neq': query = query.neq(column, value as never); break;
+          case 'gt': query = query.gt(column, value as never); break;
+          case 'gte': query = query.gte(column, value as never); break;
+          case 'lt': query = query.lt(column, value as never); break;
+          case 'lte': query = query.lte(column, value as never); break;
+          case 'like': query = query.like(column, String(value)); break;
+          case 'ilike': query = query.ilike(column, String(value)); break;
           case 'in': query = query.in(column, Array.isArray(value) ? value : [value]); break;
-          case 'is': query = query.is(column, value); break;
-          case 'contains': query = query.contains(column, value); break;
-          default: query = query.eq(column, value);
+          case 'is': query = query.is(column, value as null | boolean); break;
+          case 'contains': query = query.contains(column, value as string | readonly unknown[] | Record<string, unknown>); break;
+          default: query = query.eq(column, value as never);
         }
       }
     }
@@ -561,7 +605,7 @@ export const db: DbInterface = {
       throw new Error(`Erro ao buscar dados de ${table}: ${error.message}`);
     }
 
-    return { data: data || [], count: totalCount };
+    return { data: (data || []) as unknown as T[], count: totalCount };
   },
 
   // Contagem rápida sem carregar dados
@@ -576,10 +620,10 @@ export const db: DbInterface = {
       for (const filter of filters) {
         const { column, operator, value } = filter;
         switch (operator) {
-          case 'eq': query = query.eq(column, value); break;
-          case 'neq': query = query.neq(column, value); break;
+          case 'eq': query = query.eq(column, value as never); break;
+          case 'neq': query = query.neq(column, value as never); break;
           case 'in': query = query.in(column, Array.isArray(value) ? value : [value]); break;
-          default: query = query.eq(column, value);
+          default: query = query.eq(column, value as never);
         }
       }
     }
@@ -596,7 +640,7 @@ export const db: DbInterface = {
   // Método para subscribe em tempo real (Realtime API)
   subscribe: (
     table: string,
-    callback: (payload: any) => void,
+    callback: (payload: DbRealtimePayload) => void,
     filter?: string
   ): (() => void) => {
     const client = getSupabaseClient();
@@ -608,14 +652,14 @@ export const db: DbInterface = {
     const channel = client
       .channel(`db-changes-${table}`)
       .on(
-        'postgres_changes' as any,
+        'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: table,
           filter: filter,
         },
-        (payload: any) => {
+        (payload: DbRealtimePayload) => {
           callback(payload);
         }
       )
@@ -637,7 +681,11 @@ export const storage = {
   upload: (bucket: string, path: string, body: Blob | File | ArrayBuffer | FormData, options?: Record<string, unknown>) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
-    return client.storage.from(bucket).upload(path, body, options as any);
+    return client.storage.from(bucket).upload(
+      path,
+      body,
+      options as Record<string, unknown> | undefined,
+    );
   },
   getPublicUrl: (bucket: string, path: string) => {
     const client = getSupabaseClient();
@@ -647,7 +695,7 @@ export const storage = {
 };
 
 export const auth = {
-  signUp: async (email: string, password: string, options?: any) => {
+  signUp: async (email: string, password: string, options?: Record<string, unknown>) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { data, error } = await client.auth.signUp({ email, password, options });
@@ -669,10 +717,13 @@ export const auth = {
     if (error) throw error;
     return data;
   },
-  signInWithOAuth: async (provider: string, options?: any) => {
+  signInWithOAuth: async (provider: string, options?: Record<string, unknown>) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
-    const { data, error } = await client.auth.signInWithOAuth({ provider: provider as any, ...options });
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: provider as never,
+      ...(options ?? {}),
+    });
     if (error) throw error;
     return data;
   },
@@ -704,7 +755,7 @@ export const auth = {
     const { error } = await client.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
     if (error) throw error;
   },
-  onAuthStateChange: (callback: any) => {
+  onAuthStateChange: (callback: AuthOnChangeCallback) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.auth.onAuthStateChange(callback);

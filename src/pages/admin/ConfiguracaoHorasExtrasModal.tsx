@@ -4,6 +4,15 @@ import { createDefaultExtras, mergeExtras, createDefaultPainelFaixas } from '../
 
 const inp = 'w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm';
 
+type TabId =
+  | 'gerais'
+  | 'dias_uteis'
+  | 'dia_especial'
+  | 'noturnas_uteis'
+  | 'banco'
+  | 'intervalo_uteis'
+  | 'divisoes_noturnas';
+
 const TABS: { id: TabId; label: string }[] = [
   { id: 'gerais', label: 'Gerais' },
   { id: 'dias_uteis', label: 'Dias Úteis' },
@@ -13,8 +22,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'intervalo_uteis', label: 'Intervalo - Dias Úteis' },
   { id: 'divisoes_noturnas', label: 'Divisões Noturnas' },
 ];
-
-type TabId = (typeof TABS)[number]['id'];
 
 const ACUMULAR_OPCOES: { value: ExtrasConfig['acumular']; label: string }[] = [
   { value: 'independentes', label: 'Independentes' },

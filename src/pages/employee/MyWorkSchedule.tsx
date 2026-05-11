@@ -20,6 +20,8 @@ import type { WeeklyScheduleDay } from '../../../types';
 const DAY_JS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 /** Dias na escala simples (admin): mesmo índice que `schedules.days` — 0 = domingo. */
 const SCHEDULE_DAY_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+/** Grade semanal (`weeklyGrid`): índice 0 = segunda … 6 = domingo. */
+const DAY_MON_FIRST = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
 function formatTime(v: string | null | undefined): string {
   if (!v || String(v).length < 4) return '—';

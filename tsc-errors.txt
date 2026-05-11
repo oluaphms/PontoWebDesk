@@ -1,0 +1,6 @@
+﻿src/pages/admin/Employees.tsx(445,13): error TS2322: Type '{ id: string; legacy_id: string; nome: string; cpf: string; email: string; phone: string; cargo: string; department_id: string; department_name: string; schedule_id: string; schedule_name: string; ... 32 more ...; endereco_cep: unknown; }[]' is not assignable to type 'EmployeeRow[]'.
+  Type '{ id: string; legacy_id: string; nome: string; cpf: string; email: string; phone: string; cargo: string; department_id: string; department_name: string; schedule_id: string; schedule_name: string; ... 32 more ...; endereco_cep: unknown; }' is not assignable to type 'EmployeeRow'.
+    Types of property 'contrato_fim' are incompatible.
+      Type 'unknown' is not assignable to type 'string'.
+src/pages/admin/Employees.tsx(497,44): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/pages/admin/Employees.tsx(501,55): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.

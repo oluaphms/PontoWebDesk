@@ -71,6 +71,7 @@ export type RepOpsQueueRow = {
   severity: OperationalSeverity;
   lifecycle: string;
   promotion_attempts: number;
+  promotion_error_code?: string | null;
   last_action_at: string | null;
   last_action_label: string;
   aging_days: number;

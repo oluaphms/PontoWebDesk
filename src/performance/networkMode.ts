@@ -3,7 +3,7 @@
  */
 export function isLowNetworkMode(): boolean {
   if (typeof navigator === 'undefined') return false;
-  if (navigator.saveData === true) return true;
+  if ((navigator as Navigator & { saveData?: boolean }).saveData === true) return true;
 
   const nav = navigator as Navigator & {
     connection?: { saveData?: boolean; effectiveType?: string };

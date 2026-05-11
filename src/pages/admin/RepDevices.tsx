@@ -158,7 +158,7 @@ async function fetchRepMatchUsersForBlob(client: SupabaseClient, companyId: stri
   }
 
   if (!data?.length) return [];
-  return data.map((row: Record<string, unknown>) => ({
+  return (data as unknown as Record<string, unknown>[]).map((row) => ({
     id: String(row.id ?? ''),
     nome: String((row.nome as string) || (row.email as string) || row.id || '').trim(),
     status: String(row.status || 'active').trim(),

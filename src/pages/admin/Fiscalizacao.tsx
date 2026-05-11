@@ -20,6 +20,7 @@ import {
   Loader2,
   ExternalLink,
 } from 'lucide-react';
+import { messageFromUnknown } from '@/utils/messageFromUnknown';
 
 const getBaseUrl = () => {
   if (typeof window !== 'undefined') return window.location.origin;
@@ -41,8 +42,8 @@ export default function AdminFiscalizacao() {
     try {
       const result = await validateIntegrity(companyId);
       setIntegrity(result);
-    } catch (e: any) {
-      setIntegrity({ valid: false, errors: [e?.message || 'Erro ao validar integridade.'] });
+    } catch (e: unknown) {
+      setIntegrity({ valid: false, errors: [messageFromUnknown(e, 'Erro ao validar integridade.')] });
     } finally {
       setIntegrityLoading(false);
     }
@@ -79,8 +80,8 @@ export default function AdminFiscalizacao() {
         a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
-      } catch (e: any) {
-        alert(e?.message || `Erro ao exportar ${type.toUpperCase()}.`);
+      } catch (e: unknown) {
+        alert(messageFromUnknown(e, `Erro ao exportar ${type.toUpperCase()}.`));
       } finally {
         setExportLoading(null);
       }

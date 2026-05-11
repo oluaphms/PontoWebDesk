@@ -76,7 +76,7 @@ const AdminAjuda: React.FC = () => {
     manualTopics.forEach((topic) => {
       const entry = Object.entries(manualGuides).find(([path]) => path.endsWith(`/agent/queue/.docs/${topic.file}`));
       if (entry) {
-        map.set(topic.id, entry[1]);
+        map.set(topic.id, String(entry[1]));
       }
     });
     return map;

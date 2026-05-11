@@ -268,7 +268,7 @@ const EmployeeClockIn: React.FC = () => {
 
     logGeolocationDebug('retryGps:ok', {
       position: r.position,
-      samples: r.position.sampleCount,
+      accuracy: r.position.accuracy,
     });
   }, []);
 
@@ -324,7 +324,7 @@ const EmployeeClockIn: React.FC = () => {
 
       logGeolocationDebug('modal:initial:ok', {
         position: r.position,
-        samples: r.position.sampleCount,
+        accuracy: r.position.accuracy,
       });
     })();
 

@@ -12,6 +12,7 @@ const CommandPalette: React.FC = () => {
   useLanguage();
   const commandPaletteOpen = useSmartNavigationSelector((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useSmartNavigationSelector((s) => s.setCommandPaletteOpen);
+  const toggleCommandPalette = useSmartNavigationSelector((s) => s.toggleCommandPalette);
   const flatItems = useSmartNavigationSelector((s) => s.flatItems);
   const groups = useSmartNavigationSelector((s) => s.groups);
   const [query, setQuery] = useState('');
@@ -35,12 +36,12 @@ const CommandPalette: React.FC = () => {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        setCommandPaletteOpen((prev) => !prev);
+        toggleCommandPalette();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [setCommandPaletteOpen]);
+  }, [setCommandPaletteOpen, toggleCommandPalette]);
 
   useEffect(() => {
     if (commandPaletteOpen) {

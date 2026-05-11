@@ -449,7 +449,7 @@ export function buildMonitoringPipelineRow(
 
   for (const r of userRaw) {
     const v = validateOperationalTimestamp(recordPunchInstantIso(r), nowMs);
-    if (!v.ok && v.code === 'future') {
+    if (v.ok === false && v.code === 'future') {
       console.info('[INVALID FUTURE PUNCH]', {
         employee_id: user.id,
         record_id: r.id,

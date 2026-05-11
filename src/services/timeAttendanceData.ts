@@ -1305,7 +1305,7 @@ export async function getTimeAttendanceData(
   for (const r of recordRows ?? []) {
     const uid = typeof r.user_id === 'string' ? r.user_id : '';
     if (!uid) continue;
-    const raw = r as RawTimeRecord;
+    const raw = r as unknown as RawTimeRecord;
     const day = calendarDateForEspelhoRow(raw, safeStart, safeEnd);
     if (day < safeStart || day > safeEnd) continue;
     const key = `${uid}|${day}`;

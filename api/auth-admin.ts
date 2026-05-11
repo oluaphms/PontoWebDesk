@@ -11,6 +11,8 @@
  * Reduz o número de funções no plano Hobby da Vercel (máx. 12).
  */
 
+import { messageFromUnknown } from '../src/utils/messageFromUnknown';
+
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -249,9 +251,9 @@ async function handleRequest(request: Request): Promise<Response> {
       { error: 'action inválido.', code: 'BAD_REQUEST' },
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
     return Response.json(
-      { error: e?.message || 'Erro interno.', code: 'INTERNAL_ERROR' },
+      { error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -274,7 +276,7 @@ export default async function handler(req: any, res: any) {
     response.headers.forEach((value: string, key: string) => res.setHeader(key, value));
     const text = await response.text();
     res.send(text);
-  } catch (e: any) {
-    res.status(500).setHeader('Content-Type', 'application/json').send(JSON.stringify({ error: e?.message || 'Erro interno.', code: 'INTERNAL_ERROR' }));
+  } catch (e: unknown) {
+    res.status(500).setHeader('Content-Type', 'application/json').send(JSON.stringify({ error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' }));
   }
 }

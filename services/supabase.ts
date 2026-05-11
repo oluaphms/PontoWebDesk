@@ -5,7 +5,7 @@
  * que encaminha para a instância atual (evita valor congelado no primeiro import).
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient, getSupabaseClientOrThrow, resetSession, getSupabase } from '../src/lib/supabaseClient';
 
 export { resetSession, getSupabase, getSupabaseClient, getSupabaseClientOrThrow };
@@ -126,8 +126,8 @@ export async function testSupabaseConnection(
       return { ok: true };
     }
     return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
-  } catch (e: any) {
-    if (e?.message === 'timeout') {
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message === 'timeout') {
       return { ok: false, message: 'Supabase timeout. Projeto pode estar pausado ou rede lenta.' };
     }
     return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
@@ -138,9 +138,9 @@ export async function testSupabaseConnection(
  * Executa uma promise do Supabase com timeout
  */
 export async function withSupabaseTimeout<T>(
-  promise: Promise<{ data: T; error: any }>,
+  promise: Promise<{ data: T; error: PostgrestError | null }>,
   ms: number = DEFAULT_CONNECTION_TIMEOUT_MS,
-): Promise<{ data: T; error: any }> {
+): Promise<{ data: T | null; error: PostgrestError | null | { message: string } }> {
   return Promise.race([
     promise,
     new Promise<{ data: null; error: { message: string } }>((_, reject) =>

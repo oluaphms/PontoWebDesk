@@ -40,3 +40,19 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Injetado em alguns ambientes (ex.: preview com index.html custom). */
+interface WindowSupabaseEnvEntry {
+  url?: string;
+  key?: string;
+}
+
+interface Window {
+  ENV?: {
+    ENVIRONMENT?: string;
+    SUPABASES?: Record<string, WindowSupabaseEnvEntry>;
+  };
+  __VITE_SUPABASE_URL?: string;
+  __VITE_SUPABASE_ANON_KEY?: string;
+  __SUPABASE_OFFLINE_DEV?: boolean;
+}

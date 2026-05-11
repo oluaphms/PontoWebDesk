@@ -13,7 +13,10 @@ type CircuitEntry = {
 
 const CIRCUITS = new Map<string, CircuitEntry>();
 const DEGRADED_TENANTS = new Set<string>();
-const RETRY_COUNTER = new Map<string, { count: number; windowStart: number }>();
+const RETRY_COUNTER = new Map<
+  string,
+  { count: number; windowStart: number; /** Evita spam de log quando o budget nega em loop no mesmo minuto. */ stormAnnounced?: boolean }
+>();
 
 function getCircuit(key: string): CircuitEntry {
   const current = CIRCUITS.get(key);
@@ -46,16 +49,19 @@ export const retryBudget = {
       return true;
     }
     if (current.count >= maxRetriesPerMinute) {
-      operationalLog('RECOVERY', {
-        severity: 'warning',
-        event_type: 'retry_storm_detected',
-        source: 'retryBudget',
-        lifecycle: 'protection',
-        retry_key: key,
-        retries_in_window: current.count,
-      });
-      console.warn('[RETRY STORM]', { key, retries_in_window: current.count });
-      recordOperationalMetric('retry_storm_rate', current.count, { source: 'retryBudget' });
+      if (!current.stormAnnounced) {
+        current.stormAnnounced = true;
+        operationalLog('RECOVERY', {
+          severity: 'warning',
+          event_type: 'retry_storm_detected',
+          source: 'retryBudget',
+          lifecycle: 'protection',
+          retry_key: key,
+          retries_in_window: current.count,
+        });
+        console.warn('[RETRY STORM]', { key, retries_in_window: current.count });
+        recordOperationalMetric('retry_storm_rate', current.count, { source: 'retryBudget' });
+      }
       return false;
     }
     current.count += 1;

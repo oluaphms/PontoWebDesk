@@ -345,7 +345,7 @@ async function syncOneDevice(
         logger.sync(
           `Espelho (time_records): processados=${espelho.processed} criados=${espelho.timeRecords} sem_user=${espelho.userNotFound} dup=${espelho.duplicate} err=${espelho.errors}`,
           deviceId,
-          espelho
+          { ...espelho } as Record<string, unknown>,
         );
       } catch (pe: unknown) {
         const m = pe instanceof Error ? pe.message : String(pe);

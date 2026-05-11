@@ -32,6 +32,41 @@ import {
   auditSessionRequestEnd,
 } from '../src/auth/authDuplicateRequestAudit';
 import { User } from '../types';
+
+function defaultUserPreferences(): User['preferences'] {
+  return {
+    notifications: true,
+    theme: 'light',
+    allowManualPunch: true,
+    language: 'pt-BR',
+  };
+}
+
+function parseUserPreferences(raw: unknown): User['preferences'] {
+  const d = defaultUserPreferences();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return d;
+  const o = raw as Record<string, unknown>;
+  const theme =
+    o.theme === 'dark' || o.theme === 'auto' || o.theme === 'light' ? o.theme : d.theme;
+  const language =
+    o.language === 'en-US' || o.language === 'pt-BR' ? o.language : d.language;
+  return {
+    notifications: typeof o.notifications === 'boolean' ? o.notifications : d.notifications,
+    theme,
+    allowManualPunch: typeof o.allowManualPunch === 'boolean' ? o.allowManualPunch : d.allowManualPunch,
+    language,
+  };
+}
+
+function rowStr(v: unknown): string {
+  return v == null ? '' : String(v);
+}
+
+function parseDbUserRole(v: unknown, fallback: User['role']): User['role'] {
+  const r = String(v ?? '').toLowerCase();
+  if (r === 'admin' || r === 'hr' || r === 'supervisor' || r === 'employee') return r as User['role'];
+  return fallback;
+}
 import { LogSeverity } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';
 import { resolveTenantId } from '../src/services/tenantScope';
@@ -662,12 +697,12 @@ class AuthService {
       }
 
       if (userData && userData.length > 0) {
-        const user = userData[0];
-        const dbRole = (user.role as string)?.toLowerCase();
+        const user = userData[0] as Record<string, unknown>;
+        const dbRole = rowStr(user.role).toLowerCase();
         let effectiveRole: User['role'] =
           dbRole === 'admin' || dbRole === 'hr' || dbRole === 'supervisor'
-            ? (user.role as User['role'])
-            : ((user.role as User['role']) || 'employee');
+            ? parseDbUserRole(user.role, 'employee')
+            : parseDbUserRole(user.role, 'employee');
         const emailLower = email.toLowerCase();
         if (
           emailLower === 'admin@smartponto.com' ||
@@ -678,27 +713,32 @@ class AuthService {
         if (emailLower === 'funcionario@smartponto.com') {
           effectiveRole = 'employee';
         }
-        const cid = user.company_id ?? '';
-        const tid = (user as { tenant_id?: string }).tenant_id ?? cid;
+        const cid = rowStr(user.company_id);
+        const tid = rowStr((user as { tenant_id?: unknown }).tenant_id) || cid;
         return {
           id: supabaseUser.id,
-          nome: user.nome || supabaseUser.user_metadata?.nome || email.split('@')[0] || 'Usuário',
+          nome:
+            rowStr(user.nome) ||
+            String(supabaseUser.user_metadata?.nome ?? '') ||
+            email.split('@')[0] ||
+            'Usuário',
           email: supabaseUser.email || '',
-          cargo: user.cargo || 'Colaborador',
+          cargo: rowStr(user.cargo) || 'Colaborador',
           role: effectiveRole,
-          createdAt: user.created_at ? new Date(user.created_at) : new Date(),
+          createdAt: user.created_at ? new Date(String(user.created_at)) : new Date(),
           companyId: cid,
           tenantId: tid,
-          departmentId: user.department_id ?? '',
-          schedule_id: user.schedule_id,
-          shift_id: (user as { shift_id?: string }).shift_id,
-          phone: user.phone,
-          avatar: supabaseUser.user_metadata?.avatar_url || user.avatar,
-          preferences: user.preferences || {
-            notifications: true,
-            theme: 'light',
-            allowManualPunch: true
-          }
+          departmentId: rowStr(user.department_id),
+          schedule_id: user.schedule_id != null ? rowStr(user.schedule_id) : undefined,
+          shift_id:
+            (user as { shift_id?: unknown }).shift_id != null
+              ? rowStr((user as { shift_id?: unknown }).shift_id)
+              : undefined,
+          phone: user.phone != null ? rowStr(user.phone) : undefined,
+          avatar:
+            String(supabaseUser.user_metadata?.avatar_url ?? '') ||
+            (user.avatar != null ? rowStr(user.avatar) : undefined),
+          preferences: parseUserPreferences(user.preferences),
         };
       }
 
@@ -762,24 +802,27 @@ class AuthService {
             { column: 'email', operator: 'eq', value: email }
           ], undefined, 1);
           if (byEmail?.[0]) {
-            const u = byEmail[0];
-            const cid = u.company_id ?? '';
-            const tid = (u as { tenant_id?: string }).tenant_id ?? cid;
+            const u = byEmail[0] as Record<string, unknown>;
+            const cid = rowStr(u.company_id);
+            const tid = rowStr((u as { tenant_id?: unknown }).tenant_id) || cid;
             return {
               id: supabaseUser.id,
-              nome: u.nome || newUser.nome,
+              nome: rowStr(u.nome) || newUser.nome,
               email: supabaseUser.email || '',
-              cargo: u.cargo || 'Colaborador',
-              role: u.role || 'employee',
-              createdAt: u.created_at ? new Date(u.created_at) : new Date(),
+              cargo: rowStr(u.cargo) || 'Colaborador',
+              role: parseDbUserRole(u.role, 'employee'),
+              createdAt: u.created_at ? new Date(String(u.created_at)) : new Date(),
               companyId: cid,
               tenantId: tid,
-              departmentId: u.department_id ?? '',
-              schedule_id: u.schedule_id,
-              shift_id: (u as { shift_id?: string }).shift_id,
-              phone: u.phone,
-              avatar: u.avatar || newUser.avatar,
-              preferences: u.preferences || newUser.preferences
+              departmentId: rowStr(u.department_id),
+              schedule_id: u.schedule_id != null ? rowStr(u.schedule_id) : undefined,
+              shift_id:
+                (u as { shift_id?: unknown }).shift_id != null
+                  ? rowStr((u as { shift_id?: unknown }).shift_id)
+                  : undefined,
+              phone: u.phone != null ? rowStr(u.phone) : undefined,
+              avatar: (u.avatar != null ? rowStr(u.avatar) : undefined) || newUser.avatar,
+              preferences: parseUserPreferences(u.preferences),
             };
           }
         }
@@ -925,7 +968,7 @@ class AuthService {
         session: signPayload.session,
         user: signPayload.user,
       });
-      if (!norm.ok) {
+      if (norm.ok === false) {
         return {
           user: null,
           error: norm.reason === 'missing_user' ? 'Erro ao fazer login. Tente novamente.' : 'Sessão inválida após login.',

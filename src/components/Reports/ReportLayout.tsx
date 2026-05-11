@@ -18,13 +18,19 @@ interface ReportColumn {
   width?: string;
 }
 
+/** Linha de dados da tabela do relatório (valores exibíveis). */
+export type ReportLayoutRow = Record<
+  string,
+  string | number | boolean | null | undefined
+>;
+
 interface ReportLayoutProps {
   title: string;
   company: string;
   filters: ReportFilter[];
   summary: ReportSummaryCard[];
   columns: ReportColumn[];
-  data: any[];
+  data: ReportLayoutRow[];
   children?: React.ReactNode;
 }
 
