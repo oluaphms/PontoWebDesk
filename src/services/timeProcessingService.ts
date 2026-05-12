@@ -352,12 +352,31 @@ const legacyScheduleInflight = new Map<string, Promise<WorkScheduleInfo | null>>
 const legacyScheduleCache = new Map<string, { value: WorkScheduleInfo | null; expiresAt: number }>();
 const LEGACY_SCHEDULE_CACHE_TTL_MS = 30_000;
 
-function essRowIsActiveWorkday(r: EmployeeShiftScheduleRow): boolean {
+export function essRowIsActiveWorkday(r: EmployeeShiftScheduleRow): boolean {
   if (r.is_workday === false) return false;
   if (r.is_day_off === true) return false;
   const hasInline = !!(r.start_time && r.end_time);
   const sid = r.shift_id || r.work_shift_id;
   return hasInline || !!sid;
+}
+
+/**
+ * Relógio civil local dentro da jornada esperada (entrada/saída).
+ * Saída inclusiva no minuto final; virada de noite: [start, 24h) ∪ [0, end].
+ */
+export function isLocalClockWithinWorkSchedule(
+  schedule: Pick<WorkScheduleInfo, 'start_time' | 'end_time'> | null | undefined,
+  now = new Date(),
+): boolean {
+  if (!schedule?.start_time || !schedule?.end_time) return false;
+  const start = timeToMinutes(padTime(schedule.start_time, '00:00'));
+  const end = timeToMinutes(padTime(schedule.end_time, '00:00'));
+  const cur = now.getHours() * 60 + now.getMinutes();
+  if (start === end) return false;
+  if (end < start) {
+    return cur >= start || cur <= end;
+  }
+  return cur >= start && cur <= end;
 }
 
 /** Monta jornada do dia a partir da linha ESS (horários inline e/ou turno já carregado). */

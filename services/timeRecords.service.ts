@@ -113,7 +113,7 @@ export async function getRecentTimeRecordsForUser(userId: string, limit = 50): P
 export async function getTimeRecordsForEmployeeDashboard(userId: string): Promise<any[]> {
   return db.select('time_records', [{ column: 'user_id', operator: 'eq', value: userId }], {
     columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
-    limit: 120,
+    limit: 500,
   });
 }
 

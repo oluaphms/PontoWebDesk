@@ -243,6 +243,11 @@ VITE_SUPABASE_ANON_KEY=sua-chave-anon`}
   );
 }
 
+/** `signInWithEmail` faz até 3 tentativas com pausa — prazo da UI deve cobrir cold start do Supabase. */
+const MANUAL_LOGIN_UI_TIMEOUT_MS = 55_000;
+/** Watchdog só considera “hard timeout” depois do `withTimeout` do login poder concluir. */
+const MANUAL_LOGIN_WATCHDOG_HARD_MS = MANUAL_LOGIN_UI_TIMEOUT_MS + 8_000;
+
 const AppMain: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => readCachedUser());
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1118,7 +1123,7 @@ const AppMain: React.FC = () => {
          */
         result = await withTimeout(
           authService.signInWithEmail(identifier, password),
-          30000,
+          MANUAL_LOGIN_UI_TIMEOUT_MS,
           'login',
         );
         if (!result.error) {
@@ -1137,7 +1142,11 @@ const AppMain: React.FC = () => {
         const errText = String(
           authErr?.message || authErr?.details || authErr?.hint || authErr?.error?.message || ''
         ).toLowerCase();
-        let isTimeoutError = errText.includes('login_timeout') || errText.includes('timeout');
+        // withTimeout usa mensagem em PT ("Tempo esgotado...") — não contém o substring inglês "timeout".
+        let isTimeoutError =
+          errText.includes('login_timeout') ||
+          errText.includes('timeout') ||
+          errText.includes('tempo esgotado');
         const isCircuitBreakerError = errText.includes('circuit breaker ativo');
         let isDnsError =
           errText.includes('err_name_not_resolved') ||
@@ -1185,7 +1194,10 @@ const AppMain: React.FC = () => {
           setLoginError(authErr?.message || 'Erro de rede ao autenticar.');
         }
         try {
-          await clearLocalAuthSession();
+          // Em timeout da UI, o signIn no GoTrue pode ainda concluir — limpar sb-* apagaria sessão válida segundos depois.
+          if (!isTimeoutError) {
+            await clearLocalAuthSession();
+          }
         } catch {
           // ignora
         }
@@ -1217,7 +1229,8 @@ const AppMain: React.FC = () => {
         if (
           normalizedError.includes('tempo esgotado') ||
           normalizedError.includes('timeout') ||
-          normalizedError.includes('network')
+          normalizedError.includes('network') ||
+          normalizedError.includes('falha de conexão')
         ) {
           setConnectionIssueMessage(
             isDnsErrorResult
@@ -1445,7 +1458,7 @@ const AppMain: React.FC = () => {
           route: typeof window !== 'undefined' ? window.location.pathname : '',
         });
       }
-      const hardTimedOut = elapsed >= 30000;
+      const hardTimedOut = elapsed >= MANUAL_LOGIN_WATCHDOG_HARD_MS;
       if (hardTimedOut) {
         logAuth('[LOGIN HARD TIMEOUT]', {
           source,

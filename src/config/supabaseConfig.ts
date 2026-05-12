@@ -11,8 +11,7 @@ const getSupabaseUrl = (): string => {
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
     // 2. Variável injetada em tempo de execução (env-config.js)
     (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_URL) ||
-    // 3. Fallback hardcoded (último recurso)
-    'https://aigegesxwrmgktmkbers.supabase.co';
+    '';
 
   return (url as string).trim();
 };
@@ -24,8 +23,7 @@ const getSupabaseAnonKey = (): string => {
     (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
     // 2. Variável injetada em tempo de execução (env-config.js)
     (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_ANON_KEY) ||
-    // 3. Fallback hardcoded (último recurso)
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpZ2VnZXN4d3JtZ2t0bWtiZXJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxOTA4NzYsImV4cCI6MjA4NDc2Njg3Nn0.Xisa8x9160iIQufdvyRjacm0oWkDufF9WNUjT8ke5oo';
+    '';
 
   return (key as string).trim();
 };

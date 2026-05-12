@@ -15,6 +15,7 @@ import { db, checkSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { i18n } from '../../../lib/i18n';
 import type { WeeklyScheduleDay } from '../../../types';
+import { essRowIsActiveWorkday, type EmployeeShiftScheduleRow } from '../../services/timeProcessingService';
 
 /** Alinhado à ESS / Date.getDay(): 0 = domingo … 6 = sábado. */
 const DAY_JS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -69,8 +70,50 @@ interface ScheduleRow {
 interface EmpShiftDayRow {
   day_of_week: number;
   shift_id: string | null;
+  work_shift_id?: string | null;
   is_day_off: boolean | null;
+  is_workday?: boolean | null;
+  start_time?: string | null;
+  end_time?: string | null;
   shift_name?: string;
+}
+
+function weeklyAssignmentLabel(
+  row: EmpShiftDayRow,
+  schedule: ScheduleRow | null,
+  shift: WorkShiftRow | null,
+  scheduleShiftName: string,
+): string {
+  const dow = row.day_of_week;
+  const essRow: EmployeeShiftScheduleRow = {
+    day_of_week: dow,
+    shift_id: row.shift_id,
+    work_shift_id: row.work_shift_id ?? null,
+    is_day_off: row.is_day_off,
+    is_workday: row.is_workday,
+    start_time: row.start_time,
+    end_time: row.end_time,
+  };
+  const hasTemplate = !!(schedule?.days && Array.isArray(schedule.days) && schedule.days.length > 0);
+  const templateWork = hasTemplate && schedule!.days!.includes(dow);
+  const essActive = essRowIsActiveWorkday(essRow);
+  if (templateWork && !essActive) {
+    return (
+      row.shift_name ||
+      shift?.name ||
+      (scheduleShiftName ? String(scheduleShiftName) : '') ||
+      i18n.t('employeeWorkSchedule.shiftAssigned')
+    );
+  }
+  if (essActive) {
+    return (
+      row.shift_name ||
+      (scheduleShiftName ? String(scheduleShiftName) : '') ||
+      shift?.name ||
+      i18n.t('employeeWorkSchedule.shiftAssigned')
+    );
+  }
+  return i18n.t('employeeWorkSchedule.dayOff');
 }
 
 const MyWorkSchedule: React.FC = () => {
@@ -125,11 +168,14 @@ const MyWorkSchedule: React.FC = () => {
           const ess = (await db.select(
             'employee_shift_schedule',
             [{ column: 'employee_id', operator: 'eq', value: user.id }],
-            { column: 'day_of_week', ascending: true },
+            {
+              columns: 'day_of_week, shift_id, work_shift_id, is_day_off, is_workday, start_time, end_time',
+              orderBy: { column: 'day_of_week', ascending: true },
+            },
             20,
           )) as any[];
           const names = new Map<string, string>();
-          const ids = [...new Set((ess ?? []).map((r: any) => r.shift_id).filter(Boolean))];
+          const ids = [...new Set((ess ?? []).map((r: any) => r.shift_id || r.work_shift_id).filter(Boolean))];
           for (const id of ids) {
             const wr = (await db.select('work_shifts', [{ column: 'id', operator: 'eq', value: id }], undefined, 1)) as any[];
             if (wr?.[0]?.name) names.set(id, String(wr[0].name));
@@ -138,8 +184,15 @@ const MyWorkSchedule: React.FC = () => {
             (ess ?? []).map((r: any) => ({
               day_of_week: r.day_of_week,
               shift_id: r.shift_id,
+              work_shift_id: r.work_shift_id,
               is_day_off: r.is_day_off,
-              shift_name: r.shift_id ? names.get(r.shift_id) : undefined,
+              is_workday: r.is_workday,
+              start_time: r.start_time,
+              end_time: r.end_time,
+              shift_name:
+                r.shift_id || r.work_shift_id
+                  ? names.get(String(r.shift_id || r.work_shift_id))
+                  : undefined,
             })),
           );
         } catch {
@@ -375,9 +428,7 @@ const MyWorkSchedule: React.FC = () => {
                   {DAY_JS[row.day_of_week] ?? `Dia ${row.day_of_week}`}
                 </span>
                 <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {row.is_day_off
-                    ? i18n.t('employeeWorkSchedule.dayOff')
-                    : row.shift_name || i18n.t('employeeWorkSchedule.shiftAssigned')}
+                  {weeklyAssignmentLabel(row, schedule, shift, scheduleShiftName)}
                 </span>
               </li>
             ))}

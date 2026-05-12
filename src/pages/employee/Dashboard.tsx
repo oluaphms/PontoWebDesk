@@ -6,15 +6,18 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured, supabase, getSupabaseClient } from '../../services/supabaseClient';
 import { getTimeRecordsForEmployeeDashboard } from '../../../services/timeRecords.service';
 import { Button, LoadingState } from '../../../components/UI';
-import { calculateWorkedHours } from '../../utils/timeCalculations';
 import { calcularHorasHojeMs, formatarTempoLegivel, localTodayYmd } from '../../utils/workedHoursToday';
-import { LogType, PunchMethod } from '../../../types';
-import type { TimeRecord } from '../../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import { extractLocalCalendarDateFromIso, type NormalizedMirrorRecordType } from '../../utils/timesheetMirror';
-import { inferDashboardPunchDisplayMirrorType } from '../../services/timeProcessingService';
+import {
+  inferDashboardPunchDisplayMirrorType,
+  resolveEmployeeScheduleForDate,
+  isLocalClockWithinWorkSchedule,
+  type WorkScheduleInfo,
+} from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
+import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
 
 function punchTypeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType): string {
   switch (norm) {
@@ -49,6 +52,7 @@ const EmployeeDashboard: React.FC = () => {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [scheduleName, setScheduleName] = useState<string>('—');
   const [loadingData, setLoadingData] = useState(true);
+  const [todaySchedule, setTodaySchedule] = useState<WorkScheduleInfo | null>(null);
 
   const loadDashboard = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -60,6 +64,18 @@ const EmployeeDashboard: React.FC = () => {
       }
       if (showLoading) setLoadingData(true);
       try {
+        const todayYmd = localTodayYmd();
+        let schedToday: WorkScheduleInfo | null = null;
+        if (user.companyId) {
+          try {
+            const resolved = await resolveEmployeeScheduleForDate(user.id, user.companyId, todayYmd);
+            schedToday = resolved.schedule;
+          } catch {
+            schedToday = null;
+          }
+        }
+        setTodaySchedule(schedToday);
+
         let rows: any[] = [];
         try {
           rows = (await getTimeRecordsForEmployeeDashboard(user.id)) as any[];
@@ -76,7 +92,7 @@ const EmployeeDashboard: React.FC = () => {
                 {
                   columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
                   orderBy: { column: 'created_at', ascending: false },
-                  limit: 180,
+                  limit: 500,
                 },
               )) ?? [];
           } catch (fallbackErr) {
@@ -84,7 +100,6 @@ const EmployeeDashboard: React.FC = () => {
           }
         }
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
-        const todayYmd = localTodayYmd();
         const todayList = sortedAll.filter(
           (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) === todayYmd,
         );
@@ -114,28 +129,20 @@ const EmployeeDashboard: React.FC = () => {
         }
 
         if (monthList.length > 0) {
-          let totalMin = 0;
-          const byDay = new Map<string, TimeRecord[]>();
+          const byDayRaw = new Map<string, any[]>();
           monthList.forEach((r: any) => {
             const day = extractLocalCalendarDateFromIso(recordPunchInstantIso(r));
-            if (!byDay.has(day)) byDay.set(day, []);
-            byDay.get(day)!.push({
-              id: r.id,
-              userId: r.user_id,
-              companyId: r.company_id,
-              type: r.type === 'entrada' ? LogType.IN : r.type === 'saída' ? LogType.OUT : LogType.BREAK,
-              method: (r.method as PunchMethod) || PunchMethod.GPS,
-              createdAt: new Date(recordPunchInstantIso(r)),
-              ipAddress: '',
-              deviceId: '',
-              deviceInfo: { browser: '', os: '', isMobile: false, userAgent: '' },
-            });
+            if (!byDayRaw.has(day)) byDayRaw.set(day, []);
+            byDayRaw.get(day)!.push(r);
           });
-          byDay.forEach((recs, day) => {
-            totalMin += calculateWorkedHours(recs, new Date(day + 'T12:00:00')) * 60;
+          let totalMsMonth = 0;
+          byDayRaw.forEach((recs) => {
+            const sorted = [...recs].sort((a, b) => recordPunchInstantMs(a) - recordPunchInstantMs(b));
+            totalMsMonth += calcularHorasHojeMs(sorted);
           });
+          const totalMin = Math.floor(totalMsMonth / 60000);
           const mh = Math.floor(totalMin / 60);
-          const mm = Math.round(totalMin % 60);
+          const mm = totalMin % 60;
           setMonthHours(`${mh}h ${mm}m`);
         } else {
           setMonthHours('0h 0m');
@@ -222,7 +229,26 @@ const EmployeeDashboard: React.FC = () => {
     };
   }, [user?.id, loadDashboard]);
 
-  const statusLabel = lastRecord?.type === 'entrada' ? i18n.t('dashboard.statusWorking') : lastRecord?.type === 'pausa' ? i18n.t('dashboard.statusBreak') : i18n.t('dashboard.statusOff');
+  const statusLabel = (() => {
+    if (!lastRecord?.type) return i18n.t('dashboard.statusOff');
+    const op = deriveOperationalStatusFromLastPunch(lastRecord.type);
+    if (op === EmployeeOperationalStatus.CLOSED || op === EmployeeOperationalStatus.OFF_DUTY) {
+      return i18n.t('dashboard.statusOff');
+    }
+    if (
+      op === EmployeeOperationalStatus.WORKING ||
+      op === EmployeeOperationalStatus.BREAK ||
+      op === EmployeeOperationalStatus.LUNCH
+    ) {
+      if (!todaySchedule || !isLocalClockWithinWorkSchedule(todaySchedule)) {
+        return i18n.t('dashboard.statusOff');
+      }
+    }
+    if (op === EmployeeOperationalStatus.WORKING) return i18n.t('dashboard.statusWorking');
+    if (op === EmployeeOperationalStatus.BREAK) return i18n.t('dashboard.statusBreak');
+    if (op === EmployeeOperationalStatus.LUNCH) return i18n.t('dashboard.statusLunch');
+    return i18n.t('dashboard.statusOff');
+  })();
 
   if (loading) return <LoadingState message={i18n.t('common.loading')} />;
   if (!user) return <Navigate to="/" replace />;
@@ -262,7 +288,7 @@ const EmployeeDashboard: React.FC = () => {
             <Clock className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Horas no mês</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{i18n.t('dashboard.hoursThisMonth')}</p>
             <p className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">{monthHours || '0h 0m'}</p>
           </div>
         </div>

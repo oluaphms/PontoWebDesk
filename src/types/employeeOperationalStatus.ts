@@ -29,6 +29,7 @@ export function deriveOperationalStatusFromLastPunch(rawType: string | null | un
   if (type === 'entrada') return EmployeeOperationalStatus.WORKING;
   if (type === 'pausa') return EmployeeOperationalStatus.BREAK;
   if (type === 'intervalo_saida') return EmployeeOperationalStatus.LUNCH;
+  if (type === 'intervalo_volta') return EmployeeOperationalStatus.WORKING;
   if (type === 'saida') return EmployeeOperationalStatus.CLOSED;
   return EmployeeOperationalStatus.OFF_DUTY;
 }
