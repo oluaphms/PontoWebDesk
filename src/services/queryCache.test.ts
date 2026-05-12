@@ -55,10 +55,10 @@ describe('queryCache.invalidate', () => {
   });
 
   it('invalidateAfterTimesheetMonthClose limpa banco de horas admin e time_balance global', async () => {
-    await queryCache.getOrFetch('admin_bank_hours:co1:all:2026-04:e5', async () => ({ bankRows: [], balanceRows: [] }), 60_000);
+    await queryCache.getOrFetch('admin_bank_hours:co1:all:2026-04', async () => ({ bankRows: [], balanceRows: [] }), 60_000);
     await queryCache.getOrFetch('time_balance:u2:2026-03', async () => [], 60_000);
     invalidateAfterTimesheetMonthClose('co1');
-    expect(queryCache.get('admin_bank_hours:co1:all:2026-04:e5')).toBeNull();
+    expect(queryCache.get('admin_bank_hours:co1:all:2026-04')).toBeNull();
     expect(queryCache.get('time_balance:u2:2026-03')).toBeNull();
   });
 

@@ -280,8 +280,8 @@ export function inferDashboardPunchDisplayMirrorType(
   return mirror === 'unknown' ? 'entrada' : mirror;
 }
 
-/** Jornada esperada em minutos a partir da escala */
-function expectedMinutesFromSchedule(s: WorkScheduleInfo): number {
+/** Jornada esperada em minutos a partir da escala (exportado para telas como Banco de Horas). */
+export function expectedMinutesFromSchedule(s: WorkScheduleInfo): number {
   const start = timeToMinutes(s.start_time);
   const end = timeToMinutes(s.end_time);
   const brk =
