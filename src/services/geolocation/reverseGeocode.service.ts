@@ -26,6 +26,26 @@ import {
 } from './addressNormalizer.service';
 import { opLog } from '../../utils/operationalLogger';
 
+function logReverseGeocodeApiFailure(apiError: unknown, lat: number, lng: number, extra?: Record<string, unknown>): void {
+  const msg = apiError instanceof Error ? apiError.message : String(apiError);
+  const softHttp = /reverse_geocode_http_(408|502|503|504)/.test(msg);
+  if (softHttp) {
+    console.info('[GEO REVERSE API UNAVAILABLE]', { lat, lng, message: msg, ...extra });
+    return;
+  }
+  console.error('[GEO REVERSE ERROR RAW]', apiError);
+  console.error('[GEO REVERSE ERROR DETAILS]', {
+    name: apiError instanceof Error ? apiError.name : null,
+    message: apiError instanceof Error ? apiError.message : String(apiError),
+    stack: apiError instanceof Error ? apiError.stack : null,
+    cause: apiError instanceof Error ? (apiError as Error & { cause?: unknown }).cause ?? null : null,
+    lat,
+    lng,
+    provider: 'api_reverse_geocode',
+    ...extra,
+  });
+}
+
 export type GeocodeSnapshot = {
   street: string | null;
   district: string | null;
@@ -586,19 +606,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
           try {
             return await fetchFromApi(lat, lng);
           } catch (apiError) {
-            console.error('[GEO REVERSE ERROR RAW]', apiError);
-            console.error('[GEO REVERSE ERROR DETAILS]', {
-              name: apiError instanceof Error ? apiError.name : null,
-              message: apiError instanceof Error ? apiError.message : String(apiError),
-              stack: apiError instanceof Error ? apiError.stack : null,
-              cause:
-                apiError instanceof Error
-                  ? (apiError as Error & { cause?: unknown }).cause ?? null
-                  : null,
-              lat,
-              lng,
-              provider: 'api_reverse_geocode',
-            });
+            logReverseGeocodeApiFailure(apiError, lat, lng);
             console.info('[GEO REVERSE API FALLBACK]', {
               lat,
               lng,
@@ -612,19 +620,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
             try {
               return await fetchFromApi(lat, lng);
             } catch (apiError) {
-              console.error('[GEO REVERSE ERROR RAW]', apiError);
-              console.error('[GEO REVERSE ERROR DETAILS]', {
-                name: apiError instanceof Error ? apiError.name : null,
-                message: apiError instanceof Error ? apiError.message : String(apiError),
-                stack: apiError instanceof Error ? apiError.stack : null,
-                cause:
-                  apiError instanceof Error
-                    ? (apiError as Error & { cause?: unknown }).cause ?? null
-                    : null,
-                lat,
-                lng,
-                provider: 'api_reverse_geocode',
-              });
+              logReverseGeocodeApiFailure(apiError, lat, lng, { retry_attempt: attempt });
               console.info('[GEO REVERSE API FALLBACK]', {
                 lat,
                 lng,

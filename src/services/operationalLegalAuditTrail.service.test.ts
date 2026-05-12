@@ -46,18 +46,16 @@ describe('insertOperationalLegalAuditTrail — circuit breaker', () => {
     expect(insertMock).toHaveBeenCalledTimes(1);
   });
 
-  it('abre o breaker após 3 falhas de RLS consecutivas e suspende inserts subsequentes', async () => {
+  it('abre o breaker na primeira falha de RLS e suspende inserts subsequentes', async () => {
     insertMock.mockResolvedValue({ error: { message: 'new row violates row-level security policy' } });
-    for (let i = 0; i < 3; i += 1) {
-      const r = await insertOperationalLegalAuditTrail(baseInput);
-      expect(r.ok).toBe(false);
-    }
-    expect(insertMock).toHaveBeenCalledTimes(3);
+    const r1 = await insertOperationalLegalAuditTrail(baseInput);
+    expect(r1.ok).toBe(false);
+    expect(insertMock).toHaveBeenCalledTimes(1);
 
     const suppressed = await insertOperationalLegalAuditTrail(baseInput);
     expect(suppressed.ok).toBe(false);
     expect(suppressed.skipped).toBe('circuit_open');
-    expect(insertMock).toHaveBeenCalledTimes(3);
+    expect(insertMock).toHaveBeenCalledTimes(1);
   });
 
   it('não conta erros não relacionados a permissão como falhas do breaker', async () => {
@@ -70,15 +68,19 @@ describe('insertOperationalLegalAuditTrail — circuit breaker', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('reseta o breaker após um sucesso', async () => {
-    insertMock.mockResolvedValueOnce({ error: { message: 'permission denied for table' } });
-    insertMock.mockResolvedValueOnce({ error: { message: 'permission denied for table' } });
-    insertMock.mockResolvedValueOnce({ error: null });
+  it('reseta o breaker após reset manual e volta a inserir', async () => {
+    insertMock.mockResolvedValueOnce({ error: { message: 'new row violates row-level security policy' } });
+    await insertOperationalLegalAuditTrail(baseInput);
+    expect(insertMock).toHaveBeenCalledTimes(1);
 
-    await insertOperationalLegalAuditTrail(baseInput);
-    await insertOperationalLegalAuditTrail(baseInput);
+    let suppressed = await insertOperationalLegalAuditTrail(baseInput);
+    expect(suppressed.skipped).toBe('circuit_open');
+
+    __resetOperationalLegalAuditCircuitForTests();
+    insertMock.mockResolvedValueOnce({ error: null });
     const ok = await insertOperationalLegalAuditTrail(baseInput);
     expect(ok.ok).toBe(true);
+    expect(insertMock).toHaveBeenCalledTimes(2);
 
     insertMock.mockResolvedValueOnce({ error: { message: 'new row violates row-level security policy' } });
     const next = await insertOperationalLegalAuditTrail(baseInput);

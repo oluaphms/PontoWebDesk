@@ -18,8 +18,6 @@ import { opLog } from '../utils/operationalLogger';
  * Após 3 falhas em janela de 30s, suspendemos os inserts por 5 minutos.
  * O modo aberto é resetado ao próximo sucesso ou ao expirar a janela.
  */
-const CB_FAILURE_THRESHOLD = 3;
-const CB_FAILURE_WINDOW_MS = 30_000;
 const CB_OPEN_DURATION_MS = 5 * 60_000;
 let cbConsecutiveFailures = 0;
 let cbFirstFailureAt = 0;
@@ -31,23 +29,23 @@ function isPermissionError(message: string | undefined | null): boolean {
   return m.includes('row-level security') || m.includes('new row violates') || m.includes('permission denied') || m.includes('403');
 }
 
+/**
+ * RLS/403 não se corrige com retry no cliente — abrimos o circuito na primeira falha
+ * para evitar rajadas de POST (lentidão + ruído no console/rede).
+ */
 function noteAuditTrailFailure(rawError: string | null | undefined): void {
   if (!isPermissionError(rawError)) return;
   const now = Date.now();
-  if (cbFirstFailureAt && now - cbFirstFailureAt > CB_FAILURE_WINDOW_MS) {
-    cbConsecutiveFailures = 0;
-    cbFirstFailureAt = 0;
-  }
-  if (cbConsecutiveFailures === 0) cbFirstFailureAt = now;
-  cbConsecutiveFailures += 1;
-  if (cbConsecutiveFailures >= CB_FAILURE_THRESHOLD && cbOpenUntil <= now) {
-    cbOpenUntil = now + CB_OPEN_DURATION_MS;
-    opLog.warn('AUDIT TRAIL CIRCUIT OPEN', {
-      consecutive_failures: cbConsecutiveFailures,
-      open_until_iso: new Date(cbOpenUntil).toISOString(),
-      sample_error: rawError ?? null,
-    });
-  }
+  if (cbOpenUntil > now) return;
+  cbOpenUntil = now + CB_OPEN_DURATION_MS;
+  cbConsecutiveFailures = 3;
+  cbFirstFailureAt = now;
+  opLog.warn('AUDIT TRAIL CIRCUIT OPEN', {
+    reason: 'permission_denied_rls',
+    consecutive_failures: 1,
+    open_until_iso: new Date(cbOpenUntil).toISOString(),
+    sample_error: rawError ?? null,
+  });
 }
 
 function noteAuditTrailSuccess(): void {

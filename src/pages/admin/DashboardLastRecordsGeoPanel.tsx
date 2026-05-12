@@ -36,19 +36,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     if (!deferredHeavyInit) return;
     let cancelled = false;
     const degraded = isDegradedMobileRuntime() || isRestrictedBootstrapMode();
-    const recordsWithGeo = lastRecords.filter((r) => {
-      const hasLatLng = r.lat != null && r.lng != null;
-      if (!hasLatLng) {
-        console.warn('[GEO ENRICH SKIPPED]', {
-          reason: 'missing_coordinates',
-          record_id: r.id,
-          employee_id: r.userId,
-          lat: r.lat ?? null,
-          lng: r.lng ?? null,
-        });
-      }
-      return hasLatLng;
-    });
+    const recordsWithGeo = lastRecords.filter((r) => r.lat != null && r.lng != null);
     console.info('[GEO DASHBOARD ENRICH START]', {
       total_records: lastRecords.length,
       records_with_geo: recordsWithGeo.length,
@@ -107,25 +95,30 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
       unresolved_record_ids: unresolved.map((r) => r.id),
     });
 
-    void Promise.allSettled(
-      unresolved.map(async (r) => {
+    void (async () => {
+      for (let i = 0; i < unresolved.length; i += 1) {
+        const r = unresolved[i];
         try {
           if (cancelled) {
-            console.warn('[GEO ENRICH SKIPPED]', {
-              reason: 'stale_request_cancelled',
-              record_id: r.id,
-              employee_id: r.userId,
-            });
-            return;
+            if (import.meta.env.DEV) {
+              console.info('[GEO ENRICH SKIPPED]', {
+                reason: 'stale_request_cancelled',
+                record_id: r.id,
+                employee_id: r.userId,
+              });
+            }
+            break;
           }
           if (!navigator.onLine) {
-            console.warn('[GEO ENRICH SKIPPED]', {
-              reason: 'offline',
-              record_id: r.id,
-              employee_id: r.userId,
-              lat: r.lat,
-              lng: r.lng,
-            });
+            if (import.meta.env.DEV) {
+              console.info('[GEO ENRICH SKIPPED]', {
+                reason: 'offline',
+                record_id: r.id,
+                employee_id: r.userId,
+                lat: r.lat,
+                lng: r.lng,
+              });
+            }
             setResolvedAddressByRecord((prev) => ({
               ...prev,
               [r.id]: {
@@ -138,7 +131,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
                 formattedAddress: null,
               },
             }));
-            return;
+            continue;
           }
           const coordIssues = validateCoordinateOrder(Number(r.lat), Number(r.lng));
           if (coordIssues.includes('invalid_range')) {
@@ -154,12 +147,12 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
                 formattedAddress: null,
               },
             }));
-            return;
+            continue;
           }
           activeGeoRequests.add(r.id);
           const { snapshot } = await reverseGeocodeSnapshot(Number(r.lat), Number(r.lng));
           activeGeoRequests.delete(r.id);
-          if (cancelled) return;
+          if (cancelled) break;
           setResolvedAddressByRecord((prev) => ({
             ...prev,
             [r.id]: {
@@ -181,7 +174,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
           }));
         } catch (error: unknown) {
           activeGeoRequests.delete(r.id);
-          if (cancelled) return;
+          if (cancelled) break;
           setResolvedAddressByRecord((prev) => ({
             ...prev,
             [r.id]: {
@@ -194,10 +187,13 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
               formattedAddress: null,
             },
           }));
-          console.error('[GEO DASHBOARD ENRICH ERROR]', error);
+          console.info('[GEO DASHBOARD ENRICH ERROR]', error);
         }
-      }),
-    );
+        if (!cancelled && i < unresolved.length - 1) {
+          await new Promise((res) => setTimeout(res, 140));
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
