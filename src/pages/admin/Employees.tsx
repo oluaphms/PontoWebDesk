@@ -1,6 +1,24 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { UserPlus, Pencil, UserX, Trash2, Eye, EyeOff, UserCheck, Search, Upload, FileDown, X, Camera, User, AlertTriangle, Loader2, Info } from 'lucide-react';
+import {
+  UserPlus,
+  Pencil,
+  UserX,
+  Trash2,
+  Eye,
+  EyeOff,
+  UserCheck,
+  Search,
+  Upload,
+  FileDown,
+  X,
+  Camera,
+  User,
+  AlertTriangle,
+  Loader2,
+  ClipboardList,
+  CalendarOff,
+} from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import {
@@ -135,6 +153,14 @@ function formatWorkShiftLabel(s: {
 
 const OUTRO_CARGO_VALUE = '__outro__';
 
+/** Classes compartilhadas do modal Funcionários (apenas apresentação). */
+const EMP_MODAL_SECTION_TITLE =
+  'text-[10px] font-bold uppercase tracking-widest text-slate-500/70 dark:text-slate-400/70';
+const EMP_MODAL_LABEL = 'block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5';
+const EMP_MODAL_INPUT =
+  'w-full px-3 py-2.5 rounded-lg border border-slate-200/90 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-slate-300 dark:hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed';
+const EMP_MODAL_INPUT_NUMERIC = `${EMP_MODAL_INPUT} tabular-nums tracking-wide font-variant-numeric`;
+
 /** Opções fixas de estado civil (valor salvo em `estado_civil_text`). */
 const ESTADO_CIVIL_OPCOES = ['Solteiro(a)', 'Casado(a)', 'União estável'] as const;
 
@@ -198,6 +224,44 @@ function getDisplayShortName(fullName: string): string {
   const parts = clean.split(/\s+/).filter(Boolean);
   if (parts.length <= 2) return parts.join(' ');
   return `${parts[0]} ${parts[1]}...`;
+}
+
+/** Skeleton visual do modal de funcionário (lista ainda carregando). */
+function EmployeeEditModalSkeleton() {
+  const bar = 'h-10 rounded-lg bg-slate-100 dark:bg-slate-800/90';
+  const cap = 'h-2.5 rounded bg-slate-200/90 dark:bg-slate-700 w-24 mb-2';
+  return (
+    <div className="space-y-8 animate-pulse pt-1" aria-busy="true" aria-label="Carregando dados do formulário">
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 lg:gap-8">
+        <div className="order-2 lg:order-1 lg:col-span-7 space-y-8">
+          {[0, 1, 2].map((k) => (
+            <div key={k} className="space-y-4">
+              <div className={cap} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2 space-y-2">
+                  <div className={cap} />
+                  <div className={bar} />
+                </div>
+                <div className="space-y-2">
+                  <div className={cap} />
+                  <div className={bar} />
+                </div>
+                <div className="space-y-2">
+                  <div className={cap} />
+                  <div className={bar} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="order-1 lg:order-2 lg:col-span-3 flex flex-col items-center gap-4">
+          <div className="h-[104px] w-[104px] rounded-2xl bg-slate-200 dark:bg-slate-700" />
+          <div className="h-9 w-full max-w-[220px] rounded-lg bg-slate-200 dark:bg-slate-700" />
+          <div className="h-32 w-full rounded-xl bg-slate-100 dark:bg-slate-800/80" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const AdminEmployees: React.FC = () => {
@@ -322,7 +386,7 @@ const AdminEmployees: React.FC = () => {
   const [settingPassword, setSettingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   /** Painéis “Outras opções” (equivalente ao legado): fora do corpo principal do formulário. */
-  const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'web' | 'afast'>('none');
+  const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'afast'>('none');
   const estruturaSelectRef = useRef<HTMLSelectElement>(null);
 
   const loadData = async () => {
@@ -1012,6 +1076,11 @@ const AdminEmployees: React.FC = () => {
     )
     : visibleRows;
 
+  const employeeModalStatusRow = useMemo(
+    () => (editingId ? rows.find((r) => r.id === editingId) : undefined),
+    [editingId, rows],
+  );
+
   const handleDelete = async (id: string) => {
     if (!confirm('Excluir este funcionário? Esta ação não pode ser desfeita.')) return;
     try {
@@ -1510,8 +1579,7 @@ const AdminEmployees: React.FC = () => {
             }}
           >
             <div
-              ref={scrollModalTopRef}
-              className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-6"
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-700 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <form
@@ -1519,16 +1587,41 @@ const AdminEmployees: React.FC = () => {
                   e.preventDefault();
                   if (!saving) handleSave();
                 }}
-                className="space-y-6"
+                className="flex flex-col flex-1 min-h-0"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center shrink-0">
-                    <User className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                <div
+                  ref={scrollModalTopRef}
+                  className="overflow-y-auto flex-1 min-h-0 px-6 sm:px-8 py-6 sm:py-7 space-y-6"
+                >
+                <header className="flex flex-col gap-1 border-b border-slate-200/80 dark:border-slate-700/80 pb-5">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center shrink-0 ring-1 ring-indigo-200/50 dark:ring-indigo-800/50">
+                      <User className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <h3 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Funcionários | {editingId ? 'Editar' : 'Incluir'}</h3>
+                        {editingId && employeeModalStatusRow && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              employeeModalStatusRow.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                : 'bg-slate-200/90 text-slate-700 dark:bg-slate-600 dark:text-slate-100'
+                            }`}
+                          >
+                            {employeeModalStatusRow.status === 'active' ? 'Ativo' : 'Inativo'}
+                          </span>
+                        )}
+                        {!editingId && (
+                          <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            Novo cadastro
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 opacity-90">Dados cadastrais e operacionais</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Funcionários | {editingId ? 'Editar' : 'Incluir'}</h3>
-                  </div>
-                </div>
+                </header>
                 {error && (
                   <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-3">
                     <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
@@ -1539,52 +1632,82 @@ const AdminEmployees: React.FC = () => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] gap-6 items-start">
-                  <div className="space-y-6 min-w-0">
+                {loadingData ? (
+                  <EmployeeEditModalSkeleton />
+                ) : (
+                <>
+                <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 lg:gap-8 items-start">
+                  <div className="order-2 lg:order-1 lg:col-span-7 space-y-8 min-w-0">
                     <section className="space-y-3">
-                      <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Dados de Identificação</h4>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Nº Folha</label>
-                        <input type="text" value={form.numero_folha} onChange={(e) => setForm({ ...form, numero_folha: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Nome <span className="text-red-500">*</span></label>
-                        <input type="text" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                      <p className={EMP_MODAL_SECTION_TITLE}>Identificação</p>
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>Nº Folha</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.numero_folha}
+                            onChange={(e) => setForm({ ...form, numero_folha: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                          />
+                        </div>
+                        <div>
+                          <label className={`${EMP_MODAL_LABEL} text-blue-600 dark:text-blue-400`}>
+                            Nome <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={form.nome}
+                            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                            className={EMP_MODAL_INPUT}
+                          />
+                        </div>
+                        <div>
+                          <label className={`${EMP_MODAL_LABEL} text-blue-600 dark:text-blue-400`}>Nº PIS/PASEP</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.pis_pasep}
+                            onChange={(e) => setForm({ ...form, pis_pasep: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                          />
+                        </div>
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>Nº Identificador</label>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5 leading-snug">
+                            Mesmo valor que o Control iD envia como matrícula/crachá no REP (não exige CPF no cadastro).
+                          </p>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.numero_identificador}
+                            onChange={(e) => setForm({ ...form, numero_identificador: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                          />
+                        </div>
                       </div>
                     </section>
 
-                    <section className="space-y-3">
-                      <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Dados genéricos</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="sm:col-span-2">
-                          <label className="block text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Nº PIS/PASEP</label>
-                          <input type="text" value={form.pis_pasep} onChange={(e) => setForm({ ...form, pis_pasep: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                    <section className="space-y-3 pt-1">
+                      <p className={EMP_MODAL_SECTION_TITLE}>Dados profissionais</p>
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <label className={`${EMP_MODAL_LABEL} text-blue-600 dark:text-blue-400`}>Empresa</label>
+                          <input
+                            type="text"
+                            value={effectiveCompanyId ? 'Empresa atual' : ''}
+                            readOnly
+                            className={`${EMP_MODAL_INPUT} bg-slate-50/90 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 cursor-default`}
+                          />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                            Nº Identificador
-                          </label>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            Mesmo valor que o Control iD envia como matrícula/crachá no REP (não exige CPF no cadastro).
-                          </p>
-                          <input type="text" value={form.numero_identificador} onChange={(e) => setForm({ ...form, numero_identificador: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">CTPS</label>
-                          <input type="text" value={form.ctps} onChange={(e) => setForm({ ...form, ctps: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Empresa</label>
-                          <input type="text" value={effectiveCompanyId ? 'Empresa atual' : ''} readOnly className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400" />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Estrutura</label>
+                          <label className={EMP_MODAL_LABEL}>Estrutura</label>
                           <div className="flex gap-2 items-stretch">
                             <select
                               ref={estruturaSelectRef}
                               value={form.estrutura_id}
                               onChange={(e) => setForm({ ...form, estrutura_id: e.target.value })}
-                              className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                              className={`min-w-0 flex-1 ${EMP_MODAL_INPUT}`}
                             >
                               <option value="">Nenhuma</option>
                               {estruturas.map((e) => (
@@ -1597,7 +1720,7 @@ const AdminEmployees: React.FC = () => {
                               type="button"
                               title="Focar lista"
                               onClick={() => estruturaSelectRef.current?.focus()}
-                              className="shrink-0 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                              className="shrink-0 px-3 rounded-lg border border-slate-200/90 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150"
                             >
                               <Search className="w-4 h-4 mx-auto" />
                             </button>
@@ -1605,50 +1728,21 @@ const AdminEmployees: React.FC = () => {
                               type="button"
                               title="Limpar"
                               onClick={() => setForm((f) => ({ ...f, estrutura_id: '' }))}
-                              className="shrink-0 px-3 rounded-xl border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+                              className="shrink-0 px-3 rounded-lg border border-red-200/80 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors duration-150"
                             >
                               <X className="w-4 h-4 mx-auto" />
                             </button>
                           </div>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Horário</label>
-                          <select value={form.shift_id} onChange={(e) => setForm({ ...form, shift_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                            <option value="">Nenhum</option>
-                            {workShifts.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                            Função <span className="text-red-500">*</span>
-                          </label>
-                          <select value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                            {cargos.map((c) => (
-                              <option key={c.id} value={c.name}>
-                                {c.name}
-                              </option>
-                            ))}
-                            <option value={OUTRO_CARGO_VALUE}>Outro (especificar)</option>
-                          </select>
-                          {form.cargo === OUTRO_CARGO_VALUE && (
-                            <input
-                              type="text"
-                              value={form.cargoOutro}
-                              onChange={(e) => setForm({ ...form, cargoOutro: e.target.value })}
-                              className="mt-2 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                              placeholder="Especificar função"
-                            />
-                          )}
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          <label className={EMP_MODAL_LABEL}>
                             Departamento <span className="text-red-500">*</span>
                           </label>
-                          <select value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+                          <select
+                            value={form.department_id}
+                            onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+                            className={EMP_MODAL_INPUT}
+                          >
                             <option value="">Selecione</option>
                             {departments.map((d) => (
                               <option key={d.id} value={d.id}>
@@ -1658,88 +1752,177 @@ const AdminEmployees: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Admissão</label>
-                          <input type="date" value={form.admissao} onChange={(e) => setForm({ ...form, admissao: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                          <label className={EMP_MODAL_LABEL}>CTPS</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.ctps}
+                            onChange={(e) => setForm({ ...form, ctps: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className={EMP_MODAL_LABEL}>Horário</label>
+                            <select
+                              value={form.shift_id}
+                              onChange={(e) => setForm({ ...form, shift_id: e.target.value })}
+                              className={EMP_MODAL_INPUT}
+                            >
+                              <option value="">Nenhum</option>
+                              {workShifts.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className={EMP_MODAL_LABEL}>
+                              Função <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                              value={form.cargo}
+                              onChange={(e) => setForm({ ...form, cargo: e.target.value })}
+                              className={EMP_MODAL_INPUT}
+                            >
+                              {cargos.map((c) => (
+                                <option key={c.id} value={c.name}>
+                                  {c.name}
+                                </option>
+                              ))}
+                              <option value={OUTRO_CARGO_VALUE}>Outro (especificar)</option>
+                            </select>
+                          </div>
+                        </div>
+                        {form.cargo === OUTRO_CARGO_VALUE && (
+                          <div>
+                            <input
+                              type="text"
+                              value={form.cargoOutro}
+                              onChange={(e) => setForm({ ...form, cargoOutro: e.target.value })}
+                              className={EMP_MODAL_INPUT}
+                              placeholder="Especificar função"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="space-y-3 pt-1">
+                      <p className={EMP_MODAL_SECTION_TITLE}>Vínculo</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>Admissão</label>
+                          <input
+                            type="date"
+                            value={form.admissao}
+                            onChange={(e) => setForm({ ...form, admissao: e.target.value })}
+                            className={EMP_MODAL_INPUT}
+                          />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Demissão</label>
-                          <input type="date" value={form.demissao} onChange={(e) => setForm({ ...form, demissao: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                          <label className={EMP_MODAL_LABEL}>Demissão</label>
+                          <input
+                            type="date"
+                            value={form.demissao}
+                            onChange={(e) => setForm({ ...form, demissao: e.target.value })}
+                            className={`${EMP_MODAL_INPUT} ${!form.demissao ? 'bg-slate-50/90 dark:bg-slate-900/45 text-slate-400 dark:text-slate-500' : ''}`}
+                          />
                         </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Motivo de Demissão</label>
-                          <select
-                            value={form.motivo_demissao_id}
-                            onChange={(e) => setForm({ ...form, motivo_demissao_id: e.target.value })}
-                            disabled={!form.demissao}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-50"
-                          >
-                            <option value="">{form.demissao ? 'Selecione' : 'Preencha Demissão'}</option>
-                            {motivosDemissao.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                      </div>
+                      <div className={`mt-1 transition-opacity duration-150 ${!form.demissao ? 'opacity-50' : 'opacity-100'}`}>
+                        <label className={EMP_MODAL_LABEL}>Motivo de Demissão</label>
+                        <select
+                          value={form.motivo_demissao_id}
+                          onChange={(e) => setForm({ ...form, motivo_demissao_id: e.target.value })}
+                          disabled={!form.demissao}
+                          className={`${EMP_MODAL_INPUT} disabled:opacity-50`}
+                        >
+                          <option value="">{form.demissao ? 'Selecione' : 'Preencha Demissão'}</option>
+                          {motivosDemissao.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </section>
                   </div>
 
-                  <aside className="space-y-4 lg:sticky lg:top-0">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Fotografia</h4>
-                      <div className="flex gap-3">
-                        <div className="w-28 h-28 shrink-0 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center">
-                          {form.photo_preview ? <img src={form.photo_preview} alt="Foto" className="w-full h-full object-cover" /> : <User className="w-10 h-10 text-slate-400" />}
+                  <aside className="order-1 lg:order-2 lg:col-span-3 flex flex-col gap-6 min-w-0 lg:sticky lg:top-1 self-start w-full">
+                    <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/25 p-4 shadow-sm ring-1 ring-slate-950/[0.04] dark:ring-white/[0.05]">
+                      <p className={`${EMP_MODAL_SECTION_TITLE} text-center mb-4`}>Fotografia</p>
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="h-[104px] w-[104px] shrink-0 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden bg-white dark:bg-slate-800 flex items-center justify-center shadow-md">
+                          {form.photo_preview ? (
+                            <img src={form.photo_preview} alt="Foto" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-11 h-11 text-slate-400" />
+                          )}
                         </div>
-                        <div className="flex flex-col justify-center gap-2 flex-1 min-w-0">
-                          <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
-                          <button type="button" onClick={() => photoInputRef.current?.click()} className="py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
+                        <div className="flex flex-col w-full max-w-[220px] gap-2">
+                          <button
+                            type="button"
+                            onClick={() => photoInputRef.current?.click()}
+                            className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-500 transition-colors duration-150"
+                          >
                             Alterar
                           </button>
-                          <button type="button" onClick={() => setForm((f) => ({ ...f, photo_preview: '' }))} className="py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, photo_preview: '' }))}
+                            className="w-full py-2.5 rounded-lg border border-slate-200/90 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium bg-white/80 dark:bg-slate-900/40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150"
+                          >
                             Limpar
                           </button>
                         </div>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Observações</label>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 block">
+                        Observações
+                      </label>
                       <textarea
                         value={form.observacoes}
                         onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
-                        rows={6}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+                        rows={7}
+                        placeholder="Notas internas de RH, restrições ou contexto operacional…"
+                        className={`${EMP_MODAL_INPUT} min-h-[148px] resize-y placeholder:text-slate-400/80 dark:placeholder:text-slate-500`}
                       />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Outras opções</p>
-                      <div className="flex flex-col gap-1 text-sm">
-                        <button
-                          type="button"
-                          className={`text-left text-blue-600 dark:text-blue-400 hover:underline ${employeeModalExtra === 'adicional' ? 'font-semibold' : ''}`}
-                          onClick={() => setEmployeeModalExtra((x) => (x === 'adicional' ? 'none' : 'adicional'))}
-                        >
-                          Dados adicionais
-                        </button>
-                        <button
-                          type="button"
-                          className={`text-left text-blue-600 dark:text-blue-400 hover:underline ${employeeModalExtra === 'web' ? 'font-semibold' : ''}`}
-                          onClick={() => setEmployeeModalExtra((x) => (x === 'web' ? 'none' : 'web'))}
-                        >
-                          Dados Módulo Web
-                        </button>
-                        <button
-                          type="button"
-                          className={`text-left text-blue-600 dark:text-blue-400 hover:underline ${employeeModalExtra === 'afast' ? 'font-semibold' : ''}`}
-                          onClick={() => setEmployeeModalExtra((x) => (x === 'afast' ? 'none' : 'afast'))}
-                        >
-                          Afastamento
-                        </button>
-                      </div>
+                      <p className={`${EMP_MODAL_SECTION_TITLE} mb-2`}>Links e ações</p>
+                      <ul className="rounded-xl border border-slate-200/85 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/30">
+                        <li>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-700 dark:text-slate-200 transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/70 ${
+                              employeeModalExtra === 'adicional' ? 'bg-indigo-50/90 dark:bg-indigo-950/30' : ''
+                            }`}
+                            onClick={() => setEmployeeModalExtra((x) => (x === 'adicional' ? 'none' : 'adicional'))}
+                          >
+                            <ClipboardList className="w-4 h-4 text-slate-400 shrink-0" aria-hidden />
+                            Dados adicionais
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-700 dark:text-slate-200 transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/70 ${
+                              employeeModalExtra === 'afast' ? 'bg-indigo-50/90 dark:bg-indigo-950/30' : ''
+                            }`}
+                            onClick={() => setEmployeeModalExtra((x) => (x === 'afast' ? 'none' : 'afast'))}
+                          >
+                            <CalendarOff className="w-4 h-4 text-slate-400 shrink-0" aria-hidden />
+                            Afastamento
+                          </button>
+                        </li>
+                      </ul>
                     </div>
-                    <div className="rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/90 dark:bg-amber-950/30 p-3 flex gap-2 text-xs text-slate-700 dark:text-slate-300">
-                      <Info className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" aria-hidden />
+                    <div className="rounded-lg border border-amber-200/50 dark:border-amber-900/30 bg-amber-50/65 dark:bg-amber-950/20 px-2.5 py-2 flex gap-2 text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" aria-hidden />
                       <span>Os campos em azul são utilizados para relatórios, arquivos e comprovantes exigidos pela Portaria 1510 do MTE.</span>
                     </div>
                   </aside>
@@ -1954,13 +2137,6 @@ const AdminEmployees: React.FC = () => {
                   </section>
                 )}
 
-                {employeeModalExtra === 'web' && (
-                  <section className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Dados Módulo Web</h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Configurações específicas do módulo web do colaborador podem ser tratadas em versões futuras; por ora não há campos adicionais aqui.</p>
-                  </section>
-                )}
-
                 {employeeModalExtra === 'afast' && (
                   <section className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
                     <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Afastamento</h4>
@@ -1984,12 +2160,24 @@ const AdminEmployees: React.FC = () => {
                     </div>
                   </section>
                 )}
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                </>
+                )}
+                </div>
+                <div className="shrink-0 border-t border-slate-200/90 dark:border-slate-700 bg-white/90 dark:bg-slate-900/95 backdrop-blur-sm px-6 sm:px-8 py-4 flex flex-wrap items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmployeeModalExtra('none');
+                      setModalOpen(false);
+                    }}
+                    className="min-w-[112px] py-2.5 px-4 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150"
+                  >
+                    Cancelar
+                  </button>
                   <button
                     type="submit"
-                    disabled={saving}
-                    className="group relative flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 text-white font-medium shadow-md shadow-indigo-600/25 ring-2 ring-transparent ring-offset-2 ring-offset-white dark:ring-offset-slate-900 transition-all duration-200 ease-out hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] hover:ring-indigo-400/50 active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100 disabled:cursor-not-allowed disabled:hover:shadow-md disabled:hover:ring-transparent motion-reduce:transition-none motion-reduce:hover:scale-100"
+                    disabled={saving || loadingData}
+                    className="min-w-[168px] inline-flex items-center justify-center gap-2 py-2.5 px-5 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-md shadow-indigo-600/20 transition-all duration-150 hover:bg-indigo-500 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? (
                       <>
@@ -1997,18 +2185,8 @@ const AdminEmployees: React.FC = () => {
                         <span>Salvando...</span>
                       </>
                     ) : (
-                      <span className="transition-transform duration-200 group-hover:translate-x-0.5">Concluir</span>
+                      <span>{editingId ? 'Salvar alterações' : 'Concluir cadastro'}</span>
                     )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmployeeModalExtra('none');
-                      setModalOpen(false);
-                    }}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium"
-                  >
-                    Cancelar
                   </button>
                 </div>
               </form>
