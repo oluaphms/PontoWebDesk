@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Activity, BarChart3, Clock3, TrendingUp } from 'lucide-react';
@@ -81,22 +81,26 @@ const ProductivityTrendsPage: React.FC = () => {
     const loadStaticData = async () => {
       try {
         const [teamsRows, employeeRows] = await Promise.all([
-          db.select('teams', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+          db.select('teams', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<
+            Record<string, unknown>[] | null
+          >,
+          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<
+            Record<string, unknown>[] | null
+          >,
         ]);
 
         setTeams(
-          (teamsRows ?? []).map((t: any) => ({
-            id: t.id,
-            name: t.name,
+          (teamsRows ?? []).map((t) => ({
+            id: String(t.id ?? ''),
+            name: String(t.name ?? ''),
           })),
         );
 
         setEmployees(
-          (employeeRows ?? []).map((e: any) => ({
-            id: e.id,
-            nome: e.nome ?? e.email ?? 'Sem nome',
-            team_id: e.team_id ?? null,
+          (employeeRows ?? []).map((e) => ({
+            id: String(e.id ?? ''),
+            nome: (typeof e.nome === 'string' ? e.nome : typeof e.email === 'string' ? e.email : null) ?? 'Sem nome',
+            team_id: e.team_id != null ? String(e.team_id) : null,
           })),
         );
       } catch (e) {
@@ -107,63 +111,73 @@ const ProductivityTrendsPage: React.FC = () => {
     loadStaticData();
   }, [user]);
 
-  const fetchLogs = async (overrideFilters?: FilterState) => {
-    if (!user || !isSupabaseConfigured()) return;
-    const activeFilters = overrideFilters ?? filters;
-    setIsLoadingData(true);
-    setError(null);
+  const fetchLogs = useCallback(
+    async (overrideFilters?: FilterState) => {
+      if (!user || !isSupabaseConfigured()) return;
+      const activeFilters = overrideFilters ?? filters;
+      setIsLoadingData(true);
+      setError(null);
 
-    try {
-      const conditions: Filter[] = [
-        { column: 'company_id', operator: 'eq', value: user.companyId },
-        { column: 'date', operator: 'gte', value: activeFilters.startDate },
-        { column: 'date', operator: 'lte', value: activeFilters.endDate },
-      ];
+      try {
+        const conditions: Filter[] = [
+          { column: 'company_id', operator: 'eq', value: user.companyId },
+          { column: 'date', operator: 'gte', value: activeFilters.startDate },
+          { column: 'date', operator: 'lte', value: activeFilters.endDate },
+        ];
 
-      if (activeFilters.employeeId) {
-        conditions.push({ column: 'employee_id', operator: 'eq', value: activeFilters.employeeId });
-      } else if (activeFilters.teamId) {
-        const teamEmployees = employees.filter((e) => e.team_id === activeFilters.teamId).map((e) => e.id);
-        if (teamEmployees.length > 0) {
-          conditions.push({ column: 'employee_id', operator: 'in', value: teamEmployees });
+        if (activeFilters.employeeId) {
+          conditions.push({ column: 'employee_id', operator: 'eq', value: activeFilters.employeeId });
+        } else if (activeFilters.teamId) {
+          const teamEmployees = employees.filter((e) => e.team_id === activeFilters.teamId).map((e) => e.id);
+          if (teamEmployees.length > 0) {
+            conditions.push({ column: 'employee_id', operator: 'in', value: teamEmployees });
+          }
         }
+
+        const rows =
+          (await db.select(
+            'productivity_logs',
+            conditions,
+            { column: 'date', ascending: true },
+          )) ?? [];
+
+        const mapped: ProductivityLogRow[] = rows.map((r: Record<string, unknown>) => {
+          const employeeId = String(r.employee_id ?? '');
+          const emp = employees.find((e) => e.id === employeeId);
+          return {
+            id: String(r.id ?? ''),
+            employee_id: employeeId,
+            employee_name: emp?.nome,
+            date: String(r.date ?? ''),
+            active_time: Number(r.active_time ?? 0),
+            idle_time: Number(r.idle_time ?? 0),
+            tasks_completed: Number(r.tasks_completed ?? 0),
+            productivity_score: Number(r.productivity_score ?? 0),
+          };
+        });
+
+        setLogs(mapped);
+      } catch (e: unknown) {
+        console.error('Erro ao carregar produtividade:', e);
+        setError('Não foi possível carregar os dados de produtividade.');
+      } finally {
+        setIsLoadingData(false);
       }
+    },
+    [user, filters, employees],
+  );
 
-      const rows =
-        (await db.select(
-          'productivity_logs',
-          conditions,
-          { column: 'date', ascending: true },
-        )) ?? [];
+  /** Sempre a última `fetchLogs` (inclui filtros atuais) sem reexecutar o efeito ao editar o formulário. */
+  const fetchLogsRef = useRef(fetchLogs);
+  useEffect(() => {
+    fetchLogsRef.current = fetchLogs;
+  }, [fetchLogs]);
 
-      const mapped: ProductivityLogRow[] = rows.map((r: any) => {
-        const emp = employees.find((e) => e.id === r.employee_id);
-        return {
-          id: r.id,
-          employee_id: r.employee_id,
-          employee_name: emp?.nome,
-          date: r.date,
-          active_time: r.active_time ?? 0,
-          idle_time: r.idle_time ?? 0,
-          tasks_completed: r.tasks_completed ?? 0,
-          productivity_score: r.productivity_score ?? 0,
-        };
-      });
-
-      setLogs(mapped);
-    } catch (e: any) {
-      console.error('Erro ao carregar produtividade:', e);
-      setError('Não foi possível carregar os dados de produtividade.');
-    } finally {
-      setIsLoadingData(false);
-    }
-  };
-
+  /** Só utilizador + catálogo: filtros aplicam-se em "Aplicar filtro" / "Limpar". */
   useEffect(() => {
     if (!user) return;
-    fetchLogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    void fetchLogsRef.current();
+  }, [user, employees]);
 
   const handleApplyFilters = (e: React.FormEvent) => {
     e.preventDefault();

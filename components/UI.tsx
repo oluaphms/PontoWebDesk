@@ -84,7 +84,8 @@ export const Badge: React.FC<{ children: React.ReactNode; color?: 'indigo' | 'gr
 };
 
 export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label?: string; id?: string }> = ({ label, className = '', id, ...props }) => {
-  const inputId = id || React.useId();
+  const genId = React.useId();
+  const inputId = id || genId;
   return (
     <div className="w-full">
       {label && (

@@ -1036,6 +1036,49 @@ const AdminTimesheet: React.FC = () => {
     }
   };
 
+  const hasExpandedDetails = useMemo(
+    () => Object.values(detailOpenByDate).some(Boolean),
+    [detailOpenByDate],
+  );
+  const virtualRowsEnabled = !hasExpandedDetails;
+
+  const timesheetVirtualWindow = useMemo(() => {
+    const total = periodDates.length;
+    if (!virtualRowsEnabled || total === 0) {
+      return {
+        start: 0,
+        end: total,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
+    }
+    const viewportHeight = 700;
+    const start = Math.max(0, Math.floor(timesheetScrollTop / TIMESHEET_ROW_ESTIMATED_HEIGHT) - TIMESHEET_OVERSCAN);
+    const visibleCount = Math.ceil(viewportHeight / TIMESHEET_ROW_ESTIMATED_HEIGHT) + TIMESHEET_OVERSCAN * 2;
+    const end = Math.min(total, start + visibleCount);
+    return {
+      start,
+      end,
+      topSpacerHeight: start * TIMESHEET_ROW_ESTIMATED_HEIGHT,
+      bottomSpacerHeight: Math.max(0, (total - end) * TIMESHEET_ROW_ESTIMATED_HEIGHT),
+    };
+  }, [periodDates.length, timesheetScrollTop, virtualRowsEnabled]);
+
+  const periodDatesForRender = useMemo(() => {
+    if (!virtualRowsEnabled) return periodDates;
+    return periodDates.slice(timesheetVirtualWindow.start, timesheetVirtualWindow.end);
+  }, [periodDates, timesheetVirtualWindow.end, timesheetVirtualWindow.start, virtualRowsEnabled]);
+
+  const handleTimesheetScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!virtualRowsEnabled) return;
+    setTimesheetScrollTop(e.currentTarget.scrollTop);
+  }, [virtualRowsEnabled]);
+
+  useEffect(() => {
+    setTimesheetScrollTop(0);
+    if (timesheetScrollRef.current) timesheetScrollRef.current.scrollTop = 0;
+  }, [periodStart, periodEnd, filterUserId, recordTypeFilter, virtualRowsEnabled]);
+
   const renderTimeCell = (time: string | null, record?: TimeRecord) => {
     const isManual = !!(record && isManualRecord(record));
     const fromRep = !!(record && isRepMirrorRecord(record));
@@ -1092,48 +1135,6 @@ const AdminTimesheet: React.FC = () => {
   }
 
   const selectedEmployee = employees.find((e) => e.id === filterUserId);
-  const hasExpandedDetails = useMemo(
-    () => Object.values(detailOpenByDate).some(Boolean),
-    [detailOpenByDate],
-  );
-  const virtualRowsEnabled = !hasExpandedDetails;
-
-  const timesheetVirtualWindow = useMemo(() => {
-    const total = periodDates.length;
-    if (!virtualRowsEnabled || total === 0) {
-      return {
-        start: 0,
-        end: total,
-        topSpacerHeight: 0,
-        bottomSpacerHeight: 0,
-      };
-    }
-    const viewportHeight = 700;
-    const start = Math.max(0, Math.floor(timesheetScrollTop / TIMESHEET_ROW_ESTIMATED_HEIGHT) - TIMESHEET_OVERSCAN);
-    const visibleCount = Math.ceil(viewportHeight / TIMESHEET_ROW_ESTIMATED_HEIGHT) + TIMESHEET_OVERSCAN * 2;
-    const end = Math.min(total, start + visibleCount);
-    return {
-      start,
-      end,
-      topSpacerHeight: start * TIMESHEET_ROW_ESTIMATED_HEIGHT,
-      bottomSpacerHeight: Math.max(0, (total - end) * TIMESHEET_ROW_ESTIMATED_HEIGHT),
-    };
-  }, [periodDates.length, timesheetScrollTop, virtualRowsEnabled]);
-
-  const periodDatesForRender = useMemo(() => {
-    if (!virtualRowsEnabled) return periodDates;
-    return periodDates.slice(timesheetVirtualWindow.start, timesheetVirtualWindow.end);
-  }, [periodDates, timesheetVirtualWindow.end, timesheetVirtualWindow.start, virtualRowsEnabled]);
-
-  const handleTimesheetScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!virtualRowsEnabled) return;
-    setTimesheetScrollTop(e.currentTarget.scrollTop);
-  }, [virtualRowsEnabled]);
-
-  useEffect(() => {
-    setTimesheetScrollTop(0);
-    if (timesheetScrollRef.current) timesheetScrollRef.current.scrollTop = 0;
-  }, [periodStart, periodEnd, filterUserId, recordTypeFilter, virtualRowsEnabled]);
 
   return (
     <div className="space-y-6 print:space-y-4">

@@ -27,7 +27,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
     setSuccess(false);
     try {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      let emailToUse = value.toLowerCase().includes('@') && emailRegex.test(value.toLowerCase())
+      const emailToUse = value.toLowerCase().includes('@') && emailRegex.test(value.toLowerCase())
         ? value.trim().toLowerCase()
         : await authService.getEmailForReset(value);
       if (!emailToUse || !emailRegex.test(emailToUse)) {

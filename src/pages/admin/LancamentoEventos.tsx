@@ -330,7 +330,7 @@ const AdminLancamentoEventos: React.FC = () => {
     const intervalo = Math.max(0, parseInt(copyForm.intervalo_dias, 10) || 0);
     setSaving(true);
     try {
-      let data = new Date(lanc.data);
+      const data = new Date(lanc.data);
       for (let i = 0; i < vezes; i++) {
         const dataStr = data.toISOString().slice(0, 10);
         const obs = copyForm.incluir_numero_obs ? `${lanc.observacao || ''} (${i + 1}/${vezes})`.trim() : (lanc.observacao || null);

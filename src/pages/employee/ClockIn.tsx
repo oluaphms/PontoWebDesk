@@ -61,19 +61,18 @@ function waitForVideoReady(video: HTMLVideoElement): Promise<void> {
       resolve();
       return;
     }
-    let tid: number;
     const onMeta = () => {
       video.removeEventListener('loadedmetadata', onMeta);
       window.clearTimeout(tid);
       if (video.videoWidth > 0 && video.videoHeight > 0) resolve();
       else reject(new Error('dimensões'));
     };
-    video.addEventListener('loadedmetadata', onMeta);
-    tid = window.setTimeout(() => {
+    const tid = window.setTimeout(() => {
       video.removeEventListener('loadedmetadata', onMeta);
       if (video.videoWidth > 0 && video.videoHeight > 0) resolve();
       else reject(new Error('timeout'));
     }, 12000);
+    video.addEventListener('loadedmetadata', onMeta);
   });
 }
 

@@ -184,7 +184,7 @@ const AdminAjuda: React.FC = () => {
 
         if (error) {
           // Em caso de erro, mantemos o fallback estático
-          // eslint-disable-next-line no-console
+           
           console.error('Erro ao carregar help_categories', error);
           setCategories(null);
           return;
@@ -200,7 +200,7 @@ const AdminAjuda: React.FC = () => {
 
           const { error: insertError } = await supabase.from('help_categories').insert(insertPayload);
           if (insertError) {
-            // eslint-disable-next-line no-console
+             
             console.error('Erro ao fazer seed de help_categories', insertError);
             setCategories(null);
             return;
@@ -212,7 +212,7 @@ const AdminAjuda: React.FC = () => {
             .order('order_index', { ascending: true });
 
           if (seededError || !seededData) {
-            // eslint-disable-next-line no-console
+             
             console.error('Erro ao recarregar help_categories após seed', seededError);
             setCategories(null);
             return;

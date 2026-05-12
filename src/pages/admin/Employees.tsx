@@ -1187,7 +1187,7 @@ const AdminEmployees: React.FC = () => {
       };
 
       try {
-        let ok = await doCreateAndInsert();
+        const ok = await doCreateAndInsert();
         if (!ok) {
           const reason = 'Conta criada mas ID não retornado';
           failed.push({ row: rowNum, email: emailFinal, reason });

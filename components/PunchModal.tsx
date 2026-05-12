@@ -86,14 +86,6 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     checkBiometric();
   }, [user.id]);
 
-  // Resetar estados quando método muda
-  useEffect(() => {
-    if (method === PunchMethod.PHOTO) {
-      setShowTroubleshoot(false);
-      setIsCapturing(false);
-    }
-  }, []);
-
   useEffect(() => {
     PontoService.getCompany(user.companyId).then(comp => {
       if (comp) {
@@ -437,7 +429,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       if (cameraTimeout) clearTimeout(cameraTimeout);
       stopCamera();
     };
-  }, [method, photo, showTroubleshoot, startCamera, stopCamera]);
+  }, [method, photo, showTroubleshoot, error, isCapturing, startCamera, stopCamera]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

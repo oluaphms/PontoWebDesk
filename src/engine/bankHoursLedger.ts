@@ -219,7 +219,7 @@ export async function applyBankHoursLedgerDay(params: {
   const rowsBefore = await fetchBankHoursLedgerRows(employeeId, companyId);
   const balanceStart = computeBankWalletMinutes(rowsBefore, day);
 
-  let creditedCap = Math.max(
+  const creditedCap = Math.max(
     0,
     Math.min(Math.max(0, Math.round(extraDay)), Math.max(0, Math.round(cap - balanceStart))),
   );

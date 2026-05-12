@@ -700,12 +700,12 @@ export function convertDayMirrorToRecords(
  * Calcula resumo de horas a partir dos registros
  */
 export function calculateHoursSummary(records: TimesheetRecord[]): HoursSummary {
-  let totalMinutes = 0;
-  let extra50Minutes = 0;
-  let extra100Minutes = 0;
-  let bancoMinutes = 0;
+  const totalMinutes = 0;
+  const extra50Minutes = 0;
+  const extra100Minutes = 0;
+  const bancoMinutes = 0;
   let faltas = 0;
-  let atrasoMinutes = 0;
+  const atrasoMinutes = 0;
 
   records.forEach(record => {
     if (record.situacao === 'Falta') {

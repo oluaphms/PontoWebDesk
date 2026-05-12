@@ -13,6 +13,10 @@
     "preview": "vite preview",
     "preview:3010": "vite preview --port 3010",
     "test": "vitest",
+    "lint": "eslint index.tsx src components --max-warnings 745",
+    "lint:pages": "eslint src/pages --max-warnings 506",
+    "lint:lib": "eslint src --ignore-pattern \"src/pages/**\" --max-warnings 210",
+    "lint:ui": "eslint components index.tsx --max-warnings 29",
     "test:run": "vitest run",
     "test:chaos": "vitest run src/testing/chaos",
     "lint:architecture": "node scripts/architecture-lint.mjs",
@@ -68,6 +72,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
@@ -78,14 +83,18 @@
     "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "dependency-cruiser": "^16.9.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.47",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "~5.8.2",
+    "typescript-eslint": "^8.59.3",
     "vite": "^5.4.21",
-    "vitest": "^2.1.9",
-    "dependency-cruiser": "^16.9.0"
+    "vitest": "^2.1.9"
   }
 }

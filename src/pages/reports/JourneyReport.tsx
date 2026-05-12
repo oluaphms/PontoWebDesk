@@ -2,7 +2,7 @@
 // Relatório de Jornada - Pergunta: "O funcionário cumpriu a jornada?"
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ReportContainer } from '@/components/Reports/ReportContainer';
 import { ReportTable } from '@/components/Reports/ReportTable';
 import { StatusBadge } from '@/components/Reports/StatusBadge';
@@ -23,11 +23,7 @@ export const JourneyReport: React.FC = () => {
   });
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
-  useEffect(() => {
-    loadReport();
-  }, [startDate, endDate]);
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -68,7 +64,11 @@ export const JourneyReport: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    void loadReport();
+  }, [loadReport]);
 
   const handleExportPDF = async () => {
     if (!report) return;

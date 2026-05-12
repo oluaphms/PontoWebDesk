@@ -127,6 +127,8 @@ const LocationMap: React.FC<LocationMapProps> = ({ lat, lng, accuracy, className
       pulseMarkerRef.current = null;
       circleRef.current = null;
     };
+    // Posição/precisão: efeito seguinte; recriar o mapa a cada tick de GPS seria caro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps intencionais: só zoom (init + nível)
   }, [zoom]);
 
   useEffect(() => {

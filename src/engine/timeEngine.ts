@@ -1063,7 +1063,7 @@ export async function calculate_day(
 
   // Fórmula central obrigatória (expected vs worked).
   let extraMinutes = Math.max(0, worked - expected);
-  let negativeMinutes = Math.max(0, expected - worked);
+  const negativeMinutes = Math.max(0, expected - worked);
   if (worked < expected) {
     extraMinutes = 0;
   }

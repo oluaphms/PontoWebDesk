@@ -414,11 +414,11 @@ export function classifyPunch(recordsDoDia: TimeRecord[], dayDateStr: string): {
   const sorted = sortRecordsByTime(sanitized, dayDateStr);
   const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
   if (import.meta.env.DEV && sorted.length === 4) {
-    // eslint-disable-next-line no-console
+     
     console.log('[CLASSIFY] registros do dia:', sorted.length);
-    // eslint-disable-next-line no-console
+     
     console.log('[CLASSIFY] ordem:', times.join(', '));
-    // eslint-disable-next-line no-console
+     
     console.log('[CLASSIFY] tipos: entrada, saída_int, volta_int, saída');
   }
   return { sorted, times };
