@@ -1526,7 +1526,7 @@ const AdminTimesheet: React.FC = () => {
             {mapProcessingStatusToLabel('fallback_schedule')}
           </span>
           <span className="inline-flex items-center gap-2" title={operationalStatusTooltip('drift')}>
-            <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${operationalBadgeClassName('yellow')}`} />
+            <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${operationalBadgeClassName('blue')}`} />
             {mapProcessingStatusToLabel('drift')}
           </span>
           <span className="inline-flex items-center gap-2" title={operationalStatusTooltip('inconsistent')}>

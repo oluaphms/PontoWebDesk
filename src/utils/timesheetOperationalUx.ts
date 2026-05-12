@@ -41,15 +41,14 @@ export function operationalStatusTooltip(status: OperationalDisplayStatus): stri
   return TOOLTIPS[status] ?? mapProcessingStatusToLabel(status);
 }
 
-export type BadgeVariant = 'green' | 'yellow' | 'red' | 'neutral';
+export type BadgeVariant = 'green' | 'yellow' | 'blue' | 'red' | 'neutral';
 
 export function operationalBadgeVariant(status: OperationalDisplayStatus): BadgeVariant {
   if (status === 'ok') return 'green';
   if (status === 'protected') return 'neutral';
   if (status === 'inconsistent' || status === 'error') return 'red';
-  if (status === 'fallback_schedule' || status === 'drift' || status === 'skipped_invalid_employee') {
-    return 'yellow';
-  }
+  if (status === 'fallback_schedule' || status === 'skipped_invalid_employee') return 'yellow';
+  if (status === 'drift') return 'blue';
   return 'neutral';
 }
 
@@ -133,6 +132,8 @@ export function operationalBadgeClassName(variant: BadgeVariant): string {
       return 'bg-emerald-500 ring-2 ring-emerald-500/40';
     case 'yellow':
       return 'bg-amber-400 ring-2 ring-amber-400/50';
+    case 'blue':
+      return 'bg-sky-500 ring-2 ring-sky-500/40';
     case 'red':
       return 'bg-red-500 ring-2 ring-red-500/40';
     default:
