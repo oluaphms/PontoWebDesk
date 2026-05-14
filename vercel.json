@@ -1,9 +1,4 @@
 {
   "framework": null,
-  "buildCommand": "npm run build",
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "nodejs20.x"
-    }
-  }
+  "buildCommand": "npm run build"
 }
