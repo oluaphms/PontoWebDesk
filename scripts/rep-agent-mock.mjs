@@ -22,6 +22,10 @@
  *   MOCK_SAAS_DUPLICATE   se "1", o SaaS responde com { success: false, duplicate: true }
  *
  * Encerre com Ctrl+C.
+ *
+ * Se aparecer EADDRINUSE: outro processo já usa a porta (mock antigo, Start-Job, etc.).
+ * PowerShell (substitua 8181 se usar MOCK_CLOCK_PORT):
+ *   Get-NetTCPConnection -LocalPort 8181 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
  */
 
 import http from 'node:http';
@@ -90,6 +94,29 @@ const clock = http.createServer((req, res) => {
   res.end('not found');
 });
 
+/** Evita crash "Unhandled error"; em EADDRINUSE mostra como libertar a porta no Windows. */
+function listen127WithHints(server, port, tag, envAltHint, onListening) {
+  server.once('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      const alt =
+        envAltHint === 'MOCK_SAAS_PORT'
+          ? '$env:MOCK_SAAS_PORT="8283"'
+          : '$env:MOCK_CLOCK_PORT="8182"; $env:REP_DEVICE_PORT="8182"';
+      console.error(
+        `[${tag}] Porta ${port} ocupada (EADDRINUSE) — já existe outro mock ou processo nesta porta.\n` +
+          `  • Feche o outro terminal (Ctrl+C) ou mate o processo:\n` +
+          `    Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\n` +
+          `  • Ou outra porta nesta sessão (e alinhe REP_DEVICE_PORT no agente se for o relógio):\n` +
+          `    ${alt}; node scripts/rep-agent-mock.mjs`
+      );
+    } else {
+      console.error(`[${tag}]`, err);
+    }
+    process.exit(1);
+  });
+  server.listen(port, '127.0.0.1', onListening);
+}
+
 const received = [];
 const saas = http.createServer((req, res) => {
   const url = req.url || '/';
@@ -122,19 +149,21 @@ const saas = http.createServer((req, res) => {
   res.end('not found');
 });
 
-clock.listen(CLOCK_PORT, '127.0.0.1', () => {
+listen127WithHints(clock, CLOCK_PORT, 'mock-clock', 'MOCK_CLOCK_PORT', () => {
   console.log(
     `[mock-clock] escutando em http://127.0.0.1:${CLOCK_PORT}` +
       (AFD_404 ? ' (modo MOCK_AFD_404 ligado — todas as rotas AFD respondem 404)' : '')
   );
-});
-
-saas.listen(SAAS_PORT, '127.0.0.1', () => {
-  console.log(
-    `[mock-saas]  escutando em http://127.0.0.1:${SAAS_PORT}` +
-      (SAAS_DUPLICATE ? ' (modo MOCK_SAAS_DUPLICATE ligado — respostas sempre duplicate)' : '')
-  );
-  console.log('[mock] inspecione punches recebidos em GET /__received');
+  listen127WithHints(saas, SAAS_PORT, 'mock-saas', 'MOCK_SAAS_PORT', () => {
+    console.log(
+      `[mock-saas]  escutando em http://127.0.0.1:${SAAS_PORT}` +
+        (SAAS_DUPLICATE ? ' (modo MOCK_SAAS_DUPLICATE ligado — respostas sempre duplicate)' : '')
+    );
+    console.log('[mock] inspecione punches recebidos em GET /__received');
+    console.log(
+      '[mock] Se o rep-agent marcar tudo como duplicado: apague data/rep-agent/processed-nsr.json e last-nsr.json (ou a pasta data/rep-agent) e volte a correr o agente.'
+    );
+  });
 });
 
 const shutdown = () => {
