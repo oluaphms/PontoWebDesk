@@ -13,7 +13,8 @@
  *      ou quando REP_MODE=AFD é informado explicitamente.
  *
  * Variáveis de ambiente:
- *   REP_SAAS_URL        URL base do app (ex: https://pontowebdesk.vercel.app)
+ *   REP_SAAS_URL        URL base do app (ex: https://pontowebdesk.vercel.app).
+ *                       Se vazio, usa VITE_APP_URL (ex.: http://localhost:3010 com Vite + proxy /api).
  *   API_KEY             Mesma chave das APIs serverless (Authorization: Bearer)
  *   REP_DEVICE_IP       IP do relógio (ex: 192.168.0.38)
  *   REP_DEVICE_SCHEME   Protocolo do relógio: http|https (default: http)
@@ -70,7 +71,14 @@ function loadEnvFilesFromProjectRoot() {
 
 loadEnvFilesFromProjectRoot();
 
-const saas = (process.env.REP_SAAS_URL || '').replace(/\/$/, '');
+function trimBaseUrl(s) {
+  return String(s ?? '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+/** SaaS onde existe POST /api/rep/punch: REP_SAAS_URL, ou VITE_APP_URL (dev com Vite na mesma origem). */
+const saas = trimBaseUrl(process.env.REP_SAAS_URL) || trimBaseUrl(process.env.VITE_APP_URL) || '';
 const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
 const ip = (process.env.REP_DEVICE_IP || '').trim();
 const scheme = (process.env.REP_DEVICE_SCHEME || 'http').trim().toLowerCase() === 'https' ? 'https' : 'http';
@@ -121,7 +129,7 @@ function fail(msg) {
 
 if (!saas) {
   fail(
-    'Defina REP_SAAS_URL (ex.: no PowerShell: $env:REP_SAAS_URL="https://seu-app.vercel.app") ou coloque REP_SAAS_URL no .env / .env.local na raiz do projeto (o script carrega estes ficheiros automaticamente).'
+    'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local (carregados automaticamente). Ex.: REP_SAAS_URL=https://seu-app.vercel.app ou VITE_APP_URL=http://localhost:3010 com o Vite a correr. Em PowerShell: $env:REP_SAAS_URL="https://..."'
   );
 }
 if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY)');
