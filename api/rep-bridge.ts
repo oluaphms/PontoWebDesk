@@ -29,11 +29,20 @@ export default async function handler(request: Request): Promise<Response> {
   }
   if (!slug) {
     const parts = url.pathname.split('/').filter(Boolean);
-    slug = parts[2] ?? '';
+    slug = (parts[2] ?? '').trim();
+  } else {
+    slug = slug.trim();
+  }
+  const slugKey = slug.toLowerCase();
+  if (!slugKey) {
+    return Response.json(
+      { error: 'Slug REP ausente.', code: 'REP_SLUG_MISSING' },
+      { status: 400, headers: JSON_ERR }
+    );
   }
   try {
     let response: Response;
-    if (slug === 'punch') {
+    if (slugKey === 'punch') {
       response = new Response(
         JSON.stringify({
           ok: true,
@@ -44,11 +53,11 @@ export default async function handler(request: Request): Promise<Response> {
           headers: { 'Content-Type': 'application/json' },
         },
       );
-    } else if (slug === 'diagnostic-supabase') {
+    } else if (slugKey === 'diagnostic-supabase') {
       const { handleRepTestSupabaseRpc } = await import('./_shared/repTestSupabaseRpc.js');
       response = await handleRepTestSupabaseRpc(request);
     } else {
-      response = await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
+      response = await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slugKey);
     }
     try {
       response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -57,12 +66,12 @@ export default async function handler(request: Request): Promise<Response> {
     } catch (hErr) {
       console.error('[rep-bridge] falha ao definir headers de cache', hErr);
     }
-    console.log('[API RESPONSE]', `/api/rep/${slug || 'unknown'}`, Date.now());
+    console.log('[API RESPONSE]', `/api/rep/${slugKey}`, Date.now());
     return response;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
-    console.error('[rep-bridge]', slug || 'unknown', msg, stack);
+    console.error('[rep-bridge]', slugKey, msg, stack);
     const detail =
       process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
         ? undefined
@@ -71,7 +80,7 @@ export default async function handler(request: Request): Promise<Response> {
       {
         error: 'Erro interno no handler REP',
         code: 'REP_BRIDGE_UNHANDLED',
-        slug: slug || null,
+        slug: slugKey,
         message: msg,
         ...(detail ? { detail } : {}),
       },
