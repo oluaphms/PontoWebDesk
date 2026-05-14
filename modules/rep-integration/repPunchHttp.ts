@@ -1,6 +1,6 @@
 /**
  * POST /api/rep/punch — handler **completo** (weak match + `repIngestPunchCore`).
- * Em produção, `/api/rep/punch` deve ir sempre por `rep-bridge` + `handleRepPunchRpcLite` (`repApiRoutes` slug `punch`).
+ * Em produção, `/api/rep/punch` deve ir sempre por `api/rep/[slug].ts` + `handleRepPunchRpcLite` (`repApiRoutes` slug `punch`).
  * Este ficheiro mantém-se para testes/legado; não deve ser o caminho quente na Vercel (bundle pesado).
  */
 

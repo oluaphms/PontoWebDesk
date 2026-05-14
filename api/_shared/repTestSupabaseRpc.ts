@@ -1,6 +1,6 @@
 /**
  * Diagnóstico RPC `rep_ingest_punch` (payload de teste).
- * Expõe-se via `rep-bridge` slug `diagnostic-supabase` + rewrite `/api/test-supabase` — não é função própria (limite Hobby).
+ * Expõe-se via `api/rep/[slug].ts` em `/api/rep/diagnostic-supabase` + rewrite `/api/test-supabase` (limite Hobby).
  */
 
 import { createClient } from '@supabase/supabase-js';

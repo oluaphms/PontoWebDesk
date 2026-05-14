@@ -76,11 +76,7 @@
   "rewrites": [
     {
       "source": "/api/test-supabase",
-      "destination": "/api/rep-bridge?slug=diagnostic-supabase"
-    },
-    {
-      "source": "/api/rep/:slug",
-      "destination": "/api/rep-bridge?slug=:slug"
+      "destination": "/api/rep/diagnostic-supabase"
     },
     {
       "source": "/api/punches",

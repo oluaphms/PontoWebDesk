@@ -1,5 +1,5 @@
 /**
- * Handlers HTTP para /api/rep/* (função serverless em api/rep-bridge.ts — limite Hobby 12).
+ * Handlers HTTP para /api/rep/* (função serverless em api/rep/[slug].ts — limite Hobby 12).
  */
 
 import { createClient } from '@supabase/supabase-js';

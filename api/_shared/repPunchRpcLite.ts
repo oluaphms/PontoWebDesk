@@ -1,6 +1,6 @@
 /**
  * Ingestão REP via RPC — handler leve (sem `repIngestPunchCore`, sem import dinâmico).
- * `rep-bridge` slug `punch` → esta função.
+ * `api/rep/[slug].ts` (slug `punch`) → esta função.
  */
 
 import { createClient } from '@supabase/supabase-js';

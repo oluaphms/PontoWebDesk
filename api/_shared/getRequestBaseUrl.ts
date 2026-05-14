@@ -1,6 +1,6 @@
 /**
  * Base absoluta para `new URL()` em handlers serverless (Vercel/Node).
- * `request.url` costuma ser só o path (ex.: `/api/rep-bridge?slug=punch`) — sem base, `new URL(request.url)` lança TypeError.
+ * `request.url` costuma ser só o path (ex.: `/api/rep/punch`) — sem base, `new URL(request.url)` lança TypeError.
  * Ficheiro sob `api/_shared` para o bundler da Vercel incluir sempre no grafo das funções em `api/`.
  */
 

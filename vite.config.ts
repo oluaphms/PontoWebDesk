@@ -149,7 +149,7 @@ export default defineConfig(({ mode }) => {
               return;
             }
             try {
-              const { default: handler } = await import('./api/rep-bridge.ts');
+              const { default: handler } = await import('./api/rep/[slug].ts');
               const host = (req.headers.host as string) || 'localhost:3010';
               const fullUrl = `http://${host}${req.url ?? ''}`;
               const repRequestBody = await readConnectRequestBody(req as IncomingMessage);
@@ -207,10 +207,10 @@ export default defineConfig(({ mode }) => {
                 const { handleRepPunchRpcLite } = await import('./api/_shared/repPunchRpcLite.ts');
                 response = await run(handleRepPunchRpcLite, req.url ?? pathname);
               } else if (pathname === '/api/test-supabase') {
-                const { default: bridge } = await import('./api/rep-bridge.ts');
+                const { default: bridge } = await import('./api/rep/[slug].ts');
                 const raw = req.url ?? pathname;
                 const extra = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
-                const bridgePath = `/api/rep-bridge?slug=diagnostic-supabase${extra ? `&${extra}` : ''}`;
+                const bridgePath = `/api/rep/diagnostic-supabase${extra ? `?${extra}` : ''}`;
                 response = await run(bridge, bridgePath);
               } else {
                 next();

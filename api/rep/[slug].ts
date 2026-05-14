@@ -1,43 +1,44 @@
 /**
- * Proxy REP consolidado (1 Serverless Function).
- * Não existe rewrite para `/api/rep-punch` (evita função serverless extra no limite Hobby).
- * `/api/rep/punch` → rewrite `/api/rep/:slug` → `rep-bridge`.
+ * Handlers em `/api/rep/:slug` (rota dinâmica nativa na Vercel — sem rewrite para `rep-bridge`).
+ * Evita pedidos que nunca chegam ao serverless por `request.url` / query inconsistentes após rewrite.
  *
- * TEMPORÁRIO (diagnóstico): slug `punch` responde JSON fixo sem importar `repPunchRpcLite`
- * (evita carregar planEnforcement/supabase no cold start desta função).
+ * TEMPORÁRIO (diagnóstico): slug `punch` responde JSON fixo sem importar `repPunchRpcLite`.
  * Reverter para `handleRepPunchRpcLite(request)` após validar na Vercel.
  *
- * Slug `diagnostic-supabase` (rewrite `/api/test-supabase`) para smoke test Supabase/RPC.
+ * Slug `diagnostic-supabase` via rewrite `/api/test-supabase` → `/api/rep/diagnostic-supabase`.
  */
 
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 
+function resolveSlugKey(url: URL): string | null {
+  const fromQuery = (url.searchParams.get('slug') || '').trim().toLowerCase();
+  if (fromQuery) return fromQuery;
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'api' && parts[1] === 'rep' && parts[2]) {
+    return parts[2].trim().toLowerCase();
+  }
+  return null;
+}
+
 export default async function handler(request: Request): Promise<Response> {
-  let url: URL;
-  let slug: string;
+  let slugKey: string;
   try {
-    url = resolveRequestUrl(request);
-    slug = (url.searchParams.get('slug') || '').trim();
+    const url = resolveRequestUrl(request);
+    const key = resolveSlugKey(url);
+    if (!key) {
+      return Response.json(
+        { error: 'Slug REP ausente.', code: 'REP_SLUG_MISSING' },
+        { status: 400, headers: JSON_ERR }
+      );
+    }
+    slugKey = key;
   } catch (err) {
     console.error('[REP API ERROR]', err);
     return Response.json(
       { error: 'Erro interno', detail: String(err) },
       { status: 500, headers: JSON_ERR }
-    );
-  }
-  if (!slug) {
-    const parts = url.pathname.split('/').filter(Boolean);
-    slug = (parts[2] ?? '').trim();
-  } else {
-    slug = slug.trim();
-  }
-  const slugKey = slug.toLowerCase();
-  if (!slugKey) {
-    return Response.json(
-      { error: 'Slug REP ausente.', code: 'REP_SLUG_MISSING' },
-      { status: 400, headers: JSON_ERR }
     );
   }
   try {
@@ -54,24 +55,24 @@ export default async function handler(request: Request): Promise<Response> {
         },
       );
     } else if (slugKey === 'diagnostic-supabase') {
-      const { handleRepTestSupabaseRpc } = await import('./_shared/repTestSupabaseRpc.js');
+      const { handleRepTestSupabaseRpc } = await import('../_shared/repTestSupabaseRpc.js');
       response = await handleRepTestSupabaseRpc(request);
     } else {
-      response = await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slugKey);
+      response = await (await import('../../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slugKey);
     }
     try {
       response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       response.headers.set('Pragma', 'no-cache');
       response.headers.set('Expires', '0');
     } catch (hErr) {
-      console.error('[rep-bridge] falha ao definir headers de cache', hErr);
+      console.error('[rep/[slug]] falha ao definir headers de cache', hErr);
     }
     console.log('[API RESPONSE]', `/api/rep/${slugKey}`, Date.now());
     return response;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
-    console.error('[rep-bridge]', slugKey, msg, stack);
+    console.error('[rep/[slug]]', slugKey, msg, stack);
     const detail =
       process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
         ? undefined
