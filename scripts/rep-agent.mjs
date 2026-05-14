@@ -24,6 +24,10 @@
  *   REP_DEVICE_ID       (opcional) UUID do rep_devices cadastrado no painel
  *   REP_DEVICE_SESSION  (opcional) token de sessão — enviado junto a comandos em firmwares que exigem
  *   REP_DEVICE_BEARER ou REP_DEVICE_AUTH_TOKEN (opcional) Authorization no relógio (ex.: Bearer ...)
+ *   REP_DEVICE_LOGIN      (opcional, default admin) Utilizador para login.fcgi (Control iD iDClass).
+ *   REP_DEVICE_PASSWORD   Palavra-passe do relógio — com login obtém sessão e usa POST /get_afd.fcgi.
+ *   REP_DEVICE_CONTROLID_FCGI  "1" — tenta primeiro AFD por .fcgi mesmo sem palavra-passe (requer REP_DEVICE_SESSION).
+ *   REP_AFD_PORTARIA_671    "1" — pede AFD no formato Portaria 671 (query mode=671 em get_afd.fcgi).
  *
  *   --- modo AFD ---
  *   REP_MODE                    Quando "AFD", força ingestão por arquivo AFD sem tentar a API direta.
@@ -97,6 +101,14 @@ const port = (process.env.REP_DEVICE_PORT || defaultDevicePort).trim();
 const companyId = (process.env.REP_COMPANY_ID || '').trim();
 const deviceId = (process.env.REP_DEVICE_ID || '').trim() || undefined;
 const insecureTls = /^(1|true|yes)$/i.test((process.env.REP_INSECURE_TLS || '').trim());
+/** Sessão API Control iD (.fcgi); ou obtida via login com REP_DEVICE_PASSWORD. */
+const repDeviceSession = (process.env.REP_DEVICE_SESSION || '').trim();
+const repDevicePassword = (process.env.REP_DEVICE_PASSWORD || '').trim();
+const repDeviceLogin = (process.env.REP_DEVICE_LOGIN || 'admin').trim();
+const repDeviceControlIdFcgi = /^(1|true|yes)$/i.test(
+  (process.env.REP_DEVICE_CONTROLID_FCGI || process.env.REP_DEVICE_USE_CONTROLID || '').trim()
+);
+const repAfdPortaria671 = /^(1|true|yes|671)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
 
 const repModeEnv = (process.env.REP_MODE || '').trim().toUpperCase();
 const repAfdPathEnv = (process.env.REP_AFD_PATH || '').trim();
@@ -164,7 +176,12 @@ if (!companyId) {
     `| SaaS=${saas}`,
     `| empresa=${companyId.slice(0, 8)}…`,
     `| API_KEY=${keyHint}`,
-    repAgentSkipDotenv ? '| dotenv=off' : '| dotenv=on'
+    repAgentSkipDotenv ? '| dotenv=off' : '| dotenv=on',
+    repDevicePassword || repDeviceSession
+      ? `| relógio API=${repDeviceSession ? 'sessão' : 'login.fcgi'}`
+      : repDeviceControlIdFcgi
+        ? '| relógio API=controlid_fcgi (falta sessão ou REP_DEVICE_PASSWORD)'
+        : ''
   );
 }
 
@@ -194,7 +211,7 @@ async function clockPostJson(url, payload) {
   const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
   const body = JSON.stringify(payload);
   const headers = {
-    Accept: 'application/json',
+    Accept: 'application/json, text/plain, */*',
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body, 'utf8'),
   };
@@ -319,18 +336,11 @@ const DEVICE_ENDPOINT_PATHS = [
   '/api/get_log',
 ];
 
-/** Rotas comuns para download do AFD em REPs/clones. */
-const AFD_DOWNLOAD_PATHS = [
-  '/afd',
-  '/rep/afd',
-  '/download/afd',
-  '/api/afd',
-  '/files/afd',
-  '/get_afd',
-];
+/** Rotas comuns para download do AFD em REPs/clones (GET). Control iD iDClass usa POST /get_afd.fcgi — ver downloadAFDviaControlIdFcgi. */
+const AFD_DOWNLOAD_PATHS = ['/afd', '/rep/afd', '/download/afd', '/api/afd', '/files/afd'];
 
 function buildCommandPayloads() {
-  const session = (process.env.REP_DEVICE_SESSION || '').trim();
+  const session = repDeviceSession;
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
   const todayEnd = new Date().toISOString();
@@ -546,12 +556,126 @@ async function postPunch(body) {
 // Modo AFD — coleta por arquivo (fallback / forçado por REP_MODE=AFD)
 // ============================================================================
 
+/** Conteúdo parece ficheiro AFD (linhas numéricas), não JSON de erro nem HTML. */
+function isPlausibleAfdText(content) {
+  if (!content || typeof content !== 'string') return false;
+  const t = content.trim();
+  if (t.length < 16) return false;
+  const head = t.slice(0, 256).toLowerCase();
+  if (head.includes('<html') || head.includes('<!doctype')) return false;
+  const asJson = parseJsonSafe(t);
+  if (asJson && typeof asJson === 'object' && !Array.isArray(asJson)) {
+    if (asJson.error != null && asJson.error !== '') return false;
+    if (asJson.code != null && asJson.code !== '') return false;
+  }
+  const lines = t.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (/^\d{20,}$/.test(line)) return true;
+    if (line.length === 35 && /^\d+$/.test(line)) return true;
+    if (line.length === 34 && line[9] === '3' && /^\d+$/.test(line)) return true;
+  }
+  return false;
+}
+
+function afdHttpSnippet(text, max = 220) {
+  const s = String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+  return s || '(corpo vazio)';
+}
+
+/** Control iD iDClass: POST /login.fcgi → session. */
+async function controlIdLogin(base) {
+  if (!repDevicePassword) {
+    throw new Error('REP_DEVICE_PASSWORD não definido (necessário para login.fcgi)');
+  }
+  const url = `${base}/login.fcgi`;
+  const res = await clockPostJson(url, { login: repDeviceLogin, password: repDevicePassword });
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`login.fcgi HTTP ${res.status}: ${afdHttpSnippet(res.text)}`);
+  }
+  const data = parseJsonSafe(res.text);
+  if (!data || typeof data !== 'object') {
+    throw new Error(`login.fcgi resposta não-JSON: ${afdHttpSnippet(res.text)}`);
+  }
+  if (data.error) {
+    throw new Error(`login.fcgi: ${String(data.error)}`);
+  }
+  const sid = typeof data.session === 'string' ? data.session.trim() : '';
+  if (!sid) {
+    throw new Error(`login.fcgi sem campo session: ${afdHttpSnippet(res.text)}`);
+  }
+  console.log('[REP CONTROLID] Sessão obtida via login.fcgi');
+  return sid;
+}
+
+/**
+ * Control iD iDClass (documentação): POST /get_afd.fcgi?session=… com corpo JSON.
+ * Linha «Access»: POST /export_afd.fcgi?session=… (também tentado).
+ */
+async function downloadAFDviaControlIdFcgi(base) {
+  const wantTry = repDeviceSession || repDevicePassword || repDeviceControlIdFcgi;
+  if (!wantTry) return null;
+
+  let session = repDeviceSession;
+  if (!session) {
+    if (!repDevicePassword) {
+      console.warn(
+        '[rep-agent] REP_DEVICE_CONTROLID_FCGI=1 mas falta REP_DEVICE_SESSION ou REP_DEVICE_PASSWORD — ignorando .fcgi.'
+      );
+      return null;
+    }
+    session = await controlIdLogin(base);
+  }
+
+  const q = (extra) => {
+    const qs = new URLSearchParams({ session });
+    if (extra) for (const [k, v] of Object.entries(extra)) qs.set(k, String(v));
+    return qs.toString();
+  };
+
+  const attempts = [];
+  const legacy = { label: 'get_afd (legado)', path: `/get_afd.fcgi?${q()}`, body: {} };
+  const m671 = { label: 'get_afd mode=671', path: `/get_afd.fcgi?${q({ mode: '671' })}`, body: {} };
+  if (repAfdPortaria671) {
+    attempts.push(m671, legacy);
+  } else {
+    attempts.push(legacy, m671);
+  }
+  attempts.push({ label: 'export_afd (Access API)', path: `/export_afd.fcgi?${q()}`, body: {} });
+
+  for (const { label, path, body } of attempts) {
+    const url = `${base}${path}`;
+    try {
+      const res = await clockPostJson(url, body);
+      if (res.status < 200 || res.status >= 300) {
+        console.log(`[REP AFD FCGI] ${label} → HTTP ${res.status} ${afdHttpSnippet(res.text)}`);
+        continue;
+      }
+      const text = res.text || '';
+      if (isPlausibleAfdText(text)) {
+        console.log(`[REP AFD DOWNLOAD] sucesso (${text.length} bytes) via ${url.split('?')[0]} (${label})`);
+        return { url, content: text };
+      }
+      console.log(`[REP AFD FCGI] ${label} → corpo não parece AFD: ${afdHttpSnippet(text)}`);
+    } catch (e) {
+      console.error(`[REP AFD FCGI] ${label}:`, e?.message || e);
+    }
+  }
+  return null;
+}
+
 /**
  * Baixa o AFD do dispositivo testando rotas conhecidas (priorizando REP_AFD_PATH).
  * Retorna { url, content } no primeiro sucesso. Aplica timeout e retry por rota.
  */
 async function downloadAFD() {
   const base = `${scheme}://${ip}:${port}`;
+
+  const fcgiResult = await downloadAFDviaControlIdFcgi(base);
+  if (fcgiResult) return fcgiResult;
+
   const candidates = [];
   if (repAfdPathEnv) {
     candidates.push(repAfdPathEnv.startsWith('/') ? repAfdPathEnv : `/${repAfdPathEnv}`);
@@ -569,11 +693,16 @@ async function downloadAFD() {
         const okHttp = res.status >= 200 && res.status < 300;
         if (!okHttp) {
           lastErr = new Error(`HTTP ${res.status} em ${url}`);
-          console.log(`[REP AFD TRY] ${url} (tentativa ${attempt}/${REP_AFD_RETRY}) → HTTP ${res.status}`);
+          const snip = attempt === 1 && res.text ? ` | ${afdHttpSnippet(res.text)}` : '';
+          console.log(`[REP AFD TRY] ${url} (tentativa ${attempt}/${REP_AFD_RETRY}) → HTTP ${res.status}${snip}`);
           continue;
         }
         const content = res.text || '';
-        // Verificação mínima de plausibilidade: precisa conter pelo menos 1 linha "ASCII numérica" longa.
+        if (isPlausibleAfdText(content)) {
+          console.log(`[REP AFD DOWNLOAD] sucesso (${content.length} bytes) via ${url}`);
+          return { url, content };
+        }
+        // Verificação mínima de plausibilidade (legado): precisa conter pelo menos 1 linha "ASCII numérica" longa.
         if (!content || content.length < 16) {
           lastErr = new Error(`Conteúdo vazio/curto em ${url} (${content.length} bytes)`);
           console.log(`[REP AFD TRY] ${url} → conteúdo curto (${content.length} bytes)`);
@@ -586,8 +715,8 @@ async function downloadAFD() {
           console.log(`[REP AFD TRY] ${url} → resposta HTML, ignorando`);
           continue;
         }
-        console.log(`[REP AFD DOWNLOAD] sucesso (${content.length} bytes) via ${url}`);
-        return { url, content };
+        lastErr = new Error(`Resposta em ${url} não parece AFD (linhas numéricas esperadas)`);
+        console.log(`[REP AFD TRY] ${url} → corpo não reconhecido como AFD (${afdHttpSnippet(content)})`);
       } catch (e) {
         lastErr = e;
         console.error(
@@ -599,6 +728,16 @@ async function downloadAFD() {
         }
       }
     }
+  }
+
+  if (!repDeviceSession && !repDevicePassword && !repDeviceControlIdFcgi) {
+    console.warn(
+      '[rep-agent] Dica Control iD iDClass: o AFD obtém-se com POST /get_afd.fcgi?session=… (após POST /login.fcgi). Defina REP_DEVICE_PASSWORD e opcionalmente REP_DEVICE_LOGIN (default admin), ou REP_DEVICE_SESSION. Para formato Portaria 671: REP_AFD_PORTARIA_671=1.'
+    );
+  } else if (repDevicePassword || repDeviceSession) {
+    console.warn(
+      '[rep-agent] login/get_afd.fcgi não devolveram AFD reconhecível; verifique credenciais, firmware ou tente REP_AFD_PORTARIA_671=1.'
+    );
   }
 
   const msg = lastErr ? lastErr.message || String(lastErr) : 'Nenhuma rota de AFD respondeu';
