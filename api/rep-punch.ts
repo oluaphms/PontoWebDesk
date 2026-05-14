@@ -1,17 +1,46 @@
 /**
- * POST /api/rep/punch — handler completo (weak match + overrides AFD) quando a rota passa por `rep-bridge`.
- * Produção via agente: `vercel.json` encaminha POST /api/rep/punch → `/api/rep-punch` (ficheiro `api/rep-punch.ts`, bundle leve).
+ * POST /api/rep-punch — ingestão REP sem importar `repIngestPunchCore` (grafo grande → OOM / cold start na Vercel).
+ * O agente continua a chamar POST /api/rep/punch; o `vercel.json` reescreve para esta rota.
+ *
+ * A RPC `rep_ingest_punch` faz o match de colaborador no servidor; não replica o weak-match em memória
+ * do `runRepIngestPunchRpc` (casos raros podem diferir do handler completo em `repPunchHttp.ts`).
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { repCorsHeaders } from './repVercelAuth';
-import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
-import type { RepPunchBody } from './repPunchNormalize';
-import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from './repPunchNormalize';
+import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
+import type { RepPunchBody } from '../modules/rep-integration/repPunchNormalize';
+import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from '../modules/rep-integration/repPunchNormalize';
 
-export async function handleRepPunchHttp(request: Request): Promise<Response> {
+function corsHeaders(request: Request): Record<string, string> {
+  const origin = request.headers.get('Origin');
+  if (!origin) {
+    return {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-REP-API-Key',
+      'X-Content-Type-Options': 'nosniff',
+    };
+  }
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-REP-API-Key',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  };
+}
+
+type RpcRepIngestResult = {
+  success?: boolean;
+  time_record_id?: string;
+  user_not_found?: boolean;
+  error?: string;
+  duplicate?: boolean;
+};
+
+export default async function handler(request: Request): Promise<Response> {
   try {
-    const cors = repCorsHeaders(request);
+    const cors = corsHeaders(request);
     const headersJson = { ...cors, 'Content-Type': 'application/json' };
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
@@ -19,17 +48,20 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors });
     }
+
     const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
     const authHeader = request.headers.get('Authorization') || request.headers.get('X-REP-API-Key') || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
     if (!apiKey || token !== apiKey) {
       return Response.json({ error: 'Unauthorized' }, { status: 401, headers: headersJson });
     }
+
     const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
     const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
     if (!url || !serviceKey) {
       return Response.json({ error: 'Supabase não configurado' }, { status: 500, headers: headersJson });
     }
+
     let body: RepPunchBody;
     try {
       const raw = await request.json();
@@ -37,6 +69,7 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     } catch {
       return Response.json({ error: 'Body inválido' }, { status: 400, headers: headersJson });
     }
+
     const { company_id, data_hora, device_id, nsr, pis, cpf, matricula, tipo_marcacao } = body;
     if (!company_id || !data_hora) {
       return Response.json(
@@ -48,9 +81,11 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     if (Number.isNaN(ts.getTime())) {
       return Response.json({ error: 'data_hora inválido' }, { status: 400, headers: headersJson });
     }
+
     const supabase = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+
     try {
       await assertPlanLimit(supabase, {
         tenantId: company_id,
@@ -65,33 +100,40 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
       }
       throw e;
     }
+
     const repDeviceId = normalizeRepDeviceIdForRpc(device_id);
     const nsrNorm = normalizeRepPunchNsrForRpc(nsr);
-    let result;
-    try {
-      const { runRepIngestPunchRpc } = await import('./repIngestPunchCore');
-      result = await runRepIngestPunchRpc(
-        supabase,
-        {
-          company_id,
-          rep_device_id: repDeviceId,
-          pis: pis ?? null,
-          cpf: cpf ?? null,
-          matricula: matricula ?? null,
-          nome_funcionario: null,
-          data_hora: ts.toISOString(),
-          tipo_marcacao: tipo_marcacao || 'E',
-          nsr: nsrNorm,
-          raw_data: { source: 'api' },
-        },
-        { recordTimeline: false },
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[api/rep/punch] runRepIngestPunchRpc exception', msg, e instanceof Error ? e.stack : '');
+    const rawData: Record<string, unknown> = { source: 'api', ingest: 'rep-punch-lite' };
+
+    const { data, error } = await supabase.rpc('rep_ingest_punch', {
+      p_company_id: company_id,
+      p_rep_device_id: repDeviceId,
+      p_pis: pis ?? null,
+      p_cpf: cpf ?? null,
+      p_matricula: matricula ?? null,
+      p_nome_funcionario: null,
+      p_data_hora: ts.toISOString(),
+      p_tipo_marcacao: tipo_marcacao || 'E',
+      p_nsr: nsrNorm,
+      p_raw_data: rawData,
+      p_only_staging: false,
+      p_apply_schedule: false,
+      p_force_user_id: null,
+      p_trust_client_identity: true,
+    });
+
+    if (error) {
       return Response.json(
-        { success: false, error: msg, code: 'REP_PUNCH_INGEST_EXCEPTION' },
+        { success: false, error: error.message, code: 'REP_PUNCH_RPC_ERROR' },
         { status: 500, headers: headersJson },
+      );
+    }
+
+    const result = data as RpcRepIngestResult;
+    if (result.duplicate) {
+      return Response.json(
+        { success: true, duplicate: true, error: 'NSR já importado' },
+        { status: 200, headers: headersJson },
       );
     }
     if (!result.success && result.error) {
@@ -101,6 +143,13 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
         { status, headers: headersJson },
       );
     }
+    if (!result.success) {
+      return Response.json(
+        { success: false, error: 'Falha na ingestão REP (sem detalhe)', code: 'REP_PUNCH_NO_DETAIL' },
+        { status: 400, headers: headersJson },
+      );
+    }
+
     return Response.json(
       {
         success: true,
@@ -111,10 +160,10 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[REP API ERROR]', '[api/rep/punch] unhandled', msg, e instanceof Error ? e.stack : '');
+    console.error('[api/rep-punch]', msg, e instanceof Error ? e.stack : '');
     const fallback = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     return Response.json(
-      { success: false, error: msg, code: 'REP_PUNCH_UNHANDLED', detail: String(msg) },
+      { success: false, error: msg, code: 'REP_PUNCH_LITE_UNHANDLED' },
       { status: 500, headers: fallback },
     );
   }

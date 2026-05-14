@@ -149,10 +149,14 @@ export default defineConfig(({ mode }) => {
               return;
             }
             try {
-              const { default: handler } = await import('./api/rep-bridge.ts');
               const host = (req.headers.host as string) || 'localhost:3010';
               const fullUrl = `http://${host}${req.url ?? ''}`;
               const repRequestBody = await readConnectRequestBody(req as IncomingMessage);
+              const isRepPunch =
+                pathname === '/api/rep/punch' || pathname === '/api/rep/punch/';
+              const { default: handler } = isRepPunch
+                ? await import('./api/rep-punch.ts')
+                : await import('./api/rep-bridge.ts');
               const response = await handler(
                 new Request(fullUrl, {
                   method: req.method || 'GET',
