@@ -20,6 +20,7 @@
  *   REP_DEVICE_SCHEME   Protocolo do relógio: http|https (default: http)
  *   REP_DEVICE_PORT     Porta (default: 80 em http, 443 em https, se omitida)
  *   REP_INSECURE_TLS    Aceita certificado self-signed no relógio (1/true) — usar só em rede interna
+ *                       (também aplicado ao HTTPS após redirect 301/302 a partir de http://IP)
  *   REP_COMPANY_ID      UUID da empresa (public.companies ou tenant)
  *   REP_DEVICE_ID       (opcional) UUID do rep_devices cadastrado no painel
  *   REP_DEVICE_SESSION  (opcional) token de sessão — enviado junto a comandos em firmwares que exigem
@@ -214,27 +215,52 @@ function clockDeviceAuthHeaders() {
   return h;
 }
 
-/** POST JSON para o relógio (parser tolerante a respostas HTTP não padrão + TLS opcional). */
-async function clockPostJson(url, payload) {
-  const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
-  const body = JSON.stringify(payload);
+/** Host da URL é o mesmo relógio configurado em REP_DEVICE_IP (IPv4 ou hostname; IPv6 entre []). */
+function isConfiguredDeviceHost(hostname) {
+  const raw = String(hostname || '').toLowerCase();
+  const h = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+  const target = String(ip || '').toLowerCase();
+  return Boolean(target) && h === target;
+}
+
+/** TLS: aceita self-signed só em HTTPS para o host do relógio quando REP_INSECURE_TLS=1. */
+function clockTlsRejectUnauthorized(urlObj) {
+  if (urlObj.protocol !== 'https:') return true;
+  return !(insecureTls && isConfiguredDeviceHost(urlObj.hostname));
+}
+
+const CLOCK_HTTP_MAX_REDIRECTS = 8;
+const CLOCK_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+function clockNextUrlFromRedirect(currentUrl, locationHeader) {
+  if (!locationHeader) return null;
+  try {
+    const next = new URL(String(locationHeader).trim(), currentUrl).href;
+    return next === currentUrl ? null : next;
+  } catch {
+    return null;
+  }
+}
+
+/** POST cru ao relógio (uma ida); devolve cabeçalhos para seguir Location em redirects. */
+async function clockRawPost(urlString, bodyUtf8, headerFields) {
+  const u = new URL(urlString);
+  const useHttps = u.protocol === 'https:';
+  const { request } = await (useHttps ? import('node:https') : import('node:http'));
   const headers = {
-    Accept: 'application/json, text/plain, */*',
-    'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(body, 'utf8'),
-    ...clockDeviceAuthHeaders(),
+    ...headerFields,
+    'Content-Length': Buffer.byteLength(bodyUtf8, 'utf8'),
   };
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
     const req = request(
       {
         protocol: u.protocol,
         hostname: u.hostname,
-        port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        port: u.port || (useHttps ? 443 : 80),
         path: `${u.pathname}${u.search}`,
         method: 'POST',
         headers,
-        rejectUnauthorized: !(scheme === 'https' && insecureTls),
+        rejectUnauthorized: clockTlsRejectUnauthorized(u),
         insecureHTTPParser: true,
       },
       (res) => {
@@ -242,128 +268,161 @@ async function clockPostJson(url, payload) {
         res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
-          resolve({ status: res.statusCode || 0, text });
+          resolve({ status: res.statusCode || 0, text, headers: res.headers });
         });
       }
     );
     req.on('error', reject);
-    req.write(body);
+    req.write(bodyUtf8);
     req.end();
   });
+}
+
+/** POST JSON para o relógio (parser tolerante a respostas HTTP não padrão + TLS opcional + redirects). */
+async function clockPostJson(url, payload) {
+  const body = JSON.stringify(payload);
+  const headerFields = {
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+    ...clockDeviceAuthHeaders(),
+  };
+  let current = url;
+  let last = { status: 0, text: '' };
+  for (let d = 0; d <= CLOCK_HTTP_MAX_REDIRECTS; d += 1) {
+    last = await clockRawPost(current, body, headerFields);
+    const st = last.status;
+    if (CLOCK_REDIRECT_STATUSES.has(st)) {
+      const loc = last.headers?.location;
+      const next = clockNextUrlFromRedirect(current, loc);
+      if (next) {
+        current = next;
+        continue;
+      }
+    }
+    return { status: st, text: last.text };
+  }
+  return { status: last.status, text: last.text };
 }
 
 /** POST para get_afd.fcgi — resposta costuma ser text/plain ou octet-stream (corpo AFD bruto). */
 async function clockPostAfdBinary(url, payload) {
-  const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
   const body = JSON.stringify(payload ?? {});
-  const headers = {
+  const headerFields = {
     Accept: 'text/plain, application/octet-stream, application/json, */*',
     'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(body, 'utf8'),
     ...clockDeviceAuthHeaders(),
   };
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const req = request(
-      {
-        protocol: u.protocol,
-        hostname: u.hostname,
-        port: u.port || (u.protocol === 'https:' ? 443 : 80),
-        path: `${u.pathname}${u.search}`,
-        method: 'POST',
-        headers,
-        rejectUnauthorized: !(scheme === 'https' && insecureTls),
-        insecureHTTPParser: true,
-      },
-      (res) => {
-        const chunks = [];
-        res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          resolve({ status: res.statusCode || 0, text });
-        });
+  let current = url;
+  let last = { status: 0, text: '' };
+  for (let d = 0; d <= CLOCK_HTTP_MAX_REDIRECTS; d += 1) {
+    last = await clockRawPost(current, body, headerFields);
+    const st = last.status;
+    if (CLOCK_REDIRECT_STATUSES.has(st)) {
+      const next = clockNextUrlFromRedirect(current, last.headers?.location);
+      if (next) {
+        current = next;
+        continue;
       }
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+    }
+    return { status: st, text: last.text };
+  }
+  return { status: last.status, text: last.text };
 }
 
-/** GET genérico para o relógio com timeout e limite de tamanho (usado pelo modo AFD). */
+/** GET genérico para o relógio com timeout e limite de tamanho (usado pelo modo AFD). Segue redirects. */
 async function clockGet(url, { timeoutMs = REP_AFD_TIMEOUT_MS, maxBytes = REP_AFD_MAX_BYTES } = {}) {
-  const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
-  const headers = {
-    Accept: 'text/plain, application/octet-stream, */*',
-    ...clockDeviceAuthHeaders(),
-  };
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    let aborted = false;
-    let received = 0;
-    const chunks = [];
-    const req = request(
-      {
-        protocol: u.protocol,
-        hostname: u.hostname,
-        port: u.port || (u.protocol === 'https:' ? 443 : 80),
-        path: `${u.pathname}${u.search}`,
-        method: 'GET',
-        headers,
-        rejectUnauthorized: !(scheme === 'https' && insecureTls),
-        insecureHTTPParser: true,
-      },
-      (res) => {
-        res.on('data', (c) => {
-          if (aborted) return;
-          const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
-          received += buf.length;
-          if (received > maxBytes) {
-            aborted = true;
-            try {
-              res.destroy();
-              req.destroy();
-            } catch {
-              /* noop */
+  let current = url;
+  let last = { status: 0, text: '', contentType: '' };
+
+  for (let d = 0; d <= CLOCK_HTTP_MAX_REDIRECTS; d += 1) {
+    const u = new URL(current);
+    const useHttps = u.protocol === 'https:';
+    const { request } = await (useHttps ? import('node:https') : import('node:http'));
+    const headers = {
+      Accept: 'text/plain, application/octet-stream, */*',
+      ...clockDeviceAuthHeaders(),
+    };
+
+    const one = await new Promise((resolve, reject) => {
+      let aborted = false;
+      let received = 0;
+      const chunks = [];
+      const req = request(
+        {
+          protocol: u.protocol,
+          hostname: u.hostname,
+          port: u.port || (useHttps ? 443 : 80),
+          path: `${u.pathname}${u.search}`,
+          method: 'GET',
+          headers,
+          rejectUnauthorized: clockTlsRejectUnauthorized(u),
+          insecureHTTPParser: true,
+        },
+        (res) => {
+          res.on('data', (c) => {
+            if (aborted) return;
+            const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+            received += buf.length;
+            if (received > maxBytes) {
+              aborted = true;
+              try {
+                res.destroy();
+                req.destroy();
+              } catch {
+                /* noop */
+              }
+              reject(new Error(`Arquivo excedeu limite de ${maxBytes} bytes em ${current}`));
+              return;
             }
-            reject(new Error(`Arquivo excedeu limite de ${maxBytes} bytes em ${url}`));
-            return;
-          }
-          chunks.push(buf);
-        });
-        res.on('end', () => {
-          if (aborted) return;
-          const text = Buffer.concat(chunks).toString('utf8');
-          resolve({
-            status: res.statusCode || 0,
-            text,
-            contentType: String(res.headers['content-type'] || ''),
+            chunks.push(buf);
           });
-        });
-        res.on('error', (err) => {
-          if (aborted) return;
-          aborted = true;
-          reject(err);
-        });
-      }
-    );
-    req.setTimeout(timeoutMs, () => {
-      if (aborted) return;
-      aborted = true;
-      try {
-        req.destroy();
-      } catch {
-        /* noop */
-      }
-      reject(new Error(`Timeout (${timeoutMs}ms) em GET ${url}`));
+          res.on('end', () => {
+            if (aborted) return;
+            const text = Buffer.concat(chunks).toString('utf8');
+            resolve({
+              status: res.statusCode || 0,
+              text,
+              contentType: String(res.headers['content-type'] || ''),
+              headers: res.headers,
+            });
+          });
+          res.on('error', (err) => {
+            if (aborted) return;
+            aborted = true;
+            reject(err);
+          });
+        }
+      );
+      req.setTimeout(timeoutMs, () => {
+        if (aborted) return;
+        aborted = true;
+        try {
+          req.destroy();
+        } catch {
+          /* noop */
+        }
+        reject(new Error(`Timeout (${timeoutMs}ms) em GET ${current}`));
+      });
+      req.on('error', (err) => {
+        if (aborted) return;
+        aborted = true;
+        reject(err);
+      });
+      req.end();
     });
-    req.on('error', (err) => {
-      if (aborted) return;
-      aborted = true;
-      reject(err);
-    });
-    req.end();
-  });
+
+    last = { status: one.status, text: one.text, contentType: one.contentType };
+    if (CLOCK_REDIRECT_STATUSES.has(one.status)) {
+      const next = clockNextUrlFromRedirect(current, one.headers?.location);
+      if (next) {
+        current = next;
+        continue;
+      }
+    }
+    return last;
+  }
+
+  return last;
 }
 
 /** Caminhos comuns (Control iD / clones / firmwares legados). */
@@ -558,6 +617,9 @@ async function fetchPunchesFromClock() {
   const err = new Error('Nenhum comando compatível com o dispositivo');
   err.attempts = attempts;
   err.invalidCommandHits = invalidCommandHits;
+  if (lastErr && typeof lastErr.message === 'string') {
+    err.lastUnderlyingMessage = lastErr.message;
+  }
   throw err;
 }
 
@@ -1119,7 +1181,10 @@ function shouldFallbackToAfd(err) {
   const attempts = Number(err.attempts || 0);
   const hits = Number(err.invalidCommandHits || 0);
   if (attempts === 0) return false;
-  return hits >= Math.max(3, Math.floor(attempts * 0.6));
+  if (hits >= Math.max(3, Math.floor(attempts * 0.6))) return true;
+  const under = String(err.lastUnderlyingMessage || '');
+  if (hits === 0 && attempts >= 6 && /HTTP\s+30\d\b/.test(under)) return true;
+  return false;
 }
 
 async function ingestViaApiDirect() {
