@@ -1,6 +1,8 @@
 /**
  * POST /api/rep/punch (via `rep-bridge` slug `punch`) — RPC direta, sem `repIngestPunchCore`.
  * Export default para rota dedicada `/api/rep-punch` se configurada no deploy.
+ *
+ * URL do projeto: `SUPABASE_URL` ou, em alternativa, `VITE_SUPABASE_URL` (comum em deploys Vite na Vercel).
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -44,9 +46,11 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       return new Response(null, { status: 204, headers: cors });
     }
 
-    const supabaseUrl = (process.env.SUPABASE_URL || '').toString().trim();
+    const supabaseUrlRaw = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '')
+      .toString()
+      .trim();
     const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').toString().trim();
-    const hasUrl = Boolean(supabaseUrl);
+    const hasUrl = Boolean(supabaseUrlRaw);
     const hasKey = Boolean(serviceKey);
 
     if (!hasUrl || !hasKey) {
@@ -54,15 +58,16 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
         {
           error: 'ENV_MISSING',
           detail: {
-            SUPABASE_URL: hasUrl,
             SUPABASE_SERVICE_ROLE_KEY: hasKey,
+            hasSupabaseUrl: Boolean((process.env.SUPABASE_URL || '').toString().trim()),
+            hasViteSupabaseUrl: Boolean((process.env.VITE_SUPABASE_URL || '').toString().trim()),
           },
         },
         { status: 500, headers: headersJson },
       );
     }
 
-    const url = supabaseUrl.replace(/\/$/, '');
+    const url = supabaseUrlRaw.replace(/\/$/, '');
 
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors });

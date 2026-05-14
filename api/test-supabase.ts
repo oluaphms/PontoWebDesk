@@ -1,5 +1,5 @@
 /**
- * Diagnóstico: `rep_ingest_punch` com credenciais `SUPABASE_*` (sem fallback VITE).
+ * Diagnóstico: `rep_ingest_punch` com URL `SUPABASE_URL` ou `VITE_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
  * POST ou GET com o mesmo auth que `/api/rep/punch` (Bearer API_KEY / X-REP-API-Key).
  */
 
@@ -30,16 +30,18 @@ export default async function handler(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: JSON_HEADERS });
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
+  const supabaseUrlRaw = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').toString().trim();
+  const supabaseUrl = supabaseUrlRaw.replace(/\/$/, '');
 
   if (!supabaseUrl || !serviceKey) {
     return Response.json(
       {
         error: 'ENV_MISSING',
         detail: {
-          SUPABASE_URL: Boolean(supabaseUrl),
           SUPABASE_SERVICE_ROLE_KEY: Boolean(serviceKey),
+          hasSupabaseUrl: Boolean((process.env.SUPABASE_URL || '').toString().trim()),
+          hasViteSupabaseUrl: Boolean((process.env.VITE_SUPABASE_URL || '').toString().trim()),
         },
       },
       { status: 500, headers: JSON_HEADERS },
