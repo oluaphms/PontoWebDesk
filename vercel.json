@@ -73,6 +73,10 @@
       ]
     }
   ],
+  "functions": {
+    "api/rep-punch.ts": { "maxDuration": 30 },
+    "api/test-supabase.ts": { "maxDuration": 15 }
+  },
   "rewrites": [
     {
       "source": "/api/rep/:slug",

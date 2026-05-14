@@ -184,6 +184,53 @@ export default defineConfig(({ mode }) => {
       },
 
       {
+        name: 'rep-punch-api-dev',
+        configureServer(server) {
+          server.middlewares.use(async (req, res, next) => {
+            const pathname = req.url?.split('?')[0] ?? '';
+            const run = async (handler: (r: Request) => Promise<Response>) => {
+              const host = (req.headers.host as string) || 'localhost:3010';
+              const fullUrl = `http://${host}${req.url ?? ''}`;
+              const requestBody = await readConnectRequestBody(req as IncomingMessage);
+              return handler(
+                new Request(fullUrl, {
+                  method: req.method || 'GET',
+                  headers: req.headers as HeadersInit,
+                  ...(requestBody ? { body: requestBody } : {}),
+                }),
+              );
+            };
+            try {
+              let response: Response;
+              if (pathname === '/api/rep-punch') {
+                const { default: handler } = await import('./api/rep-punch.ts');
+                response = await run(handler);
+              } else if (pathname === '/api/test-supabase') {
+                const { default: handler } = await import('./api/test-supabase.ts');
+                response = await run(handler);
+              } else {
+                next();
+                return;
+              }
+              res.statusCode = response.status;
+              response.headers.forEach((value, key) => {
+                if (key.toLowerCase() === 'transfer-encoding') return;
+                res.setHeader(key, value);
+              });
+              const buf = Buffer.from(await response.arrayBuffer());
+              res.end(buf);
+            } catch (e) {
+              console.error('[rep-punch-api-dev]', pathname, e);
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              const detail = e instanceof Error ? e.message : String(e);
+              res.end(JSON.stringify({ error: 'Falha ao executar handler da API', details: detail }));
+            }
+          });
+        },
+      },
+
+      {
         name: 'remove-tailwind-cdn',
         transformIndexHtml(html: string) {
           if (isProduction) {

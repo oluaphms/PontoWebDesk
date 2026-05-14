@@ -1,6 +1,6 @@
 /**
  * POST /api/rep/punch — handler completo (weak match + overrides AFD) quando a rota passa por `rep-bridge`.
- * Produção via agente: `vercel.json` encaminha POST /api/rep/punch → `/api/rep-punch` (ficheiro `api/rep-punch.ts`, bundle leve).
+ * Produção: `vercel.json` reescreve `/api/rep/punch` → `rep-bridge` (slug `punch`), que usa `api/rep-punch.ts` via `handleRepPunchRpcLite` (bundle leve).
  */
 
 import { createClient } from '@supabase/supabase-js';
