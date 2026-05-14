@@ -4,7 +4,7 @@
  * Query: company_id (opcional), type=afd|aej se usar só /api/export
  */
 
-import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',

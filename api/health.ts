@@ -8,7 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 const SUPABASE_TIMEOUT_MS = 5_000;

@@ -7,8 +7,8 @@
  * e evitar OOM no cold start; o handler completo permanece em `repPunchHttp.ts` para outros cenários.
  */
 
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
-import { handleRepPunchRpcLite } from './_shared/repPunchRpcLite';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
+import { handleRepPunchRpcLite } from './_shared/repPunchRpcLite.js';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 

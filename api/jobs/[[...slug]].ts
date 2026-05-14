@@ -6,8 +6,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
-import { getCallerContext, isAdminOrHr } from '../_shared/callerContext';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
+import { getCallerContext, isAdminOrHr } from '../_shared/callerContext.js';
 import { JOB_TYPE } from '../../src/services/jobs/jobTypes';
 import { processJobs } from '../../src/services/jobs/processJobs';
 import { calculatePeriodTimesheets } from '../../src/services/payrollCalculator';

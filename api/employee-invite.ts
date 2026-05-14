@@ -5,9 +5,9 @@
  */
 
 import type { PostgrestError } from '@supabase/supabase-js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security.js';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 
 /** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
 type GoTrueAdminApi = {

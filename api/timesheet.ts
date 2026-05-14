@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { buildTimesheetForPeriod } from '../src/engine/timeEngine';
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 

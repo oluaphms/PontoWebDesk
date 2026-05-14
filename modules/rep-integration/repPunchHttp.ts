@@ -6,8 +6,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { repCorsHeaders } from './repVercelAuth';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
-import type { RepPunchBody } from './repPunchNormalize';
-import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from './repPunchNormalize';
+import type { RepPunchBody } from './repPunchNormalize.js';
+import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from './repPunchNormalize.js';
 
 export async function handleRepPunchHttp(request: Request): Promise<Response> {
   try {

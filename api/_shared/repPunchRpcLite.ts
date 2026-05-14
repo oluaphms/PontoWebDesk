@@ -4,9 +4,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
-import type { RepPunchBody } from '../../modules/rep-integration/repPunchNormalize';
-import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from '../../modules/rep-integration/repPunchNormalize';
+import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
+import type { RepPunchBody } from '../../modules/rep-integration/repPunchNormalize.js';
+import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from '../../modules/rep-integration/repPunchNormalize.js';
 
 function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin');

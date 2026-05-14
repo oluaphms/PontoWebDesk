@@ -24,7 +24,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 

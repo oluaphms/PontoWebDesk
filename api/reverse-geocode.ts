@@ -1,4 +1,4 @@
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 
 /** Hobby: máx. 10s — duas tentativas curtas + margem para cold start + Nominatim. */
 export const config = {

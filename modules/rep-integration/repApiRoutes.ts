@@ -18,7 +18,7 @@ import { ingestAfdRecords } from './repService';
 import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './types';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 import { safeUserSelectColumns } from '../../services/supabaseClient';
-import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl';
+import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl.js';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
