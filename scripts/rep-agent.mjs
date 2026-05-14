@@ -24,8 +24,8 @@
  *   REP_DEVICE_ID       (opcional) UUID do rep_devices cadastrado no painel
  *   REP_DEVICE_SESSION  (opcional) token de sessão — enviado junto a comandos em firmwares que exigem
  *   REP_DEVICE_BEARER ou REP_DEVICE_AUTH_TOKEN (opcional) Authorization no relógio (ex.: Bearer ...)
- *   REP_DEVICE_LOGIN      (opcional, default admin) Utilizador para login.fcgi (Control iD iDClass).
- *   REP_DEVICE_PASSWORD   Palavra-passe do relógio — com login obtém sessão e usa POST /get_afd.fcgi.
+ *   REP_DEVICE_LOGIN      Utilizador login.fcgi (default admin). MODO PRODUÇÃO idClass.
+ *   REP_DEVICE_PASSWORD   Palavra-passe do relógio (login.fcgi + get_afd.fcgi). Nunca logada.
  *   REP_DEVICE_CONTROLID_FCGI  "1" — tenta primeiro AFD por .fcgi mesmo sem palavra-passe (requer REP_DEVICE_SESSION).
  *   REP_AFD_PORTARIA_671    "1" — pede AFD no formato Portaria 671 (query mode=671 em get_afd.fcgi).
  *
@@ -104,7 +104,6 @@ const insecureTls = /^(1|true|yes)$/i.test((process.env.REP_INSECURE_TLS || '').
 /** Sessão API Control iD (.fcgi); ou obtida via login com REP_DEVICE_PASSWORD. */
 const repDeviceSession = (process.env.REP_DEVICE_SESSION || '').trim();
 const repDevicePassword = (process.env.REP_DEVICE_PASSWORD || '').trim();
-const repDeviceLogin = (process.env.REP_DEVICE_LOGIN || 'admin').trim();
 const repDeviceControlIdFcgi = /^(1|true|yes)$/i.test(
   (process.env.REP_DEVICE_CONTROLID_FCGI || process.env.REP_DEVICE_USE_CONTROLID || '').trim()
 );
@@ -206,6 +205,15 @@ function parseJsonSafe(raw) {
   }
 }
 
+function clockDeviceAuthHeaders() {
+  const deviceBearer = (process.env.REP_DEVICE_BEARER || process.env.REP_DEVICE_AUTH_TOKEN || '').trim();
+  const h = {};
+  if (deviceBearer) {
+    h.Authorization = deviceBearer.startsWith('Bearer ') ? deviceBearer : `Bearer ${deviceBearer}`;
+  }
+  return h;
+}
+
 /** POST JSON para o relógio (parser tolerante a respostas HTTP não padrão + TLS opcional). */
 async function clockPostJson(url, payload) {
   const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
@@ -214,11 +222,46 @@ async function clockPostJson(url, payload) {
     Accept: 'application/json, text/plain, */*',
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body, 'utf8'),
+    ...clockDeviceAuthHeaders(),
   };
-  const deviceBearer = (process.env.REP_DEVICE_BEARER || process.env.REP_DEVICE_AUTH_TOKEN || '').trim();
-  if (deviceBearer) {
-    headers.Authorization = deviceBearer.startsWith('Bearer ') ? deviceBearer : `Bearer ${deviceBearer}`;
-  }
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = request(
+      {
+        protocol: u.protocol,
+        hostname: u.hostname,
+        port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        path: `${u.pathname}${u.search}`,
+        method: 'POST',
+        headers,
+        rejectUnauthorized: !(scheme === 'https' && insecureTls),
+        insecureHTTPParser: true,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({ status: res.statusCode || 0, text });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/** POST para get_afd.fcgi — resposta costuma ser text/plain ou octet-stream (corpo AFD bruto). */
+async function clockPostAfdBinary(url, payload) {
+  const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
+  const body = JSON.stringify(payload ?? {});
+  const headers = {
+    Accept: 'text/plain, application/octet-stream, application/json, */*',
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body, 'utf8'),
+    ...clockDeviceAuthHeaders(),
+  };
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = request(
@@ -252,11 +295,8 @@ async function clockGet(url, { timeoutMs = REP_AFD_TIMEOUT_MS, maxBytes = REP_AF
   const { request } = await (scheme === 'https' ? import('node:https') : import('node:http'));
   const headers = {
     Accept: 'text/plain, application/octet-stream, */*',
+    ...clockDeviceAuthHeaders(),
   };
-  const deviceBearer = (process.env.REP_DEVICE_BEARER || process.env.REP_DEVICE_AUTH_TOKEN || '').trim();
-  if (deviceBearer) {
-    headers.Authorization = deviceBearer.startsWith('Bearer ') ? deviceBearer : `Bearer ${deviceBearer}`;
-  }
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     let aborted = false;
@@ -336,7 +376,7 @@ const DEVICE_ENDPOINT_PATHS = [
   '/api/get_log',
 ];
 
-/** Rotas comuns para download do AFD em REPs/clones (GET). Control iD iDClass usa POST /get_afd.fcgi — ver downloadAFDviaControlIdFcgi. */
+/** Rotas comuns para download do AFD em REPs/clones (GET). idClass: primeiro POST get_afd.fcgi com sessão (tryAfdControlIdSessionDownload). */
 const AFD_DOWNLOAD_PATHS = ['/afd', '/rep/afd', '/download/afd', '/api/afd', '/files/afd'];
 
 function buildCommandPayloads() {
@@ -585,85 +625,110 @@ function afdHttpSnippet(text, max = 220) {
   return s || '(corpo vazio)';
 }
 
-/** Control iD iDClass: POST /login.fcgi → session. */
-async function controlIdLogin(base) {
-  if (!repDevicePassword) {
-    throw new Error('REP_DEVICE_PASSWORD não definido (necessário para login.fcgi)');
+/** Sonda GET: Control iD idClass costuma responder "POST expected" em GET sobre /api/*. */
+async function probeDeviceWantsPostForApi(base) {
+  const url = `${base}/api/punches`;
+  try {
+    const res = await clockGet(url, { timeoutMs: 8000, maxBytes: 8192 });
+    const text = String(res.text || '');
+    const low = text.toLowerCase();
+    if (/post\s*expected|bad request:\s*post/i.test(low)) return true;
+    if ((res.status === 400 || res.status === 405) && low.includes('post')) return true;
+  } catch {
+    /* ignora */
   }
-  const url = `${base}/login.fcgi`;
-  const res = await clockPostJson(url, { login: repDeviceLogin, password: repDevicePassword });
-  if (res.status < 200 || res.status >= 300) {
-    throw new Error(`login.fcgi HTTP ${res.status}: ${afdHttpSnippet(res.text)}`);
-  }
-  const data = parseJsonSafe(res.text);
-  if (!data || typeof data !== 'object') {
-    throw new Error(`login.fcgi resposta não-JSON: ${afdHttpSnippet(res.text)}`);
-  }
-  if (data.error) {
-    throw new Error(`login.fcgi: ${String(data.error)}`);
-  }
-  const sid = typeof data.session === 'string' ? data.session.trim() : '';
-  if (!sid) {
-    throw new Error(`login.fcgi sem campo session: ${afdHttpSnippet(res.text)}`);
-  }
-  console.log('[REP CONTROLID] Sessão obtida via login.fcgi');
-  return sid;
+  return false;
 }
 
 /**
- * Control iD iDClass (documentação): POST /get_afd.fcgi?session=… com corpo JSON.
- * Linha «Access»: POST /export_afd.fcgi?session=… (também tentado).
+ * POST /login.fcgi — Control iD idClass (MODO PRODUÇÃO).
+ * Nunca lança: em falha devolve null e regista [REP LOGIN ERROR] (sem palavra-passe).
  */
-async function downloadAFDviaControlIdFcgi(base) {
-  const wantTry = repDeviceSession || repDevicePassword || repDeviceControlIdFcgi;
-  if (!wantTry) return null;
-
-  let session = repDeviceSession;
-  if (!session) {
-    if (!repDevicePassword) {
-      console.warn(
-        '[rep-agent] REP_DEVICE_CONTROLID_FCGI=1 mas falta REP_DEVICE_SESSION ou REP_DEVICE_PASSWORD — ignorando .fcgi.'
-      );
+async function loginControlId(base) {
+  const password = (process.env.REP_DEVICE_PASSWORD || '').trim();
+  if (!password) return null;
+  const login = (process.env.REP_DEVICE_LOGIN || 'admin').trim() || 'admin';
+  const url = `${base}/login.fcgi`;
+  try {
+    const res = await clockPostJson(url, { login, password });
+    if (res.status < 200 || res.status >= 300) {
+      console.error('[REP LOGIN ERROR]', `HTTP ${res.status}`, afdHttpSnippet(res.text));
       return null;
     }
-    session = await controlIdLogin(base);
+    const data = parseJsonSafe(res.text);
+    if (!data || typeof data !== 'object') {
+      console.error('[REP LOGIN ERROR]', 'resposta não-JSON', afdHttpSnippet(res.text));
+      return null;
+    }
+    if (data.error) {
+      console.error('[REP LOGIN ERROR]', String(data.error));
+      return null;
+    }
+    const sid = typeof data.session === 'string' ? data.session.trim() : '';
+    if (!sid) {
+      console.error('[REP LOGIN ERROR]', 'sem campo session', afdHttpSnippet(res.text));
+      return null;
+    }
+    console.log('[REP LOGIN SUCCESS]');
+    const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
+    console.log('[REP SESSION]', sessLog);
+    return sid;
+  } catch (e) {
+    console.error('[REP LOGIN ERROR]', e?.message || String(e));
+    return null;
   }
+}
 
-  const q = (extra) => {
-    const qs = new URLSearchParams({ session });
-    if (extra) for (const [k, v] of Object.entries(extra)) qs.set(k, String(v));
-    return qs.toString();
-  };
-
-  const attempts = [];
-  const legacy = { label: 'get_afd (legado)', path: `/get_afd.fcgi?${q()}`, body: {} };
-  const m671 = { label: 'get_afd mode=671', path: `/get_afd.fcgi?${q({ mode: '671' })}`, body: {} };
-  if (repAfdPortaria671) {
-    attempts.push(m671, legacy);
-  } else {
-    attempts.push(legacy, m671);
-  }
-  attempts.push({ label: 'export_afd (Access API)', path: `/export_afd.fcgi?${q()}`, body: {} });
-
-  for (const { label, path, body } of attempts) {
-    const url = `${base}${path}`;
+/**
+ * POST /get_afd.fcgi?session=… — conteúdo AFD bruto (text/plain ou application/octet-stream).
+ */
+async function fetchAfdWithSession(base, session) {
+  const sid = encodeURIComponent(session);
+  const urls = repAfdPortaria671
+    ? [`${base}/get_afd.fcgi?session=${sid}&mode=671`, `${base}/get_afd.fcgi?session=${sid}`]
+    : [`${base}/get_afd.fcgi?session=${sid}`, `${base}/get_afd.fcgi?session=${sid}&mode=671`];
+  for (const url of urls) {
     try {
-      const res = await clockPostJson(url, body);
+      const res = await clockPostAfdBinary(url, {});
       if (res.status < 200 || res.status >= 300) {
-        console.log(`[REP AFD FCGI] ${label} → HTTP ${res.status} ${afdHttpSnippet(res.text)}`);
+        console.log('[REP AFD SESSION]', url.split('?')[0], '→ HTTP', res.status, afdHttpSnippet(res.text));
         continue;
       }
       const text = res.text || '';
-      if (isPlausibleAfdText(text)) {
-        console.log(`[REP AFD DOWNLOAD] sucesso (${text.length} bytes) via ${url.split('?')[0]} (${label})`);
-        return { url, content: text };
-      }
-      console.log(`[REP AFD FCGI] ${label} → corpo não parece AFD: ${afdHttpSnippet(text)}`);
+      if (isPlausibleAfdText(text)) return text;
+      console.log('[REP AFD SESSION] corpo não reconhecido como AFD:', afdHttpSnippet(text));
     } catch (e) {
-      console.error(`[REP AFD FCGI] ${label}:`, e?.message || e);
+      console.error('[REP AFD SESSION]', e?.message || String(e));
     }
   }
   return null;
+}
+
+/**
+ * ANTES do download AFD por GET: Control iD idClass (sessão + get_afd.fcgi).
+ * Se login falhar ou não houver meio de obter sessão, devolve null (mantém fluxo atual).
+ */
+async function tryAfdControlIdSessionDownload(base) {
+  let postExpected = false;
+  try {
+    postExpected = await probeDeviceWantsPostForApi(base);
+  } catch {
+    postExpected = false;
+  }
+  const looksControlId = !!(repDeviceSession || repDevicePassword || repDeviceControlIdFcgi || postExpected);
+  if (!looksControlId) return null;
+
+  let session = repDeviceSession;
+  if (!session) {
+    session = await loginControlId(base);
+    if (!session) return null;
+  }
+
+  const raw = await fetchAfdWithSession(base, session);
+  if (!raw || !isPlausibleAfdText(raw)) return null;
+
+  console.log('[REP AFD DOWNLOAD SESSION MODE]');
+  return { url: `${base}/get_afd.fcgi`, content: raw };
 }
 
 /**
@@ -673,8 +738,8 @@ async function downloadAFDviaControlIdFcgi(base) {
 async function downloadAFD() {
   const base = `${scheme}://${ip}:${port}`;
 
-  const fcgiResult = await downloadAFDviaControlIdFcgi(base);
-  if (fcgiResult) return fcgiResult;
+  const sessionMode = await tryAfdControlIdSessionDownload(base);
+  if (sessionMode) return sessionMode;
 
   const candidates = [];
   if (repAfdPathEnv) {
@@ -946,7 +1011,7 @@ async function ingestViaAFD() {
 
   const { url, content } = downloaded;
   const records = parseAFD(content);
-  console.log(`[REP AFD PARSED] ${records.length} registros (origem: ${url})`);
+  console.log('[REP AFD PARSED]', `${records.length} registros`, '|', url);
 
   if (records.length === 0) {
     console.log('[rep-agent] AFD sem registros válidos para enviar.');

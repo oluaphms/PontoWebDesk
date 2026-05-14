@@ -1,24 +1,20 @@
-# Exemplo: relógio real na LAN + SaaS na Vercel.
-# Copie para `rep-agent-prod-env.ps1` (ficheiro ignorado pelo git), edite valores e na raiz do repo:
+# Copie para `rep-agent-prod-env.ps1` (gitignore), edite e execute:
 #   . .\scripts\rep-agent-prod-env.ps1
 #   npm run rep:agent
 #
-# Se o seu `.env.local` tiver IP de mock (127.0.0.1) e isso "ganhar" sobre o que pretende, use:
-#   $env:REP_AGENT_SKIP_DOTENV = "1"
-# antes de carregar este ficheiro, ou comente REP_DEVICE_* no .env.local.
+# Bloco equivalente no PowerShell (substitua API_KEY e REP_DEVICE_PASSWORD):
 
-$env:REP_SAAS_URL               = "https://SEU-PROJETO.vercel.app"
-$env:API_KEY                    = "COLOQUE_A_MESMA_API_KEY_DA_VERCEL"
-$env:REP_DEVICE_IP              = "192.168.1.19"
-$env:REP_DEVICE_SCHEME          = "https"
-$env:REP_DEVICE_PORT            = "443"
-$env:REP_INSECURE_TLS          = "1"
-# Control iD iDClass — obrigatório para AFD por API (não use GET /afd)
-# $env:REP_DEVICE_LOGIN         = "admin"
-# $env:REP_DEVICE_PASSWORD     = "SENHA_DO_MENU"
+$env:REP_AGENT_SKIP_DOTENV     = "1"
+$env:REP_SAAS_URL              = "https://pontowebdesk.vercel.app"
+$env:API_KEY                   = "MESMA_CHAVE_QUE_API_KEY_NA_VERCEL"
+$env:REP_DEVICE_IP             = "192.168.1.19"
+$env:REP_DEVICE_SCHEME         = "https"
+$env:REP_DEVICE_PORT           = "443"
+$env:REP_INSECURE_TLS         = "1"
+$env:REP_COMPANY_ID            = "a145b0cd-76f4-4dc8-b50c-02b0c9bfe24b"
+$env:REP_DEVICE_LOGIN          = "admin"
+$env:REP_DEVICE_PASSWORD       = "admin"
 # $env:REP_AFD_PORTARIA_671    = "1"
-$env:REP_COMPANY_ID             = "00000000-0000-0000-0000-000000000000"
-# Opcional: UUID do rep_devices no painel
-# $env:REP_DEVICE_ID            = ""
+# $env:REP_DEVICE_ID           = ""
 
-Write-Host "[rep-agent prod] Variáveis definidas. Rode: npm run rep:agent" -ForegroundColor Green
+Write-Host "[rep-agent prod] Edite API_KEY e REP_DEVICE_PASSWORD acima, depois: npm run rep:agent" -ForegroundColor Yellow
