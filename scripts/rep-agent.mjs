@@ -132,9 +132,17 @@ if (!saas) {
     'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local (carregados automaticamente). Ex.: REP_SAAS_URL=https://seu-app.vercel.app ou VITE_APP_URL=http://localhost:3010 com o Vite a correr. Em PowerShell: $env:REP_SAAS_URL="https://..."'
   );
 }
-if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY)');
-if (!ip) fail('Defina REP_DEVICE_IP');
-if (!companyId) fail('Defina REP_COMPANY_ID');
+if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY) no .env / .env.local ou no ambiente.');
+if (!ip) {
+  fail(
+    'Defina REP_DEVICE_IP no .env / .env.local (ex.: 192.168.x.x do relógio) ou 127.0.0.1 com scripts/rep-agent-mock.mjs (porta 8181). PowerShell: $env:REP_DEVICE_IP="127.0.0.1"'
+  );
+}
+if (!companyId) {
+  fail(
+    'Defina REP_COMPANY_ID no .env / .env.local (UUID em public.companies). PowerShell: $env:REP_COMPANY_ID="..."'
+  );
+}
 
 function normalizeTipo(t) {
   const u = String(t || 'E').toUpperCase();
