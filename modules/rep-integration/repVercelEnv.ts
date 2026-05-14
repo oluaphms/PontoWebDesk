@@ -11,6 +11,7 @@ export function getSupabaseUrlResolved(): string {
   const im = viteEnv();
   const raw =
     (typeof process.env.SUPABASE_URL === 'string' && process.env.SUPABASE_URL) ||
+    (typeof process.env.URL_SUPABASE === 'string' && process.env.URL_SUPABASE) ||
     (typeof process.env.VITE_SUPABASE_URL === 'string' && process.env.VITE_SUPABASE_URL) ||
     im?.VITE_SUPABASE_URL ||
     '';

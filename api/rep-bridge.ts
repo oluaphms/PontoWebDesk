@@ -1,7 +1,7 @@
 /**
  * Proxy REP consolidado (1 Serverless Function).
- * URLs públicas: /api/rep/status, /api/rep/punches, /api/rep/push-employee, /api/rep/exchange, etc. (via rewrite em vercel.json).
- * Não usar api/rep/[slug].ts — em alguns deploys Vercel isso resulta em FUNCTION_INVOCATION_FAILED.
+ * Não existe rewrite para `/api/rep-punch` (evita função serverless extra no limite Hobby).
+ * `/api/rep/punch` → rewrite `/api/rep/:slug` → `rep-bridge` → `handleRepPunchRpcLite` (sem `repIngestPunchCore`).
  *
  * O slug `punch` usa `handleRepPunchRpcLite` (RPC direta, sem `repIngestPunchCore`) em `api/_shared/` para caber no
  * limite Hobby (12 funções) da Vercel; slug `diagnostic-supabase` testa a RPC (URL pública `/api/test-supabase` via rewrite).
@@ -31,12 +31,14 @@ export default async function handler(request: Request): Promise<Response> {
     slug = parts[2] ?? '';
   }
   try {
-    const response =
-      slug === 'punch'
-        ? await handleRepPunchRpcLite(request)
-        : slug === 'diagnostic-supabase'
-          ? await handleRepTestSupabaseRpc(request)
-          : await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
+    let response: Response;
+    if (slug === 'punch') {
+      response = await handleRepPunchRpcLite(request);
+    } else if (slug === 'diagnostic-supabase') {
+      response = await handleRepTestSupabaseRpc(request);
+    } else {
+      response = await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
+    }
     try {
       response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       response.headers.set('Pragma', 'no-cache');

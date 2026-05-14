@@ -2,10 +2,11 @@
  * POST /api/process-daily-time
  * Job diário (ex.: cron 23:59) para processar o ponto do dia.
  * Header: X-Cron-Secret: <CRON_SECRET>
- * Variáveis: VITE_SUPABASE_URL (ou SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET
+ * Variáveis: SUPABASE_URL, URL_SUPABASE ou VITE_SUPABASE_URL (ver `getSupabaseUrlForServer`), SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET
  */
 
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
+import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -37,9 +38,11 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!serviceKey || !supabaseUrl) {
+  let supabaseUrl: string;
+  let serviceKey: string;
+  try {
+    ({ url: supabaseUrl, serviceKey } = getSupabaseConfig());
+  } catch {
     return Response.json(
       { error: 'Supabase não configurado.', code: 'CONFIG_MISSING' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

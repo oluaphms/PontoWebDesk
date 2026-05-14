@@ -8,6 +8,7 @@ import type { PostgrestError } from '@supabase/supabase-js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security.js';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
+import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 
 /** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
 type GoTrueAdminApi = {
@@ -75,7 +76,7 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   const serviceKey = (typeof process.env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '').trim();
-  const supabaseUrl = (typeof process.env.SUPABASE_URL === 'string' ? process.env.SUPABASE_URL : process.env.VITE_SUPABASE_URL as string || '').toString().trim().replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
 
   if (!serviceKey || !supabaseUrl) {
     return Response.json(

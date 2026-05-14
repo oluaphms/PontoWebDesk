@@ -7,6 +7,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
+import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getCallerContext, isAdminOrHr } from '../_shared/callerContext.js';
 import { JOB_TYPE } from '../../src/services/jobs/jobTypes';
 import { processJobs } from '../../src/services/jobs/processJobs';
@@ -76,10 +77,7 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
     );
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '')
-    .toString()
-    .trim()
-    .replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
@@ -262,10 +260,7 @@ async function handleProcess(request: Request): Promise<Response> {
     );
   }
 
-  const supabaseUrlForAuth = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '')
-    .toString()
-    .trim()
-    .replace(/\/$/, '');
+  const supabaseUrlForAuth = getSupabaseUrlForServer();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
   const secret = request.headers.get('X-Cron-Secret')?.trim();
@@ -297,10 +292,7 @@ async function handleProcess(request: Request): Promise<Response> {
     }
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '')
-    .toString()
-    .trim()
-    .replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   if (!serviceKey || !supabaseUrl) {
     return jsonWithLog(
@@ -348,10 +340,7 @@ async function handleJobGet(request: Request, jobId: string): Promise<Response> 
     );
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '')
-    .toString()
-    .trim()
-    .replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 

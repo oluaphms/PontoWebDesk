@@ -19,6 +19,8 @@ import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './typ
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 import { safeUserSelectColumns } from '../../services/supabaseClient';
 import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl.js';
+import { getSupabaseConfig } from '../../api/_shared/getSupabaseConfig.js';
+import { handleRepPunchRpcLite } from '../../api/_shared/repPunchRpcLite.js';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
@@ -442,9 +444,11 @@ async function handleSync(request: Request): Promise<Response> {
   if (!apiKey || token !== apiKey) {
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: headersJson });
   }
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!url || !serviceKey) {
+  let url: string;
+  let serviceKey: string;
+  try {
+    ({ url, serviceKey } = getSupabaseConfig());
+  } catch {
     return Response.json({ error: 'Supabase não configurado' }, { status: 500, headers: headersJson });
   }
   const supabase = createClient(url, serviceKey, {
@@ -613,7 +617,7 @@ export async function handleRepSlug(request: Request, slug: string): Promise<Res
     case 'sync':
       return handleSync(request);
     case 'punch':
-      return (await import('./repPunchHttp')).handleRepPunchHttp(request);
+      return handleRepPunchRpcLite(request);
     case 'import-afd':
       return handleImportAfd(request);
     case 'push-employee':

@@ -5,6 +5,7 @@
  */
 
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
+import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -52,7 +53,7 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
     );
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
   if (!anonKey || !supabaseUrl) {
     return Response.json(

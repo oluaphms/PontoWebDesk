@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -30,47 +31,47 @@ export async function handleRepTestSupabaseRpc(request: Request): Promise<Respon
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: JSON_HEADERS });
   }
 
-  const supabaseUrlRaw = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim();
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').toString().trim();
-  const supabaseUrl = supabaseUrlRaw.replace(/\/$/, '');
-
-  if (!supabaseUrl || !serviceKey) {
-    return Response.json(
-      {
-        error: 'ENV_MISSING',
-        detail: {
-          SUPABASE_SERVICE_ROLE_KEY: Boolean(serviceKey),
-          hasSupabaseUrl: Boolean((process.env.SUPABASE_URL || '').toString().trim()),
-          hasViteSupabaseUrl: Boolean((process.env.VITE_SUPABASE_URL || '').toString().trim()),
+  let supabaseUrl: string;
+  let serviceKey: string;
+  try {
+    ({ url: supabaseUrl, serviceKey } = getSupabaseConfig());
+  } catch (e) {
+    if (e instanceof Error && e.message === 'SUPABASE_ENV_MISSING') {
+      return Response.json(
+        {
+          error: 'ENV_MISSING',
+          detail: {
+            SUPABASE_SERVICE_ROLE_KEY: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY || '').toString().trim()),
+            hasSupabaseUrl: Boolean((process.env.SUPABASE_URL || '').toString().trim()),
+            hasURL_SUPABASE: Boolean((process.env.URL_SUPABASE || '').toString().trim()),
+            hasViteSupabaseUrl: Boolean((process.env.VITE_SUPABASE_URL || '').toString().trim()),
+          },
         },
-      },
-      { status: 500, headers: JSON_HEADERS },
-    );
+        { status: 500, headers: JSON_HEADERS },
+      );
+    }
+    throw e;
   }
+
+  console.log('[REP DIAGNOSTIC SUPABASE ENV]', {
+    using: getSupabaseUrlSource(),
+    hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
 
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const testPayload = {
-    p_company_id: '00000000-0000-0000-0000-000000000001',
-    p_rep_device_id: null,
-    p_pis: null,
-    p_cpf: null,
-    p_matricula: null,
-    p_nome_funcionario: null,
-    p_data_hora: new Date().toISOString(),
-    p_tipo_marcacao: 'E',
-    p_nsr: null,
-    p_raw_data: { source: 'api', ingest: 'test-supabase' },
-    p_only_staging: true,
-    p_apply_schedule: false,
-    p_force_user_id: null,
-    p_trust_client_identity: false,
-  };
-
   try {
-    const { data, error } = await supabase.rpc('rep_ingest_punch', testPayload);
+    const { data, error } = await supabase.rpc('rep_ingest_punch', {
+      p_company_id: 'test',
+      p_data_hora: new Date().toISOString(),
+      p_pis: null,
+      p_nsr: null,
+      p_tipo_marcacao: 'E',
+      p_raw_data: {},
+      p_only_staging: true,
+    });
     return Response.json(
       { data, error },
       {

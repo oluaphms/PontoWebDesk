@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { PUNCH_SOURCE_WEB } from '../src/constants/punchSource';
 import { sendPunch } from '../src/services/sendPunch.service';
+import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -115,9 +116,11 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   // Conexão Supabase (service role - NUNCA exposta no frontend)
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '');
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!url || !serviceKey) {
+  let url: string;
+  let serviceKey: string;
+  try {
+    ({ url, serviceKey } = getSupabaseConfig());
+  } catch {
     return Response.json(
       { error: 'Configuração Supabase ausente no servidor.' },
       { status: 500, headers: corsHeaders }

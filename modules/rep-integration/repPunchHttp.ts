@@ -1,6 +1,7 @@
 /**
- * POST /api/rep/punch — handler completo (weak match + overrides AFD) quando a rota passa por `rep-bridge`.
- * Produção: `vercel.json` reescreve `/api/rep/punch` → `rep-bridge` (slug `punch`), que usa `handleRepPunchRpcLite` em `api/_shared/repPunchRpcLite.ts` (bundle leve).
+ * POST /api/rep/punch — handler **completo** (weak match + `repIngestPunchCore`).
+ * Em produção, `/api/rep/punch` deve ir sempre por `rep-bridge` + `handleRepPunchRpcLite` (`repApiRoutes` slug `punch`).
+ * Este ficheiro mantém-se para testes/legado; não deve ser o caminho quente na Vercel (bundle pesado).
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -8,6 +9,7 @@ import { repCorsHeaders } from './repVercelAuth';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 import type { RepPunchBody } from './repPunchNormalize.js';
 import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from './repPunchNormalize.js';
+import { getSupabaseConfig } from '../../api/_shared/getSupabaseConfig.js';
 
 export async function handleRepPunchHttp(request: Request): Promise<Response> {
   try {
@@ -25,9 +27,11 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     if (!apiKey || token !== apiKey) {
       return Response.json({ error: 'Unauthorized' }, { status: 401, headers: headersJson });
     }
-    const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
-    const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-    if (!url || !serviceKey) {
+    let url: string;
+    let serviceKey: string;
+    try {
+      ({ url, serviceKey } = getSupabaseConfig());
+    } catch {
       return Response.json({ error: 'Supabase não configurado' }, { status: 500, headers: headersJson });
     }
     let body: RepPunchBody;

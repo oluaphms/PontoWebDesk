@@ -68,7 +68,11 @@ export function validateEnv(): ValidatedEnv {
 
   // ===== SUPABASE_URL =====
   let supabaseUrl = getEnv('SUPABASE_URL');
-  
+
+  if (!supabaseUrl) {
+    supabaseUrl = getEnv('URL_SUPABASE');
+  }
+
   // Fallback para VITE_SUPABASE_URL se existir
   if (!supabaseUrl) {
     const viteUrl = getEnv('VITE_SUPABASE_URL');
@@ -80,8 +84,8 @@ export function validateEnv(): ValidatedEnv {
 
   // Fail fast se não encontrou URL
   if (!supabaseUrl) {
-    logError('env', 'Variável obrigatória ausente: SUPABASE_URL (ou VITE_SUPABASE_URL)');
-    console.error('[ENV ERROR] Configure SUPABASE_URL no .env ou .env.local');
+    logError('env', 'Variável obrigatória ausente: SUPABASE_URL (ou URL_SUPABASE ou VITE_SUPABASE_URL)');
+    console.error('[ENV ERROR] Configure SUPABASE_URL, URL_SUPABASE ou VITE_SUPABASE_URL no .env ou .env.local');
     process.exit(1);
   }
 

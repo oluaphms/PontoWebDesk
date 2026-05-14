@@ -3,6 +3,7 @@ import { buildTimesheetForPeriod } from '../src/engine/timeEngine';
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
+import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 
@@ -39,9 +40,11 @@ export default async function handler(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
   }
 
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').toString().trim().replace(/\/$/, '');
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!url || !serviceKey) {
+  let url: string;
+  let serviceKey: string;
+  try {
+    ({ url, serviceKey } = getSupabaseConfig());
+  } catch {
     return Response.json({ error: 'Configuração Supabase ausente.' }, { status: 500, headers: corsHeaders });
   }
 

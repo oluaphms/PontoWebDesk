@@ -25,6 +25,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
+import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ async function handleMetrics(): Promise<Response> {
     timestamp: new Date().toISOString(),
     queue: queueMetrics,
     environment: {
-      supabaseConfigured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+      supabaseConfigured: !!(getSupabaseUrlForServer() && process.env.SUPABASE_SERVICE_ROLE_KEY),
       apiKeyConfigured:   !!(process.env.CLOCK_AGENT_API_KEY || process.env.API_KEY),
       sqlitePathConfigured: !!sp,
       alertWebhookConfigured: !!(process.env.ALERT_WEBHOOK_URL),
@@ -148,7 +149,7 @@ async function handleSyncErrors(request: Request, url: URL): Promise<Response> {
 }
 
 async function handleSystemStatus(): Promise<Response> {
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const sp          = sqlitePath();
 
@@ -201,7 +202,7 @@ async function handleSystemStatus(): Promise<Response> {
 }
 
 async function handleGlobalDashboard(): Promise<Response> {
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const sp          = sqlitePath();
 
@@ -258,7 +259,7 @@ async function handleGlobalDashboard(): Promise<Response> {
 
 /** Métricas globais de monetização / saúde do produto (service role). */
 async function handleSaaSMetrics(): Promise<Response> {
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   if (!supabaseUrl || !serviceKey) {
     return json(
@@ -415,7 +416,7 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
     }
 
     if (sub === 'snapshot' && request.method === 'POST') {
-      const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+      const supabaseUrl = getSupabaseUrlForServer();
       const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
       if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase não configurado.' }, 503);
       const { SnapshotService } = await import('../../services/snapshotService.js' as string);
@@ -450,7 +451,7 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
     }
 
     if (sub === 'daily-report') {
-      const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+      const supabaseUrl = getSupabaseUrlForServer();
       const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
       if (supabaseUrl && serviceKey) {
         try {
@@ -480,7 +481,7 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
 
 async function handleOnboarding(request: Request): Promise<Response> {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase não configurado.' }, 503);
 
@@ -553,7 +554,7 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
   const companyId = url.searchParams.get('company_id');
   if (!companyId) return json({ error: 'company_id obrigatório.' }, 400);
 
-  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const sp          = sqlitePath();
 

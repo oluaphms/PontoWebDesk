@@ -12,6 +12,7 @@
  */
 
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
+import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -67,7 +68,7 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   const serviceKey = (typeof process.env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '').trim();
-  const supabaseUrl = (typeof process.env.SUPABASE_URL === 'string' ? process.env.SUPABASE_URL : (process.env.VITE_SUPABASE_URL as string) || '').toString().trim().replace(/\/$/, '');
+  const supabaseUrl = getSupabaseUrlForServer();
   const anonKey = (typeof process.env.SUPABASE_ANON_KEY === 'string' ? process.env.SUPABASE_ANON_KEY : (process.env.VITE_SUPABASE_ANON_KEY as string) || '').trim();
 
   if (!serviceKey || !supabaseUrl) {

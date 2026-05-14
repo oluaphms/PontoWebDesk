@@ -1,4 +1,4 @@
-/** Partilhado entre `repPunchHttp` e `api/_shared/repPunchRpcLite` (evita duplicar regex/normalização). */
+/** Partilhado entre `repPunchHttp` (legado) e `api/_shared/repPunchRpcLite` (produção /api/rep/punch). */
 
 export interface RepPunchBody {
   pis?: string;
