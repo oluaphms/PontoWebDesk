@@ -1,15 +1,16 @@
 /**
  * Proxy REP consolidado (1 Serverless Function).
  * Não existe rewrite para `/api/rep-punch` (evita função serverless extra no limite Hobby).
- * `/api/rep/punch` → rewrite `/api/rep/:slug` → `rep-bridge` → `handleRepPunchRpcLite` (sem `repIngestPunchCore`).
+ * `/api/rep/punch` → rewrite `/api/rep/:slug` → `rep-bridge`.
  *
- * O slug `punch` usa `handleRepPunchRpcLite` (RPC direta, sem `repIngestPunchCore`) em `api/_shared/` para caber no
- * limite Hobby (12 funções) da Vercel; slug `diagnostic-supabase` testa a RPC (URL pública `/api/test-supabase` via rewrite).
+ * TEMPORÁRIO (diagnóstico): slug `punch` responde JSON fixo sem importar `repPunchRpcLite`
+ * (evita carregar planEnforcement/supabase no cold start desta função).
+ * Reverter para `handleRepPunchRpcLite(request)` após validar na Vercel.
+ *
+ * Slug `diagnostic-supabase` + `/api/rep-punch-test` mantêm-se para outros testes.
  */
 
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { handleRepPunchRpcLite } from './_shared/repPunchRpcLite.js';
-import { handleRepTestSupabaseRpc } from './_shared/repTestSupabaseRpc.js';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 
@@ -33,8 +34,18 @@ export default async function handler(request: Request): Promise<Response> {
   try {
     let response: Response;
     if (slug === 'punch') {
-      response = await handleRepPunchRpcLite(request);
+      response = new Response(
+        JSON.stringify({
+          ok: true,
+          message: 'bridge funcionando',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     } else if (slug === 'diagnostic-supabase') {
+      const { handleRepTestSupabaseRpc } = await import('./_shared/repTestSupabaseRpc.js');
       response = await handleRepTestSupabaseRpc(request);
     } else {
       response = await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
