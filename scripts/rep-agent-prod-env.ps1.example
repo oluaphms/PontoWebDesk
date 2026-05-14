@@ -1,0 +1,20 @@
+# Exemplo: relógio real na LAN + SaaS na Vercel.
+# Copie para `rep-agent-prod-env.ps1` (ficheiro ignorado pelo git), edite valores e na raiz do repo:
+#   . .\scripts\rep-agent-prod-env.ps1
+#   npm run rep:agent
+#
+# Se o seu `.env.local` tiver IP de mock (127.0.0.1) e isso "ganhar" sobre o que pretende, use:
+#   $env:REP_AGENT_SKIP_DOTENV = "1"
+# antes de carregar este ficheiro, ou comente REP_DEVICE_* no .env.local.
+
+$env:REP_SAAS_URL               = "https://SEU-PROJETO.vercel.app"
+$env:API_KEY                    = "COLOQUE_A_MESMA_API_KEY_DA_VERCEL"
+$env:REP_DEVICE_IP              = "192.168.1.19"
+$env:REP_DEVICE_SCHEME          = "https"
+$env:REP_DEVICE_PORT            = "443"
+$env:REP_INSECURE_TLS          = "1"
+$env:REP_COMPANY_ID             = "00000000-0000-0000-0000-000000000000"
+# Opcional: UUID do rep_devices no painel
+# $env:REP_DEVICE_ID            = ""
+
+Write-Host "[rep-agent prod] Variáveis definidas. Rode: npm run rep:agent" -ForegroundColor Green

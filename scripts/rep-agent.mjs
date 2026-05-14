@@ -18,7 +18,7 @@
  *   API_KEY             Mesma chave das APIs serverless (Authorization: Bearer)
  *   REP_DEVICE_IP       IP do relógio (ex: 192.168.0.38)
  *   REP_DEVICE_SCHEME   Protocolo do relógio: http|https (default: http)
- *   REP_DEVICE_PORT     Porta (default 80)
+ *   REP_DEVICE_PORT     Porta (default: 80 em http, 443 em https, se omitida)
  *   REP_INSECURE_TLS    Aceita certificado self-signed no relógio (1/true) — usar só em rede interna
  *   REP_COMPANY_ID      UUID da empresa (public.companies ou tenant)
  *   REP_DEVICE_ID       (opcional) UUID do rep_devices cadastrado no painel
@@ -38,6 +38,8 @@
  *   --- loop / serviço ---
  *   REP_AGENT_LOOP        "1" (default) executa em loop contínuo; "0" roda um único ciclo.
  *   REP_AGENT_INTERVAL_MS Intervalo entre ciclos quando em loop (default 60000 = 1 min).
+ *   REP_AGENT_SKIP_DOTENV "1" — não lê .env / .env.local (útil se o ficheiro tiver mock 127.0.0.1:8181
+ *                         e quiser usar só variáveis definidas no PowerShell antes de npm run).
  *   Flag CLI: --once      Equivalente a REP_AGENT_LOOP=0.
  *
  * Uso: npm run rep:agent
@@ -69,7 +71,14 @@ function loadEnvFilesFromProjectRoot() {
   }
 }
 
-loadEnvFilesFromProjectRoot();
+const repAgentSkipDotenv = /^(1|true|yes)$/i.test((process.env.REP_AGENT_SKIP_DOTENV || '').trim());
+if (!repAgentSkipDotenv) {
+  loadEnvFilesFromProjectRoot();
+} else {
+  console.warn(
+    '[rep-agent] REP_AGENT_SKIP_DOTENV=1 — .env e .env.local ignorados (apenas variáveis já no ambiente do processo).'
+  );
+}
 
 function trimBaseUrl(s) {
   return String(s ?? '')
@@ -82,7 +91,9 @@ const saas = trimBaseUrl(process.env.REP_SAAS_URL) || trimBaseUrl(process.env.VI
 const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
 const ip = (process.env.REP_DEVICE_IP || '').trim();
 const scheme = (process.env.REP_DEVICE_SCHEME || 'http').trim().toLowerCase() === 'https' ? 'https' : 'http';
-const port = (process.env.REP_DEVICE_PORT || '80').trim();
+/** Porta padrão coerente com o esquema (evita https + 80 por engano quando REP_DEVICE_PORT não está no .env). */
+const defaultDevicePort = scheme === 'https' ? '443' : '80';
+const port = (process.env.REP_DEVICE_PORT || defaultDevicePort).trim();
 const companyId = (process.env.REP_COMPANY_ID || '').trim();
 const deviceId = (process.env.REP_DEVICE_ID || '').trim() || undefined;
 const insecureTls = /^(1|true|yes)$/i.test((process.env.REP_INSECURE_TLS || '').trim());
@@ -129,7 +140,7 @@ function fail(msg) {
 
 if (!saas) {
   fail(
-    'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local (carregados automaticamente). Ex.: REP_SAAS_URL=https://seu-app.vercel.app ou VITE_APP_URL=http://localhost:3010 com o Vite a correr. Em PowerShell: $env:REP_SAAS_URL="https://..."'
+    'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local (carregados automaticamente). Ex.: REP_SAAS_URL=https://seu-app.vercel.app ou VITE_APP_URL=http://localhost:3010 com o Vite a correr. Em PowerShell: $env:REP_SAAS_URL="https://..." Se .env.local apontar para localhost e quiser usar só variáveis do shell: $env:REP_AGENT_SKIP_DOTENV="1"'
   );
 }
 if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY) no .env / .env.local ou no ambiente.');
@@ -141,6 +152,19 @@ if (!ip) {
 if (!companyId) {
   fail(
     'Defina REP_COMPANY_ID no .env / .env.local (UUID em public.companies). PowerShell: $env:REP_COMPANY_ID="..."'
+  );
+}
+
+{
+  const keyHint =
+    apiKey.length > 10 ? `${apiKey.slice(0, 4)}…${apiKey.slice(-3)}` : apiKey.length > 0 ? '(definida)' : '';
+  console.log(
+    '[rep-agent] Config efetiva:',
+    `relógio=${scheme}://${ip}:${port}`,
+    `| SaaS=${saas}`,
+    `| empresa=${companyId.slice(0, 8)}…`,
+    `| API_KEY=${keyHint}`,
+    repAgentSkipDotenv ? '| dotenv=off' : '| dotenv=on'
   );
 }
 

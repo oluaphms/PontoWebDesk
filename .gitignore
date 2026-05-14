@@ -72,3 +72,6 @@ agent/data/offline-queue.json
 agent/data/pending.db
 agent/data/pending.db-wal
 agent/data/pending.db-shm
+
+# Script local com API_KEY / IP de produção (cópia de rep-agent-prod-env.ps1.example)
+scripts/rep-agent-prod-env.ps1
