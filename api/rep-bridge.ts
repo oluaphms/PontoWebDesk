@@ -7,7 +7,7 @@
  * (evita carregar planEnforcement/supabase no cold start desta função).
  * Reverter para `handleRepPunchRpcLite(request)` após validar na Vercel.
  *
- * Slug `diagnostic-supabase` + `/api/rep-punch-test` mantêm-se para outros testes.
+ * Slug `diagnostic-supabase` (rewrite `/api/test-supabase`) para smoke test Supabase/RPC.
  */
 
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
