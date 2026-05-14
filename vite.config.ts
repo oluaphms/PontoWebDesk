@@ -188,9 +188,10 @@ export default defineConfig(({ mode }) => {
         configureServer(server) {
           server.middlewares.use(async (req, res, next) => {
             const pathname = req.url?.split('?')[0] ?? '';
-            const run = async (handler: (r: Request) => Promise<Response>) => {
-              const host = (req.headers.host as string) || 'localhost:3010';
-              const fullUrl = `http://${host}${req.url ?? ''}`;
+            const host = (req.headers.host as string) || 'localhost:3010';
+            const run = async (handler: (r: Request) => Promise<Response>, pathAndQuery: string) => {
+              const pq = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+              const fullUrl = `http://${host}${pq.split('#')[0]}`;
               const requestBody = await readConnectRequestBody(req as IncomingMessage);
               return handler(
                 new Request(fullUrl, {
@@ -203,11 +204,14 @@ export default defineConfig(({ mode }) => {
             try {
               let response: Response;
               if (pathname === '/api/rep-punch') {
-                const { default: handler } = await import('./api/rep-punch.ts');
-                response = await run(handler);
+                const { handleRepPunchRpcLite } = await import('./api/_shared/repPunchRpcLite.ts');
+                response = await run(handleRepPunchRpcLite, req.url ?? pathname);
               } else if (pathname === '/api/test-supabase') {
-                const { default: handler } = await import('./api/test-supabase.ts');
-                response = await run(handler);
+                const { default: bridge } = await import('./api/rep-bridge.ts');
+                const raw = req.url ?? pathname;
+                const extra = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
+                const bridgePath = `/api/rep-bridge?slug=diagnostic-supabase${extra ? `&${extra}` : ''}`;
+                response = await run(bridge, bridgePath);
               } else {
                 next();
                 return;

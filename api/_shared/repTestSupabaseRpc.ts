@@ -1,13 +1,13 @@
 /**
- * Diagnóstico: `rep_ingest_punch` com URL `SUPABASE_URL` ou `VITE_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
- * POST ou GET com o mesmo auth que `/api/rep/punch` (Bearer API_KEY / X-REP-API-Key).
+ * Diagnóstico RPC `rep_ingest_punch` (payload de teste).
+ * Expõe-se via `rep-bridge` slug `diagnostic-supabase` + rewrite `/api/test-supabase` — não é função própria (limite Hobby).
  */
 
 import { createClient } from '@supabase/supabase-js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
-export default async function handler(request: Request): Promise<Response> {
+export async function handleRepTestSupabaseRpc(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,

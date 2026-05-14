@@ -3,12 +3,13 @@
  * URLs públicas: /api/rep/status, /api/rep/punches, /api/rep/push-employee, /api/rep/exchange, etc. (via rewrite em vercel.json).
  * Não usar api/rep/[slug].ts — em alguns deploys Vercel isso resulta em FUNCTION_INVOCATION_FAILED.
  *
- * O slug `punch` usa `handleRepPunchRpcLite` (RPC direta, sem `repIngestPunchCore`) para caber no limite Hobby
- * e evitar OOM no cold start; o handler completo permanece em `repPunchHttp.ts` para outros cenários.
+ * O slug `punch` usa `handleRepPunchRpcLite` (RPC direta, sem `repIngestPunchCore`) em `api/_shared/` para caber no
+ * limite Hobby (12 funções) da Vercel; slug `diagnostic-supabase` testa a RPC (URL pública `/api/test-supabase` via rewrite).
  */
 
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { handleRepPunchRpcLite } from './_shared/repPunchRpcLite.js';
+import { handleRepTestSupabaseRpc } from './_shared/repTestSupabaseRpc.js';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 
@@ -33,7 +34,9 @@ export default async function handler(request: Request): Promise<Response> {
     const response =
       slug === 'punch'
         ? await handleRepPunchRpcLite(request)
-        : await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
+        : slug === 'diagnostic-supabase'
+          ? await handleRepTestSupabaseRpc(request)
+          : await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
     try {
       response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       response.headers.set('Pragma', 'no-cache');

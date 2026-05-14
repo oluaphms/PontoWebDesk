@@ -75,6 +75,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/test-supabase",
+      "destination": "/api/rep-bridge?slug=diagnostic-supabase"
+    },
+    {
       "source": "/api/rep/:slug",
       "destination": "/api/rep-bridge?slug=:slug"
     },
