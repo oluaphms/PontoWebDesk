@@ -102,22 +102,26 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
   const nsrNorm = normalizeRepPunchNsrForRpc(nsr);
   let result;
   try {
-    const { ingestPunch } = await import('./repService');
-    result = await ingestPunch(supabase, {
-      company_id,
-      rep_device_id: repDeviceId,
-      pis: pis ?? null,
-      cpf: cpf ?? null,
-      matricula: matricula ?? null,
-      nome_funcionario: null,
-      data_hora: ts.toISOString(),
-      tipo_marcacao: tipo_marcacao || 'E',
-      nsr: nsrNorm,
-      raw_data: { source: 'api' },
-    });
+    const { runRepIngestPunchRpc } = await import('./repIngestPunchCore');
+    result = await runRepIngestPunchRpc(
+      supabase,
+      {
+        company_id,
+        rep_device_id: repDeviceId,
+        pis: pis ?? null,
+        cpf: cpf ?? null,
+        matricula: matricula ?? null,
+        nome_funcionario: null,
+        data_hora: ts.toISOString(),
+        tipo_marcacao: tipo_marcacao || 'E',
+        nsr: nsrNorm,
+        raw_data: { source: 'api' },
+      },
+      { recordTimeline: false },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[api/rep/punch] ingestPunch exception', msg, e instanceof Error ? e.stack : '');
+    console.error('[api/rep/punch] runRepIngestPunchRpc exception', msg, e instanceof Error ? e.stack : '');
     return Response.json(
       { success: false, error: msg, code: 'REP_PUNCH_INGEST_EXCEPTION' },
       { status: 500, headers: headersJson }
