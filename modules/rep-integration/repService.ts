@@ -15,8 +15,7 @@ import {
   resolveCanonicalUser,
 } from './repResolveCanonicalUser';
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
-import { safeUserSelectColumns } from '../../services/supabaseClient';
-import { appendTimeAttendanceTimelineEvent } from '../../src/services/timeAttendanceTimeline.service';
+import { repUsersSelectColListForServer } from './repUsersSelectServer';
 import {
   TimeAttendanceTimelineEventType,
   TimeAttendanceTimelineSeverity,
@@ -29,7 +28,16 @@ import {
   reconcileOperationalDaySequence,
   saoPauloCivilBoundsUtc,
 } from './repOperationalSequenceResolver';
-import { runRepGovernanceAfterPromoteRecoveredBatch } from '../../src/services/repOperationalIntegrity.service';
+
+type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.service').AppendTimeAttendanceTimelineEventInput;
+
+function enqueueAppendTimeAttendanceTimelineEvent(input: AppendTimelineInput): void {
+  void import('../../src/services/timeAttendanceTimeline.service').then((m) =>
+    m.appendTimeAttendanceTimelineEvent(input).catch((err) => {
+      console.error('[repService] appendTimeAttendanceTimelineEvent', err);
+    }),
+  );
+}
 
 const REP_WEAK_MATCH_USER_COLUMNS = [
   'id',
@@ -46,7 +54,7 @@ async function fetchWeakMatchUsersForCompany(
   supabase: SupabaseClient,
   companyId: string,
 ): Promise<RepWeakPisMatchUser[]> {
-  const cols = await safeUserSelectColumns(supabase, [...REP_WEAK_MATCH_USER_COLUMNS]);
+  const cols = await repUsersSelectColListForServer(supabase, [...REP_WEAK_MATCH_USER_COLUMNS]);
   const { data: wu, error } = await supabase
     .from('users')
     .select(cols.join(','))
@@ -137,7 +145,7 @@ function recordRepPromoteMirrorFailureOnTimeline(
     promotion_attempts: args.promotionAttempts ?? null,
     device_id: args.deviceId ?? null,
   };
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: args.companyId,
     employeeId: args.employeeId,
     date: args.date,
@@ -148,7 +156,7 @@ function recordRepPromoteMirrorFailureOnTimeline(
     payload,
     supabaseClient: supabase,
   });
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: args.companyId,
     employeeId: args.employeeId,
     date: args.date,
@@ -191,7 +199,7 @@ function scheduleRepIngestTimeline(
   const resolved_user_id = input.forceUserId ?? null;
   const device_id = input.rep_device_id ?? null;
 
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: input.company_id,
     employeeId: resolved_user_id,
     date: ymd,
@@ -234,7 +242,7 @@ function scheduleRepIngestTimeline(
   }
 
   if (input.user_not_found) {
-    void appendTimeAttendanceTimelineEvent({
+    enqueueAppendTimeAttendanceTimelineEvent({
       companyId: input.company_id,
       employeeId: null,
       date: ymd,
@@ -248,7 +256,7 @@ function scheduleRepIngestTimeline(
   }
 
   if (input.success && confidence === 'low') {
-    void appendTimeAttendanceTimelineEvent({
+    enqueueAppendTimeAttendanceTimelineEvent({
       companyId: input.company_id,
       employeeId: resolved_user_id,
       date: ymd,
@@ -261,7 +269,7 @@ function scheduleRepIngestTimeline(
   }
 
   if (input.success && input.time_record_id) {
-    void appendTimeAttendanceTimelineEvent({
+    enqueueAppendTimeAttendanceTimelineEvent({
       companyId: input.company_id,
       employeeId: resolved_user_id,
       date: ymd,
@@ -582,7 +590,7 @@ export async function ingestAfdRecords(
     }
   }
 
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: companyId.trim(),
     eventType: TimeAttendanceTimelineEventType.REP_PUNCH_RECEIVED,
     eventSeverity: TimeAttendanceTimelineSeverity.info,
@@ -782,7 +790,7 @@ export async function ingestPunchesFromDevice(
     }
   }
 
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: device.company_id.trim(),
     eventType: TimeAttendanceTimelineEventType.REP_PUNCH_RECEIVED,
     eventSeverity: TimeAttendanceTimelineSeverity.info,
@@ -1008,7 +1016,7 @@ export async function promotePendingRepPunchLogs(
     const snu = row.skipped_no_user ?? 0;
     const sou = row.skipped_other_user ?? 0;
     if (snu > 0) {
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         eventType: TimeAttendanceTimelineEventType.REP_MATCH_FAILED,
         eventSeverity: TimeAttendanceTimelineSeverity.medium,
@@ -1019,7 +1027,7 @@ export async function promotePendingRepPunchLogs(
       });
     }
     if (sou > 0) {
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         eventType: TimeAttendanceTimelineEventType.REP_MATCH_AMBIGUOUS,
         eventSeverity: TimeAttendanceTimelineSeverity.medium,
@@ -1045,7 +1053,7 @@ export async function promotePendingRepPunchLogs(
         const attempts =
           typeof fr.promotion_attempts === 'number' ? fr.promotion_attempts : null;
         if ((attempts ?? 0) > 1) {
-          void appendTimeAttendanceTimelineEvent({
+          enqueueAppendTimeAttendanceTimelineEvent({
             companyId: companyId.trim(),
             employeeId: uid || null,
             date: ymd,
@@ -1077,7 +1085,7 @@ export async function promotePendingRepPunchLogs(
         });
       }
     } else if (failedRows.length > 12) {
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         eventType: TimeAttendanceTimelineEventType.REP_PROMOTE_FAILED,
         eventSeverity: TimeAttendanceTimelineSeverity.medium,
@@ -1091,7 +1099,7 @@ export async function promotePendingRepPunchLogs(
         },
         supabaseClient: supabase,
       });
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         eventType: TimeAttendanceTimelineEventType.INCIDENT_DETECTED,
         eventSeverity: TimeAttendanceTimelineSeverity.medium,
@@ -1127,7 +1135,7 @@ export async function promotePendingRepPunchLogs(
           previous_error_code: rc.previous_error_code ?? null,
         });
       }
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         employeeId: uid || null,
         date: ymd,
@@ -1145,7 +1153,11 @@ export async function promotePendingRepPunchLogs(
     }
 
     if (recovered.length > 0) {
-      void runRepGovernanceAfterPromoteRecoveredBatch(supabase, companyId.trim(), recovered);
+      void import('../../src/services/repOperationalIntegrity.service').then((m) =>
+        m.runRepGovernanceAfterPromoteRecoveredBatch(supabase, companyId.trim(), recovered).catch((err) => {
+          console.error('[repService] runRepGovernanceAfterPromoteRecoveredBatch', err);
+        }),
+      );
     }
 
     const det = row.promoted_detail ?? [];
@@ -1154,7 +1166,7 @@ export async function promotePendingRepPunchLogs(
         const uid = String(d.user_id ?? '').trim();
         const iso = d.data_hora != null ? String(d.data_hora) : '';
         const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
-        void appendTimeAttendanceTimelineEvent({
+        enqueueAppendTimeAttendanceTimelineEvent({
           companyId: companyId.trim(),
           employeeId: uid || null,
           date: ymd,
@@ -1173,7 +1185,7 @@ export async function promotePendingRepPunchLogs(
         });
       }
     } else if (det.length > 8) {
-      void appendTimeAttendanceTimelineEvent({
+      enqueueAppendTimeAttendanceTimelineEvent({
         companyId: companyId.trim(),
         eventType: TimeAttendanceTimelineEventType.REP_PROMOTED,
         eventSeverity: TimeAttendanceTimelineSeverity.info,
@@ -1246,7 +1258,7 @@ export async function linkUnresolvedRepPunchAndPromote(
       });
     }
   }
-  void appendTimeAttendanceTimelineEvent({
+  enqueueAppendTimeAttendanceTimelineEvent({
     companyId: companyId.trim(),
     employeeId: userId.trim(),
     eventType: TimeAttendanceTimelineEventType.MANUAL_ADJUSTMENT,
@@ -1263,7 +1275,7 @@ export async function linkUnresolvedRepPunchAndPromote(
   });
   const detl = row.promoted_detail ?? [];
   if (detl.length > 0) {
-    void appendTimeAttendanceTimelineEvent({
+    enqueueAppendTimeAttendanceTimelineEvent({
       companyId: companyId.trim(),
       employeeId: userId.trim(),
       eventType: TimeAttendanceTimelineEventType.REP_PROMOTED,

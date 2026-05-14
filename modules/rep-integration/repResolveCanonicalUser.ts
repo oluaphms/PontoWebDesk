@@ -8,7 +8,7 @@ import { mergeRepExtractedIdentifiersIntoRawData } from './repExtractBestIdentif
 import { repPunchLogEffectivePisCanonForDiagnostics } from './repPunchPendingIdentity';
 import type { RepWeakPisMatchUser } from './repWeakPisFallbackMatch';
 import { tryRepUniqueWeakPisMatch } from './repWeakPisFallbackMatch';
-import { safeUserSelectColumns } from '../../services/supabaseClient';
+import { repUsersSelectColListForServer } from './repUsersSelectServer';
 
 export type RepCanonicalPunchInput = {
   company_id: string;
@@ -205,7 +205,7 @@ export async function fixUnmatchedPunches(
   if (fetchErr) throw fetchErr;
   if (!pending?.length) return { updated: 0, rows: [] };
 
-  const cols = await safeUserSelectColumns(supabase, [
+  const cols = await repUsersSelectColListForServer(supabase, [
     'id',
     'pis_pasep',
     'pis',

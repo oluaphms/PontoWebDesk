@@ -5,7 +5,6 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { repCorsHeaders } from './repVercelAuth';
-import { ingestPunch } from './repService';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 
 interface RepPunchBody {
@@ -103,6 +102,7 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
   const nsrNorm = normalizeRepPunchNsrForRpc(nsr);
   let result;
   try {
+    const { ingestPunch } = await import('./repService');
     result = await ingestPunch(supabase, {
       company_id,
       rep_device_id: repDeviceId,
