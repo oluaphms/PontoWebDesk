@@ -2,9 +2,9 @@
  * Proxy REP consolidado (1 Serverless Function).
  * URLs públicas: /api/rep/status, /api/rep/punches, /api/rep/push-employee, /api/rep/exchange, etc. (via rewrite em vercel.json).
  * Não usar api/rep/[slug].ts — em alguns deploys Vercel isso resulta em FUNCTION_INVOCATION_FAILED.
+ *
+ * O slug `punch` usa import dinâmico de `repPunchHttp` para não carregar `repDeviceServer` (native deps / grafo grande).
  */
-
-import { handleRepSlug } from '../modules/rep-integration/repApiRoutes';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 
@@ -16,7 +16,10 @@ export default async function handler(request: Request): Promise<Response> {
     slug = parts[2] ?? '';
   }
   try {
-    const response = await handleRepSlug(request, slug);
+    const response =
+      slug === 'punch'
+        ? await (await import('../modules/rep-integration/repPunchHttp')).handleRepPunchHttp(request)
+        : await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     response.headers.set('Pragma', 'no-cache');
     response.headers.set('Expires', '0');
