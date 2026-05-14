@@ -3,10 +3,12 @@
  * URLs públicas: /api/rep/status, /api/rep/punches, /api/rep/push-employee, /api/rep/exchange, etc. (via rewrite em vercel.json).
  * Não usar api/rep/[slug].ts — em alguns deploys Vercel isso resulta em FUNCTION_INVOCATION_FAILED.
  *
- * O slug `punch` usa import dinâmico de `repPunchHttp` para não carregar `repDeviceServer` (native deps / grafo grande).
+ * O slug `punch` usa `handleRepPunchRpcLite` (RPC direta, sem `repIngestPunchCore`) para caber no limite Hobby
+ * e evitar OOM no cold start; o handler completo permanece em `repPunchHttp.ts` para outros cenários.
  */
 
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
+import { handleRepPunchRpcLite } from './_shared/repPunchRpcLite';
 
 const JSON_ERR = { 'Content-Type': 'application/json' };
 
@@ -30,7 +32,7 @@ export default async function handler(request: Request): Promise<Response> {
   try {
     const response =
       slug === 'punch'
-        ? await (await import('../modules/rep-integration/repPunchHttp')).handleRepPunchHttp(request)
+        ? await handleRepPunchRpcLite(request)
         : await (await import('../modules/rep-integration/repApiRoutes')).handleRepSlug(request, slug);
     try {
       response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

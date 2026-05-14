@@ -1,15 +1,12 @@
 /**
- * POST /api/rep-punch — ingestão REP sem importar `repIngestPunchCore` (grafo grande → OOM / cold start na Vercel).
- * O agente continua a chamar POST /api/rep/punch; o `vercel.json` reescreve para esta rota.
- *
- * A RPC `rep_ingest_punch` faz o match de colaborador no servidor; não replica o weak-match em memória
- * do `runRepIngestPunchRpc` (casos raros podem diferir do handler completo em `repPunchHttp.ts`).
+ * Ingestão REP via RPC apenas (sem `repIngestPunchCore`) — usada por `rep-bridge` no slug `punch`
+ * para evitar OOM / cold start na Vercel Hobby (uma função a menos que `api/rep-punch.ts` dedicada).
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
-import type { RepPunchBody } from '../modules/rep-integration/repPunchNormalize';
-import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from '../modules/rep-integration/repPunchNormalize';
+import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
+import type { RepPunchBody } from '../../modules/rep-integration/repPunchNormalize';
+import { normalizeRepDeviceIdForRpc, normalizeRepPunchNsrForRpc } from '../../modules/rep-integration/repPunchNormalize';
 
 function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin');
@@ -38,7 +35,7 @@ type RpcRepIngestResult = {
   duplicate?: boolean;
 };
 
-export default async function handler(request: Request): Promise<Response> {
+export async function handleRepPunchRpcLite(request: Request): Promise<Response> {
   try {
     const cors = corsHeaders(request);
     const headersJson = { ...cors, 'Content-Type': 'application/json' };
@@ -160,7 +157,7 @@ export default async function handler(request: Request): Promise<Response> {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[api/rep-punch]', msg, e instanceof Error ? e.stack : '');
+    console.error('[rep-punch-lite]', msg, e instanceof Error ? e.stack : '');
     const fallback = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     return Response.json(
       { success: false, error: msg, code: 'REP_PUNCH_LITE_UNHANDLED' },
