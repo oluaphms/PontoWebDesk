@@ -1,7 +1,5 @@
-import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
-
 function extractRepSlug(request: Request): string {
-  const url = resolveRequestUrl(request);
+  const url = new URL(request.url, 'https://local.invalid');
   const path = url.pathname.replace(/\/+$/, '');
   const parts = path.split('/').filter(Boolean);
   if (parts.length >= 3 && parts[0] === 'api' && parts[1] === 'rep') {
