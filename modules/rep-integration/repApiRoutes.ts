@@ -3,19 +3,19 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { authenticateRepDeviceRequest, getServiceSupabase, repCorsHeaders } from './repVercelAuth';
-import { getSupabaseAnonKeyResolved, getSupabaseUrlResolved } from './repVercelEnv';
+import { authenticateRepDeviceRequest, getServiceSupabase, repCorsHeaders } from './repVercelAuth.js';
+import { getSupabaseAnonKeyResolved, getSupabaseUrlResolved } from './repVercelEnv.js';
 import {
   runRepConnectionTest,
   getPunchesFromDeviceServer,
   pushEmployeeToDeviceServer,
   runRepExchange,
   isPrivateOrLocalIPv4,
-} from './repDeviceServer';
-import { syncRepDevices } from './repSyncJob';
-import { parseAFD, parseTxtOrCsv } from './repParser';
-import { ingestAfdRecords } from './repService';
-import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './types';
+} from './repDeviceServer.js';
+import { syncRepDevices } from './repSyncJob.js';
+import { parseAFD, parseTxtOrCsv } from './repParser.js';
+import { ingestAfdRecords } from './repService.js';
+import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './types.js';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 import { safeUserSelectColumns } from '../../services/supabaseClient';
 import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl.js';
