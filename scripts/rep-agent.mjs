@@ -42,8 +42,33 @@
  * Uso: npm run rep:agent
  */
 
+import { readFileSync, existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import dotenv from 'dotenv';
+
+/** Preenche process.env a partir de `.env` e `.env.local` na cwd (não sobrescreve variáveis já definidas no shell). */
+function loadEnvFilesFromProjectRoot() {
+  const root = process.cwd();
+  const merged = {};
+  for (const name of ['.env', '.env.local']) {
+    const p = path.join(root, name);
+    if (!existsSync(p)) continue;
+    try {
+      Object.assign(merged, dotenv.parse(readFileSync(p, 'utf8')));
+    } catch {
+      // ignora ficheiro ilegível
+    }
+  }
+  for (const [k, v] of Object.entries(merged)) {
+    const cur = process.env[k];
+    if (cur === undefined || cur === '') {
+      process.env[k] = String(v ?? '');
+    }
+  }
+}
+
+loadEnvFilesFromProjectRoot();
 
 const saas = (process.env.REP_SAAS_URL || '').replace(/\/$/, '');
 const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
@@ -94,7 +119,11 @@ function fail(msg) {
   process.exit(1);
 }
 
-if (!saas) fail('Defina REP_SAAS_URL');
+if (!saas) {
+  fail(
+    'Defina REP_SAAS_URL (ex.: no PowerShell: $env:REP_SAAS_URL="https://seu-app.vercel.app") ou coloque REP_SAAS_URL no .env / .env.local na raiz do projeto (o script carrega estes ficheiros automaticamente).'
+  );
+}
 if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY)');
 if (!ip) fail('Defina REP_DEVICE_IP');
 if (!companyId) fail('Defina REP_COMPANY_ID');
