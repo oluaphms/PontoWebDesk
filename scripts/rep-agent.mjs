@@ -797,8 +797,12 @@ async function ingestViaAFD() {
 
   let ok = 0;
   let skip = 0;
-  let duplicate = 0;
   let preSkipped = 0;
+  let dupLocal = 0;
+  let dupServer = 0;
+  const dupLocalSamples = [];
+  const dupServerSamples = [];
+  const MAX_DUP_SAMPLES = 10;
 
   for (const rec of records) {
     const nsrKey = String(rec.nsr);
@@ -810,8 +814,8 @@ async function ingestViaAFD() {
     }
 
     if (processed.has(nsrKey)) {
-      duplicate += 1;
-      console.log(`[REP DUPLICATE SKIPPED] nsr=${nsrKey}`);
+      dupLocal += 1;
+      if (dupLocalSamples.length < MAX_DUP_SAMPLES) dupLocalSamples.push(nsrKey);
       continue;
     }
 
@@ -822,8 +826,8 @@ async function ingestViaAFD() {
 
       processed.add(nsrKey);
       if (wasDuplicate) {
-        duplicate += 1;
-        console.log(`[REP DUPLICATE SKIPPED] nsr=${nsrKey} (servidor)`);
+        dupServer += 1;
+        if (dupServerSamples.length < MAX_DUP_SAMPLES) dupServerSamples.push(nsrKey);
       } else {
         ok += 1;
         console.log(`[REP PUNCH SENT] nsr=${nsrKey} pis=${rec.pis} data=${rec.date} hora=${rec.time}`);
@@ -840,6 +844,27 @@ async function ingestViaAFD() {
       skip += 1;
       console.error(`[REP PUNCH ERROR] nsr=${nsrKey}: ${e?.message || e}`);
     }
+  }
+
+  const duplicate = dupLocal + dupServer;
+
+  if (dupLocal > 0) {
+    const extra = dupLocal > dupLocalSamples.length ? ` (+${dupLocal - dupLocalSamples.length} outros)` : '';
+    console.log(
+      `[REP DUPLICATE] ${dupLocal} NSR(s) já em cache local (${path.basename(REP_AFD_CACHE_FILE)}): ${dupLocalSamples.join(', ')}${extra}`
+    );
+  }
+  if (dupServer > 0) {
+    const extra = dupServer > dupServerSamples.length ? ` (+${dupServer - dupServerSamples.length} outros)` : '';
+    console.log(
+      `[REP DUPLICATE] ${dupServer} NSR(s) já existentes no servidor (API): ${dupServerSamples.join(', ')}${extra}`
+    );
+  }
+
+  if (ok === 0 && skip === 0 && records.length > 0 && duplicate === records.length && preSkipped === 0) {
+    console.log(
+      '[rep-agent] Nenhum envio novo: todos os registos do AFD já tinham sido tratados. Para repetir teste com o mesmo ficheiro/mock: apague a pasta data\\rep-agent (ou só processed-nsr.json + last-nsr.json).'
+    );
   }
 
   await saveProcessedNsrCache(processed);
