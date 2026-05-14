@@ -260,24 +260,15 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 }
 
-export default async function handler(req: any, res: any) {
-  try {
-    const url = req.url?.startsWith('http') ? req.url : `https://${req.headers.host || 'localhost'}${req.url || ''}`;
-    const init: RequestInit = { method: req.method, headers: req.headers as any };
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      if (typeof req.body === 'string' || req.body instanceof Uint8Array) {
-        (init as any).body = req.body;
-      } else if (req.body) {
-        (init as any).body = JSON.stringify(req.body);
-      }
+export default {
+  async fetch(request: Request): Promise<Response> {
+    try {
+      return await handleRequest(request);
+    } catch (e: unknown) {
+      return Response.json(
+        { error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' },
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
     }
-    const request = new Request(url, init);
-    const response = await handleRequest(request);
-    res.status(response.status);
-    response.headers.forEach((value: string, key: string) => res.setHeader(key, value));
-    const text = await response.text();
-    res.send(text);
-  } catch (e: unknown) {
-    res.status(500).setHeader('Content-Type', 'application/json').send(JSON.stringify({ error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' }));
-  }
-}
+  },
+};

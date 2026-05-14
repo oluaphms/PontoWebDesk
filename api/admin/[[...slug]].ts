@@ -610,7 +610,7 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (!authOk(request)) return json({ error: 'Unauthorized' }, 401);
 
@@ -638,3 +638,5 @@ export default async function handler(request: Request): Promise<Response> {
     return json({ error: e instanceof Error ? e.message : 'Erro interno' }, 500);
   }
 }
+
+export default { fetch: handler };

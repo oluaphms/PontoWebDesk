@@ -419,7 +419,7 @@ async function handleJobGet(request: Request, jobId: string): Promise<Response> 
   return jsonWithLog(job, 200, '/api/jobs/status', { ...corsHeaders, 'Content-Type': 'application/json' });
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const url = resolveRequestUrl(request);
   const parts = url.pathname.split('/').filter(Boolean);
   // ['api', 'jobs', ...slug]
@@ -446,3 +446,5 @@ export default async function handler(request: Request): Promise<Response> {
     { ...corsAll, 'Content-Type': 'application/json' },
   );
 }
+
+export default { fetch: handler };

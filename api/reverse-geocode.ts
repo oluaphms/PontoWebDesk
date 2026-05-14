@@ -136,7 +136,7 @@ async function resolveAddressFromCoordinates(
   };
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -171,3 +171,5 @@ export default async function handler(request: Request): Promise<Response> {
     return Response.json({ address: '', address_parts: null, provider: 'nominatim', status: 'provider_error', response: { reason: 'handler_error', message: e instanceof Error ? e.message : String(e) } }, { status: 200, headers: corsHeaders });
   }
 }
+
+export default { fetch: handler };

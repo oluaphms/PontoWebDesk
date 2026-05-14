@@ -1,6 +1,6 @@
 console.log('[API FILE LOADED] rep/[slug]');
 
-export default async function handler(request: Request) {
+async function handler(request: Request) {
   console.log('[API TEST] entrou no handler');
 
   return new Response(JSON.stringify({
@@ -14,3 +14,5 @@ export default async function handler(request: Request) {
     }
   });
 }
+
+export default { fetch: handler };

@@ -73,7 +73,7 @@ function normalizeEventType(type: string): string {
   return 'batida';
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -262,3 +262,5 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 }
+
+export default { fetch: handler };

@@ -7,7 +7,7 @@ import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
@@ -86,3 +86,4 @@ export default async function handler(request: Request): Promise<Response> {
   }
 }
 
+export default { fetch: handler };

@@ -34,7 +34,7 @@ async function checkSupabase(url: string, serviceKey: string): Promise<{ ok: boo
   }
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type',
@@ -92,3 +92,5 @@ export default async function handler(request: Request): Promise<Response> {
     { status, headers: corsHeaders }
   );
 }
+
+export default { fetch: handler };

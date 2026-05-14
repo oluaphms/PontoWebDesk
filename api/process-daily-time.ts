@@ -17,7 +17,7 @@ const corsHeaders: Record<string, string> = {
   Expires: '0',
 };
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const route = '/api/process-daily-time';
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -142,3 +142,5 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 }
+
+export default { fetch: handler };

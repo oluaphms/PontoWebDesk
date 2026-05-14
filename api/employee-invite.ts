@@ -39,7 +39,7 @@ type InviteRow = {
   company_id: string | null;
 };
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
@@ -230,3 +230,5 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 }
+
+export default { fetch: handler };
