@@ -75,6 +75,7 @@ const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/rep-unresolved': () => import('../pages/admin/RepUnresolvedPunches'),
   '/admin/fiscalizacao': () => import('../pages/admin/Fiscalizacao'),
   '/admin/security': () => import('../pages/admin/Security'),
+  '/admin/backup': () => import('../pages/admin/Backup'),
   '/admin/company': () => import('../pages/admin/Company'),
   '/admin/reports': () => import('../pages/admin/Reports'),
   '/admin/reports/read/:slug': () => import('../pages/admin/reports/ReportReadPage'),

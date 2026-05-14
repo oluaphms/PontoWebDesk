@@ -1,15 +1,15 @@
 /**
  * Cooldown pós-login: reduz tempestade de invalidação/refetch e foco na aba.
  */
+import { devVerboseInfo } from '../utils/devVerboseLogs';
+
 export const POST_LOGIN_QUERY_COOLDOWN_MS = 12_000;
 
 let cooldownUntil = 0;
 
 export function beginPostLoginQueryCooldown(reason?: string): void {
   cooldownUntil = Date.now() + POST_LOGIN_QUERY_COOLDOWN_MS;
-  if (typeof console !== 'undefined') {
-    console.info('[POST LOGIN QUERY COOLDOWN]', { reason: reason ?? 'unspecified', ms: POST_LOGIN_QUERY_COOLDOWN_MS });
-  }
+  devVerboseInfo('[POST LOGIN QUERY COOLDOWN]', { reason: reason ?? 'unspecified', ms: POST_LOGIN_QUERY_COOLDOWN_MS });
 }
 
 export function isPostLoginQueryCooldownActive(): boolean {

@@ -95,6 +95,7 @@ export const navigationGroups: Record<string, NavigationGroupSchema> = {
       { name: 'Importar AFD', nameKey: 'menu.importRep', path: '/admin/import-rep', roles: ['admin', 'hr'] },
       { name: 'Fiscalização REP-P', nameKey: 'menu.fiscalizacao', path: '/admin/fiscalizacao', roles: ['admin', 'hr'] },
       { name: 'Segurança e Antifraude', nameKey: 'menu.securityAntifraud', path: '/admin/security', roles: ['admin', 'hr'] },
+      { name: 'Backup dos dados', nameKey: 'menu.backupData', path: '/admin/backup', roles: ['admin', 'hr'] },
       { name: 'Empresa', nameKey: 'menu.empresa', path: '/admin/company', roles: ['admin', 'hr'] },
       { name: 'Configurações', nameKey: 'menu.settings', path: '/admin/settings', roles: ['admin', 'hr'] },
       { name: 'Ajuda', nameKey: 'menu.ajuda', path: '/admin/ajuda', roles: ['admin', 'hr'] },

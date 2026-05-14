@@ -1,4 +1,5 @@
 import { beginPostLoginQueryCooldown } from '../app/postLoginQueryGate';
+import { devVerboseInfo } from '@/utils/devVerboseLogs';
 
 /**
  * Janela pós-login: instrumentar excesso de trabalho crítico na rede (descoberta, não hard-stop).
@@ -17,9 +18,7 @@ export function beginPostLoginRequestBudgetWindow(reason: string): void {
   lastBeginAt = now;
   windowEndAt = now + WINDOW_MS;
   criticalCount = 0;
-  if (typeof console !== 'undefined') {
-    console.info('[REQUEST BUDGET]', { phase: 'begin', reason, windowMs: WINDOW_MS, maxCritical: MAX_CRITICAL });
-  }
+  devVerboseInfo('[REQUEST BUDGET]', { phase: 'begin', reason, windowMs: WINDOW_MS, maxCritical: MAX_CRITICAL });
 }
 
 export function recordCriticalRequest(tag: string): void {

@@ -491,6 +491,31 @@ interface RepPunchBody {
   company_id: string;
 }
 
+const REP_DEVICE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Aceita só UUID válido; strings tipo "mock-rep-01" viram null (evita erro na RPC `uuid`). */
+function normalizeRepDeviceIdForRpc(deviceId: unknown): string | null {
+  if (deviceId == null) return null;
+  const s = String(deviceId).trim();
+  if (!s) return null;
+  return REP_DEVICE_UUID_RE.test(s) ? s : null;
+}
+
+/** NSR vindo do JSON costuma ser string; a RPC espera bigint compatível com número seguro. */
+function normalizeRepPunchNsrForRpc(nsr: unknown): number | null {
+  if (nsr == null || nsr === '') return null;
+  if (typeof nsr === 'number' && Number.isFinite(nsr)) return Math.trunc(nsr);
+  const digits = String(nsr).replace(/\D/g, '');
+  if (!digits) return null;
+  try {
+    const n = Number(BigInt(digits));
+    return Number.isSafeInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 async function handlePunch(request: Request): Promise<Response> {
   const cors = repCorsHeaders(request);
   const headersJson = { ...cors, 'Content-Type': 'application/json' };
@@ -546,18 +571,30 @@ async function handlePunch(request: Request): Promise<Response> {
     }
     throw e;
   }
-  const result = await ingestPunch(supabase, {
-    company_id,
-    rep_device_id: device_id || null,
-    pis: pis ?? null,
-    cpf: cpf ?? null,
-    matricula: matricula ?? null,
-    nome_funcionario: null,
-    data_hora: ts.toISOString(),
-    tipo_marcacao: tipo_marcacao || 'E',
-    nsr: nsr ?? null,
-    raw_data: { source: 'api' },
-  });
+  const repDeviceId = normalizeRepDeviceIdForRpc(device_id);
+  const nsrNorm = normalizeRepPunchNsrForRpc(nsr);
+  let result;
+  try {
+    result = await ingestPunch(supabase, {
+      company_id,
+      rep_device_id: repDeviceId,
+      pis: pis ?? null,
+      cpf: cpf ?? null,
+      matricula: matricula ?? null,
+      nome_funcionario: null,
+      data_hora: ts.toISOString(),
+      tipo_marcacao: tipo_marcacao || 'E',
+      nsr: nsrNorm,
+      raw_data: { source: 'api' },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[api/rep/punch] ingestPunch exception', msg, e instanceof Error ? e.stack : '');
+    return Response.json(
+      { success: false, error: msg, code: 'REP_PUNCH_INGEST_EXCEPTION' },
+      { status: 500, headers: headersJson }
+    );
+  }
   if (!result.success && result.error) {
     const status = result.error.includes('já importado') ? 200 : 400;
     return Response.json(

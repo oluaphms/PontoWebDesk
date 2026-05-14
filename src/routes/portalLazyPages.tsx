@@ -63,6 +63,7 @@ export const AdminPontoDiario = React.lazy(ROUTE_LOADERS['/admin/ponto-diario'])
 export const AdminArquivosFiscais = React.lazy(ROUTE_LOADERS['/admin/arquivos-fiscais']);
 export const AdminFiscalizacao = React.lazy(ROUTE_LOADERS['/admin/fiscalizacao']);
 export const AdminSecurity = React.lazy(ROUTE_LOADERS['/admin/security']);
+export const AdminBackup = React.lazy(ROUTE_LOADERS['/admin/backup']);
 export const ReportSecurity = React.lazy(ROUTE_LOADERS['/admin/reports/security']);
 export const ImportEmployees = React.lazy(ROUTE_LOADERS['/admin/import-employees']);
 export const AdminRepDevices = React.lazy(ROUTE_LOADERS['/admin/rep-devices']);

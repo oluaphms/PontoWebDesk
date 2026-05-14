@@ -3,6 +3,7 @@
  */
 
 import { getAuthDuplicateDiagnostics } from './authDuplicateRequestAudit';
+import { devVerboseInfo } from '@/utils/devVerboseLogs';
 
 const inflight = new Map<string, Promise<unknown>>();
 
@@ -23,20 +24,14 @@ export function runProfileHydrationSingleFlight<T>(
   const dup = getAuthDuplicateDiagnostics();
   const existing = inflight.get(authUserId) as Promise<T> | undefined;
   if (existing) {
-    if (typeof console !== 'undefined') {
-      console.info('[PROFILE SINGLE FLIGHT REUSED]', { authUserId, ...meta, ...dup });
-    }
+    devVerboseInfo('[PROFILE SINGLE FLIGHT REUSED]', { authUserId, ...meta, ...dup });
     return existing;
   }
-  if (typeof console !== 'undefined') {
-    console.info('[PROFILE SINGLE FLIGHT CREATED]', { authUserId, ...meta, ...dup });
-  }
+  devVerboseInfo('[PROFILE SINGLE FLIGHT CREATED]', { authUserId, ...meta, ...dup });
   const p = factory().finally(() => {
     if (inflight.get(authUserId) === p) {
       inflight.delete(authUserId);
-      if (typeof console !== 'undefined') {
-        console.info('[PROFILE SINGLE FLIGHT RELEASED]', { authUserId, ...meta, ...dup });
-      }
+      devVerboseInfo('[PROFILE SINGLE FLIGHT RELEASED]', { authUserId, ...meta, ...dup });
     }
   }) as Promise<T>;
   inflight.set(authUserId, p);

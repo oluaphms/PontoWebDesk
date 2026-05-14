@@ -14,6 +14,7 @@ import { reportSchemaGuardState } from '@/services/schemaGuardReporter';
 import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/timesheetCalculationAudit';
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
+import { devVerboseInfo, isDevVerboseLogsEnabled } from '@/utils/devVerboseLogs';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -79,7 +80,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         window.__VITE_SUPABASE_ANON_KEY = supabaseKey;
       }
 
-      if (typeof console !== 'undefined') {
+      if (typeof console !== 'undefined' && isDevVerboseLogsEnabled()) {
         console.group('[ENV]');
         console.log('Environment:', envName);
         console.log('URL:', supabaseUrl);
@@ -127,9 +128,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
       const engineVer = getCurrentEngineVersion();
       const rulesVer = getCurrentRulesVersion();
-      if (typeof console !== 'undefined') {
-        console.info('[APP VERSION]', { ENGINE_VERSION: engineVer, RULES_VERSION: rulesVer });
-      }
+      devVerboseInfo('[APP VERSION]', { ENGINE_VERSION: engineVer, RULES_VERSION: rulesVer });
       try {
         const versionStorageKey = 'pontowebdesk:last-engine-rules-version';
         const nextPayload = JSON.stringify({ engine: engineVer, rules: rulesVer });

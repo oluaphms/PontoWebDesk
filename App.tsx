@@ -97,6 +97,8 @@ import { setLongTaskPipelineContext } from './src/performance/longTaskMonitor';
 import { createReactProfilerOnRender } from './src/performance/reactRenderTrace';
 import { useEffectStormProbe } from './src/performance/reactEffectStorm';
 import { useDeferredPortalChrome } from './src/hooks/useDeferredPortalChrome';
+import { useScheduledTenantBackup } from './src/hooks/useScheduledTenantBackup';
+import { devVerboseInfo } from './src/utils/devVerboseLogs';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from './src/app/appShellBootstrap';
 import { markLoginSubmitStarted, markLoginUiComplete, markFirstRouteIfNeeded } from './src/app/loginPerformanceBudgets';
 import AdminLayout from './src/layouts/AdminLayout';
@@ -109,6 +111,7 @@ import {
   AdminArquivarCalculos,
   AdminAusencias,
   AdminBankHours,
+  AdminBackup,
   AdminCartaoPonto,
   AdminCidades,
   AdminColunasMix,
@@ -313,6 +316,11 @@ const AppMain: React.FC = () => {
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
   /** Chrome operacional (badges/polling leve no layout) só após idle — reduz cascata pós setUser. */
   const portalChromeReady = useDeferredPortalChrome(user?.id);
+  useScheduledTenantBackup(user, {
+    enabled: Boolean(
+      portalChromeReady && user && (user.role === 'admin' || user.role === 'hr') && user.companyId,
+    ),
+  });
   useEffectStormProbe('AppMain.user-identity', [user?.id, user?.companyId, user?.role]);
   const recordsRef = useRef(records);
   recordsRef.current = records;
@@ -355,8 +363,7 @@ const AppMain: React.FC = () => {
 
   const logAuth = useCallback(
     (tag: string, extra: Record<string, unknown> = {}) => {
-      if (typeof console === 'undefined') return;
-      console.info(tag, { ...getAuthDebugContext(), ...extra });
+      devVerboseInfo(tag, { ...getAuthDebugContext(), ...extra });
     },
     [getAuthDebugContext],
   );
@@ -984,7 +991,7 @@ const AppMain: React.FC = () => {
       traceFinalized = true;
       const slow = getSlowestLoginStep(loginTrace);
       if (slow && typeof console !== 'undefined') {
-        console.info('[AUTH TRACE]', { summary: 'slowest_step', ...slow, outcome });
+        devVerboseInfo('[AUTH TRACE]', { summary: 'slowest_step', ...slow, outcome });
       }
       finalizeLoginTrace(loginTrace, outcome);
     };
@@ -2051,6 +2058,7 @@ const AppMain: React.FC = () => {
               <Route path="live-attendance" element={<Navigate to="/admin/monitoring" replace />} />
               <Route path="fiscalizacao" element={<AdminFiscalizacao />} />
               <Route path="security" element={<AdminSecurity />} />
+              <Route path="backup" element={<AdminBackup />} />
               <Route path="company" element={<AdminCompany />} />
               <Route path="reports" element={<AdminReports />} />
               <Route path="reports/read/:slug" element={<ReportReadPage />} />
