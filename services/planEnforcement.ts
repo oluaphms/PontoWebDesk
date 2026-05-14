@@ -10,7 +10,7 @@ import {
   isPlanFeatureEnabled,
   normalizeTenantPlan,
   type PlanFeatureKey,
-} from './planLimitsCore';
+} from './planLimitsCore.js';
 
 export const PLAN_LIMIT_CODE = 'PLAN_LIMIT_REACHED' as const;
 
