@@ -24,6 +24,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -612,7 +613,7 @@ export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (!authOk(request)) return json({ error: 'Unauthorized' }, 401);
 
-  const url  = new URL(request.url);
+  const url = resolveRequestUrl(request);
   const slug = getSlug(url); // e.g. ['metrics'] | ['audit','verify'] | ['incidents','INCIDENT-20240101-001']
 
   try {

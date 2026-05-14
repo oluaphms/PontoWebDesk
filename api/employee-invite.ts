@@ -7,6 +7,7 @@
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
 
 /** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
 type GoTrueAdminApi = {
@@ -57,7 +58,7 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 
-  const pathname = new URL(request.url).pathname;
+  const pathname = resolveRequestUrl(request).pathname;
   const isAccept = /\/api\/employee-invite\/accept\/?$/.test(pathname);
 
   if (!isAccept && request.method !== 'GET') {
@@ -90,7 +91,7 @@ export default async function handler(request: Request): Promise<Response> {
     });
 
     if (!isAccept) {
-      const url = new URL(request.url);
+      const url = resolveRequestUrl(request);
       const token = url.searchParams.get('token')?.trim();
       if (!token) {
         return Response.json(

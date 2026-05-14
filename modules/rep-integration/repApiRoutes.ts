@@ -18,6 +18,7 @@ import { ingestAfdRecords } from './repService';
 import type { RepEmployeePayload, RepDeviceClockSet, RepExchangeOp } from './types';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement';
 import { safeUserSelectColumns } from '../../services/supabaseClient';
+import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
@@ -288,7 +289,7 @@ async function handleStatus(request: Request): Promise<Response> {
     if (request.method !== 'GET') {
       return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
     }
-    const urlObj = new URL(request.url);
+    const urlObj = resolveRequestUrl(request);
     const deviceId = urlObj.searchParams.get('device_id');
     const auth = await authenticateRepDeviceRequest(request, deviceId);
     if (auth instanceof Response) return auth;
@@ -367,7 +368,7 @@ async function handlePunches(request: Request): Promise<Response> {
     if (request.method !== 'GET') {
       return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
     }
-    const urlObj = new URL(request.url);
+    const urlObj = resolveRequestUrl(request);
     const deviceId = urlObj.searchParams.get('device_id');
     const sinceRaw = urlObj.searchParams.get('since');
     const auth = await authenticateRepDeviceRequest(request, deviceId);
@@ -449,7 +450,7 @@ async function handleSync(request: Request): Promise<Response> {
   const supabase = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const urlObj = new URL(request.url);
+  const urlObj = resolveRequestUrl(request);
   const companyId = urlObj.searchParams.get('company_id') || undefined;
   if (companyId) {
     try {

@@ -6,7 +6,7 @@
 
 $env:REP_AGENT_SKIP_DOTENV     = "1"
 $env:REP_SAAS_URL              = "https://pontowebdesk.vercel.app"
-$env:API_KEY                   = "MESMA_CHAVE_QUE_API_KEY_NA_VERCEL"
+$env:API_KEY                   = "0137fd1c88fbe0e1d7f32a518f045467062e28176331e05bcfb1088df2899e5f"
 $env:REP_DEVICE_IP             = "192.168.1.19"
 # Se http:80 devolver HTTP 301, use https:443 + INSECURE_TLS ou deixe o script seguir o redirect (REP_INSECURE_TLS=1).
 $env:REP_DEVICE_SCHEME         = "https"

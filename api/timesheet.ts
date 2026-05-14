@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { buildTimesheetForPeriod } from '../src/engine/timeEngine';
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security';
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 
@@ -44,7 +45,7 @@ export default async function handler(request: Request): Promise<Response> {
     return Response.json({ error: 'Configuração Supabase ausente.' }, { status: 500, headers: corsHeaders });
   }
 
-  const searchParams = new URL(request.url).searchParams;
+  const searchParams = resolveRequestUrl(request).searchParams;
   const userId = searchParams.get('userId');
   const month = searchParams.get('month'); // formato YYYY-MM
   const companyId = searchParams.get('companyId') || undefined;

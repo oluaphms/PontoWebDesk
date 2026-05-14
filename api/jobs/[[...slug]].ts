@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
 import { getCallerContext, isAdminOrHr } from '../_shared/callerContext';
 import { JOB_TYPE } from '../../src/services/jobs/jobTypes';
 import { processJobs } from '../../src/services/jobs/processJobs';
@@ -430,7 +431,7 @@ async function handleJobGet(request: Request, jobId: string): Promise<Response> 
 }
 
 export default async function handler(request: Request): Promise<Response> {
-  const url = new URL(request.url);
+  const url = resolveRequestUrl(request);
   const parts = url.pathname.split('/').filter(Boolean);
   // ['api', 'jobs', ...slug]
   const slug = parts.slice(2);

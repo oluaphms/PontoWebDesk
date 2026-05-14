@@ -1,3 +1,5 @@
+import { resolveRequestUrl } from './_shared/getRequestBaseUrl';
+
 /** Hobby: máx. 10s — duas tentativas curtas + margem para cold start + Nominatim. */
 export const config = {
   maxDuration: 10,
@@ -143,7 +145,7 @@ export default async function handler(request: Request): Promise<Response> {
       return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders });
     }
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = resolveRequestUrl(request);
     const latRaw = searchParams.get('lat');
     const lonRaw = searchParams.get('lon') ?? searchParams.get('lng');
     if (latRaw == null || lonRaw == null) {

@@ -4,6 +4,8 @@
  * Query: company_id (opcional), type=afd|aej se usar só /api/export
  */
 
+import { resolveRequestUrl } from '../_shared/getRequestBaseUrl';
+
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -27,7 +29,7 @@ function formatAfdLine(
 }
 
 function resolveExportKind(request: Request): 'afd' | 'aej' | null {
-  const url = new URL(request.url);
+  const url = resolveRequestUrl(request);
   const pathname = url.pathname.replace(/\/+$/, '');
   const parts = pathname.split('/').filter(Boolean);
   const exportIdx = parts.indexOf('export');
@@ -73,7 +75,7 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
     );
   }
 
-  const url = new URL(request.url);
+  const url = resolveRequestUrl(request);
   const companyIdParam = url.searchParams.get('company_id');
 
   let targetCompanyId = companyIdParam;
