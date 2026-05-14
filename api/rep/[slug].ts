@@ -1,5 +1,4 @@
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
-import { handleRepPunchRpcLite } from '../_shared/repPunchRpcLite.js';
 
 function extractRepSlug(request: Request): string {
   const url = resolveRequestUrl(request);
@@ -20,7 +19,16 @@ async function handler(request: Request): Promise<Response> {
     );
   }
   if (slug === 'punch') {
-    return handleRepPunchRpcLite(request);
+    try {
+      const { handleRepPunchRpcLite } = await import('../_shared/repPunchRpcLite.js');
+      return handleRepPunchRpcLite(request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return Response.json(
+        { error: 'REP_PUNCH_MODULE_LOAD_FAILED', detail },
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
   }
   const { handleRepSlug } = await import('../../modules/rep-integration/repApiRoutes.js');
   return handleRepSlug(request, slug);
