@@ -75,10 +75,6 @@
   ],
   "rewrites": [
     {
-      "source": "/api/rep/punch",
-      "destination": "/api/rep-punch"
-    },
-    {
       "source": "/api/rep/:slug",
       "destination": "/api/rep-bridge?slug=:slug"
     },
