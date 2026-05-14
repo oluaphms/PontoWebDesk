@@ -1,5 +1,5 @@
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
-import { handleRepSlug } from '../../modules/rep-integration/repApiRoutes.js';
+import { handleRepPunchRpcLite } from '../_shared/repPunchRpcLite.js';
 
 function extractRepSlug(request: Request): string {
   const url = resolveRequestUrl(request);
@@ -19,6 +19,10 @@ async function handler(request: Request): Promise<Response> {
       { status: 404, headers: { 'Content-Type': 'application/json' } },
     );
   }
+  if (slug === 'punch') {
+    return handleRepPunchRpcLite(request);
+  }
+  const { handleRepSlug } = await import('../../modules/rep-integration/repApiRoutes.js');
   return handleRepSlug(request, slug);
 }
 
