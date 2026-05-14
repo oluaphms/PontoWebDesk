@@ -1,3 +1,4 @@
+# Não listar "api/" aqui — a Vercel precisa dessa pasta para serverless em /api/*.
 node_modules
 .git
 .env.local
