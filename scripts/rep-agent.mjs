@@ -415,6 +415,7 @@ async function fetchPunchesFromClock() {
   let lastErr = null;
   let attempts = 0;
   let invalidCommandHits = 0;
+  let connectionRefusedHits = 0;
 
   for (const path of paths) {
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -456,6 +457,7 @@ async function fetchPunchesFromClock() {
         lastErr = new Error(`Formato de lista de batidas não reconhecido em ${url}`);
       } catch (e) {
         lastErr = e;
+        if (e && e.code === 'ECONNREFUSED') connectionRefusedHits += 1;
         console.error('[REP ERROR]', e?.message || String(e));
       }
     }
@@ -464,6 +466,21 @@ async function fetchPunchesFromClock() {
   if (lastErr) {
     console.error('[rep-agent] Último erro antes do fallback esgotado:', lastErr.message || lastErr);
   }
+
+  if (attempts > 0 && invalidCommandHits === 0 && connectionRefusedHits === attempts) {
+    const mockHint =
+      ip === '127.0.0.1' || ip === '::1' || ip === 'localhost'
+        ? ' Noutro terminal na raiz do projeto: node scripts\\rep-agent-mock.mjs (porta ' +
+          port +
+          '; ou ajuste REP_DEVICE_IP / REP_DEVICE_PORT se o mock usar outra).'
+        : ' Verifique se o relógio está ligado, na mesma rede, e se IP/porta estão corretos.';
+    const err = new Error(`ECONNREFUSED — ninguém responde em ${base} (${attempts} tentativas).${mockHint}`);
+    err.attempts = attempts;
+    err.invalidCommandHits = 0;
+    err.connectionRefusedAll = true;
+    throw err;
+  }
+
   const err = new Error('Nenhum comando compatível com o dispositivo');
   err.attempts = attempts;
   err.invalidCommandHits = invalidCommandHits;
@@ -845,6 +862,7 @@ function shouldForceAfdMode() {
 /** Heurística: dispositivo respondeu de forma consistente "Invalid command: none". */
 function shouldFallbackToAfd(err) {
   if (!err || typeof err !== 'object') return false;
+  if (err.connectionRefusedAll) return false;
   const attempts = Number(err.attempts || 0);
   const hits = Number(err.invalidCommandHits || 0);
   if (attempts === 0) return false;
