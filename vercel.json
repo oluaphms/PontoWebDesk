@@ -1,9 +1,4 @@
 {
   "framework": null,
-  "buildCommand": "npm run build",
-  "functions": {
-    "api/**/*.ts": {
-      "excludeFiles": "api/_shared/**"
-    }
-  }
+  "buildCommand": "npm run build"
 }

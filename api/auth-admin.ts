@@ -11,9 +11,9 @@
  * Reduz o número de funções no plano Hobby da Vercel (máx. 12).
  */
 
-import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.ts';
+import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 import { z } from 'zod';
-import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.ts';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 console.log('[AUTH ADMIN LOADED]');
 
