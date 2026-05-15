@@ -16,6 +16,17 @@ export type RepDeviceRow = {
   usuario?: string | null;
   senha?: string | null;
   config_extra?: Record<string, unknown> | null;
+  last_seen_at?: string | null;
+  status_runtime?: 'online' | 'offline' | 'unknown' | null;
+};
+
+export type DeviceSyncStatusSnapshot = {
+  pending: number;
+  sent: number;
+  error: number;
+  last_sync_at: string | null;
+  device_status: 'online' | 'offline' | 'unknown';
+  last_seen_at: string | null;
 };
 
 export type EmployeeForRep = {

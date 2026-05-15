@@ -131,6 +131,9 @@ const REP_AGENT_INTERVAL_MS = Math.max(
   parseInt(process.env.REP_AGENT_INTERVAL_MS || '60000', 10) || 60000
 );
 const CLI_ONCE = process.argv.slice(2).some((a) => a === '--once');
+const CLI_SYNC_USERS = process.argv.slice(2).some((a) => a === 'sync-users');
+const REP_SYNC_TIMEOUT_MS = Math.max(1000, parseInt(process.env.REP_SYNC_TIMEOUT_MS || '12000', 10) || 12000);
+const REP_SYNC_MAX_ATTEMPTS = 5;
 
 const TZ_OFFSET_RE = /^([+-])(\d{2}):(\d{2})$/;
 if (!TZ_OFFSET_RE.test(REP_DEVICE_TIMEZONE_OFFSET)) {
@@ -161,7 +164,7 @@ if (!ip) {
     'Defina REP_DEVICE_IP no .env / .env.local (ex.: 192.168.x.x do relógio) ou 127.0.0.1 com scripts/rep-agent-mock.mjs (porta 8181). PowerShell: $env:REP_DEVICE_IP="127.0.0.1"'
   );
 }
-if (!companyId) {
+if (!companyId && !CLI_SYNC_USERS) {
   fail(
     'Defina REP_COMPANY_ID no .env / .env.local (UUID em public.companies). PowerShell: $env:REP_COMPANY_ID="..."'
   );
@@ -979,6 +982,247 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function syncLog(tag, info = {}) {
+  const safe = {
+    device_id: info.device_id || deviceId || null,
+    user_id: info.user_id || null,
+    sync_id: info.sync_id || null,
+    latency_ms: info.latency_ms ?? null,
+    detail: info.detail || undefined,
+  };
+  console.log(tag, JSON.stringify(safe));
+}
+
+function classifySyncError(err) {
+  const msg = String(err?.message || err || 'Erro desconhecido');
+  const low = msg.toLowerCase();
+  if (low.includes('timeout') || low.includes('aborted')) return { code: 'TIMEOUT', message: msg };
+  if (low.includes('offline') || low.includes('econnrefused') || low.includes('network')) {
+    return { code: 'DEVICE_OFFLINE', message: msg };
+  }
+  if (low.includes('duplicate')) return { code: 'DUPLICATE', message: msg };
+  if (low.includes('identificador') || low.includes('identifier')) return { code: 'INVALID_IDENTIFIER', message: msg };
+  return { code: 'UNKNOWN', message: msg };
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = REP_SYNC_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    return { ok: res.ok, status: res.status, data };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function normalizeAgentIdentifier(raw) {
+  return String(raw || '').replace(/\D/g, '').trim();
+}
+
+/**
+ * Integração com relógio para envio de colaborador.
+ * Mantido isolado para permitir múltiplos fabricantes sem acoplar a API.
+ */
+async function sendToClock(user) {
+  const provider = String(process.env.REP_DEVICE_PROVIDER || 'mock').trim().toLowerCase();
+  const identifier = normalizeAgentIdentifier(user.identifier);
+  if (!identifier) {
+    throw new Error('Identificador inválido para envio ao relógio');
+  }
+
+  if (provider === 'controlid') {
+    const base = `${scheme}://${ip}:${port}`;
+    const payload = {
+      users: [
+        {
+          name: user.name || 'Sem nome',
+          identifier,
+          identifier_type: user.identifier_type,
+        },
+      ],
+    };
+    const startedAt = Date.now();
+    const res = await fetchJsonWithTimeout(
+      `${base}/api/users`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...clockDeviceAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      },
+      REP_SYNC_TIMEOUT_MS
+    );
+    const latency = Date.now() - startedAt;
+    if (!res.ok) {
+      throw new Error(`Control iD HTTP ${res.status} (${latency}ms)`);
+    }
+    return { provider: 'controlid', latency };
+  }
+
+  // Fabricantes ainda não implementados: mock para fluxo ponta a ponta.
+  await sleep(80);
+  return { provider: 'mock', latency: 80 };
+}
+
+async function ackUserSync(syncId, ok, payload = {}) {
+  const externalIdOnDevice = typeof payload === 'object' && payload ? payload.external_id_on_device : undefined;
+  const errorBody = typeof payload === 'object' && payload ? payload.error : payload;
+  const t0 = Date.now();
+  const res = await fetchJsonWithTimeout(
+    `${saas}/api/devices/${encodeURIComponent(deviceId)}/ack-sync`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        sync_id: syncId,
+        success: ok,
+        external_id_on_device: ok ? externalIdOnDevice : undefined,
+        error: ok ? undefined : errorBody,
+      }),
+    },
+    REP_SYNC_TIMEOUT_MS
+  );
+  const latency = Date.now() - t0;
+  syncLog('[SYNC ACK]', { sync_id: syncId, latency_ms: latency, detail: { ok, status: res.status } });
+  if (!res.ok) {
+    throw new Error(`ACK falhou com HTTP ${res.status}`);
+  }
+}
+
+async function sendHeartbeat() {
+  if (!deviceId) throw new Error('REP_DEVICE_ID é obrigatório para heartbeat');
+  const t0 = Date.now();
+  const res = await fetchJsonWithTimeout(
+    `${saas}/api/devices/${encodeURIComponent(deviceId)}/heartbeat`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    },
+    REP_SYNC_TIMEOUT_MS
+  );
+  const latency = Date.now() - t0;
+  syncLog('[HEARTBEAT]', { latency_ms: latency, detail: { status: res.status, ok: res.ok } });
+  if (!res.ok) {
+    throw new Error(`Heartbeat falhou com HTTP ${res.status}`);
+  }
+}
+
+async function runSyncUsersCommand() {
+  if (!deviceId) {
+    throw new Error('REP_DEVICE_ID é obrigatório para sync-users');
+  }
+
+  syncLog('[SYNC START]', { detail: { command: 'sync-users' } });
+  await sendHeartbeat();
+
+  const pendingStart = Date.now();
+  const pendingRes = await fetchJsonWithTimeout(
+    `${saas}/api/devices/${encodeURIComponent(deviceId)}/pending-users`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    },
+    REP_SYNC_TIMEOUT_MS
+  );
+  const pendingLatency = Date.now() - pendingStart;
+
+  if (!pendingRes.ok) {
+    syncLog('[SYNC ERROR]', { latency_ms: pendingLatency, detail: { stage: 'pending-users', status: pendingRes.status } });
+    throw new Error(`Falha ao buscar pendências: HTTP ${pendingRes.status}`);
+  }
+
+  const users = Array.isArray(pendingRes.data?.users) ? pendingRes.data.users : [];
+  if (users.length === 0) {
+    syncLog('[SYNC SUCCESS]', { latency_ms: pendingLatency, detail: { sent: 0, skipped: 0, errors: 0 } });
+    return { sent: 0, errors: 0 };
+  }
+
+  let sent = 0;
+  let errors = 0;
+
+  for (const user of users) {
+    const syncId = String(user?.sync_id || '');
+    const userId = String(user?.user_id || '');
+    if (!syncId || !userId) continue;
+
+    if (user?.external_id_on_device) {
+      syncLog('[SYNC SUCCESS]', {
+        sync_id: syncId,
+        user_id: userId,
+        latency_ms: 0,
+        detail: { skipped: true, reason: 'external_id_on_device já informado' },
+      });
+      continue;
+    }
+
+    let attempt = 0;
+    let done = false;
+    let lastError = 'Erro desconhecido';
+
+    while (!done && attempt < REP_SYNC_MAX_ATTEMPTS) {
+      attempt += 1;
+      const t0 = Date.now();
+      try {
+        const result = await sendToClock(user);
+        const latency = Date.now() - t0;
+        const externalIdOnDevice =
+          String(user?.external_id_on_device || '').trim() ||
+          `${providerTag(result.provider)}-${syncId.slice(0, 8)}-${Date.now().toString(36)}`;
+        await ackUserSync(syncId, true, { external_id_on_device: externalIdOnDevice });
+        sent += 1;
+        syncLog('[SYNC SUCCESS]', {
+          sync_id: syncId,
+          user_id: userId,
+          latency_ms: latency,
+          detail: { attempt, provider: result.provider },
+        });
+        done = true;
+      } catch (err) {
+        const latency = Date.now() - t0;
+        const normalizedErr = classifySyncError(err);
+        lastError = normalizedErr;
+        syncLog('[SYNC ERROR]', {
+          sync_id: syncId,
+          user_id: userId,
+          latency_ms: latency,
+          detail: { attempt, error: normalizedErr },
+        });
+        if (attempt < REP_SYNC_MAX_ATTEMPTS) {
+          await sleep(attempt * 2000);
+        }
+      }
+    }
+
+    if (!done) {
+      errors += 1;
+      await ackUserSync(syncId, false, { error: lastError });
+    }
+  }
+
+  return { sent, errors };
+}
+
+function providerTag(provider) {
+  return String(provider || 'rep').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'rep';
+}
+
 // ----------------------------------------------------------------------------
 // Cache local de NSRs já processados (evita reenvio mesmo após reiniciar o agente)
 // ----------------------------------------------------------------------------
@@ -1282,6 +1526,12 @@ async function runCycle() {
 }
 
 async function main() {
+  if (CLI_SYNC_USERS) {
+    const result = await runSyncUsersCommand();
+    console.log(`[rep-agent] sync-users concluído. sent=${result.sent} errors=${result.errors}`);
+    return;
+  }
+
   const loopEnabled = REP_AGENT_LOOP && !CLI_ONCE;
 
   if (!loopEnabled) {

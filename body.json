@@ -1,1 +1,10 @@
-﻿{"name":"João","cpf":"12345678901","company_id":"SEU_COMPANY_ID"}
+﻿{
+  "action": "create-user",
+  "email": "teste.final@pontowebdesk.local",
+  "password": "123456",
+  "metadata": {
+    "nome": "Teste Final",
+    "cpf": "90000000001",
+    "company_id": "a145b0cd-76f4-4dc8-b50c-02b0c9bfe24b"
+  }
+}

@@ -24,3 +24,11 @@ export function repDeviceRowStatusBadge(status: string | null) {
     <span className={cx(base, repBadgesUi.off)}>Sem comunicação</span>
   );
 }
+
+export function repDeviceRuntimeBadge(statusRuntime: 'online' | 'offline' | 'unknown' | null | undefined) {
+  const base = repBadgesUi.base;
+  const s = String(statusRuntime || 'unknown').toLowerCase();
+  if (s === 'online') return <span className={cx(base, repBadgesUi.ok)}>Online</span>;
+  if (s === 'offline') return <span className={cx(base, repBadgesUi.err)}>Offline</span>;
+  return <span className={cx(base, repBadgesUi.off)}>Indefinido</span>;
+}

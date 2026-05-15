@@ -4,8 +4,8 @@
 import React from 'react';
 import { Button } from '../../../../components/UI';
 import { Clock, Network, Pencil, Plus, Trash2 } from 'lucide-react';
-import { repDeviceRowStatusBadge } from './badges';
-import type { RepDeviceRow } from './types';
+import { repDeviceRowStatusBadge, repDeviceRuntimeBadge } from './badges';
+import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
 import { repConnectionCellText } from './utils';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { uiTokens } from '../../../styles/tokens';
@@ -29,12 +29,15 @@ export type RepDevicesListSectionProps = {
   formatDate: (s: string | null) => string;
   testingId: string | null;
   deletingId: string | null;
+  forcingSyncId: string | null;
+  syncStatusByDeviceId: Record<string, DeviceSyncStatusSnapshot | undefined>;
   onToggleShowInactive: () => void;
   onRetryLoad: () => void;
   onOpenCreate: () => void;
   onTestConnection: (deviceId: string) => void;
   onOpenEdit: (device: RepDeviceRow) => void;
   onDelete: (deviceId: string, deviceName: string) => void;
+  onForceSync: (deviceId: string) => void;
 };
 
 export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
@@ -48,12 +51,15 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
   formatDate,
   testingId,
   deletingId,
+  forcingSyncId,
+  syncStatusByDeviceId,
   onToggleShowInactive,
   onRetryLoad,
   onOpenCreate,
   onTestConnection,
   onOpenEdit,
   onDelete,
+  onForceSync,
 }) => {
   if (loadingList) {
     return (
@@ -183,11 +189,40 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 </div>
                 <div className={repListUi.c011}>
                   <span className={repListUi.c012}>Última sincronização</span>
-                  <span className={repListUi.c015}>{formatDate(d.ultima_sincronizacao)}</span>
+                  <span className={repListUi.c015}>
+                    {formatDate(syncStatusByDeviceId[d.id]?.last_sync_at ?? d.ultima_sincronizacao)}
+                  </span>
+                </div>
+                <div className={repListUi.c011}>
+                  <span className={repListUi.c012}>Runtime</span>
+                  <span className={repListUi.c015}>
+                    {repDeviceRuntimeBadge(syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime)}
+                  </span>
+                </div>
+                <div className={repListUi.c011}>
+                  <span className={repListUi.c012}>Último heartbeat</span>
+                  <span className={repListUi.c015}>
+                    {formatDate(syncStatusByDeviceId[d.id]?.last_seen_at ?? d.last_seen_at ?? null)}
+                  </span>
+                </div>
+                <div className={repListUi.c011}>
+                  <span className={repListUi.c012}>Fila</span>
+                  <span className={repListUi.c015}>
+                    pendentes {syncStatusByDeviceId[d.id]?.pending ?? 0} · erros {syncStatusByDeviceId[d.id]?.error ?? 0}
+                  </span>
                 </div>
               </div>
 
               <div className={repListUi.c016}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                  disabled={forcingSyncId === d.id}
+                  onClick={() => onForceSync(d.id)}
+                >
+                  Sincronizar agora
+                </Button>
                 {d.tipo_conexao === 'rede' && (
                   <Button
                     size="sm"
@@ -232,14 +267,17 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 <th className={repListUi.c020}>Conexão</th>
                 <th className={repListUi.c020}>Identificação</th>
                 <th className={repListUi.c020}>Status</th>
+                <th className={repListUi.c020}>Runtime</th>
                 <th className={repListUi.c020}>Última sincronização</th>
+                <th className={repListUi.c020}>Último heartbeat</th>
+                <th className={repListUi.c020}>Fila</th>
                 <th className={repListUi.c021}>Ações</th>
               </tr>
             </thead>
             <tbody className={repListUi.c022}>
               {visibleDevices.length === 0 && !hasLoadError ? (
                 <tr>
-                  <td colSpan={7} className={repListUi.c023}>
+                  <td colSpan={10} className={repListUi.c023}>
                     <Clock className={repListUi.c024} size={28} aria-hidden />
                     <p className={repListUi.c036}>Nenhum relógio cadastrado</p>
                     <p className={cx('mt-1', uiTokens.typography.subtitle)}>Cadastre um dispositivo para iniciar a coleta automática</p>
@@ -269,9 +307,29 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     </td>
                     <td className={repListUi.c027}>{identifierTypeLabel(d.identifier_type)}</td>
                     <td className={repListUi.c029}>{repDeviceRowStatusBadge(d.status)}</td>
-                    <td className={repListUi.c030}>{formatDate(d.ultima_sincronizacao)}</td>
+                    <td className={repListUi.c029}>
+                      {repDeviceRuntimeBadge(syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime)}
+                    </td>
+                    <td className={repListUi.c030}>
+                      {formatDate(syncStatusByDeviceId[d.id]?.last_sync_at ?? d.ultima_sincronizacao)}
+                    </td>
+                    <td className={repListUi.c030}>
+                      {formatDate(syncStatusByDeviceId[d.id]?.last_seen_at ?? d.last_seen_at ?? null)}
+                    </td>
+                    <td className={repListUi.c030}>
+                      P {syncStatusByDeviceId[d.id]?.pending ?? 0} / E {syncStatusByDeviceId[d.id]?.error ?? 0}
+                    </td>
                     <td className={repListUi.c029}>
                       <div className={repListUi.c031}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                          disabled={forcingSyncId === d.id}
+                          onClick={() => onForceSync(d.id)}
+                        >
+                          Sincronizar agora
+                        </Button>
                         {d.tipo_conexao === 'rede' && (
                           <Button
                             size="sm"
@@ -306,7 +364,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className={repListUi.c032}>
+                  <td colSpan={10} className={repListUi.c032}>
                     Não foi possível carregar os dispositivos
                   </td>
                 </tr>

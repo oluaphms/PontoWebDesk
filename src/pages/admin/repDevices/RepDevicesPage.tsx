@@ -61,7 +61,7 @@ import {
   monthYearFromCivilYmd,
 } from '../../../services/timesheetClosure';
 import { isDevVerboseLogsEnabled } from '../../../utils/devVerboseLogs';
-import type { EmployeeForRep, PendingPunchDiag, RepDeviceRow } from './types';
+import type { DeviceSyncStatusSnapshot, EmployeeForRep, PendingPunchDiag, RepDeviceRow } from './types';
 import {
   HUB_PROVIDER_OPTIONS,
   LS_REP_ALLOCATE,
@@ -107,6 +107,8 @@ const AdminRepDevices: React.FC = () => {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [forcingSyncId, setForcingSyncId] = useState<string | null>(null);
+  const [syncStatusByDeviceId, setSyncStatusByDeviceId] = useState<Record<string, DeviceSyncStatusSnapshot | undefined>>({});
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [employees, setEmployees] = useState<EmployeeForRep[]>([]);
   /** `${deviceId}:${op}` enquanto /api/rep/exchange roda */
@@ -193,6 +195,11 @@ const AdminRepDevices: React.FC = () => {
         { column: 'company_id', operator: 'eq', value: user.companyId },
       ])) as RepDeviceRow[];
       setDevices(list || []);
+      if (Array.isArray(list) && list.length > 0) {
+        void loadSyncStatusesForDevices(list.map((d) => d.id));
+      } else {
+        setSyncStatusByDeviceId({});
+      }
     } catch (e) {
       const technical = e instanceof Error ? e.message : String(e);
       if (isDevVerboseLogsEnabled()) {
@@ -203,6 +210,63 @@ const AdminRepDevices: React.FC = () => {
       });
     } finally {
       setLoadingList(false);
+    }
+  };
+
+  const loadSyncStatusesForDevices = async (deviceIds: string[]) => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const entries = await Promise.all(
+        deviceIds.map(async (id) => {
+          const res = await fetch(`/api/devices/${encodeURIComponent(id)}/sync-status`, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          if (!res.ok) return [id, undefined] as const;
+          const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
+          if (!body) return [id, undefined] as const;
+          return [id, body] as const;
+        }),
+      );
+      const next: Record<string, DeviceSyncStatusSnapshot | undefined> = {};
+      for (const [id, snap] of entries) next[id] = snap;
+      setSyncStatusByDeviceId(next);
+    } catch {
+      // Não bloquear a tela principal por falhas de observabilidade.
+    }
+  };
+
+  const handleForceSyncDevice = async (deviceId: string) => {
+    setForcingSyncId(deviceId);
+    setMessage(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/force-sync`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!res.ok || body.success === false) {
+        throw new Error(body.error || `Falha ao forçar sincronização (HTTP ${res.status})`);
+      }
+      setMessage({ type: 'success', text: 'Sincronização forçada. Itens voltaram para pendente.' });
+      await loadDevices();
+    } catch (e) {
+      setMessage({ type: 'error', text: (e as Error).message });
+    } finally {
+      setForcingSyncId(null);
     }
   };
 
@@ -2207,12 +2271,15 @@ const AdminRepDevices: React.FC = () => {
         formatDate={formatDate}
         testingId={testingId}
         deletingId={deletingId}
+        forcingSyncId={forcingSyncId}
+        syncStatusByDeviceId={syncStatusByDeviceId}
         onToggleShowInactive={() => setShowInactiveDevices((v) => !v)}
         onRetryLoad={() => void loadDevices()}
         onOpenCreate={openCreate}
         onTestConnection={handleTestConnection}
         onOpenEdit={openEdit}
         onDelete={handleDelete}
+        onForceSync={handleForceSyncDevice}
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
