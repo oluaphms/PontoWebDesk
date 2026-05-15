@@ -24,6 +24,7 @@ export {
   withSupabaseTimeout,
   resetSession,
   resetAuthSession,
+  clearStaleSupabaseAuthTokens,
   setSupabaseServiceRoleOverride,
 } from '../src/lib/supabaseClient';
 

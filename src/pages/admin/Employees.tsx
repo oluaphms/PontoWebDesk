@@ -26,7 +26,6 @@ import {
   auth,
   isSupabaseConfigured,
   resetSession,
-  resetAuthSession,
   getSupabaseClient,
   type DbRow,
 } from '../../services/supabaseClient';
@@ -653,7 +652,6 @@ const AdminEmployees: React.FC = () => {
     setModalOpen(true);
     setError(null);
     setSuccess(null);
-    void resetAuthSession();
   };
 
   const openEdit = (row: EmployeeRow) => {
@@ -915,8 +913,7 @@ const AdminEmployees: React.FC = () => {
         let authExisting = false;
         const senhaCriacao = (form.password && form.password.trim()) ? form.password.trim() : '123456';
         try {
-          await resetAuthSession();
-          // Tenta criar conta no Auth (fluxo ideal); senha vazia = provisória 123456
+          // create-user é stateless (fetch credentials:omit) — não mexe na sessão do admin
           const { userId, existing } = await createEmployeeAuthUser({
             email,
             password: senhaCriacao,
@@ -1221,7 +1218,6 @@ const AdminEmployees: React.FC = () => {
         let authUserId: string | null = null;
         let authExisting = false;
         try {
-          await resetAuthSession();
           const { userId, existing } = await createEmployeeAuthUser({
             email: emailFinal.toLowerCase(),
             password: senha,

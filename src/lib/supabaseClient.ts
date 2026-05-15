@@ -187,38 +187,28 @@ export async function resetSession(): Promise<void> {
 }
 
 /**
- * Limpa sessão Supabase corrompida (refresh token inválido — comum em mobile/PWA).
- * Preserva `current_user` para não derrubar o perfil em memória/cache do app.
+ * Remove apenas chaves `sb-*` do storage (tokens Supabase corrompidos).
+ * Não chama signOut — evita SIGNED_OUT, redirect e piscar de tela no cadastro.
  */
-export async function resetAuthSession(): Promise<void> {
+export function clearStaleSupabaseAuthTokens(): void {
   if (typeof window === 'undefined') return;
-
-  const preservedCurrentUser = {
-    local: localStorage.getItem('current_user'),
-    session: sessionStorage.getItem('current_user'),
-  };
-
   try {
-    const client = getSupabaseClient();
-    if (client) {
-      await client.auth.signOut({ scope: 'local' });
+    for (const storage of [localStorage, sessionStorage]) {
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith('sb-')) keys.push(k);
+      }
+      keys.forEach((k) => storage.removeItem(k));
     }
   } catch (e) {
-    console.warn('resetAuthSession signOut failed', e);
+    console.warn('clearStaleSupabaseAuthTokens failed', e);
   }
+}
 
-  try {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (preservedCurrentUser.local) {
-      localStorage.setItem('current_user', preservedCurrentUser.local);
-    }
-    if (preservedCurrentUser.session) {
-      sessionStorage.setItem('current_user', preservedCurrentUser.session);
-    }
-  } catch (e) {
-    console.warn('resetAuthSession storage failed', e);
-  }
+/** Alias legado — não dispara signOut nem limpa storage inteiro. */
+export async function resetAuthSession(): Promise<void> {
+  clearStaleSupabaseAuthTokens();
 }
 
 export const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;

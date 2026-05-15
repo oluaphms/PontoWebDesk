@@ -6,9 +6,23 @@
  */
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseClient, getSupabaseClientOrThrow, resetSession, resetAuthSession, getSupabase } from '../src/lib/supabaseClient';
+import {
+  getSupabaseClient,
+  getSupabaseClientOrThrow,
+  resetSession,
+  resetAuthSession,
+  clearStaleSupabaseAuthTokens,
+  getSupabase,
+} from '../src/lib/supabaseClient';
 
-export { resetSession, resetAuthSession, getSupabase, getSupabaseClient, getSupabaseClientOrThrow };
+export {
+  resetSession,
+  resetAuthSession,
+  clearStaleSupabaseAuthTokens,
+  getSupabase,
+  getSupabaseClient,
+  getSupabaseClientOrThrow,
+};
 
 /** Encaminha para o singleton; não recria cliente a cada acesso. */
 export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
