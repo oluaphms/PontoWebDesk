@@ -28,6 +28,10 @@ async function handler(request: Request): Promise<Response> {
       );
     }
   }
+  if (slug.startsWith('devices/')) {
+    const { handleDeviceSyncRoute } = await import('../_shared/deviceSyncHttp.js');
+    return handleDeviceSyncRoute(request, slug);
+  }
   const { handleRepSlug } = await import('../../modules/rep-integration/repApiRoutes.js');
   return handleRepSlug(request, slug);
 }

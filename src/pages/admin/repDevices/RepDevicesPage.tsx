@@ -19,6 +19,7 @@ import { LoadingState, Button } from '../../../../components/UI';
 import {
   Activity,
   ArrowLeftRight,
+  ClipboardCheck,
   Clock,
   Download,
   Plus,
@@ -74,6 +75,7 @@ import {
 import {
   buildLocalClockForRep,
   canonicalRepDeviceName,
+  isEmployeeEligibleForRepPush,
   isAgentLocalDevice,
   isTimesheetPeriodClosedError,
   mergeEmployeeFromRepRpcRow,
@@ -221,7 +223,7 @@ const AdminRepDevices: React.FC = () => {
       if (!session?.access_token) return;
       const entries = await Promise.all(
         deviceIds.map(async (id) => {
-          const res = await fetch(`/api/devices/${encodeURIComponent(id)}/sync-status`, {
+          const res = await fetch(`/api/rep/devices/${encodeURIComponent(id)}/sync-status`, {
             method: 'GET',
             headers: {
               Authorization: `Bearer ${session.access_token}`,
@@ -251,7 +253,7 @@ const AdminRepDevices: React.FC = () => {
       if (!session?.access_token) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
-      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/force-sync`, {
+      const res = await fetch(`/api/rep/devices/${encodeURIComponent(deviceId)}/force-sync`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,

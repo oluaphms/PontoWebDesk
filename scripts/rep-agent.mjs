@@ -1079,7 +1079,7 @@ async function ackUserSync(syncId, ok, payload = {}) {
   const errorBody = typeof payload === 'object' && payload ? payload.error : payload;
   const t0 = Date.now();
   const res = await fetchJsonWithTimeout(
-    `${saas}/api/devices/${encodeURIComponent(deviceId)}/ack-sync`,
+    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/ack-sync`,
     {
       method: 'POST',
       headers: {
@@ -1106,7 +1106,7 @@ async function sendHeartbeat() {
   if (!deviceId) throw new Error('REP_DEVICE_ID é obrigatório para heartbeat');
   const t0 = Date.now();
   const res = await fetchJsonWithTimeout(
-    `${saas}/api/devices/${encodeURIComponent(deviceId)}/heartbeat`,
+    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/heartbeat`,
     {
       method: 'POST',
       headers: {
@@ -1132,7 +1132,7 @@ async function runSyncUsersCommand() {
 
   const pendingStart = Date.now();
   const pendingRes = await fetchJsonWithTimeout(
-    `${saas}/api/devices/${encodeURIComponent(deviceId)}/pending-users`,
+    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/pending-users`,
     {
       method: 'GET',
       headers: {
