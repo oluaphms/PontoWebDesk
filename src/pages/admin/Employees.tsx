@@ -198,16 +198,17 @@ function dbOptionalText(v: unknown): string | undefined {
 }
 
 /** Campos comuns em erros do Auth / PostgREST vindos de `catch (unknown)`. */
-function errorProps(err: unknown): { message: string; status: unknown; code: unknown } {
+function errorProps(err: unknown): { message: string; detail?: string; status: unknown; code: unknown } {
   if (err && typeof err === 'object') {
     const r = err as Record<string, unknown>;
     return {
       message: typeof r.message === 'string' ? r.message : messageFromUnknown(err),
+      detail: typeof r.detail === 'string' ? r.detail : undefined,
       status: r.status ?? r.statusCode,
       code: r.code,
     };
   }
-  return { message: messageFromUnknown(err), status: null, code: '' };
+  return { message: messageFromUnknown(err), detail: undefined, status: null, code: '' };
 }
 
 interface ImportResult {
@@ -912,6 +913,7 @@ const AdminEmployees: React.FC = () => {
         let authExisting = false;
         const senhaCriacao = (form.password && form.password.trim()) ? form.password.trim() : '123456';
         try {
+          await auth.signOut();
           // Tenta criar conta no Auth (fluxo ideal); senha vazia = provisória 123456
           const { userId, existing } = await createEmployeeAuthUser({
             email,
@@ -931,7 +933,8 @@ const AdminEmployees: React.FC = () => {
           }
           await confirmEmployeeEmailInAuth(email);
         } catch (authErr: unknown) {
-          const { message: msg, status, code } = errorProps(authErr);
+          console.error('[CREATE USER FRONT ERROR]', authErr);
+          const { message: msg, detail, status, code } = errorProps(authErr);
           const lower = msg.toLowerCase();
           const is404 =
             status === 404 ||
@@ -941,7 +944,7 @@ const AdminEmployees: React.FC = () => {
 
           if (!is404) {
             // Para erros "reais" (duplicado, 429, etc.), mantém o comportamento existente.
-            throw authErr instanceof Error ? authErr : new Error(msg);
+            throw authErr instanceof Error ? authErr : new Error(msg || detail || 'Erro ao criar usuário.');
           }
           // 404: backend de Auth não está disponível.
           // Vamos seguir com cadastro apenas local (sem acesso ao login).
@@ -986,7 +989,8 @@ const AdminEmployees: React.FC = () => {
         loadData();
       }
     } catch (e: unknown) {
-      const { message: msg, status, code } = errorProps(e);
+      console.error('[CREATE USER FRONT ERROR]', e);
+      const { message: msg, detail, status, code } = errorProps(e);
       const lower = msg.toLowerCase();
 
       const isAuthSessionError =
@@ -1032,7 +1036,7 @@ const AdminEmployees: React.FC = () => {
           'Limite de criação/envio de e-mails do Supabase atingido (erro 429). Aguarde alguns minutos e tente novamente ou reduza a quantidade de cadastros consecutivos.'
         );
       } else {
-        setError(msg || 'Erro ao salvar');
+        setError(msg || detail || 'Erro ao salvar');
       }
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } finally {
@@ -1215,6 +1219,7 @@ const AdminEmployees: React.FC = () => {
         let authUserId: string | null = null;
         let authExisting = false;
         try {
+          await auth.signOut();
           const { userId, existing } = await createEmployeeAuthUser({
             email: emailFinal.toLowerCase(),
             password: senha,
@@ -1233,7 +1238,8 @@ const AdminEmployees: React.FC = () => {
           }
           await confirmEmployeeEmailInAuth(emailFinal.toLowerCase());
         } catch (authErr: unknown) {
-          const { message: msg, status, code } = errorProps(authErr);
+          console.error('[CREATE USER FRONT ERROR]', authErr);
+          const { message: msg, detail, status, code } = errorProps(authErr);
           const lower = msg.toLowerCase();
           const is404 =
             status === 404 ||
@@ -1242,7 +1248,7 @@ const AdminEmployees: React.FC = () => {
             lower.includes('not found');
           if (!is404) {
             // Motivo real do erro (não genérico); quem chama vai push em failed e continuar.
-            throw authErr instanceof Error ? authErr : new Error(msg);
+            throw authErr instanceof Error ? authErr : new Error(msg || detail || 'Erro ao criar usuário.');
           }
         }
 

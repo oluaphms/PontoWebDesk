@@ -1,7 +1,7 @@
 /**
  * POST /api/auth-admin
  * Body: { action: 'confirm-email' | 'set-password' | 'create-user', email: string, ... }
- * Header: Authorization: Bearer <jwt do admin>
+ * Header: Authorization: Bearer <jwt do admin> (obrigatório para ações diferentes de create-user)
  *
  * Uma única Serverless Function que unifica:
  * - confirm-email: { action: 'confirm-email', email } → marca email_confirm=true
@@ -11,12 +11,22 @@
  * Reduz o número de funções no plano Hobby da Vercel (máx. 12).
  */
 
-import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 import { z } from 'zod';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 const FALLBACK_EMAIL_DOMAIN = 'pontowebdesk.local';
+
+/** Local — evita import de `src/` no bootstrap da função serverless. */
+function messageFromUnknown(err: unknown, fallback = 'Erro.'): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = (err as { message: unknown }).message;
+    if (typeof m === 'string') return m;
+  }
+  return fallback;
+}
 
 function mapAuthErrorToFriendly(rawMessage: string, rawCode: string, status: number): { message: string; code: string } {
   const lower = (rawMessage || '').toLowerCase();
@@ -135,19 +145,21 @@ async function handleRequest(request: Request): Promise<Response> {
   const supabaseUrl = getSupabaseUrlForServer();
   const anonKey = (typeof process.env.SUPABASE_ANON_KEY === 'string' ? process.env.SUPABASE_ANON_KEY : (process.env.VITE_SUPABASE_ANON_KEY as string) || '').trim();
 
-  if (!serviceKey || !supabaseUrl) {
+  if (!serviceKey) {
+    console.error('SERVICE_ROLE_KEY_MISSING');
     return Response.json(
-      { error: 'Configuração indisponível.', code: 'CONFIG_MISSING' },
+      {
+        success: false,
+        error: 'CONFIG_ERROR',
+      },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 
-  const authHeader = (request.headers as any).get?.('Authorization') || (request.headers as any).get?.('authorization') || '';
-  const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!jwt) {
+  if (!supabaseUrl) {
     return Response.json(
-      { error: 'Token de autenticação obrigatório.', code: 'UNAUTHORIZED' },
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { error: 'Configuração indisponível.', code: 'CONFIG_MISSING' },
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 
@@ -171,6 +183,8 @@ async function handleRequest(request: Request): Promise<Response> {
 
   const action = body.action;
   const email = 'email' in body ? normalizeEmail(body.email) : '';
+  const authHeader = (request.headers as any).get?.('Authorization') || (request.headers as any).get?.('authorization') || '';
+  const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
 
   try {
     const { createClient } = await import('@supabase/supabase-js');
@@ -178,22 +192,31 @@ async function handleRequest(request: Request): Promise<Response> {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    let callerRole: string | null = null;
-    if (anonKey) {
-      const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-        headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
-      });
-      if (authRes.ok) {
-        const authUser = await authRes.json();
-        const callerId = authUser?.id;
-        if (callerId) callerRole = await getRoleFromUsers(adminSup, callerId);
+    if (action !== 'create-user') {
+      if (!jwt) {
+        return Response.json(
+          { error: 'Token de autenticação obrigatório.', code: 'UNAUTHORIZED' },
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-    }
-    if (callerRole !== 'admin' && callerRole !== 'hr') {
-      return Response.json(
-        { error: 'Apenas administrador ou RH pode executar esta ação.', code: 'FORBIDDEN' },
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+
+      let callerRole: string | null = null;
+      if (anonKey) {
+        const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+          headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
+        });
+        if (authRes.ok) {
+          const authUser = await authRes.json();
+          const callerId = authUser?.id;
+          if (callerId) callerRole = await getRoleFromUsers(adminSup, callerId);
+        }
+      }
+      if (callerRole !== 'admin' && callerRole !== 'hr') {
+        return Response.json(
+          { error: 'Apenas administrador ou RH pode executar esta ação.', code: 'FORBIDDEN' },
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     const adminAuth = (adminSup.auth as any).admin;
@@ -451,26 +474,46 @@ async function handleRequest(request: Request): Promise<Response> {
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (e: unknown) {
+    const error = e instanceof Error ? e : new Error(messageFromUnknown(e, 'Erro interno.'));
+    console.error('[AUTH ADMIN FATAL]', {
+      message: error.message,
+      stack: error.stack,
+    });
     return Response.json(
-      { error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' },
+      {
+        success: false,
+        error: 'INTERNAL_ERROR',
+        detail: error.message,
+      },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 }
 
-export default {
-  async fetch(request: Request): Promise<Response> {
-    try {
-      return await handleRequest(request);
-    } catch (e: unknown) {
-      const corsHeaders = getSecureCorsHeaders(request, {
-        allowMethods: 'POST, OPTIONS',
-        allowHeaders: 'Content-Type, Authorization',
-      });
-      return Response.json(
-        { error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' },
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
-    }
-  },
-};
+async function handler(request: Request): Promise<Response> {
+  console.log('[AUTH ADMIN START]', { method: request.method, url: request.url });
+  try {
+    return await handleRequest(request);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(messageFromUnknown(error, 'Erro interno.'));
+    console.error('[AUTH ADMIN FATAL]', {
+      message: err.message,
+      stack: err.stack,
+      raw: error,
+    });
+    const corsHeaders = getSecureCorsHeaders(request, {
+      allowMethods: 'POST, OPTIONS',
+      allowHeaders: 'Content-Type, Authorization',
+    });
+    return Response.json(
+      {
+        success: false,
+        error: 'RUNTIME_ERROR',
+        detail: err.message,
+      },
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+}
+
+export default { fetch: handler };

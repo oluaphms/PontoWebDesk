@@ -83,7 +83,7 @@ export function getSupabaseClient(): SupabaseClient | null {
     supabaseInstance = createClient(url, key, {
       auth: {
         persistSession: true,
-        autoRefreshToken: true,
+        autoRefreshToken: false,
         detectSessionInUrl: true, // Habilitar detecção rápida de sessão na URL
         lock: createInProcessAuthLock(),
         // Mobile: usar localStorage é mais rápido que IndexedDB em alguns casos

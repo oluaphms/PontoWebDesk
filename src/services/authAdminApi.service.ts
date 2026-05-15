@@ -71,10 +71,6 @@ export async function createEmployeeAuthUser(params: {
   const password = String(params.password || '').trim();
   const metadata = params.metadata && typeof params.metadata === 'object' ? params.metadata : {};
 
-  const token = await getAdminAccessToken();
-  const base = resolveAppBaseUrl();
-  if (!base) throw new Error('URL do app não resolvida.');
-
   const requestBody: Record<string, unknown> = {
     action: 'create-user',
     metadata,
@@ -82,9 +78,10 @@ export async function createEmployeeAuthUser(params: {
   if (email) requestBody.email = email;
   if (password) requestBody.password = password;
 
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
+  const res = await fetch('/api/auth-admin', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
     body: JSON.stringify(requestBody),
   });
   const data = await res.json().catch(() => ({}));
