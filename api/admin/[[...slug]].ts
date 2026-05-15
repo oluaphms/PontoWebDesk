@@ -453,11 +453,11 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
       if (format === 'csv') {
         const header = 'id,entity,entityId,action,performedBy,companyId,integrityHash,createdAt';
         const rows = (signed as Record<string, unknown>[]).map(e => [e.id, e.entity, e.entityId ?? '', e.action, e.performedBy ?? '', e.companyId ?? '', e.integrityHash, e.createdAt].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
-        return new Response([header, ...rows].join('\r\n'), { status: 200, headers: { ...CORS, 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="audit_trail_${new Date().toISOString().slice(0, 10)}.csv"` } });
+        return new Response([header, ...rows].join('\r\n'), { status: 200, headers: { ...CORS_BASE, 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="audit_trail_${new Date().toISOString().slice(0, 10)}.csv"` } });
       }
       if (format === 'report') {
         const report = { reportTitle: 'Relatório de Auditoria — PontoWebDesk', generatedAt: new Date().toISOString(), system: 'PontoWebDesk Hybrid SaaS', version: '1.0', integrity: { ...integrity, verificationMethod: 'SHA-256 hash chain' }, filters: { companyId, from, to, limit }, totalRecords: signed.length, entries: signed, instructions: { verification: 'Recalcule SHA-256(previousHash + JSON(entry)) para cada registro em ordem cronológica.', genesisHash: 'GENESIS' } };
-        return new Response(JSON.stringify(report, null, 2), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="audit_report_${new Date().toISOString().slice(0, 10)}.json"` } });
+        return new Response(JSON.stringify(report, null, 2), { status: 200, headers: { ...CORS_BASE, 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="audit_report_${new Date().toISOString().slice(0, 10)}.json"` } });
       }
       return json({ exportedAt: new Date().toISOString(), totalRecords: signed.length, integrity, entries: signed });
     }
