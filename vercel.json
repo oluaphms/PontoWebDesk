@@ -8,7 +8,10 @@
       "dest": "/api/$1"
     },
     {
-      "src": "^(?!/api/).*",
+      "handle": "filesystem"
+    },
+    {
+      "src": "^/(.*)",
       "dest": "/index.html"
     }
   ]
