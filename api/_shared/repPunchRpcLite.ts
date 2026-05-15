@@ -941,4 +941,4 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
   }
 }
 
-export default handleRepPunchRpcLite;
+/** Export nomeado apenas — evita função fantasma `/api/_shared/repPunchRpcLite` no limite Hobby (12). */

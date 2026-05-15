@@ -15,6 +15,8 @@ import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 import { z } from 'zod';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
+console.log('[AUTH ADMIN LOADED]');
+
 const FALLBACK_EMAIL_DOMAIN = 'pontowebdesk.local';
 
 /** Local — evita import de `src/` no bootstrap da função serverless. */
@@ -606,7 +608,7 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 }
 
-async function handler(request: Request): Promise<Response> {
+export default async function handler(request: Request): Promise<Response> {
   console.log('[AUTH ADMIN START]', { method: request.method, url: request.url });
   try {
     return await handleRequest(request);
@@ -631,5 +633,3 @@ async function handler(request: Request): Promise<Response> {
     );
   }
 }
-
-export default { fetch: handler };

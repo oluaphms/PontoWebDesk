@@ -1,4 +1,10 @@
 {
   "framework": null,
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "excludeFiles": "api/_shared/**"
+    }
+  }
 }
