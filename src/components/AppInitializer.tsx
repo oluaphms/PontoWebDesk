@@ -8,6 +8,7 @@ import { showFatalError, setSupabaseInfraFatal } from '../lib/supabaseInfraGuard
 import { validateSupabaseUrl } from '../lib/validateSupabaseUrl';
 import { assertEnv } from '../lib/assertEnv';
 import { checkSupabaseConnection } from '../services/checkSupabaseConnection';
+import { sanitizeAuthSessionOnBoot } from '../../services/supabase';
 import { getSchemaGuardError } from '@/services/schemaGuard';
 import { readAuditLogsTenantIdFromEnv } from '@/services/schemaColumnDetection';
 import { reportSchemaGuardState } from '@/services/schemaGuardReporter';
@@ -154,6 +155,9 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       if (typeof window !== 'undefined') {
         installMobileRuntimeStability();
       }
+
+      // Evita loop de refresh inválido ao abrir o app com token antigo no storage.
+      await sanitizeAuthSessionOnBoot();
 
       if (mounted) setIsReady(true);
 

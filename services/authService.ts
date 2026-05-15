@@ -528,7 +528,7 @@ class AuthService {
   ): Promise<{ user: any; session: any }> {
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (typeof console !== 'undefined') {
+      if (import.meta.env?.DEV && typeof console !== 'undefined') {
         const emailPreview = import.meta.env?.DEV ? email : this.maskEmailForLog(email);
         console.log('[LOGIN START]', { email: emailPreview, attempt: attempt + 1, maxAttempts });
       }
@@ -548,7 +548,7 @@ class AuthService {
               tokenPreview: !!(data.session as { access_token?: string }).access_token,
             }
           : null;
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
           console.log('[LOGIN RESULT]', {
             error: error?.message ?? error ?? null,
             data: data
@@ -1557,7 +1557,7 @@ class AuthService {
    */
   onAuthStateChanged(callback: (user: User | null) => void): () => void {
     const { data } = auth.onAuthStateChange(async (event, session) => {
-      if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
         const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
         const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
         const isWebView =
@@ -1590,7 +1590,7 @@ class AuthService {
        * LOGIN FLOW (owned): submit já autentica, hidrata e navega — o listener não é dono do SIGNED_IN manual.
        */
       if (event === 'SIGNED_IN' && this._manualLoginPipelineId != null) {
-        if (typeof console !== 'undefined') {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
           console.info('[AUTH PASSIVE OBSERVER]', {
             action: 'skip_signed_in_manual_login_owned',
             pipelineToken: this._manualLoginPipelineId,

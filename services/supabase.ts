@@ -93,6 +93,36 @@ export async function clearBrokenSession(): Promise<void> {
   }
 }
 
+/**
+ * Corrige sessões órfãs no boot (ex.: refresh token inválido após deploy/troca de projeto).
+ * Não derruba sessão válida.
+ */
+export async function sanitizeAuthSessionOnBoot(): Promise<void> {
+  if (!checkSupabaseConfigured()) return;
+  try {
+    const client = getSupabaseClientOrThrow();
+    const { error } = await client.auth.getSession();
+    if (!error) return;
+    const msg = String(error.message || '').toLowerCase();
+    const isInvalidRefresh =
+      msg.includes('invalid refresh token') ||
+      msg.includes('refresh token not found') ||
+      msg.includes('jwt expired');
+    if (isInvalidRefresh) {
+      await clearBrokenSession();
+    }
+  } catch (e) {
+    const msg = String((e as { message?: string })?.message || e || '').toLowerCase();
+    if (
+      msg.includes('invalid refresh token') ||
+      msg.includes('refresh token not found') ||
+      msg.includes('jwt expired')
+    ) {
+      await clearBrokenSession();
+    }
+  }
+}
+
 // Timeout padrão para operações
 export const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 export const DB_SELECT_TIMEOUT_MS = 28000;

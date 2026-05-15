@@ -14,6 +14,14 @@ export function setLongTaskPipelineContext(pipelineId: number | null): void {
 const DEFAULT_MIN_DURATION_MS = 200;
 const LOGIN_SENSITIVE_MIN_MS = 120;
 
+function isPerfLoggingEnabled(): boolean {
+  try {
+    return import.meta.env?.DEV || String(import.meta.env?.VITE_ENABLE_PERF_LOGS || '').toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function isLoginPipelineSensitive(): boolean {
   return isPostLoginQueryCooldownActive() || isCriticalLoginPathActive();
 }
@@ -48,6 +56,7 @@ function logLongTask(
 
 export function startLongTaskMonitor(): void {
   if (typeof PerformanceObserver === 'undefined' || typeof window === 'undefined') return;
+  if (!isPerfLoggingEnabled()) return;
   try {
     const observer = new PerformanceObserver((list) => {
       const route = window.location?.pathname ?? '';
