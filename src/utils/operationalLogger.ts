@@ -109,6 +109,8 @@ const PRODUCTION_SILENCED_TAGS = new Set<string>([
   'TIME ATTENDANCE INTEGRITY SUMMARY',
   'TIME ATTENDANCE AUTO FIX SUMMARY',
   'GEO DASHBOARD ENRICH START',
+  'SUPABASE CLIENT INITIALIZED',
+  'SUPABASE INIT',
 ]);
 
 export function setOperationalLogLevel(level: OperationalLogLevel): void {

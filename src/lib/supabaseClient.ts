@@ -18,6 +18,7 @@ import type { LockFunc } from '@supabase/auth-js';
 import { isDnsError, markSupabaseAsDown } from '../services/supabaseCircuitBreaker';
 import { getSupabaseInfraFatal } from './supabaseInfraGuard';
 import { assertEnv } from './assertEnv';
+import { opLog } from '../utils/operationalLogger';
 
 let supabaseInstance: SupabaseClient | null = null;
 /** Só true após falha “permanente” (URL inválida / createClient falhou). assertEnv falhar ainda permite nova tentativa. */
@@ -122,7 +123,7 @@ export function getSupabaseClient(): SupabaseClient | null {
       },
     });
 
-    console.info('[SUPABASE] Cliente inicializado');
+    opLog.info('SUPABASE CLIENT INITIALIZED');
     const viteUrlRaw = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
     let viteHost = '';
     try {
@@ -142,14 +143,13 @@ export function getSupabaseClient(): SupabaseClient | null {
     const keyLenMismatch =
       Boolean(bundleKeyLen) && bundleKeyLen !== String(key || '').trim().length;
     /* Uma linha legível sem depender de “Object” expansível no console */
-    console.info(
-      `[SUPABASE INIT] host_efetivo=${effectiveHost} anon_key_chars=${String(key || '').trim().length}` +
-        (viteUrlRaw
-          ? ` | bundle_vite_host=${viteHost}`
-          : ' | bundle_vite_host=(vazio, usa window.ENV/__VITE__ após AppInitializer)') +
-        (bundleKeyLen ? ` bundle_anon_chars=${bundleKeyLen}` : '') +
-        (hostMismatch || keyLenMismatch ? ' ⚠ efetivo ≠ .env bundle — revise assertEnv/AppInitializer.' : ''),
-    );
+    opLog.info('SUPABASE INIT', {
+      effectiveHost,
+      anonKeyChars: String(key || '').trim().length,
+      bundleViteHost: viteUrlRaw ? viteHost : '(vazio, usa window.ENV/__VITE__ após AppInitializer)',
+      ...(bundleKeyLen ? { bundleAnonChars: bundleKeyLen } : {}),
+      ...(hostMismatch || keyLenMismatch ? { warning: 'efetivo_neq_bundle_env' } : {}),
+    });
     return supabaseInstance;
   } catch (error) {
     console.error('[SUPABASE] Erro ao criar cliente:', error);
@@ -202,7 +202,7 @@ export function clearStaleSupabaseAuthTokens(): void {
       keys.forEach((k) => storage.removeItem(k));
     }
   } catch (e) {
-    console.warn('clearStaleSupabaseAuthTokens failed', e);
+    opLog.warn('SUPABASE TOKEN CLEAR FAILED', e);
   }
 }
 
