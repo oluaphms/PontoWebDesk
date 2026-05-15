@@ -16,6 +16,8 @@ import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 import { z } from 'zod';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
+const FALLBACK_EMAIL_DOMAIN = 'pontowebdesk.local';
+
 function mapAuthErrorToFriendly(rawMessage: string, rawCode: string, status: number): { message: string; code: string } {
   const lower = (rawMessage || '').toLowerCase();
   const codeLower = (rawCode || '').toLowerCase();
@@ -40,6 +42,38 @@ function mapAuthErrorToFriendly(rawMessage: string, rawCode: string, status: num
   return { message: 'Falha ao criar usuário no Auth.', code: 'CREATE_FAILED' };
 }
 
+function normalizeEmail(email: string | undefined): string {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function normalizeDigits(value: unknown): string {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function generateSafeFallbackEmailBase(cpf: string, pis: string): string {
+  const id = cpf || pis;
+  const ts = Math.floor(Date.now() / 1000);
+  return `${id}-${ts}`;
+}
+
+function generateFallbackPassword(): string {
+  return `Pwd${Date.now().toString(36)}!${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function emailExistsInUsers(adminSup: any, email: string): Promise<boolean> {
+  const { data, error } = await adminSup.from('users').select('id').eq('email', email).limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
+function isValidDocument11Digits(doc: string): boolean {
+  return /^\d{11}$/.test(doc);
+}
+
 async function getRoleFromUsers(adminSup: any, callerId: string): Promise<string | null> {
   const byId = await adminSup.from('users').select('role').eq('id', callerId).maybeSingle();
   const data = byId?.data ?? byId;
@@ -49,13 +83,38 @@ async function getRoleFromUsers(adminSup: any, callerId: string): Promise<string
   return d?.role ? String(d.role).toLowerCase() : null;
 }
 
-const AuthAdminBodySchema = z.object({
-  action: z.enum(['confirm-email', 'set-password', 'create-user']),
+const ConfirmEmailBodySchema = z.object({
+  action: z.literal('confirm-email'),
   email: z.string().email(),
-  newPassword: z.string().min(6).optional(),
-  password: z.string().min(6).optional(),
+});
+
+const SetPasswordBodySchema = z.object({
+  action: z.literal('set-password'),
+  email: z.string().email(),
+  newPassword: z.string().min(6),
+});
+
+const CreateUserBodySchema = z.object({
+  action: z.literal('create-user'),
+  email: z.string().optional(),
+  password: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
+
+const DeleteUserBodySchema = z.object({
+  action: z.literal('delete-user'),
+  userId: z.string().uuid().optional(),
+  email: z.string().email().optional(),
+}).refine((v) => !!v.userId || !!v.email, {
+  message: 'Informe userId ou email para excluir usuário.',
+});
+
+const AuthAdminBodySchema = z.discriminatedUnion('action', [
+  ConfirmEmailBodySchema,
+  SetPasswordBodySchema,
+  CreateUserBodySchema,
+  DeleteUserBodySchema,
+]);
 
 async function handleRequest(request: Request): Promise<Response> {
   const corsHeaders = getSecureCorsHeaders(request, {
@@ -113,7 +172,7 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   const action = body.action;
-  const email = body.email.trim().toLowerCase();
+  const email = 'email' in body ? normalizeEmail(body.email) : '';
 
   try {
     const { createClient } = await import('@supabase/supabase-js');
@@ -191,62 +250,202 @@ async function handleRequest(request: Request): Promise<Response> {
       );
     }
 
-    if (action === 'create-user') {
-      const password = typeof body.password === 'string' ? body.password : '';
-      const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : undefined;
-      if (!password || password.trim().length < 6) {
+    if (action === 'delete-user') {
+      const userIdRaw = 'userId' in body ? String(body.userId || '').trim() : '';
+      const emailRaw = 'email' in body ? normalizeEmail(body.email) : '';
+      let userIdToDelete = userIdRaw;
+      if (!userIdToDelete && emailRaw) {
+        const byEmail = users.find((u: any) => normalizeEmail(String(u.email || '')) === emailRaw);
+        userIdToDelete = String(byEmail?.id || '').trim();
+      }
+      if (!userIdToDelete) {
         return Response.json(
-          { error: 'Senha inválida (mínimo 6 caracteres).', code: 'BAD_REQUEST' },
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { success: false, error: 'Usuário não encontrado para rollback.', code: 'AUTH_ERROR' },
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      const authApiUrl = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/admin/users`;
-      const createRes = await fetch(authApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${serviceKey}`,
-          apikey: serviceKey,
-        },
-        body: JSON.stringify({
-          email,
-          password: password.trim(),
-          email_confirm: true,
-          ...(metadata && Object.keys(metadata).length > 0 ? { user_metadata: metadata } : {}),
-        }),
-      });
-      const createBody = await createRes.json().catch(() => ({}));
-      if (!createRes.ok) {
-        const rawMsg = createBody?.msg ?? createBody?.error_description ?? createBody?.message ?? createBody?.error;
-        const errStr = typeof rawMsg === 'string' ? rawMsg : '';
-        const code = createBody?.code ?? createBody?.error_code ?? '';
-        const { message: friendlyMessage, code: friendlyCode } = mapAuthErrorToFriendly(errStr, code, createRes.status);
-        const isAlreadyRegistered =
-          createRes.status === 422 ||
-          /already registered|already exists|user already|duplicate|email.*taken/i.test(errStr) ||
-          /already_registered|user_already_exists|duplicate/i.test(String(code));
-        if (isAlreadyRegistered && target?.id) {
-          return Response.json(
-            { success: true, userId: target.id, existing: true },
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
+      const { error: deleteErr } = await adminAuth.deleteUser(userIdToDelete);
+      if (deleteErr) {
+        console.error({ step: 'rollback_auth', success: false, user_id: userIdToDelete, error: deleteErr.message });
         return Response.json(
-          { error: friendlyMessage, code: friendlyCode },
-          { status: createRes.status >= 500 ? 500 : 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      const userId = createBody?.id ?? createBody?.user?.id;
-      if (!userId) {
-        return Response.json(
-          { error: 'Conta criada mas ID não retornado.', code: 'NO_ID' },
+          { success: false, error: 'Falha ao remover usuário no Auth.', code: 'AUTH_ERROR' },
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      console.info({ step: 'rollback_auth', success: true, user_id: userIdToDelete });
       return Response.json(
-        { success: true, userId },
+        { success: true, userId: userIdToDelete },
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    if (action === 'create-user') {
+      const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+      const nome = String((metadata as Record<string, unknown>).nome ?? (metadata as Record<string, unknown>).name ?? '').trim();
+      const cpf = normalizeDigits((metadata as Record<string, unknown>).cpf);
+      const pis = normalizeDigits((metadata as Record<string, unknown>).pis ?? (metadata as Record<string, unknown>).pis_pasep);
+      const companyId = String((metadata as Record<string, unknown>).company_id ?? '').trim() || null;
+
+      const payloadLog = {
+        action,
+        emailProvided: !!email,
+        nome,
+        cpf: cpf ? `${cpf.slice(0, 3)}***` : '',
+        pis: pis ? `${pis.slice(0, 3)}***` : '',
+        companyId,
+      };
+      console.info('[auth-admin:create-user] payload recebido', payloadLog);
+
+      if (!nome) {
+        return Response.json(
+          { success: false, user_id: null, error: 'Nome é obrigatório.', code: 'BAD_REQUEST' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!cpf && !pis) {
+        return Response.json(
+          { success: false, user_id: null, error: 'Informe CPF ou PIS/PASEP.', code: 'INVALID_DOCUMENT' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (cpf && !isValidDocument11Digits(cpf)) {
+        return Response.json(
+          { success: false, user_id: null, error: 'CPF deve conter 11 dígitos.', code: 'INVALID_DOCUMENT' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (pis && !isValidDocument11Digits(pis)) {
+        return Response.json(
+          { success: false, user_id: null, error: 'PIS/PASEP deve conter 11 dígitos.', code: 'INVALID_DOCUMENT' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (email && !isValidEmail(email)) {
+        return Response.json(
+          { success: false, user_id: null, error: 'E-mail inválido.', code: 'INVALID_EMAIL' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      let emailToUse = email;
+      if (!emailToUse) {
+        const baseLocal = generateSafeFallbackEmailBase(cpf, pis);
+        let candidate = `${baseLocal}@${FALLBACK_EMAIL_DOMAIN}`;
+        let seq = 0;
+        while (true) {
+          const inAuth = users.some((u: any) => normalizeEmail(String(u.email || '')) === candidate);
+          const inDb = await emailExistsInUsers(adminSup, candidate);
+          if (!inAuth && !inDb) break;
+          seq += 1;
+          candidate = `${baseLocal}-${seq}@${FALLBACK_EMAIL_DOMAIN}`;
+          if (seq > 20) {
+            return Response.json(
+              { success: false, user_id: null, error: 'Falha ao gerar e-mail único para cadastro.', code: 'AUTH_ERROR' },
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+        emailToUse = candidate;
+      }
+      const passwordRaw = typeof body.password === 'string' ? body.password.trim() : '';
+      const generatedPassword = !passwordRaw;
+      const passwordToUse = passwordRaw || generateFallbackPassword();
+      if (passwordToUse.length < 6) {
+        return Response.json(
+          { success: false, user_id: null, error: 'Senha deve ter pelo menos 6 caracteres.', code: 'INVALID_PASSWORD' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const duplicateChecks = [
+        emailToUse ? `email.eq.${emailToUse}` : '',
+        cpf ? `cpf.eq.${cpf}` : '',
+        pis ? `pis_pasep.eq.${pis}` : '',
+      ].filter(Boolean);
+
+      if (duplicateChecks.length > 0) {
+        const { data: existingUsers, error: duplicateError } = await adminSup
+          .from('users')
+          .select('id,email,cpf,pis_pasep')
+          .or(duplicateChecks.join(','))
+          .limit(5);
+        if (duplicateError) {
+          console.error('[auth-admin:create-user] erro ao validar duplicidade', duplicateError);
+          return Response.json(
+            { success: false, user_id: null, error: 'Falha ao validar duplicidade de usuário.', code: 'DB_ERROR' },
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        const found = existingUsers ?? [];
+        if (found.some((u: { email?: string | null }) => normalizeEmail(u.email ?? '') === emailToUse)) {
+          return Response.json(
+            { success: false, user_id: null, error: 'E-mail já cadastrado.', code: 'USER_ALREADY_EXISTS' },
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (cpf && found.some((u: { cpf?: string | null }) => normalizeDigits(u.cpf) === cpf)) {
+          return Response.json(
+            { success: false, user_id: null, error: 'CPF já cadastrado.', code: 'CPF_ALREADY_EXISTS' },
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (pis && found.some((u: { pis_pasep?: string | null }) => normalizeDigits(u.pis_pasep) === pis)) {
+          return Response.json(
+            { success: false, user_id: null, error: 'PIS/PASEP já cadastrado.', code: 'PIS_ALREADY_EXISTS' },
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
+      try {
+        console.info({ step: 'create_auth_user', email: emailToUse, company_id: companyId });
+        const { data: created, error: createError } = await adminAuth.createUser({
+          email: emailToUse,
+          password: passwordToUse,
+          email_confirm: true,
+          user_metadata: {
+            ...metadata,
+            name: nome,
+            nome,
+            cpf: cpf || null,
+            pis: pis || null,
+            pis_pasep: pis || null,
+            company_id: companyId,
+            generated_password: generatedPassword,
+          },
+        });
+        if (createError) {
+          const { message: friendlyMessage } = mapAuthErrorToFriendly(createError.message || '', (createError as any).code || '', 400);
+          console.error({ step: 'create_auth_user', success: false, error: createError.message });
+          return Response.json(
+            { success: false, user_id: null, error: friendlyMessage, code: 'AUTH_ERROR' },
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        const userId = created?.user?.id ?? created?.id;
+        if (!userId) {
+          console.error({ step: 'create_auth_user', success: false, error: 'Sem user_id na resposta do Auth' });
+          return Response.json(
+            { success: false, user_id: null, error: 'Conta criada mas ID não retornado.', code: 'AUTH_ERROR' },
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        console.info({ step: 'create_auth_user', success: true, user_id: userId, used_fallback_email: !email, generated_password: generatedPassword });
+        return Response.json(
+          { success: true, user_id: userId, error: null },
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (err: unknown) {
+        console.error('[auth-admin:create-user] excecao', err);
+        const errStr = messageFromUnknown(err, 'Falha ao criar usuário no Auth.');
+        const mapped = mapAuthErrorToFriendly(errStr, '', 400);
+        return Response.json(
+          { success: false, user_id: null, error: mapped.message, code: 'AUTH_ERROR' },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     return Response.json(

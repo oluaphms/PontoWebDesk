@@ -39,6 +39,7 @@ import RoleGuard from '../../components/auth/RoleGuard';
 import {
   confirmEmployeeEmailInAuth,
   createEmployeeAuthUser,
+  rollbackEmployeeAuthUser,
   setEmployeePasswordInAuth,
 } from '../../services/authAdminApi.service';
 import { parseFile, extractHeaders } from '../../services/fileParser';
@@ -908,15 +909,23 @@ const AdminEmployees: React.FC = () => {
         };
 
         let authUserId: string | null = null;
+        let authExisting = false;
         const senhaCriacao = (form.password && form.password.trim()) ? form.password.trim() : '123456';
         try {
           // Tenta criar conta no Auth (fluxo ideal); senha vazia = provisória 123456
           const { userId, existing } = await createEmployeeAuthUser({
             email,
             password: senhaCriacao,
-            metadata: { nome: form.nome, cargo: cargoFinal },
+            metadata: {
+              nome: form.nome,
+              cargo: cargoFinal,
+              cpf: form.cpf?.trim() || undefined,
+              pis_pasep: form.pis_pasep?.trim() || undefined,
+              company_id: effectiveCompanyId || undefined,
+            },
           });
           authUserId = userId;
+          authExisting = !!existing;
           if (existing) {
             await setEmployeePasswordInAuth(email, '123456');
           }
@@ -945,11 +954,26 @@ const AdminEmployees: React.FC = () => {
           userIdLocal = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         }
 
-        await db.insert('users', {
-          id: userIdLocal,
-          auth_user_id: authUserId,
-          ...basePayload,
-        });
+        try {
+          console.info({ step: 'insert_db_user', context: 'create_employee', email, auth_user_id: authUserId });
+          await db.insert('users', {
+            id: userIdLocal,
+            auth_user_id: authUserId,
+            ...basePayload,
+          });
+          console.info({ step: 'insert_db_user', context: 'create_employee', success: true, email });
+        } catch (dbErr) {
+          console.error({ step: 'insert_db_user', context: 'create_employee', success: false, email, error: dbErr });
+          if (authUserId && !authExisting) {
+            try {
+              await rollbackEmployeeAuthUser({ userId: authUserId, email });
+              console.info({ step: 'rollback_auth', context: 'create_employee', success: true, email, auth_user_id: authUserId });
+            } catch (rollbackErr) {
+              console.error({ step: 'rollback_auth', context: 'create_employee', success: false, email, auth_user_id: authUserId, error: rollbackErr });
+            }
+          }
+          throw dbErr;
+        }
 
         setSuccess(
           authUserId
@@ -1189,13 +1213,21 @@ const AdminEmployees: React.FC = () => {
 
       const doCreateAndInsert = async (): Promise<boolean> => {
         let authUserId: string | null = null;
+        let authExisting = false;
         try {
           const { userId, existing } = await createEmployeeAuthUser({
             email: emailFinal.toLowerCase(),
             password: senha,
-            metadata: { nome: nomeFinal, cargo: cargoFinal },
+            metadata: {
+              nome: nomeFinal,
+              cargo: cargoFinal,
+              cpf: row.cpf?.trim() || undefined,
+              pis_pasep: row.pis_pasep?.trim() || undefined,
+              company_id: effectiveCompanyId || undefined,
+            },
           });
           authUserId = userId;
+          authExisting = !!existing;
           if (existing) {
             await setEmployeePasswordInAuth(emailFinal.toLowerCase(), '123456');
           }
@@ -1252,7 +1284,22 @@ const AdminEmployees: React.FC = () => {
           estado_civil_id: null,
         };
 
-        await db.insert('users', payload);
+        try {
+          console.info({ step: 'insert_db_user', context: 'import_employee', email: emailFinal.toLowerCase(), auth_user_id: authUserId });
+          await db.insert('users', payload);
+          console.info({ step: 'insert_db_user', context: 'import_employee', success: true, email: emailFinal.toLowerCase() });
+        } catch (dbErr) {
+          console.error({ step: 'insert_db_user', context: 'import_employee', success: false, email: emailFinal.toLowerCase(), error: dbErr });
+          if (authUserId && !authExisting) {
+            try {
+              await rollbackEmployeeAuthUser({ userId: authUserId, email: emailFinal.toLowerCase() });
+              console.info({ step: 'rollback_auth', context: 'import_employee', success: true, email: emailFinal.toLowerCase(), auth_user_id: authUserId });
+            } catch (rollbackErr) {
+              console.error({ step: 'rollback_auth', context: 'import_employee', success: false, email: emailFinal.toLowerCase(), auth_user_id: authUserId, error: rollbackErr });
+            }
+          }
+          throw dbErr;
+        }
         return true;
       };
 

@@ -63,22 +63,29 @@ export async function setEmployeePasswordInAuth(
 }
 
 export async function createEmployeeAuthUser(params: {
-  email: string;
-  password: string;
+  email?: string;
+  password?: string;
   metadata?: Record<string, any>;
 }): Promise<{ userId: string; existing?: boolean }> {
-  const email = params.email.trim().toLowerCase();
-  if (!email) throw new Error('E-mail é obrigatório.');
-  if (!params.password?.trim()) throw new Error('Senha é obrigatória.');
+  const email = String(params.email || '').trim().toLowerCase();
+  const password = String(params.password || '').trim();
+  const metadata = params.metadata && typeof params.metadata === 'object' ? params.metadata : {};
 
   const token = await getAdminAccessToken();
   const base = resolveAppBaseUrl();
   if (!base) throw new Error('URL do app não resolvida.');
 
+  const requestBody: Record<string, unknown> = {
+    action: 'create-user',
+    metadata,
+  };
+  if (email) requestBody.email = email;
+  if (password) requestBody.password = password;
+
   const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action: 'create-user', email, password: params.password, metadata: params.metadata || undefined }),
+    body: JSON.stringify(requestBody),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -89,6 +96,31 @@ export async function createEmployeeAuthUser(params: {
     err.code = apiCode || 'CREATE_FAILED';
     throw err;
   }
-  if (!data?.userId) throw new Error('Conta criada mas ID não retornado.');
-  return { userId: String(data.userId), existing: !!data?.existing };
+  const userId = data?.user_id ?? data?.userId;
+  if (!userId) throw new Error('Conta criada mas ID não retornado.');
+  return { userId: String(userId), existing: !!data?.existing };
+}
+
+export async function rollbackEmployeeAuthUser(params: { userId?: string; email?: string }): Promise<void> {
+  const token = await getAdminAccessToken();
+  const base = resolveAppBaseUrl();
+  if (!base) throw new Error('URL do app não resolvida.');
+  const userId = String(params.userId || '').trim();
+  const email = String(params.email || '').trim().toLowerCase();
+  if (!userId && !email) throw new Error('Rollback requer userId ou email.');
+
+  const body: Record<string, unknown> = { action: 'delete-user' };
+  if (userId) body.userId = userId;
+  if (email) body.email = email;
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = typeof data?.error === 'string' ? data.error : 'Falha ao executar rollback no Auth.';
+    throw new Error(msg);
+  }
 }
