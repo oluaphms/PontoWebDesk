@@ -124,19 +124,87 @@ const AuthAdminBodySchema = z.discriminatedUnion('action', [
   DeleteUserBodySchema,
 ]);
 
+function isDebugRequest(request: Request): boolean {
+  const v = request.headers.get('x-debug') ?? request.headers.get('X-Debug');
+  return String(v || '').toLowerCase() === 'true';
+}
+
+/** Resposta padrão: { success, error, detail? } + debug opcional. */
+function authAdminResponse(
+  status: number,
+  corsHeaders: Record<string, string>,
+  request: Request,
+  payload: {
+    success: boolean;
+    error: string | null;
+    detail?: string;
+    [key: string]: unknown;
+  },
+  rawBodyForDebug?: Record<string, unknown>,
+): Response {
+  const out: Record<string, unknown> = {
+    success: payload.success,
+    error: payload.error,
+  };
+  if (payload.detail != null && String(payload.detail).trim()) {
+    out.detail = payload.detail;
+  }
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'success' || key === 'error' || key === 'detail') continue;
+    out[key] = value;
+  }
+  if (isDebugRequest(request) && rawBodyForDebug) {
+    out.debug = { receivedKeys: Object.keys(rawBodyForDebug) };
+  }
+  return Response.json(out, {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+/** Formato B simplificado → create-user (Formato A). */
+function normalizeIncomingPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...raw };
+  const name = body.name ?? body.nome;
+  const cpf = body.cpf;
+  const companyId = body.company_id;
+  const hasSimplified = name != null || cpf != null || companyId != null;
+
+  if (!body.action && hasSimplified) {
+    body.action = 'create-user';
+    const existingMeta =
+      body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+        ? { ...(body.metadata as Record<string, unknown>) }
+        : {};
+    body.metadata = {
+      ...existingMeta,
+      ...(name != null ? { nome: String(name).trim() } : {}),
+      ...(cpf != null ? { cpf } : {}),
+      ...(companyId != null ? { company_id: companyId } : {}),
+    };
+  }
+
+  if (!body.action) {
+    body.action = 'create-user';
+  }
+
+  return body;
+}
+
 async function handleRequest(request: Request): Promise<Response> {
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: 'POST, OPTIONS',
-    allowHeaders: 'Content-Type, Authorization',
+    allowHeaders: 'Content-Type, Authorization, x-debug',
   });
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
   if (request.method !== 'POST') {
-    return Response.json(
-      { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return authAdminResponse(405, corsHeaders, request, {
+      success: false,
+      error: 'METHOD_NOT_ALLOWED',
+      detail: 'Method not allowed',
+    });
   }
   const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
   if (blockedOrigin) return blockedOrigin;
@@ -147,44 +215,95 @@ async function handleRequest(request: Request): Promise<Response> {
 
   if (!serviceKey) {
     console.error('SERVICE_ROLE_KEY_MISSING');
-    return Response.json(
-      {
-        success: false,
-        error: 'CONFIG_ERROR',
-      },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return authAdminResponse(500, corsHeaders, request, {
+      success: false,
+      error: 'CONFIG_ERROR',
+      detail: 'SUPABASE_SERVICE_ROLE_KEY não configurada',
+    });
   }
 
   if (!supabaseUrl) {
-    return Response.json(
-      { error: 'Configuração indisponível.', code: 'CONFIG_MISSING' },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return authAdminResponse(500, corsHeaders, request, {
+      success: false,
+      error: 'CONFIG_MISSING',
+      detail: 'Configuração indisponível.',
+    });
   }
 
-  let body: z.infer<typeof AuthAdminBodySchema>;
+  let rawBody: Record<string, unknown> = {};
   try {
-    const raw = await request.json();
-    const parsed = AuthAdminBodySchema.safeParse(raw);
-    if (!parsed.success) {
-      return Response.json(
-        { error: 'Body inválido.', code: 'BAD_REQUEST', details: parsed.error.flatten() },
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    const parsed = await request.json();
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      rawBody = parsed as Record<string, unknown>;
+    } else {
+      return authAdminResponse(
+        400,
+        corsHeaders,
+        request,
+        {
+          success: false,
+          error: 'INVALID_JSON',
+          detail: 'Body inválido ou malformado',
+        },
+        rawBody,
       );
     }
-    body = parsed.data;
   } catch {
-    return Response.json(
-      { error: 'Body inválido.', code: 'BAD_REQUEST' },
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    return authAdminResponse(400, corsHeaders, request, {
+      success: false,
+      error: 'INVALID_JSON',
+      detail: 'Body inválido ou malformado',
+    });
+  }
+
+  if (Object.keys(rawBody).length === 0) {
+    return authAdminResponse(400, corsHeaders, request, {
+      success: false,
+      error: 'MISSING_ACTION',
+      detail: 'Informe action ou payload de create-user (name, cpf, company_id).',
+    }, rawBody);
+  }
+
+  const normalizedRaw = normalizeIncomingPayload(rawBody);
+
+  console.log('[AUTH ADMIN PAYLOAD]', {
+    action: normalizedRaw.action,
+    hasEmail: !!normalizedRaw.email,
+    hasMetadata: !!normalizedRaw.metadata,
+  });
+
+  let body: z.infer<typeof AuthAdminBodySchema>;
+  const parsed = AuthAdminBodySchema.safeParse(normalizedRaw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    return authAdminResponse(
+      400,
+      corsHeaders,
+      request,
+      {
+        success: false,
+        error: 'VALIDATION_ERROR',
+        detail: issues || 'Body inválido.',
+      },
+      rawBody,
     );
   }
+  body = parsed.data;
 
   const action = body.action;
   const email = 'email' in body ? normalizeEmail(body.email) : '';
-  const authHeader = (request.headers as any).get?.('Authorization') || (request.headers as any).get?.('authorization') || '';
+  const authHeader = request.headers.get('authorization') ?? request.headers.get('Authorization') ?? '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  console.log('[AUTH ADMIN CONTEXT]', {
+    hasAuthHeader: !!authHeader,
+    hasCookie: !!request.headers.get('cookie'),
+    action,
+  });
+
+  if (action === 'create-user' && authHeader && /Bearer/i.test(authHeader)) {
+    console.warn('[AUTH ADMIN WARNING] Authorization header ignorado no create-user');
+  }
 
   try {
     const { createClient } = await import('@supabase/supabase-js');
@@ -479,14 +598,11 @@ async function handleRequest(request: Request): Promise<Response> {
       message: error.message,
       stack: error.stack,
     });
-    return Response.json(
-      {
-        success: false,
-        error: 'INTERNAL_ERROR',
-        detail: error.message,
-      },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return authAdminResponse(500, corsHeaders, request, {
+      success: false,
+      error: 'INTERNAL_ERROR',
+      detail: error.message,
+    });
   }
 }
 
@@ -503,7 +619,7 @@ async function handler(request: Request): Promise<Response> {
     });
     const corsHeaders = getSecureCorsHeaders(request, {
       allowMethods: 'POST, OPTIONS',
-      allowHeaders: 'Content-Type, Authorization',
+      allowHeaders: 'Content-Type, Authorization, x-debug',
     });
     return Response.json(
       {

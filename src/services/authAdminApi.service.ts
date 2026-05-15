@@ -82,13 +82,20 @@ export async function createEmployeeAuthUser(params: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'omit',
+    cache: 'no-store',
     body: JSON.stringify(requestBody),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const apiMessage = typeof data?.error === 'string' ? data.error.trim() : '';
+    const apiDetail = typeof data?.detail === 'string' ? data.detail.trim() : '';
     const apiCode = data?.code ?? '';
-    const friendlyMessage = apiMessage || (apiCode && AUTH_ERROR_CODES[apiCode]) || res.statusText || 'Falha ao criar usuário no Auth.';
+    const friendlyMessage =
+      apiDetail ||
+      apiMessage ||
+      (apiCode && AUTH_ERROR_CODES[apiCode]) ||
+      res.statusText ||
+      'Falha ao criar usuário no Auth.';
     const err = new Error(friendlyMessage) as Error & { code?: string };
     err.code = apiCode || 'CREATE_FAILED';
     throw err;

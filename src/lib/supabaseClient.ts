@@ -84,7 +84,7 @@ export function getSupabaseClient(): SupabaseClient | null {
       auth: {
         persistSession: true,
         autoRefreshToken: false,
-        detectSessionInUrl: true, // Habilitar detecção rápida de sessão na URL
+        detectSessionInUrl: false,
         lock: createInProcessAuthLock(),
         // Mobile: usar localStorage é mais rápido que IndexedDB em alguns casos
         storage: isMobile ? localStorage : undefined,
@@ -183,6 +183,41 @@ export async function resetSession(): Promise<void> {
   const client = getSupabaseClient();
   if (client) {
     await client.auth.signOut();
+  }
+}
+
+/**
+ * Limpa sessão Supabase corrompida (refresh token inválido — comum em mobile/PWA).
+ * Preserva `current_user` para não derrubar o perfil em memória/cache do app.
+ */
+export async function resetAuthSession(): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  const preservedCurrentUser = {
+    local: localStorage.getItem('current_user'),
+    session: sessionStorage.getItem('current_user'),
+  };
+
+  try {
+    const client = getSupabaseClient();
+    if (client) {
+      await client.auth.signOut({ scope: 'local' });
+    }
+  } catch (e) {
+    console.warn('resetAuthSession signOut failed', e);
+  }
+
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+    if (preservedCurrentUser.local) {
+      localStorage.setItem('current_user', preservedCurrentUser.local);
+    }
+    if (preservedCurrentUser.session) {
+      sessionStorage.setItem('current_user', preservedCurrentUser.session);
+    }
+  } catch (e) {
+    console.warn('resetAuthSession storage failed', e);
   }
 }
 

@@ -23,6 +23,7 @@ export {
   testSupabaseConnection,
   withSupabaseTimeout,
   resetSession,
+  resetAuthSession,
   setSupabaseServiceRoleOverride,
 } from '../src/lib/supabaseClient';
 
