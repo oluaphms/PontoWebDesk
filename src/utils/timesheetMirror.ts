@@ -5,6 +5,7 @@
 
 import { localCalendarYmd } from './localDateTimeToIso';
 import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
+import { isDevVerboseLogsEnabled } from './devVerboseLogs';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 
@@ -188,6 +189,7 @@ function emitMirrorAudit(
 ): void {
   audit?.push(entry);
   if (import.meta.env.MODE === 'test') return;
+  if (!isDevVerboseLogsEnabled()) return;
   if (typeof globalThis !== 'undefined' && globalThis.console) {
     globalThis.console.warn(`[${entry.kind}]`, {
       record_id: entry.record_id,

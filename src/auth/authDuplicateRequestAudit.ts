@@ -1,6 +1,7 @@
 /**
  * Detecta sobreposição de pedidos idênticos no pipeline de auth (diagnóstico).
  */
+import { isDevVerboseLogsEnabled } from '../utils/devVerboseLogs';
 
 type InFlight = { startedAt: number; stack?: string };
 
@@ -31,6 +32,7 @@ function sampleStack(): string | undefined {
 
 function logDuplicate(kind: string, key: string, prev: InFlight): void {
   if (typeof console === 'undefined') return;
+  if (!isDevVerboseLogsEnabled()) return;
   console.warn('[AUTH DUPLICATE REQUEST]', {
     kind,
     key,

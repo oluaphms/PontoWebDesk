@@ -20,6 +20,7 @@ import {
 import { getActiveLoginTrace, traceLoginStep } from '../../auth/authPerformanceTrace';
 import { logReactRenderTraceTop10 } from '../../performance/reactRenderTrace';
 import { markDashboardInteractiveIfNeeded } from '../../app/loginPerformanceBudgets';
+import { opLog } from '../../utils/operationalLogger';
 
 const DashboardLastRecordsGeoPanel = lazy(() => import('./DashboardLastRecordsGeoPanel'));
 
@@ -66,9 +67,9 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    console.info('[DASHBOARD DEFERRED INIT]', { phase: 'schedule' });
+    opLog.info('DASHBOARD DEFERRED INIT', { phase: 'schedule' });
     const run = () => {
-      console.info('[DASHBOARD DEFERRED INIT]', { phase: 'run' });
+      opLog.info('DASHBOARD DEFERRED INIT', { phase: 'run' });
       setDeferredHeavyInit(true);
     };
     const w = window;
@@ -94,7 +95,7 @@ const AdminDashboard: React.FC = () => {
         const c = await getAdminDashboardCardsQuick(user.companyId);
         if (!cancelled && c) setCards(c);
         if (!cancelled && c) {
-          console.info('[DASHBOARD CRITICAL READY]', { companyId: user.companyId });
+          opLog.info('DASHBOARD CRITICAL READY', { companyId: user.companyId });
           markDashboardInteractiveIfNeeded();
         }
       } catch (e) {
@@ -154,7 +155,7 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     if (!user || loadingCards || loadingRecords || !deferredHeavyInit) return;
-    console.info('[DASHBOARD FULLY HYDRATED]');
+    opLog.info('DASHBOARD FULLY HYDRATED');
     traceLoginStep(getActiveLoginTrace(), 'dashboard_rendered');
     logReactRenderTraceTop10('dashboard_fully_hydrated');
   }, [user, loadingCards, loadingRecords, deferredHeavyInit]);
