@@ -1,6 +1,7 @@
 /**
  * Autoridade única de navegação durante pipelines de auth — evita navigate concorrente.
  */
+import { opLog } from '../utils/operationalLogger';
 
 export type AuthNavigationResult = 'granted' | 'blocked' | 'duplicate';
 
@@ -41,28 +42,24 @@ export function requestAuthNavigation(args: {
     const samePipeline = lastNav.pipelineId === args.pipelineId;
     const recent = now - lastNav.at < DUPLICATE_WINDOW_MS;
     if (sameDest && samePipeline && recent) {
-      if (typeof console !== 'undefined') {
-        const payload = {
-          target: args.target,
-          replace,
-          pipelineId: args.pipelineId,
-        };
-        console.info('[AUTH NAVIGATION]', { decision: 'DUPLICATE', ...payload });
-        console.info('[AUTH NAVIGATION DUPLICATE]', payload);
-      }
+      const payload = {
+        target: args.target,
+        replace,
+        pipelineId: args.pipelineId,
+      };
+      opLog.info('AUTH NAVIGATION', { decision: 'DUPLICATE', ...payload });
+      opLog.info('AUTH NAVIGATION DUPLICATE', payload);
       return 'duplicate';
     }
   }
 
-  if (typeof console !== 'undefined') {
-    const payload = {
-      target: args.target,
-      replace,
-      pipelineId: args.pipelineId,
-    };
-    console.info('[AUTH NAVIGATION]', { decision: 'GRANTED', ...payload });
-    console.info('[AUTH NAVIGATION GRANTED]', payload);
-  }
+  const payload = {
+    target: args.target,
+    replace,
+    pipelineId: args.pipelineId,
+  };
+  opLog.info('AUTH NAVIGATION', { decision: 'GRANTED', ...payload });
+  opLog.info('AUTH NAVIGATION GRANTED', payload);
 
   lastNav = { target: args.target, replace, pipelineId: args.pipelineId, at: now };
   args.navigate(args.target, { replace });
@@ -71,9 +68,7 @@ export function requestAuthNavigation(args: {
 
 /** Quando outro subsistema tentaria navegar sem passar pelo coordenador (ex. teste). */
 export function logAuthNavigationBlocked(reason: string, meta?: Record<string, unknown>): void {
-  if (typeof console !== 'undefined') {
-    const payload = { decision: 'BLOCKED' as const, reason, ...meta };
-    console.info('[AUTH NAVIGATION]', payload);
-    console.info('[AUTH NAVIGATION BLOCKED]', payload);
-  }
+  const payload = { decision: 'BLOCKED' as const, reason, ...meta };
+  opLog.info('AUTH NAVIGATION', payload);
+  opLog.info('AUTH NAVIGATION BLOCKED', payload);
 }

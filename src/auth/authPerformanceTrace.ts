@@ -2,6 +2,7 @@
  * Rastreamento ponta-a-ponta do login para diagnóstico de lentidão / corridas.
  * Logs obrigatórios: prefixo [AUTH TRACE] + payload JSON.
  */
+import { opLog } from '../utils/operationalLogger';
 
 export type LoginTraceStepName =
   | 'click_login'
@@ -54,8 +55,7 @@ export function setActiveLoginTrace(trace: LoginTrace | null): void {
 }
 
 function logTraceLine(payload: Record<string, unknown>): void {
-  if (typeof console === 'undefined') return;
-  console.info('[AUTH TRACE]', payload);
+  opLog.info('AUTH TRACE', payload);
 }
 
 /**

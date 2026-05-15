@@ -1,6 +1,7 @@
 /**
  * Profiling operacional via React.Profiler — budgets mobile-first na main thread.
  */
+import { opLog } from '../utils/operationalLogger';
 
 const RENDER_FRAME_BUDGET_MS = 16;
 const MOUNT_BUDGET_MS = 50;
@@ -18,7 +19,6 @@ const renderAgg = new Map<
 const RENDER_AGG_MAX_KEYS = 80;
 
 export function logReactRenderTraceTop10(reason = 'manual'): void {
-  if (typeof console === 'undefined') return;
   const rows = [...renderAgg.entries()]
     .map(([id, s]) => ({
       id,
@@ -29,7 +29,7 @@ export function logReactRenderTraceTop10(reason = 'manual'): void {
     }))
     .sort((a, b) => b.count - a.count || b.maxMs - a.maxMs)
     .slice(0, 10);
-  console.info('[REACT RENDER TRACE]', { top10: rows, reason });
+  opLog.info('REACT RENDER TRACE', { top10: rows, reason });
 }
 
 function trimCommitWindow(now: number): void {
@@ -52,8 +52,6 @@ export function createReactProfilerOnRender(): (
   commitTime: number,
 ) => void {
   return (id, phase, actualDuration, baseDuration, startTime, commitTime) => {
-    if (typeof console === 'undefined') return;
-
     const roundedActual = Math.round(actualDuration * 10) / 10;
     const roundedBase = Math.round(baseDuration * 10) / 10;
 
@@ -61,7 +59,7 @@ export function createReactProfilerOnRender(): (
     const slowMount = phase === 'mount' && actualDuration > MOUNT_BUDGET_MS;
 
     if (slowFrame || slowMount) {
-      console.info('[REACT RENDER TRACE]', {
+      opLog.info('REACT RENDER TRACE', {
         id,
         phase,
         actualDurationMs: roundedActual,
@@ -108,7 +106,7 @@ export function createReactProfilerOnRender(): (
     recentCommitTimes.push(commitTime);
     trimCommitWindow(commitTime);
     if (recentCommitTimes.length >= SEQUENCE_COMMIT_STORM) {
-      console.warn('[REACT RENDER TRACE]', {
+      opLog.warn('REACT RENDER TRACE', {
         storm: true,
         id,
         commitsIn100ms: recentCommitTimes.length,

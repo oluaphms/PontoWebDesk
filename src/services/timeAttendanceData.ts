@@ -33,6 +33,7 @@ import {
   buildTenantCacheKey,
   registerTenantScopedCache,
 } from '../domain/operational/cache/tenantCacheIsolation';
+import { opLog } from '../utils/operationalLogger';
 
 const AUTO_RECALC_DEBOUNCE_MS = 10_000;
 /** Teto de disparos de recálculo por carregamento da lista (evita rajada de RPC). */
@@ -864,7 +865,7 @@ function logRepPendingSummary(rows: TimeAttendanceRow[]): void {
     const pipe = key.indexOf('|');
     const employee_id = pipe > 0 ? key.slice(0, pipe) : key;
     const date = pipe > 0 ? key.slice(pipe + 1) : '';
-    console.info('[TIME ATTENDANCE REP PENDING]', {
+    opLog.info('TIME ATTENDANCE REP PENDING', {
       employee_id,
       date,
       pending_count: v.pending,
@@ -1526,7 +1527,7 @@ export async function getTimeAttendanceData(
   );
 
   // Summary sempre visível (auditoria / operação), fora do sample de 5%.
-  console.info('[TIME ATTENDANCE AUTO FIX SUMMARY]', {
+  opLog.info('TIME ATTENDANCE AUTO FIX SUMMARY', {
     pending_days,
     recalc_triggered,
     recalc_success,
@@ -1562,7 +1563,7 @@ export async function getTimeAttendanceData(
       integrity_ok_count += 1;
     }
   }
-  console.info('[TIME ATTENDANCE INTEGRITY SUMMARY]', {
+  opLog.info('TIME ATTENDANCE INTEGRITY SUMMARY', {
     company_id: companyId,
     period_start: safeStart,
     period_end: safeEnd,
@@ -1896,7 +1897,7 @@ export async function getTimeAttendanceAuditSummary(
       integrity_ok_count += 1;
     }
   }
-  console.info('[TIME ATTENDANCE INTEGRITY SUMMARY]', {
+  opLog.info('TIME ATTENDANCE INTEGRITY SUMMARY', {
     company_id: companyId,
     period_start: start,
     period_end: end,

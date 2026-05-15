@@ -6,6 +6,7 @@ import { reverseGeocodeSnapshot } from '../../services/geolocation/reverseGeocod
 import { validateCoordinateOrder } from '../../services/geolocation/geoIntegrity.service';
 import { isDegradedMobileRuntime } from '../../performance/mobileCpuBudget';
 import { isRestrictedBootstrapMode } from '../../performance/networkMode';
+import { opLog } from '../../utils/operationalLogger';
 
 type ResolvedAddress = {
   status: 'loading' | 'resolved' | 'unresolved' | 'timeout' | 'error';
@@ -37,7 +38,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     let cancelled = false;
     const degraded = isDegradedMobileRuntime() || isRestrictedBootstrapMode();
     const recordsWithGeo = lastRecords.filter((r) => r.lat != null && r.lng != null);
-    console.info('[GEO DASHBOARD ENRICH START]', {
+    opLog.info('GEO DASHBOARD ENRICH START', {
       total_records: lastRecords.length,
       records_with_geo: recordsWithGeo.length,
       degraded_mobile_skip_network: degraded,
@@ -78,7 +79,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     });
 
     if (degraded) {
-      console.info('[GEO DASHBOARD ENRICH PENDING]', {
+      opLog.info('GEO DASHBOARD ENRICH PENDING', {
         reason: 'degraded_mobile_cpu',
         unresolved_skipped: recordsWithGeo.length,
       });

@@ -1,6 +1,7 @@
 /**
  * Profiler operacional — apenas agregados em memória (sem PII).
  */
+import { opLog } from '../utils/operationalLogger';
 
 type Agg = { n: number; sum: number; max: number };
 
@@ -43,7 +44,7 @@ export const operationalPerformanceProfiler = {
     if (t - lastLog < 120_000) return;
     lastLog = t;
     if (geoResolve.n === 0 && idbLatency.n === 0 && reconDuration.n === 0) return;
-    console.info('[OPERATIONAL PERF AGG]', {
+    opLog.info('OPERATIONAL PERF AGG', {
       geo_resolve_ms: { n: geoResolve.n, mean: Math.round(mean(geoResolve)), max: Math.round(geoResolve.max) },
       idb_ms: { n: idbLatency.n, mean: Math.round(mean(idbLatency)), max: Math.round(idbLatency.max) },
       recon_ms: { n: reconDuration.n, mean: Math.round(mean(reconDuration)), max: Math.round(reconDuration.max) },
