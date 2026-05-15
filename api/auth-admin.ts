@@ -105,8 +105,6 @@ const DeleteUserBodySchema = z.object({
   action: z.literal('delete-user'),
   userId: z.string().uuid().optional(),
   email: z.string().email().optional(),
-}).refine((v) => !!v.userId || !!v.email, {
-  message: 'Informe userId ou email para excluir usuário.',
 });
 
 const AuthAdminBodySchema = z.discriminatedUnion('action', [
