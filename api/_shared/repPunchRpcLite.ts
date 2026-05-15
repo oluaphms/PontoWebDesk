@@ -3,7 +3,7 @@
  * `api/rep/[slug].ts` (slug `punch`) → esta função.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
@@ -66,6 +66,8 @@ type RepMatchRpcResult = {
   user_id?: string | null;
   match_strategy?: string | null;
 };
+
+type LooseSupabaseClient = SupabaseClient<any, any, any>;
 
 type ResolveUserFromRepPayload = {
   companyId: string;
@@ -138,7 +140,7 @@ function normalizeIdentifierType(value: unknown): RepIdentifierType {
 }
 
 async function fetchRepDeviceIdentifierType(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LooseSupabaseClient,
   companyId: string,
   repDeviceId: string | null,
 ): Promise<RepIdentifierType> {
@@ -161,7 +163,7 @@ async function fetchRepDeviceIdentifierType(
 }
 
 async function matchUserByIdentifier(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LooseSupabaseClient,
   params: {
     companyId: string;
     identifierType: 'pis' | 'cpf';
@@ -193,7 +195,7 @@ async function matchUserByIdentifier(
 }
 
 export async function resolveUserFromRep(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LooseSupabaseClient,
   payload: ResolveUserFromRepPayload,
   deviceConfig: { identifierType: RepIdentifierType },
 ): Promise<ResolveUserFromRepResult> {
@@ -401,7 +403,7 @@ function dedupePunches(rows: RepPunchLogRow[]): RepPunchLogRow[] {
 }
 
 async function reconcileRepPunchDay(params: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: LooseSupabaseClient;
   companyId: string;
   employeeId: string;
   timestampIso: string;
@@ -701,7 +703,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       return jsonResponse(headersJson, 500, { error: 'ENV_MISSING_SUPABASE' });
     }
 
-    const supabase = createClient(url, serviceKey, {
+    const supabase: LooseSupabaseClient = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
