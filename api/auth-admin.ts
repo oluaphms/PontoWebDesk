@@ -11,9 +11,9 @@
  * Reduz o número de funções no plano Hobby da Vercel (máx. 12).
  */
 
-import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
+import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.ts';
 import { z } from 'zod';
-import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.ts';
 
 console.log('[AUTH ADMIN LOADED]');
 
@@ -608,7 +608,7 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   console.log('[AUTH ADMIN START]', { method: request.method, url: request.url });
   try {
     return await handleRequest(request);
@@ -633,3 +633,5 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 }
+
+export default { fetch: handler };
