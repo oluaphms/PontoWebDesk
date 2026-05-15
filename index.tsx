@@ -22,6 +22,7 @@ try {
 
 // Após deploy, chunks antigos podem 404; um reload recupera. Evita loop com sessionStorage.
 const CHUNK_RELOAD_FLAG = '__cd_chunk_reload_once';
+const CHUNK_ERROR_AUTO_RECOVER_FLAG = '__pwb_chunk_error_auto_recover_once';
 if (typeof window !== 'undefined') {
   window.addEventListener(
     'unhandledrejection',
@@ -50,6 +51,7 @@ if (typeof window !== 'undefined') {
   );
   window.addEventListener('load', function () {
     sessionStorage.removeItem(CHUNK_RELOAD_FLAG);
+    sessionStorage.removeItem(CHUNK_ERROR_AUTO_RECOVER_FLAG);
   });
 }
 

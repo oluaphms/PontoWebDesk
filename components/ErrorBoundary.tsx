@@ -14,6 +14,8 @@ interface AppErrorBoundaryProps {
   fallback?: ReactNode;
 }
 
+const CHUNK_ERROR_AUTO_RECOVER_FLAG = '__pwb_chunk_error_auto_recover_once';
+
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
@@ -34,6 +36,13 @@ function isDevUiEnv(): boolean {
     (typeof import.meta !== 'undefined' && !!import.meta.env?.DEV) ||
     (typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+  );
+}
+
+function isLikelyChunkLoadFailure(error: unknown): boolean {
+  const raw = `${error instanceof Error ? error.message : String(error)}\n${error instanceof Error && error.stack ? error.stack : ''}`;
+  return /Failed to fetch dynamically imported module|Loading chunk \d+ failed|Importing a module script failed/i.test(
+    raw,
   );
 }
 
@@ -118,6 +127,16 @@ export default function AppErrorBoundary({ children, fallback }: AppErrorBoundar
     const err = toError(error);
     console.error('ErrorBoundary capturou um erro:', err.message, err.stack, info);
     captureException(err, { react: { componentStack: info.componentStack } });
+
+    // Recuperação resiliente de chunk lazy quebrado (deploy/HMR): tenta 1 reload e evita loop.
+    if (typeof window !== 'undefined' && isLikelyChunkLoadFailure(err)) {
+      const alreadyRetried = sessionStorage.getItem(CHUNK_ERROR_AUTO_RECOVER_FLAG) === '1';
+      if (!alreadyRetried) {
+        sessionStorage.setItem(CHUNK_ERROR_AUTO_RECOVER_FLAG, '1');
+        window.location.reload();
+        return;
+      }
+    }
   };
 
   if (fallback) {
