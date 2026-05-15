@@ -118,6 +118,17 @@ function validateOrigin(origin: string | null): string | null {
   return null;
 }
 
+function isSameOriginRequest(request: Request): boolean {
+  const origin = request.headers.get('Origin');
+  if (!origin) return false;
+  try {
+    const reqOrigin = new URL(request.url).origin;
+    return origin === reqOrigin;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Gera headers CORS seguros baseados na origem da requisição.
  * NUNCA retorna '*' em produção.
@@ -131,7 +142,10 @@ export function getSecureCorsHeaders(
   }
 ): Record<string, string> {
   const requestOrigin = request.headers.get('Origin');
-  const allowedOrigin = validateOrigin(requestOrigin);
+  let allowedOrigin = validateOrigin(requestOrigin);
+  if (!allowedOrigin && isSameOriginRequest(request) && requestOrigin) {
+    allowedOrigin = requestOrigin;
+  }
 
   // Se a origem não é permitida, não retorna header CORS (bloqueia por padrão)
   if (!allowedOrigin && requestOrigin) {
@@ -169,6 +183,7 @@ export function getSecureCorsHeaders(
 export function isTrustedOrigin(request: Request): boolean {
   const origin = request.headers.get('Origin');
   if (!origin) return true;
+  if (isSameOriginRequest(request)) return true;
   return validateOrigin(origin) !== null;
 }
 
