@@ -1,4 +1,15 @@
 {
   "framework": null,
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "routes": [
+    {
+      "src": "^/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "^(?!/api/).*",
+      "dest": "/index.html"
+    }
+  ]
 }
