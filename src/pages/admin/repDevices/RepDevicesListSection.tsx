@@ -12,6 +12,12 @@ import { uiTokens } from '../../../styles/tokens';
 import { repListUi } from '../../../styles/repDevicesListUi';
 import { cx } from '../../../styles/cx';
 
+function identifierTypeLabel(value: RepDeviceRow['identifier_type']): string {
+  if (value === 'cpf') return 'CPF';
+  if (value === 'both') return 'Ambos (PIS + CPF)';
+  return 'PIS';
+}
+
 export type RepDevicesListSectionProps = {
   loadingList: boolean;
   agentIsActive: boolean;
@@ -172,6 +178,10 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                   </span>
                 </div>
                 <div className={repListUi.c011}>
+                  <span className={repListUi.c012}>Identificação</span>
+                  <span className={repListUi.c015}>{identifierTypeLabel(d.identifier_type)}</span>
+                </div>
+                <div className={repListUi.c011}>
                   <span className={repListUi.c012}>Última sincronização</span>
                   <span className={repListUi.c015}>{formatDate(d.ultima_sincronizacao)}</span>
                 </div>
@@ -220,6 +230,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 <th className={repListUi.c020}>Nome</th>
                 <th className={repListUi.c020}>Fabricante / Modelo</th>
                 <th className={repListUi.c020}>Conexão</th>
+                <th className={repListUi.c020}>Identificação</th>
                 <th className={repListUi.c020}>Status</th>
                 <th className={repListUi.c020}>Última sincronização</th>
                 <th className={repListUi.c021}>Ações</th>
@@ -228,7 +239,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
             <tbody className={repListUi.c022}>
               {visibleDevices.length === 0 && !hasLoadError ? (
                 <tr>
-                  <td colSpan={6} className={repListUi.c023}>
+                  <td colSpan={7} className={repListUi.c023}>
                     <Clock className={repListUi.c024} size={28} aria-hidden />
                     <p className={repListUi.c036}>Nenhum relógio cadastrado</p>
                     <p className={cx('mt-1', uiTokens.typography.subtitle)}>Cadastre um dispositivo para iniciar a coleta automática</p>
@@ -256,6 +267,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                         <span>{repConnectionCellText(d)}</span>
                       </span>
                     </td>
+                    <td className={repListUi.c027}>{identifierTypeLabel(d.identifier_type)}</td>
                     <td className={repListUi.c029}>{repDeviceRowStatusBadge(d.status)}</td>
                     <td className={repListUi.c030}>{formatDate(d.ultima_sincronizacao)}</td>
                     <td className={repListUi.c029}>
@@ -294,7 +306,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className={repListUi.c032}>
+                  <td colSpan={7} className={repListUi.c032}>
                     Não foi possível carregar os dispositivos
                   </td>
                 </tr>

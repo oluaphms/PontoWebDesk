@@ -19,6 +19,7 @@ type RepPunchBody = {
   pis?: string;
   cpf?: string;
   matricula?: string;
+  raw_data?: unknown;
   tipo_marcacao?: string;
   test?: unknown;
 };
@@ -57,6 +58,30 @@ type RpcRepIngestResult = {
   user_not_found?: boolean;
   error?: string;
   duplicate?: boolean;
+};
+
+type RepIdentifierType = 'pis' | 'cpf' | 'both';
+
+type RepMatchRpcResult = {
+  user_id?: string | null;
+  match_strategy?: string | null;
+};
+
+type ResolveUserFromRepPayload = {
+  companyId: string;
+  employeeId: string | null;
+  pis: string | null;
+  cpf: string | null;
+  matricula: string | null;
+};
+
+type ResolveUserFromRepResult = {
+  resolvedUserId: string | null;
+  identifierUsed: 'employee_id' | 'pis' | 'cpf' | 'none';
+  attemptedIdentifier: string | null;
+  resolutionResult: 'found' | 'not_found';
+  strategy: 'forced' | 'cpf' | 'pis' | 'fallback' | 'none';
+  confidence: 'high' | 'medium' | 'low';
 };
 
 type RepPunchLogRow = {
@@ -99,6 +124,142 @@ function normalizeEmployeeId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeDigits(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const digits = value.replace(/\D/g, '');
+  return digits.length > 0 ? digits : null;
+}
+
+function normalizeIdentifierType(value: unknown): RepIdentifierType {
+  if (value === 'cpf' || value === 'both') return value;
+  return 'pis';
+}
+
+async function fetchRepDeviceIdentifierType(
+  supabase: ReturnType<typeof createClient>,
+  companyId: string,
+  repDeviceId: string | null,
+): Promise<RepIdentifierType> {
+  if (!repDeviceId) return 'pis';
+  const { data, error } = await supabase
+    .from('rep_devices')
+    .select('identifier_type')
+    .eq('id', repDeviceId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+  if (error) {
+    repLog('warn', 'device_identifier_type_fetch_failed', {
+      company_id: companyId,
+      rep_device_id: repDeviceId,
+      message: error.message,
+    });
+    return 'pis';
+  }
+  return normalizeIdentifierType((data as { identifier_type?: unknown } | null)?.identifier_type);
+}
+
+async function matchUserByIdentifier(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    companyId: string;
+    identifierType: 'pis' | 'cpf';
+    value: string | null;
+    matricula: string | null;
+    rawData: Record<string, unknown>;
+  },
+): Promise<string | null> {
+  if (!params.value) return null;
+  const rpcPayload = {
+    p_company_id: params.companyId,
+    p_pis: params.identifierType === 'pis' ? params.value : null,
+    p_cpf: params.identifierType === 'cpf' ? params.value : null,
+    p_matricula: params.matricula,
+    p_raw_data: params.rawData,
+  };
+  const { data, error } = await supabase.rpc('rep_match_user_id_for_rep_punch_row', rpcPayload);
+  if (error) {
+    repLog('warn', 'identifier_match_rpc_failed', {
+      company_id: params.companyId,
+      identifier_type: params.identifierType,
+      message: error.message,
+    });
+    return null;
+  }
+  const match = (data ?? null) as RepMatchRpcResult | null;
+  const userId = typeof match?.user_id === 'string' ? match.user_id.trim() : '';
+  return userId || null;
+}
+
+export async function resolveUserFromRep(
+  supabase: ReturnType<typeof createClient>,
+  payload: ResolveUserFromRepPayload,
+  deviceConfig: { identifierType: RepIdentifierType },
+): Promise<ResolveUserFromRepResult> {
+  if (payload.employeeId) {
+    return {
+      resolvedUserId: payload.employeeId,
+      identifierUsed: 'employee_id',
+      attemptedIdentifier: payload.employeeId,
+      resolutionResult: 'found',
+      strategy: 'forced',
+      confidence: 'high',
+    };
+  }
+
+  // FASE 2: prioridade para CPF quando disponível; exceção apenas ao modo CPF-only (sem fallback).
+  if (deviceConfig.identifierType === 'cpf') {
+    const byCpf = await matchUserByIdentifier(supabase, {
+      companyId: payload.companyId,
+      identifierType: 'cpf',
+      value: payload.cpf,
+      matricula: payload.matricula,
+      rawData: {},
+    });
+    return {
+      resolvedUserId: byCpf,
+      identifierUsed: byCpf ? 'cpf' : 'none',
+      attemptedIdentifier: payload.cpf,
+      resolutionResult: byCpf ? 'found' : 'not_found',
+      strategy: byCpf ? 'cpf' : 'none',
+      confidence: byCpf ? 'high' : 'low',
+    };
+  }
+
+  const byCpfFirst = await matchUserByIdentifier(supabase, {
+    companyId: payload.companyId,
+    identifierType: 'cpf',
+    value: payload.cpf,
+    matricula: payload.matricula,
+    rawData: {},
+  });
+  if (byCpfFirst) {
+    return {
+      resolvedUserId: byCpfFirst,
+      identifierUsed: 'cpf',
+      attemptedIdentifier: payload.cpf,
+      resolutionResult: 'found',
+      strategy: 'cpf',
+      confidence: 'high',
+    };
+  }
+
+  const byPisFallback = await matchUserByIdentifier(supabase, {
+    companyId: payload.companyId,
+    identifierType: 'pis',
+    value: payload.pis,
+    matricula: payload.matricula,
+    rawData: {},
+  });
+  return {
+    resolvedUserId: byPisFallback,
+    identifierUsed: byPisFallback ? 'pis' : 'none',
+    attemptedIdentifier: byPisFallback ? payload.pis : payload.cpf ?? payload.pis,
+    resolutionResult: byPisFallback ? 'found' : 'not_found',
+    strategy: byPisFallback ? 'fallback' : 'none',
+    confidence: byPisFallback ? 'low' : 'low',
+  };
 }
 
 function startOfLocalDayUtcFromTimestamp(timestampIso: string): string {
@@ -469,6 +630,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       pis,
       cpf,
       matricula,
+      raw_data,
       tipo_marcacao,
     } = body;
     const resolvedEmployeeId = normalizeEmployeeId(employee_id) ?? normalizeEmployeeId(user_id);
@@ -561,23 +723,96 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     }
 
     const repDeviceId = normalizeRepDeviceIdForRpc(device_id);
+    const identifierType = await fetchRepDeviceIdentifierType(supabase, company_id, repDeviceId);
+    const pisDigits = normalizeDigits(pis);
+    const cpfDigits = normalizeDigits(cpf);
+    const matriculaValue = normalizeEmployeeId(matricula);
+
+    let resolvedByIdentifier: string | null = null;
+    let matchType: 'pis' | 'cpf' | 'fallback' | 'forced' | 'none' = 'none';
+    let confidenceLevel: 'high' | 'medium' | 'low' = 'low';
+    const resolvedIdentity = await resolveUserFromRep(
+      supabase,
+      {
+        companyId: company_id,
+        employeeId: resolvedEmployeeId,
+        pis: pisDigits,
+        cpf: cpfDigits,
+        matricula: matriculaValue,
+      },
+      { identifierType },
+    );
+    resolvedByIdentifier = resolvedIdentity.resolvedUserId;
+    matchType = resolvedIdentity.strategy;
+    confidenceLevel = resolvedIdentity.confidence;
+
+    repLog('info', 'identifier_resolution', {
+      company_id,
+      rep_device_id: repDeviceId,
+      identifier_type: identifierType,
+      identifier_used: resolvedIdentity.identifierUsed,
+      identifier_attempted: resolvedIdentity.attemptedIdentifier,
+      resolution_result: resolvedIdentity.resolutionResult,
+      match_type: matchType,
+      confidence_level: confidenceLevel,
+      has_pis: Boolean(pisDigits),
+      has_cpf: Boolean(cpfDigits),
+      resolved_user_id: resolvedByIdentifier,
+    });
+
     const tsIso = ts.toISOString();
-    const dedupeKey = `${resolvedEmployeeId ?? 'unknown'}|${tsIso}|${repDeviceId ?? 'no-device'}`;
+    const dedupeKey = `${resolvedByIdentifier ?? 'unknown'}|${tsIso}|${repDeviceId ?? 'no-device'}`;
+    const incomingRawData =
+      raw_data && typeof raw_data === 'object' && !Array.isArray(raw_data)
+        ? (raw_data as Record<string, unknown>)
+        : {};
+    const identifierCandidates = [pisDigits, cpfDigits].filter((v): v is string => Boolean(v));
     const rawData: Record<string, unknown> = {
+      ...incomingRawData,
       source: 'REP',
       ingest: 'rep-punch-lite',
-      employee_id: resolvedEmployeeId,
+      employee_id: resolvedByIdentifier,
       company_id,
       timestamp_utc: tsIso,
       device_id: repDeviceId,
       dedupe_key: dedupeKey,
+      cpfOuPis: incomingRawData.cpfOuPis ?? identifierCandidates[0] ?? null,
+      extracted_identifiers: Array.from(
+        new Set([
+          ...(Array.isArray(incomingRawData.extracted_identifiers)
+            ? incomingRawData.extracted_identifiers
+                .map((item) => normalizeDigits(typeof item === 'string' ? item : null))
+                .filter((item): item is string => Boolean(item))
+            : []),
+          ...identifierCandidates,
+        ]),
+      ),
+      extracted_identifier_types: Array.from(
+        new Set(
+          [
+            pisDigits ? 'pis' : null,
+            cpfDigits ? 'cpf' : null,
+            ...(Array.isArray(incomingRawData.extracted_identifier_types)
+              ? incomingRawData.extracted_identifier_types
+                  .filter((item): item is string => typeof item === 'string')
+                  .map((item) => item.trim().toLowerCase())
+              : []),
+          ].filter((item): item is string => Boolean(item)),
+        ),
+      ),
+      identifier_type_used: identifierType,
+      identifier_match_type: matchType,
+      identifier_confidence_level: confidenceLevel,
+      match_strategy: matchType,
+      match_confidence: confidenceLevel,
+      status: resolvedByIdentifier ? 'identified' : 'unidentified',
     };
 
     const rpcPayload = {
       p_company_id: company_id,
       p_rep_device_id: repDeviceId,
-      p_pis: pis ?? null,
-      p_cpf: cpf ?? null,
+      p_pis: identifierType === 'cpf' ? null : pisDigits,
+      p_cpf: identifierType === 'pis' ? null : cpfDigits,
       p_matricula: matricula ?? null,
       p_nome_funcionario: null,
       p_data_hora: tsIso,
@@ -586,7 +821,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       p_raw_data: rawData,
       p_only_staging: false,
       p_apply_schedule: false,
-      p_force_user_id: resolvedEmployeeId,
+      p_force_user_id: resolvedByIdentifier,
       p_trust_client_identity: true,
     };
 
@@ -613,7 +848,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     if (result.duplicate) {
       repLog('info', 'duplicate_ignored', {
         company_id,
-        employee_id: resolvedEmployeeId,
+        employee_id: resolvedByIdentifier,
         device_id: repDeviceId,
         timestamp_utc: tsIso,
       });
@@ -645,23 +880,23 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
 
     repLog('info', 'ingest_success', {
       company_id,
-      employee_id: resolvedEmployeeId,
+      employee_id: resolvedByIdentifier,
       time_record_id: result.time_record_id ?? null,
       elapsed_ms: Date.now() - startedAt,
     });
 
-    if (resolvedEmployeeId) {
+    if (resolvedByIdentifier) {
       try {
         await reconcileRepPunchDay({
           supabase,
           companyId: company_id,
-          employeeId: resolvedEmployeeId,
+          employeeId: resolvedByIdentifier,
           timestampIso: tsIso,
         });
       } catch (reconcileErr) {
         repLog('warn', 'reconciliation_best_effort_failed', {
           company_id,
-          employee_id: resolvedEmployeeId,
+          employee_id: resolvedByIdentifier,
           message: reconcileErr instanceof Error ? reconcileErr.message : String(reconcileErr),
         });
       }

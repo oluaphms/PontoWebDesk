@@ -33,16 +33,51 @@ type TimesheetDailyRow = {
 class MockSupabase {
   rpcResult: RpcResult = { success: true, time_record_id: 'tr-1' };
   rpcError: { message: string } | null = null;
+  matchUserId: string | null = null;
+  matchByPisUserId: string | null = null;
+  matchByCpfUserId: string | null = null;
+  deviceIdentifierType: 'pis' | 'cpf' | 'both' = 'pis';
+  lastIngestPayload: Record<string, unknown> | null = null;
   punchRows: PunchRow[] = [];
   timesheetDaily: TimesheetDailyRow | null = { id: 'tsd-1', raw_data: {} };
   timesheetQueryError: { message: string } | null = null;
   lastTimesheetUpdate: { payload: Record<string, unknown>; id: string } | null = null;
   failOnUpdate = false;
 
-  rpc = vi.fn(async (_fnName: string, _payload: unknown) => ({
-    data: this.rpcResult,
-    error: this.rpcError,
-  }));
+  rpc = vi.fn(async (fnName: string, payload: unknown) => {
+    if (fnName === 'rep_match_user_id_for_rep_punch_row') {
+      const p = (payload ?? {}) as { p_pis?: string | null; p_cpf?: string | null };
+      if (p.p_pis) {
+        return {
+          data: this.matchByPisUserId
+            ? { user_id: this.matchByPisUserId, match_strategy: 'pis' }
+            : this.matchUserId
+              ? { user_id: this.matchUserId, match_strategy: 'pis' }
+              : null,
+          error: null,
+        };
+      }
+      if (p.p_cpf) {
+        return {
+          data: this.matchByCpfUserId
+            ? { user_id: this.matchByCpfUserId, match_strategy: 'cpf' }
+            : this.matchUserId
+              ? { user_id: this.matchUserId, match_strategy: 'cpf' }
+              : null,
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    }
+    if (fnName === 'rep_ingest_punch') {
+      this.lastIngestPayload = (payload ?? {}) as Record<string, unknown>;
+      return {
+        data: this.rpcResult,
+        error: this.rpcError,
+      };
+    }
+    return { data: null, error: null };
+  });
 
   from = vi.fn((table: string) => {
     if (table === 'companies') {
@@ -87,6 +122,23 @@ class MockSupabase {
             return Boolean(row.id);
           });
           return { data: filtered, error: null };
+        },
+      };
+      return chain;
+    }
+
+    if (table === 'rep_devices') {
+      const state: { companyId?: string; id?: string } = {};
+      const chain = {
+        select: (_fields: string) => chain,
+        eq: (column: string, value: string) => {
+          if (column === 'company_id') state.companyId = value;
+          if (column === 'id') state.id = value;
+          return chain;
+        },
+        maybeSingle: async () => {
+          if (!state.companyId || !state.id) return { data: null, error: null };
+          return { data: { identifier_type: this.deviceIdentifierType }, error: null };
         },
       };
       return chain;
@@ -298,6 +350,110 @@ describe('handleRepPunchRpcLite', () => {
     const rec = raw.rep_reconciliation as Record<string, unknown>;
     expect(Number(rec.outliers_detected)).toBeGreaterThanOrEqual(1);
     expect(['pending', 'assisted', 'auto_resolved']).toContain(rec.reconciliation_status);
+  });
+
+  it('fase 2: prioriza CPF mesmo em dispositivo PIS quando CPF existir', async () => {
+    const mock = new MockSupabase();
+    mock.deviceIdentifierType = 'pis';
+    mock.matchByCpfUserId = 'user-by-cpf-priority';
+    mock.matchByPisUserId = 'user-by-pis';
+    createClientMock.mockReturnValueOnce(mock);
+
+    const handler = await importHandler();
+    const res = await handler(
+      buildRequest({
+        company_id: 'company-1',
+        data_hora: '2026-05-14T09:30:00.000Z',
+        device_id: 'f6a9ee71-1d43-4f94-a52c-6dcb7f013188',
+        pis: '123.45678.90-1',
+        cpf: '111.222.333-44',
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mock.lastIngestPayload?.p_force_user_id).toBe('user-by-cpf-priority');
+    expect(mock.lastIngestPayload?.p_pis).toBe('12345678901');
+    expect(mock.lastIngestPayload?.p_cpf).toBeNull();
+    const raw = (mock.lastIngestPayload?.p_raw_data ?? {}) as Record<string, unknown>;
+    expect(raw.match_strategy).toBe('cpf');
+    expect(raw.match_confidence).toBe('high');
+  });
+
+  it('dispositivo CPF resolve colaborador por CPF', async () => {
+    const mock = new MockSupabase();
+    mock.deviceIdentifierType = 'cpf';
+    mock.matchByCpfUserId = 'user-by-cpf';
+    createClientMock.mockReturnValueOnce(mock);
+
+    const handler = await importHandler();
+    const res = await handler(
+      buildRequest({
+        company_id: 'company-1',
+        data_hora: '2026-05-14T09:30:00.000Z',
+        device_id: 'f6a9ee71-1d43-4f94-a52c-6dcb7f013188',
+        pis: '123.45678.90-1',
+        cpf: '111.222.333-44',
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mock.lastIngestPayload?.p_force_user_id).toBe('user-by-cpf');
+    expect(mock.lastIngestPayload?.p_pis).toBeNull();
+    expect(mock.lastIngestPayload?.p_cpf).toBe('11122233344');
+  });
+
+  it('fase 2: dispositivo BOTH também prioriza CPF', async () => {
+    const mock = new MockSupabase();
+    mock.deviceIdentifierType = 'both';
+    mock.matchByPisUserId = null;
+    mock.matchByCpfUserId = 'user-by-cpf-priority';
+    createClientMock.mockReturnValueOnce(mock);
+
+    const handler = await importHandler();
+    const res = await handler(
+      buildRequest({
+        company_id: 'company-1',
+        data_hora: '2026-05-14T09:30:00.000Z',
+        device_id: 'f6a9ee71-1d43-4f94-a52c-6dcb7f013188',
+        pis: '123.45678.90-1',
+        cpf: '111.222.333-44',
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mock.lastIngestPayload?.p_force_user_id).toBe('user-by-cpf-priority');
+    expect(mock.lastIngestPayload?.p_pis).toBe('12345678901');
+    expect(mock.lastIngestPayload?.p_cpf).toBe('11122233344');
+    const raw = (mock.lastIngestPayload?.p_raw_data ?? {}) as Record<string, unknown>;
+    expect(raw.identifier_match_type).toBe('cpf');
+    expect(raw.match_strategy).toBe('cpf');
+    expect(raw.match_confidence).toBe('high');
+  });
+
+  it('fase 2: usa fallback para PIS quando CPF não resolve', async () => {
+    const mock = new MockSupabase();
+    mock.deviceIdentifierType = 'both';
+    mock.matchByCpfUserId = null;
+    mock.matchByPisUserId = 'user-by-pis-fallback';
+    createClientMock.mockReturnValueOnce(mock);
+
+    const handler = await importHandler();
+    const res = await handler(
+      buildRequest({
+        company_id: 'company-1',
+        data_hora: '2026-05-14T09:30:00.000Z',
+        device_id: 'f6a9ee71-1d43-4f94-a52c-6dcb7f013188',
+        pis: '123.45678.90-1',
+        cpf: '111.222.333-44',
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mock.lastIngestPayload?.p_force_user_id).toBe('user-by-pis-fallback');
+    const raw = (mock.lastIngestPayload?.p_raw_data ?? {}) as Record<string, unknown>;
+    expect(raw.match_strategy).toBe('fallback');
+    expect(raw.match_confidence).toBe('low');
+    expect(raw.status).toBe('identified');
   });
 
   it('retorna sucesso com duplicate=true e não executa reconciliação', async () => {

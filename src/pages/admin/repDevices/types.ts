@@ -3,6 +3,7 @@ export type RepDeviceRow = {
   company_id: string;
   nome_dispositivo: string;
   provider_type?: string | null;
+  identifier_type?: 'pis' | 'cpf' | 'both' | null;
   fabricante: string | null;
   modelo: string | null;
   ip: string | null;

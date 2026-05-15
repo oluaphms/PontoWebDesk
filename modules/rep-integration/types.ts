@@ -11,6 +11,8 @@ export interface RepDevice {
   nome_dispositivo: string;
   /** Slug do hub multi-fabricante: control_id | dimep | topdata | henry (opcional; senão usa heurística de fabricante). */
   provider_type?: string | null;
+  /** Regra de identificação do colaborador para este relógio. */
+  identifier_type?: 'pis' | 'cpf' | 'both' | null;
   fabricante?: string | null;
   modelo?: string | null;
   ip?: string | null;

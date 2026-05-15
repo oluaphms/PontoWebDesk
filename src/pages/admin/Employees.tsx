@@ -646,7 +646,7 @@ const AdminEmployees: React.FC = () => {
     setEditingId(null);
     setForm(defaultForm());
     setPasswordMessage(null);
-    setEmployeeModalExtra('none');
+    setEmployeeModalExtra('adicional');
     setModalOpen(true);
     setError(null);
     setSuccess(null);
@@ -746,6 +746,7 @@ const AdminEmployees: React.FC = () => {
       return;
     }
     if (!editingId && !form.email.trim()) {
+      setEmployeeModalExtra('adicional');
       setError('E-mail é obrigatório.');
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;

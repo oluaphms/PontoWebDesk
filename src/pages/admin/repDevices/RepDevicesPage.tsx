@@ -179,6 +179,7 @@ const AdminRepDevices: React.FC = () => {
     repPassword: 'admin',
     mode671: false,
     provider_type: '' as string,
+    identifier_type: 'pis' as 'pis' | 'cpf' | 'both',
   });
 
   const loadDevices = async () => {
@@ -1946,6 +1947,7 @@ const AdminRepDevices: React.FC = () => {
       repPassword: 'admin',
       mode671: false,
       provider_type: '',
+      identifier_type: 'pis',
     });
     setModalOpen(true);
   };
@@ -1970,6 +1972,7 @@ const AdminRepDevices: React.FC = () => {
       repPassword: typeof ex.rep_password === 'string' ? ex.rep_password : 'admin',
       mode671: ex.mode_671 === true,
       provider_type: (d.provider_type || '').trim(),
+      identifier_type: d.identifier_type === 'cpf' || d.identifier_type === 'both' ? d.identifier_type : 'pis',
     });
     setModalOpen(true);
   };
@@ -2005,6 +2008,7 @@ const AdminRepDevices: React.FC = () => {
         await db.update('rep_devices', editingId, {
           nome_dispositivo: form.nome_dispositivo.trim(),
           provider_type: providerSlug,
+          identifier_type: form.identifier_type,
           fabricante: form.fabricante.trim() || null,
           modelo: form.modelo.trim() || null,
           ip: form.ip.trim() || null,
@@ -2020,6 +2024,7 @@ const AdminRepDevices: React.FC = () => {
             company_id: user.companyId,
             nome_dispositivo: form.nome_dispositivo.trim(),
             provider_type: providerSlug,
+            identifier_type: form.identifier_type,
             fabricante: form.fabricante.trim() || null,
             modelo: form.modelo.trim() || null,
             ip: form.ip.trim() || null,
@@ -2047,6 +2052,7 @@ const AdminRepDevices: React.FC = () => {
           company_id: user.companyId,
           nome_dispositivo: form.nome_dispositivo.trim(),
           provider_type: providerSlug,
+          identifier_type: form.identifier_type,
           fabricante: form.fabricante.trim() || null,
           modelo: form.modelo.trim() || null,
           ip: form.ip.trim() || null,
@@ -2080,6 +2086,7 @@ const AdminRepDevices: React.FC = () => {
             company_id: user.companyId,
             nome_dispositivo: form.nome_dispositivo.trim(),
             provider_type: providerSlug,
+            identifier_type: form.identifier_type,
             fabricante: form.fabricante.trim() || null,
             modelo: form.modelo.trim() || null,
             ip: form.ip.trim() || null,
@@ -3243,6 +3250,23 @@ const AdminRepDevices: React.FC = () => {
                   Define qual provider trata este relógio. «Automático» usa o campo fabricante. O cadastro é espelhado em{' '}
                   <code className={repPageUi.c109}>timeclock_devices</code>.
                 </p>
+              </div>
+              <div>
+                <label className={repPageUi.c106}>Tipo de Identificação do Funcionário</label>
+                <select
+                  value={form.identifier_type}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      identifier_type: e.target.value as 'pis' | 'cpf' | 'both',
+                    }))
+                  }
+                  className={repPageUi.c107}
+                >
+                  <option value="pis">PIS</option>
+                  <option value="cpf">CPF</option>
+                  <option value="both">Ambos (PIS + CPF)</option>
+                </select>
               </div>
               <div>
                 <label className={repPageUi.c106}>Modelo</label>

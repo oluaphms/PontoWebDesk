@@ -22,6 +22,7 @@ type PunchLog = {
   nome_funcionario: string | null;
   tipo_marcacao: string | null;
   rep_device_id: string | null;
+  raw_data: Record<string, unknown> | null;
 };
 
 type QuarantineRow = {
@@ -179,8 +180,10 @@ const AdminRepUnresolvedPunches: React.FC = () => {
                 <th className="px-3 py-2 font-semibold">{i18n.t('repUnresolved.colWhen')}</th>
                 <th className="px-3 py-2 font-semibold">NSR</th>
                 <th className="px-3 py-2 font-semibold">PIS / CPF</th>
+                <th className="px-3 py-2 font-semibold">Identificadores extraídos</th>
                 <th className="px-3 py-2 font-semibold">{i18n.t('repUnresolved.colBadge')}</th>
                 <th className="px-3 py-2 font-semibold">{i18n.t('repUnresolved.colNameDevice')}</th>
+                <th className="px-3 py-2 font-semibold">Raw data</th>
                 <th className="px-3 py-2 font-semibold min-w-[220px]">{i18n.t('repUnresolved.colEmployee')}</th>
                 <th className="px-3 py-2 font-semibold w-[1%]">{i18n.t('repUnresolved.colAction')}</th>
               </tr>
@@ -191,6 +194,12 @@ const AdminRepUnresolvedPunches: React.FC = () => {
                 const logId = row.rep_punch_log_id;
                 const pisCpf = [log?.pis, log?.cpf].filter(Boolean).join(' / ') || '—';
                 const nomeDev = log?.nome_funcionario || '—';
+                const extracted = Array.isArray(log?.raw_data?.extracted_identifiers)
+                  ? (log?.raw_data?.extracted_identifiers as unknown[])
+                      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+                      .slice(0, 4)
+                  : [];
+                const rawPreview = log?.raw_data ? JSON.stringify(log.raw_data).slice(0, 160) : '—';
                 return (
                   <tr
                     key={row.id}
@@ -200,6 +209,12 @@ const AdminRepUnresolvedPunches: React.FC = () => {
                     <td className="px-3 py-2 font-mono text-xs">{log?.nsr ?? '—'}</td>
                     <td className="px-3 py-2 font-mono text-xs max-w-[140px] truncate" title={pisCpf}>
                       {pisCpf}
+                    </td>
+                    <td
+                      className="px-3 py-2 font-mono text-[11px] max-w-[220px] truncate"
+                      title={extracted.join(', ') || '—'}
+                    >
+                      {extracted.length > 0 ? extracted.join(', ') : '—'}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{log?.matricula ?? '—'}</td>
                     <td className="px-3 py-2 max-w-[200px]">
@@ -211,6 +226,11 @@ const AdminRepUnresolvedPunches: React.FC = () => {
                           {log.rep_device_id.slice(0, 8)}…
                         </span>
                       )}
+                    </td>
+                    <td className="px-3 py-2 max-w-[260px] text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="line-clamp-3 font-mono" title={rawPreview}>
+                        {rawPreview}
+                      </span>
                     </td>
                     <td className="px-3 py-2">
                       <select
