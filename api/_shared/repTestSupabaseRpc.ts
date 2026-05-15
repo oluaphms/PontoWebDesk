@@ -5,30 +5,33 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 export async function handleRepTestSupabaseRpc(request: Request): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'GET, POST, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization, X-REP-API-Key',
+  });
+  const jsonHeaders = { ...JSON_HEADERS, ...corsHeaders };
   if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-REP-API-Key',
-      },
-    });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   if (request.method !== 'GET' && request.method !== 'POST') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: JSON_HEADERS });
+    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: jsonHeaders });
+  }
+  if (request.method === 'POST') {
+    const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+    if (blockedOrigin) return blockedOrigin;
   }
 
   const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
   const authHeader = request.headers.get('Authorization') || request.headers.get('X-REP-API-Key') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!apiKey || token !== apiKey) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401, headers: JSON_HEADERS });
+    return Response.json({ error: 'Unauthorized' }, { status: 401, headers: jsonHeaders });
   }
 
   let supabaseUrl: string;
@@ -47,7 +50,7 @@ export async function handleRepTestSupabaseRpc(request: Request): Promise<Respon
             hasViteSupabaseUrl: Boolean((process.env.VITE_SUPABASE_URL || '').toString().trim()),
           },
         },
-        { status: 500, headers: JSON_HEADERS },
+        { status: 500, headers: jsonHeaders },
       );
     }
     throw e;
@@ -77,7 +80,7 @@ export async function handleRepTestSupabaseRpc(request: Request): Promise<Respon
       {
         status: 200,
         headers: {
-          ...JSON_HEADERS,
+          ...jsonHeaders,
           'Cache-Control': 'no-store',
         },
       },
@@ -90,7 +93,7 @@ export async function handleRepTestSupabaseRpc(request: Request): Promise<Respon
       {
         status: 500,
         headers: {
-          ...JSON_HEADERS,
+          ...jsonHeaders,
           'Cache-Control': 'no-store',
         },
       },

@@ -1,10 +1,9 @@
 /**
- * Chave da API Gemini no cliente Vite: use VITE_GEMINI_API_KEY.
- * Em Node/scripts: GEMINI_API_KEY ou API_KEY.
+ * Integração opcional com Google Gemini (desativada neste produto por padrão).
+ * Só `import.meta.env.VITE_GEMINI_API_KEY` (build Vite) é considerada — sem fallback para
+ * `process.env.API_KEY` no cliente (evita vazar segredo de API serverless no bundle).
  *
- * Modelo: use VITE_GEMINI_MODEL. Padrão `gemini-1.5-flash` (amplamente disponível na v1beta).
- * Modelos experimentais (ex. gemini-2.0-flash-exp) podem retornar 404 quando descontinuados.
- * NOTA: A API v1beta requer nomes de modelo específicos. Evite usar 'models/' prefix no VITE_GEMINI_MODEL.
+ * Modelo: `VITE_GEMINI_MODEL`; padrão `gemini-1.5-flash`.
  */
 export function getGeminiModelId(): string {
   try {
@@ -23,7 +22,7 @@ export function getGeminiModelId(): string {
 /**
  * Insights automáticos no dashboard (App.tsx): **desligado por padrão**.
  * Defina `VITE_ENABLE_AI_INSIGHTS=true` para habilitar uma única chamada quando houver registros.
- * IA continua disponível em telas sob demanda (ex.: chat RH) quando a chave existe.
+ * IA no dashboard só roda se a chave existir em build (`VITE_GEMINI_API_KEY`).
  */
 export function isAiDashboardInsightsAutoEnabled(): boolean {
   try {
@@ -75,13 +74,13 @@ export function validateGeminiApiKey(key: string | undefined): {
   error?: string;
 } {
   if (!key) {
-    return { valid: false, error: 'Chave da API não configurada' };
+    return { valid: false, error: 'Integração com IA não está configurada neste sistema.' };
   }
 
   if (isPlaceholderKey(key)) {
     return {
       valid: false,
-      error: 'Chave da API parece ser um placeholder. Obtenha uma chave válida em https://aistudio.google.com/apikey',
+      error: 'Integração com IA não está configurada neste sistema.',
     };
   }
 
@@ -89,7 +88,7 @@ export function validateGeminiApiKey(key: string | undefined): {
   if (!key.startsWith('AIza')) {
     return {
       valid: false,
-      error: 'Formato de chave inválido. Chaves Gemini devem começar com "AIza". Verifique sua chave em https://aistudio.google.com/apikey',
+      error: 'Integração com IA não está configurada neste sistema.',
     };
   }
 
@@ -102,13 +101,6 @@ export function getGeminiApiKey(): string | undefined {
     if (viteKey && String(viteKey).trim()) return String(viteKey).trim();
   } catch {
     /* import.meta indisponível */
-  }
-  if (typeof process !== 'undefined' && process.env) {
-    const k =
-      process.env.VITE_GEMINI_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      process.env.API_KEY;
-    if (k && String(k).trim()) return String(k).trim();
   }
   return undefined;
 }

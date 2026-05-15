@@ -16,23 +16,33 @@ export function showFatalError(message: string): void {
     root.id = 'root';
     document.body.appendChild(root);
   }
-  root.innerHTML = `
-    <div style="
-      display:flex;
-      height:100vh;
-      align-items:center;
-      justify-content:center;
-      font-family:system-ui,-apple-system,sans-serif;
-      background:#0f172a;
-      color:#fff;
-      padding:24px;
-      text-align:center;
-    ">
-      <div style="max-width:640px">
-        <h1 style="margin:0 0 12px 0">Erro de Conexao</h1>
-        <p style="margin:0;line-height:1.5">${message}</p>
-      </div>
-    </div>
-  `;
+  root.replaceChildren();
+  const wrapper = document.createElement('div');
+  wrapper.style.display = 'flex';
+  wrapper.style.height = '100vh';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.justifyContent = 'center';
+  wrapper.style.fontFamily = 'system-ui,-apple-system,sans-serif';
+  wrapper.style.background = '#0f172a';
+  wrapper.style.color = '#fff';
+  wrapper.style.padding = '24px';
+  wrapper.style.textAlign = 'center';
+
+  const content = document.createElement('div');
+  content.style.maxWidth = '640px';
+
+  const title = document.createElement('h1');
+  title.style.margin = '0 0 12px 0';
+  title.textContent = 'Erro de Conexao';
+
+  const text = document.createElement('p');
+  text.style.margin = '0';
+  text.style.lineHeight = '1.5';
+  text.textContent = String(message);
+
+  content.appendChild(title);
+  content.appendChild(text);
+  wrapper.appendChild(content);
+  root.appendChild(wrapper);
 }
 

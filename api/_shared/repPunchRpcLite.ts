@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
 type RepPunchBody = {
@@ -33,22 +34,10 @@ function normalizeRepDeviceIdForRpc(deviceId: unknown): string | null {
 }
 
 function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get('Origin');
-  if (!origin) {
-    return {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-REP-API-Key',
-      'X-Content-Type-Options': 'nosniff',
-    };
-  }
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-REP-API-Key',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-  };
+  return getSecureCorsHeaders(request, {
+    allowMethods: 'POST, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization, X-REP-API-Key',
+  });
 }
 
 function jsonResponse(
@@ -451,6 +440,8 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     if (request.method !== 'POST') {
       return jsonResponse(cors, 405, { error: 'Method not allowed' });
     }
+    const blockedOrigin = requireTrustedOrigin(request, cors);
+    if (blockedOrigin) return blockedOrigin;
 
     const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
     const authHeader = request.headers.get('Authorization') || request.headers.get('X-REP-API-Key') || '';
@@ -707,7 +698,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
       },
     );
   }

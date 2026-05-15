@@ -19,15 +19,7 @@ import { z } from 'zod';
 import { PUNCH_SOURCE_WEB } from '../src/constants/punchSource';
 import { sendPunch } from '../src/services/sendPunch.service';
 import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
+import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 // NOTA: Rate limiting em memória não funciona em serverless (Vercel).
 // A proteção real é feita pela validação de device_id + API_KEY.
@@ -74,6 +66,10 @@ function normalizeEventType(type: string): string {
 }
 
 async function handler(request: Request): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'GET, HEAD, POST, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization, x-api-key',
+  });
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -89,6 +85,8 @@ async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders });
   }
+  const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+  if (blockedOrigin) return blockedOrigin;
 
   // Auth: API_KEY via Bearer ou x-api-key
   const apiKey = (process.env.CLOCK_AGENT_API_KEY || process.env.API_KEY || '').trim();

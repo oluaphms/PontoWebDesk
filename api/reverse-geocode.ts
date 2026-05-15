@@ -1,4 +1,5 @@
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
+import { getSecureCorsHeaders } from './_shared/security.js';
 
 /** Hobby: máx. 10s — duas tentativas curtas + margem para cold start + Nominatim. */
 export const config = {
@@ -7,15 +8,6 @@ export const config = {
 
 /** Deve cobrir 2× Nominatim (4,5s) + pausa — sem cortar a 2ª tentativa antes do fim. */
 const HARD_CAP_MS = 9800;
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
 
 async function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -137,6 +129,10 @@ async function resolveAddressFromCoordinates(
 }
 
 async function handler(request: Request): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'GET, OPTIONS',
+    allowHeaders: 'Content-Type, Accept',
+  });
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });

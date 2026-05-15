@@ -26,17 +26,29 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
-const CORS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
+const CORS_BASE: Record<string, string> = {
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
   Pragma: 'no-cache',
   Expires: '0',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
 };
+
+function buildCors(request: Request): Record<string, string> {
+  const secure = getSecureCorsHeaders(request, {
+    allowMethods: CORS_BASE['Access-Control-Allow-Methods'],
+    allowHeaders: CORS_BASE['Access-Control-Allow-Headers'],
+  });
+  return { ...CORS_BASE, ...secure };
+}
 
 function authOk(request: Request): boolean {
   const apiKey = (process.env.CLOCK_AGENT_API_KEY || process.env.API_KEY || '').trim();
@@ -47,9 +59,9 @@ function authOk(request: Request): boolean {
   return token === apiKey || xKey === apiKey;
 }
 
-function json(body: unknown, status = 200): Response {
+function json(body: unknown, status = 200, headers: Record<string, string> = CORS_BASE): Response {
   console.log('[API RESPONSE]', '/api/admin', Date.now());
-  return Response.json(body, { status, headers: CORS });
+  return Response.json(body, { status, headers });
 }
 
 function getSlug(url: URL): string[] {
@@ -611,8 +623,15 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 async function handler(request: Request): Promise<Response> {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-  if (!authOk(request)) return json({ error: 'Unauthorized' }, 401);
+  const corsHeaders = buildCors(request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+
+  if (request.method === 'POST' || request.method === 'PATCH' || request.method === 'PUT' || request.method === 'DELETE') {
+    const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+    if (blockedOrigin) return blockedOrigin;
+  }
+
+  if (!authOk(request)) return json({ error: 'Unauthorized' }, 401, corsHeaders);
 
   const url = resolveRequestUrl(request);
   const slug = getSlug(url); // e.g. ['metrics'] | ['audit','verify'] | ['incidents','INCIDENT-20240101-001']
@@ -633,9 +652,9 @@ async function handler(request: Request): Promise<Response> {
     if (route === 'onboarding')       return await handleOnboarding(request);
     if (route === 'support')          return await handleSupport(request, url);
 
-    return json({ error: `Rota /api/admin/${slug.join('/')} não encontrada.`, available: ['metrics','logs','sync-errors','system-status','global-dashboard','saas-metrics','flags','incidents','slo','audit','audit/verify','audit/export','audit/snapshot','audit/daily-report','onboarding','support/diagnose'] }, 404);
+    return json({ error: `Rota /api/admin/${slug.join('/')} não encontrada.`, available: ['metrics','logs','sync-errors','system-status','global-dashboard','saas-metrics','flags','incidents','slo','audit','audit/verify','audit/export','audit/snapshot','audit/daily-report','onboarding','support/diagnose'] }, 404, corsHeaders);
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'Erro interno' }, 500);
+    return json({ error: e instanceof Error ? e.message : 'Erro interno' }, 500, corsHeaders);
   }
 }
 

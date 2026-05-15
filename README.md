@@ -25,7 +25,6 @@ Outros: `docs/validacao-fluxo-ponto.md`, `docs/auditoria-sistema.md`, runbooks e
 - Registo de ponto (sequência, foto, GPS conforme configuração), espelho, tratamento de horas, **REP** (AFD, relógios, APIs).
 - Portais **admin/RH** (`/admin/...`) e **colaborador** (`/employee/...`).
 - Planos `companies.plan` (free / pro / enterprise) com limites e gates (`services/tenantPlan.service.ts`).
-- Opcional: insights com Google Gemini (`VITE_GEMINI_API_KEY`).
 
 ## Requisitos
 
@@ -79,6 +78,13 @@ docs/                   # Documentação
 - Esquema: **`supabase/migrations/`**; mapa em **`docs/database.md`**.
 - Frontend: build estático; variáveis `VITE_*` no build-time.
 - Nunca expor **`service_role`** no browser.
+
+### Pronto para deploy (segurança)
+
+- Definir variáveis server-side: `SUPABASE_SERVICE_ROLE_KEY`, `API_KEY`, `CRON_SECRET`, `TIMESTAMP_SECRET_KEY`.
+- Definir CORS de produção em `CORS_ALLOWED_ORIGINS` (preferencial) ou `APP_URL`.
+- Confirmar `NODE_ENV=production` e revisar domínios permitidos.
+- Validar build final antes de publicar: `npm run build`.
 
 ## Licença
 

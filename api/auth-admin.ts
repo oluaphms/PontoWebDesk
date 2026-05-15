@@ -13,15 +13,8 @@
 
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
+import { z } from 'zod';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 function mapAuthErrorToFriendly(rawMessage: string, rawCode: string, status: number): { message: string; code: string } {
   const lower = (rawMessage || '').toLowerCase();
@@ -56,7 +49,19 @@ async function getRoleFromUsers(adminSup: any, callerId: string): Promise<string
   return d?.role ? String(d.role).toLowerCase() : null;
 }
 
+const AuthAdminBodySchema = z.object({
+  action: z.enum(['confirm-email', 'set-password', 'create-user']),
+  email: z.string().email(),
+  newPassword: z.string().min(6).optional(),
+  password: z.string().min(6).optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
 async function handleRequest(request: Request): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'POST, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization',
+  });
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -66,6 +71,8 @@ async function handleRequest(request: Request): Promise<Response> {
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
+  const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+  if (blockedOrigin) return blockedOrigin;
 
   const serviceKey = (typeof process.env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '').trim();
   const supabaseUrl = getSupabaseUrlForServer();
@@ -87,10 +94,17 @@ async function handleRequest(request: Request): Promise<Response> {
     );
   }
 
-  let body: { action?: string; email?: string; newPassword?: string; password?: string; metadata?: any } = {};
+  let body: z.infer<typeof AuthAdminBodySchema>;
   try {
     const raw = await request.json();
-    body = (raw && typeof raw === 'object' ? raw : {}) as typeof body;
+    const parsed = AuthAdminBodySchema.safeParse(raw);
+    if (!parsed.success) {
+      return Response.json(
+        { error: 'Body inválido.', code: 'BAD_REQUEST', details: parsed.error.flatten() },
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    body = parsed.data;
   } catch {
     return Response.json(
       { error: 'Body inválido.', code: 'BAD_REQUEST' },
@@ -98,21 +112,8 @@ async function handleRequest(request: Request): Promise<Response> {
     );
   }
 
-  const action = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
-  if (!['confirm-email', 'set-password', 'create-user'].includes(action)) {
-    return Response.json(
-      { error: 'action deve ser confirm-email, set-password ou create-user.', code: 'BAD_REQUEST' },
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  if (!email || !email.includes('@')) {
-    return Response.json(
-      { error: 'E-mail é obrigatório.', code: 'BAD_REQUEST' },
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
+  const action = body.action;
+  const email = body.email.trim().toLowerCase();
 
   try {
     const { createClient } = await import('@supabase/supabase-js');
@@ -265,9 +266,13 @@ export default {
     try {
       return await handleRequest(request);
     } catch (e: unknown) {
+      const corsHeaders = getSecureCorsHeaders(request, {
+        allowMethods: 'POST, OPTIONS',
+        allowHeaders: 'Content-Type, Authorization',
+      });
       return Response.json(
         { error: messageFromUnknown(e, 'Erro interno.'), code: 'INTERNAL_ERROR' },
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
   },

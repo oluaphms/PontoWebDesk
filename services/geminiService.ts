@@ -1,10 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
 import { DailySummary } from "../types";
 import { getGeminiApiKey, getGeminiModelId, validateGeminiApiKey } from "./geminiEnv";
 
 const FALLBACK_INSIGHT = {
-  insight:
-    'Insights por IA indisponíveis no momento. Continue registrando seu ponto normalmente.',
+  insight: 'Insights por IA não estão disponíveis neste ambiente. Continue registrando seu ponto normalmente.',
   score: 8,
 } as const;
 
@@ -62,11 +60,12 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
       console.warn('[Gemini] Validação da chave falhou:', validation.error);
     }
     return {
-      insight: validation.error || "API de IA não configurada. Obtenha uma chave em https://aistudio.google.com/apikey",
+      insight: validation.error || FALLBACK_INSIGHT.insight,
       score: 8,
     };
   }
 
+  const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: apiKey! });
   const model = getGeminiModelId();
 
@@ -124,13 +123,10 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
 
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
-        console.warn(
-          "[Gemini] Chave inválida ou sem permissão para o modelo. Gere uma chave em https://aistudio.google.com/apikey e defina VITE_GEMINI_API_KEY."
-        );
+        console.warn('[Gemini] Chave inválida ou sem permissão para o modelo.');
       }
       return {
-        insight:
-          "Insights por IA indisponíveis: a chave da API Gemini é inválida ou expirou. Configure uma chave válida em VITE_GEMINI_API_KEY (Google AI Studio) e reinicie o app.",
+        insight: FALLBACK_INSIGHT.insight,
         score: 8,
       };
     }
@@ -192,9 +188,10 @@ async function sendHRChatMessageImpl(
     if (import.meta.env?.DEV) {
       console.warn('[Gemini Chat] Validação da chave falhou:', validation.error);
     }
-    return validation.error || "API de IA não configurada. Obtenha uma chave em https://aistudio.google.com/apikey";
+    return validation.error || 'O assistente de IA não está disponível neste ambiente.';
   }
 
+  const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: apiKey! });
   const model = getGeminiModelId();
 
@@ -242,9 +239,9 @@ async function sendHRChatMessageImpl(
 
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
-        console.warn("[Gemini] Chat: chave inválida ou sem permissão. Verifique VITE_GEMINI_API_KEY.");
+        console.warn('[Gemini] Chat: chave inválida ou sem permissão.');
       }
-      return "A chave da API Gemini é inválida ou expirou. Gere uma nova em Google AI Studio, defina VITE_GEMINI_API_KEY e reinicie o servidor.";
+      return 'O assistente de IA não está disponível neste ambiente.';
     }
 
     // Tratamento específico para erro 400

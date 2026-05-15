@@ -81,12 +81,17 @@ if (!rootElement) throw new Error('Could not find root element to mount to');
 const envFatalError =
   typeof window !== 'undefined' ? (window as any).__ENV_FATAL_ERROR : null;
 if (envFatalError) {
-  rootElement.innerHTML = `
-    <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif">
-      <h1>Erro de configuração</h1>
-      <p>${envFatalError}</p>
-    </div>
-  `;
+  rootElement.replaceChildren();
+  const container = document.createElement('div');
+  container.style.padding = '40px';
+  container.style.fontFamily = 'system-ui,-apple-system,sans-serif';
+  const title = document.createElement('h1');
+  title.textContent = 'Erro de configuração';
+  const detail = document.createElement('p');
+  detail.textContent = String(envFatalError);
+  container.appendChild(title);
+  container.appendChild(detail);
+  rootElement.appendChild(container);
   throw new Error(String(envFatalError));
 }
 

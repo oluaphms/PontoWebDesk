@@ -710,7 +710,7 @@ const AppMain: React.FC = () => {
         console.warn('[Dashboard] IA indisponível (ignorado):', e);
       }
       setInsights({
-        insight: 'Insights por IA indisponíveis. O restante do sistema segue normal.',
+        insight: 'Insights por IA não estão disponíveis neste ambiente. O restante do sistema segue normal.',
         score: 8,
       });
     }

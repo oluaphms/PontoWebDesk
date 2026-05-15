@@ -1,4 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
 import { getGeminiApiKey, getGeminiModelId, validateGeminiApiKey } from "./geminiEnv";
 
 function errorText(error: unknown): string {
@@ -47,11 +46,12 @@ async function getGeoInsightImpl(
       console.warn('[Gemini Maps] Validação da chave falhou:', validation.error);
     }
     return {
-      text: validation.error || "Inteligência geográfica indisponível: configure VITE_GEMINI_API_KEY no projeto.",
+      text: validation.error || 'Inteligência geográfica por IA não está disponível neste ambiente.',
       sources: [],
     };
   }
 
+  const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: apiKey! });
   const model = getGeminiModelId();
 

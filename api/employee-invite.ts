@@ -5,10 +5,11 @@
  */
 
 import type { PostgrestError } from '@supabase/supabase-js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, requireTrustedOrigin } from './_shared/security.js';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
+import { z } from 'zod';
 
 /** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
 type GoTrueAdminApi = {
@@ -29,6 +30,11 @@ function getGoTrueAdmin(auth: unknown): GoTrueAdminApi {
 }
 
 const ALLOWED_METHODS = 'GET, POST, OPTIONS';
+const AcceptInviteSchema = z.object({
+  token: z.string().min(1),
+  name: z.string().min(2),
+  password: z.string().min(6),
+});
 
 type InviteRow = {
   id: string;
@@ -73,6 +79,10 @@ async function handler(request: Request): Promise<Response> {
       { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+  }
+  if (isAccept) {
+    const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+    if (blockedOrigin) return blockedOrigin;
   }
 
   const serviceKey = (typeof process.env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '').trim();
@@ -139,10 +149,17 @@ async function handler(request: Request): Promise<Response> {
       );
     }
 
-    let body: { token?: string; name?: string; password?: string } = {};
+    let body: z.infer<typeof AcceptInviteSchema>;
     try {
       const raw = await request.json();
-      body = (raw && typeof raw === 'object' ? raw : {}) as typeof body;
+      const parsed = AcceptInviteSchema.safeParse(raw);
+      if (!parsed.success) {
+        return Response.json(
+          { error: 'Body inválido', code: 'BAD_REQUEST', details: parsed.error.flatten() },
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      body = parsed.data;
     } catch {
       return Response.json(
         { error: 'Body inválido', code: 'BAD_REQUEST' },
@@ -150,9 +167,9 @@ async function handler(request: Request): Promise<Response> {
       );
     }
 
-    const token = typeof body.token === 'string' ? body.token.trim() : '';
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const password = typeof body.password === 'string' ? body.password.trim() : '';
+    const token = body.token.trim();
+    const name = body.name.trim();
+    const password = body.password.trim();
     if (!token) return Response.json({ error: 'Token é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     if (!name || name.length < 2) return Response.json({ error: 'Nome completo é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     if (!password || password.length < 6) return Response.json({ error: 'Senha deve ter no mínimo 6 caracteres', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

@@ -14,26 +14,27 @@ import { processJobs } from '../../src/services/jobs/processJobs';
 import { calculatePeriodTimesheets } from '../../src/services/payrollCalculator';
 import { setSupabaseServiceRoleOverride } from '../../src/lib/supabaseClient';
 import type { SupabaseClient } from '@supabase/supabase-js';
-
-const corsAll: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cron-Secret',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
+import { z } from 'zod';
+import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 
 const MAX_DAYS = 120;
 const RESERVED = new Set(['calc-period', 'process']);
+const CalcPeriodSchema = z.object({
+  employee_id: z.string().min(1),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+function corsFor(request: Request, allowMethods: string): Record<string, string> {
+  return getSecureCorsHeaders(request, {
+    allowMethods,
+    allowHeaders: 'Content-Type, Authorization, X-Cron-Secret',
+  });
+}
 
 function jsonWithLog(body: unknown, status: number, route: string, headers: Record<string, string>): Response {
   console.log('[API RESPONSE]', route, Date.now());
   return Response.json(body, { status, headers });
-}
-
-function isYmd(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
 function isJobIdSegment(s: string): boolean {
@@ -64,7 +65,7 @@ async function executeCalcPeriodFallback(
 }
 
 async function handleCalcPeriod(request: Request): Promise<Response> {
-  const corsHeaders = { ...corsAll, 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+  const corsHeaders = corsFor(request, 'POST, OPTIONS');
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -76,6 +77,8 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
       { ...corsHeaders, 'Content-Type': 'application/json' },
     );
   }
+  const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+  if (blockedOrigin) return blockedOrigin;
 
   const supabaseUrl = getSupabaseUrlForServer();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
@@ -122,24 +125,20 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
     );
   }
 
-  let body: { employee_id?: string; start_date?: string; end_date?: string } = {};
+  let body: z.infer<typeof CalcPeriodSchema>;
   try {
     const raw = await request.json();
-    body = (raw && typeof raw === 'object' ? raw : {}) as typeof body;
+    const parsed = CalcPeriodSchema.safeParse(raw);
+    if (!parsed.success) {
+      return jsonWithLog(
+        { error: 'Body inválido.', code: 'BAD_REQUEST', details: parsed.error.flatten() },
+        400,
+        '/api/jobs/calc-period',
+        { ...corsHeaders, 'Content-Type': 'application/json' },
+      );
+    }
+    body = parsed.data;
   } catch {
-    return jsonWithLog(
-      { error: 'Body inválido.', code: 'BAD_REQUEST' },
-      400,
-      '/api/jobs/calc-period',
-      { ...corsHeaders, 'Content-Type': 'application/json' },
-    );
-  }
-
-  const employee_id = typeof body.employee_id === 'string' ? body.employee_id.trim() : '';
-  const start_date = typeof body.start_date === 'string' ? body.start_date.trim() : '';
-  const end_date = typeof body.end_date === 'string' ? body.end_date.trim() : '';
-
-  if (!employee_id || !isYmd(start_date) || !isYmd(end_date)) {
     return jsonWithLog(
       { error: 'Informe employee_id e datas YYYY-MM-DD.', code: 'BAD_REQUEST' },
       400,
@@ -147,6 +146,9 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
       { ...corsHeaders, 'Content-Type': 'application/json' },
     );
   }
+  const employee_id = body.employee_id.trim();
+  const start_date = body.start_date.trim();
+  const end_date = body.end_date.trim();
   if (start_date > end_date) {
     return jsonWithLog(
       { error: 'start_date não pode ser maior que end_date.', code: 'BAD_REQUEST' },
@@ -247,7 +249,7 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
 }
 
 async function handleProcess(request: Request): Promise<Response> {
-  const corsHeaders = { ...corsAll, 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+  const corsHeaders = corsFor(request, 'POST, OPTIONS');
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -259,6 +261,8 @@ async function handleProcess(request: Request): Promise<Response> {
       { ...corsHeaders, 'Content-Type': 'application/json' },
     );
   }
+  const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+  if (blockedOrigin) return blockedOrigin;
 
   const supabaseUrlForAuth = getSupabaseUrlForServer();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -327,7 +331,7 @@ async function handleProcess(request: Request): Promise<Response> {
 }
 
 async function handleJobGet(request: Request, jobId: string): Promise<Response> {
-  const corsHeaders = { ...corsAll, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+  const corsHeaders = corsFor(request, 'GET, OPTIONS');
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -436,14 +440,14 @@ async function handler(request: Request): Promise<Response> {
   }
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsAll });
+    return new Response(null, { status: 204, headers: corsFor(request, 'GET, POST, OPTIONS') });
   }
 
   return jsonWithLog(
     { error: 'Rota não encontrada.', code: 'NOT_FOUND' },
     404,
     '/api/jobs',
-    { ...corsAll, 'Content-Type': 'application/json' },
+    { ...corsFor(request, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
   );
 }
 

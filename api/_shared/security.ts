@@ -31,6 +31,31 @@ const DEVELOPMENT_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+function toOrigin(raw: string | undefined): string | null {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function inferAllowedOriginsFromEnv(): string[] {
+  const candidates = [
+    process.env.CORS_APP_ORIGIN,
+    process.env.APP_URL,
+    process.env.VITE_APP_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+  ];
+  const out = new Set<string>();
+  for (const candidate of candidates) {
+    const origin = toOrigin(candidate);
+    if (origin) out.add(origin);
+  }
+  return Array.from(out);
+}
+
 /**
  * Obtém as origens permitidas para CORS.
  * Pode ser configurado via variável de ambiente CORS_ALLOWED_ORIGINS.
@@ -40,16 +65,25 @@ function getAllowedOrigins(): string[] {
   if (envOrigins) {
     return envOrigins.split(',').map(o => o.trim()).filter(Boolean);
   }
+  const inferred = inferAllowedOriginsFromEnv();
 
   const isDev = process.env.NODE_ENV !== 'production' ||
                 process.env.VERCEL_ENV === 'development' ||
                 process.env.VITE_APP_ENV === 'development';
 
   if (isDev) {
-    return [...DEVELOPMENT_ORIGINS, ...PRODUCTION_ORIGINS];
+    return [...DEVELOPMENT_ORIGINS, ...PRODUCTION_ORIGINS, ...inferred];
   }
 
-  return PRODUCTION_ORIGINS;
+  return [...PRODUCTION_ORIGINS, ...inferred];
+}
+
+function isDevelopmentEnv(): boolean {
+  return (
+    process.env.NODE_ENV !== 'production' ||
+    process.env.VERCEL_ENV === 'development' ||
+    process.env.VITE_APP_ENV === 'development'
+  );
 }
 
 /**
@@ -61,9 +95,9 @@ function validateOrigin(origin: string | null): string | null {
 
   const allowed = getAllowedOrigins();
 
-  // Se não há whitelist definida, aceita qualquer origem (modo desenvolvimento)
+  // Se não há whitelist definida, aceitar apenas em dev local.
   if (allowed.length === 0) {
-    return origin;
+    return isDevelopmentEnv() ? origin : null;
   }
 
   // Verifica match exato
@@ -104,28 +138,49 @@ export function getSecureCorsHeaders(
     console.warn(`[CORS] Origem bloqueada: ${requestOrigin}`);
   }
 
-  // Em desenvolvimento ou se não há origem (requisição server-to-server), permite
-  const finalOrigin = allowedOrigin || requestOrigin || '*';
-
   const headers: Record<string, string> = {
-    'Access-Control-Allow-Origin': finalOrigin,
     'Access-Control-Allow-Methods': options?.allowMethods || 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': options?.allowHeaders || 'Content-Type, Authorization',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     Pragma: 'no-cache',
     Expires: '0',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'X-XSS-Protection': '1; mode=block',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
   };
 
   if (options?.maxAge) {
     headers['Access-Control-Max-Age'] = options.maxAge;
   }
 
-  // Headers de segurança adicionais
-  headers['X-Content-Type-Options'] = 'nosniff';
-  headers['X-Frame-Options'] = 'DENY';
-  headers['X-XSS-Protection'] = '1; mode=block';
+  // Não retornar wildcard e só ecoar origem validada.
+  if (allowedOrigin) {
+    headers['Access-Control-Allow-Origin'] = allowedOrigin;
+    headers['Vary'] = 'Origin';
+  }
 
   return headers;
+}
+
+export function isTrustedOrigin(request: Request): boolean {
+  const origin = request.headers.get('Origin');
+  if (!origin) return true;
+  return validateOrigin(origin) !== null;
+}
+
+export function requireTrustedOrigin(
+  request: Request,
+  corsHeaders: Record<string, string>,
+): Response | null {
+  if (isTrustedOrigin(request)) return null;
+  return Response.json(
+    { error: 'Origem não permitida.', code: 'FORBIDDEN_ORIGIN' },
+    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  );
 }
 
 // ============================================================================

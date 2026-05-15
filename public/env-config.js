@@ -35,7 +35,6 @@
   // Injetar no window apenas quando existir valor.
   if (supabaseUrl) window.__VITE_SUPABASE_URL = supabaseUrl;
   if (supabaseAnonKey) window.__VITE_SUPABASE_ANON_KEY = supabaseAnonKey;
-  window.__VITE_GEMINI_API_KEY = safeGet('VITE_GEMINI_API_KEY', '');
   window.ENV.SUPABASE_URL = supabaseUrl;
   window.ENV.SUPABASE_ANON_KEY = supabaseAnonKey;
 

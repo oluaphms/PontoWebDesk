@@ -63,7 +63,7 @@ export function frontendSecurityHeaders(opts = {}) {
     `style-src 'self' 'unsafe-inline'`,  // necessário para Tailwind/CSS-in-JS
     `img-src 'self' data: blob: https:`,
     `font-src 'self' data:`,
-    `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.gemini.google.com`,
+    `connect-src 'self' https://*.supabase.co wss://*.supabase.co`,
     `frame-ancestors 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,

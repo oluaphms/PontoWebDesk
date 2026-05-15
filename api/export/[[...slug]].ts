@@ -6,15 +6,7 @@
 
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
+import { getSecureCorsHeaders } from '../_shared/security.js';
 
 function formatAfdLine(
   record: { nsr: number; timestamp?: string; created_at: string; user_id: string; type: string },
@@ -44,6 +36,10 @@ function resolveExportKind(request: Request): 'afd' | 'aej' | null {
 }
 
 async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'GET, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization',
+  });
   const authHeader = request.headers.get('Authorization');
   const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
@@ -172,6 +168,10 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
 }
 
 async function handler(request: Request): Promise<Response> {
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'GET, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization',
+  });
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

@@ -7,18 +7,14 @@
 
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cron-Secret',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-};
+import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 async function handler(request: Request): Promise<Response> {
   const route = '/api/process-daily-time';
+  const corsHeaders = getSecureCorsHeaders(request, {
+    allowMethods: 'POST, OPTIONS',
+    allowHeaders: 'Content-Type, Authorization, X-Cron-Secret',
+  });
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -28,6 +24,8 @@ async function handler(request: Request): Promise<Response> {
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
+  const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
+  if (blockedOrigin) return blockedOrigin;
 
   const secret = request.headers.get('X-Cron-Secret')?.trim();
   const cronSecret = (process.env.CRON_SECRET || process.env.VITE_CRON_SECRET || '').trim();
