@@ -133,15 +133,19 @@ async function handler(request: Request): Promise<Response> {
     res = cachePrivate(res, 5);
     return res;
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error('[OP API ERROR]', {
-      route,
-      message: err.message,
-      stack: err.stack,
+    console.error('[OPERATIONAL API ERROR]', {
+      route: request.url,
+      message: (error as { message?: string } | null)?.message,
+      stack: (error as { stack?: string } | null)?.stack,
     });
+
     return noCache(
       Response.json(
-        { success: false, error: 'INTERNAL_ERROR', detail: err.message || 'unknown' },
+        {
+          success: false,
+          error: 'INTERNAL_ERROR',
+          detail: (error as { message?: string } | null)?.message,
+        },
         { status: 500, headers: corsHeaders },
       ),
     );
