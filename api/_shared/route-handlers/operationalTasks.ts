@@ -21,48 +21,77 @@ type TaskRow = Record<string, unknown> & {
 };
 
 async function handler(request: Request): Promise<Response> {
+  const route = 'operational-tasks';
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
   });
 
-  if (request.method === 'OPTIONS') {
-    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
-  }
-
-  const clientIP = getClientIP(request);
-  const rateLimit = checkRateLimit(clientIP, 'api');
-  if (!rateLimit.allowed) {
-    return noCache(
-      Response.json(
-        { success: false, error: 'RATE_LIMIT', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
-        { status: 429, headers: corsHeaders },
-      ),
-    );
-  }
-
-  let url: string;
-  let serviceKey: string;
   try {
-    ({ url, serviceKey } = getSupabaseConfig());
-  } catch {
-    return noCache(Response.json({ success: false, error: 'SUPABASE_ENV_MISSING' }, { status: 500, headers: corsHeaders }));
-  }
+    if (request.method === 'OPTIONS') {
+      return noCache(new Response(null, { status: 204, headers: corsHeaders }));
+    }
 
-  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  const apiKey = (process.env.API_KEY || '').trim();
-  const bearer = extractBearerToken(request);
-  const useServiceRole = !!(apiKey && bearer && secureCompare(bearer, apiKey));
+    const clientIP = getClientIP(request);
+    const rateLimit = checkRateLimit(clientIP, 'api');
+    if (!rateLimit.allowed) {
+      return noCache(
+        Response.json(
+          { success: false, error: 'RATE_LIMIT', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
+          { status: 429, headers: corsHeaders },
+        ),
+      );
+    }
 
-  const supabase = createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+    const reqUrl = resolveRequestUrl(request);
+    const pathname = reqUrl.pathname.replace(/\/+$/, '') || '';
+    const completeMatch = pathname.match(/^\/api\/operational-tasks\/([^/]+)\/complete$/);
+    console.log('[OP API START]', {
+      route,
+      query: Object.fromEntries(reqUrl.searchParams.entries()),
+      pathname,
+      method: request.method,
+    });
 
-  const reqUrl = resolveRequestUrl(request);
-  const pathname = reqUrl.pathname.replace(/\/+$/, '') || '';
-  const completeMatch = pathname.match(/^\/api\/operational-tasks\/([^/]+)\/complete$/);
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING');
+      return noCache(
+        Response.json(
+          { success: false, error: 'CONFIG_ERROR', detail: 'SUPABASE_SERVICE_ROLE_KEY missing' },
+          { status: 500, headers: corsHeaders },
+        ),
+      );
+    }
 
-  if (request.method === 'PATCH' && completeMatch) {
+    let url: string;
+    let serviceKey: string;
+    try {
+      ({ url, serviceKey } = getSupabaseConfig());
+    } catch {
+      return noCache(Response.json({ success: false, error: 'SUPABASE_ENV_MISSING' }, { status: 500, headers: corsHeaders }));
+    }
+
+    const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    const apiKey = (process.env.API_KEY || '').trim();
+    const bearer = extractBearerToken(request);
+    const useServiceRole = !!(apiKey && bearer && secureCompare(bearer, apiKey));
+
+    const supabase = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { error: testError } = await supabase.from('operational_day_status').select('id').limit(1);
+    if (testError) {
+      console.error('[DB ERROR]', testError);
+      return noCache(
+        Response.json(
+          { success: false, error: 'DB_ERROR', detail: testError.message },
+          { status: 500, headers: corsHeaders },
+        ),
+      );
+    }
+
+    if (request.method === 'PATCH' && completeMatch) {
     const taskId = completeMatch[1]?.trim();
     if (!taskId) {
       return noCache(Response.json({ success: false, error: 'MISSING_TASK_ID' }, { status: 400, headers: corsHeaders }));
@@ -224,58 +253,72 @@ async function handler(request: Request): Promise<Response> {
       },
     });
 
-    return noCache(Response.json({ success: true, id: taskId, resolved_at: resolvedAt }, { status: 200, headers: corsHeaders }));
-  }
-
-  if (request.method !== 'GET') {
-    return noCache(Response.json({ success: false, error: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: corsHeaders }));
-  }
-
-  const companyId = reqUrl.searchParams.get('company_id')?.trim() || '';
-  if (!companyId) {
-    return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
-  }
-
-  if (!useServiceRole) {
-    if (!bearer || !anonKey) {
-      return noCache(Response.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401, headers: corsHeaders }));
+      return noCache(Response.json({ success: true, id: taskId, resolved_at: resolvedAt }, { status: 200, headers: corsHeaders }));
     }
-    const caller = await getCallerContext(url, anonKey, supabase, bearer);
-    if (!caller || !isAdminOrHr(caller.role) || caller.companyId !== companyId) {
-      return noCache(Response.json({ success: false, error: 'FORBIDDEN' }, { status: 403, headers: corsHeaders }));
+
+    if (request.method !== 'GET') {
+      return noCache(Response.json({ success: false, error: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: corsHeaders }));
     }
+
+    const companyId = reqUrl.searchParams.get('company_id')?.trim() || '';
+    if (!companyId) {
+      return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
+    }
+
+    if (!useServiceRole) {
+      if (!bearer || !anonKey) {
+        return noCache(Response.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401, headers: corsHeaders }));
+      }
+      const caller = await getCallerContext(url, anonKey, supabase, bearer);
+      if (!caller || !isAdminOrHr(caller.role) || caller.companyId !== companyId) {
+        return noCache(Response.json({ success: false, error: 'FORBIDDEN' }, { status: 403, headers: corsHeaders }));
+      }
+    }
+
+    const { data: rows, error } = await supabase
+      .from('operational_tasks')
+      .select('*')
+      .eq('company_id', companyId)
+      .neq('status', 'done')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('[api/operational-tasks]', error);
+      return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
+    }
+
+    const list = (rows ?? []) as TaskRow[];
+    const ids = [...new Set(list.map((r) => String(r.employee_id || '').trim()).filter(Boolean))];
+    let nameById: Record<string, string | null> = {};
+    if (ids.length > 0) {
+      const { data: users } = await supabase.from('users').select('id,nome').eq('company_id', companyId).in('id', ids);
+      nameById = Object.fromEntries((users ?? []).map((u: { id: string; nome: string | null }) => [u.id, u.nome ?? null]));
+    }
+
+    const data = list.map((row) => ({
+      ...row,
+      employee_name: row.employee_id ? nameById[String(row.employee_id)] ?? null : null,
+    }));
+
+    let res = Response.json({ success: true, data }, { status: 200, headers: corsHeaders });
+    varyAuthorization(res);
+    res = cachePrivate(res, 5);
+    return res;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error('[OP API ERROR]', {
+      route,
+      message: err.message,
+      stack: err.stack,
+    });
+    return noCache(
+      Response.json(
+        { success: false, error: 'INTERNAL_ERROR', detail: err.message || 'unknown' },
+        { status: 500, headers: corsHeaders },
+      ),
+    );
   }
-
-  const { data: rows, error } = await supabase
-    .from('operational_tasks')
-    .select('*')
-    .eq('company_id', companyId)
-    .neq('status', 'done')
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  if (error) {
-    console.error('[api/operational-tasks]', error);
-    return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
-  }
-
-  const list = (rows ?? []) as TaskRow[];
-  const ids = [...new Set(list.map((r) => String(r.employee_id || '').trim()).filter(Boolean))];
-  let nameById: Record<string, string | null> = {};
-  if (ids.length > 0) {
-    const { data: users } = await supabase.from('users').select('id,nome').eq('company_id', companyId).in('id', ids);
-    nameById = Object.fromEntries((users ?? []).map((u: { id: string; nome: string | null }) => [u.id, u.nome ?? null]));
-  }
-
-  const data = list.map((row) => ({
-    ...row,
-    employee_name: row.employee_id ? nameById[String(row.employee_id)] ?? null : null,
-  }));
-
-  let res = Response.json({ success: true, data }, { status: 200, headers: corsHeaders });
-  varyAuthorization(res);
-  res = cachePrivate(res, 5);
-  return res;
 }
 
 export default { fetch: handler };
