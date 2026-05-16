@@ -104,10 +104,15 @@ export function validateStrictRealtimeGeoCandidate(
     if (candidate.companyId) {
       scheduleOperationalLegalAudit({
         companyId: candidate.companyId,
-        actorId: candidate.employeeId,
+        subjectEmployeeId: candidate.employeeId,
         action: 'strict_geo_block',
         source: 'strictRealtimeGeoGuard',
-        payloadAfter: { reason, source: candidate.source, captured_at: candidate.capturedAtIso },
+        payloadAfter: {
+          reason,
+          source: candidate.source,
+          captured_at: candidate.capturedAtIso,
+          subject_employee_id: candidate.employeeId,
+        },
       });
     }
     return { ok: false, reason };

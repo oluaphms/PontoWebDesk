@@ -17,7 +17,7 @@ export function appendGeoLegalAuditTrail(input: {
   if (!input.companyId) return;
   scheduleOperationalLegalAudit({
     companyId: input.companyId,
-    actorId: input.employeeId,
+    subjectEmployeeId: input.employeeId,
     action: 'geo_position_change',
     source: 'geoLegalAuditTrail',
     payloadBefore: {
@@ -33,6 +33,7 @@ export function appendGeoLegalAuditTrail(input: {
       geo_risk: input.geoRisk ?? null,
       consensus_source: input.consensusSource ?? null,
       lineage: input.lineage ?? null,
+      subject_employee_id: input.employeeId,
     },
   });
 }

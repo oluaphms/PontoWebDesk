@@ -116,27 +116,85 @@ export async function insertOperationalLegalAuditTrail(
   return { ok: true };
 }
 
+async function insertLegalAuditViaApi(
+  input: OperationalLegalAuditInput,
+): Promise<{ ok: boolean; error?: string; skipped?: 'circuit_open' }> {
+  const client = getSupabaseClient();
+  if (!client) return { ok: false, error: 'no_client' };
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  if (!session?.access_token) return { ok: false, error: 'no_session' };
+
+  try {
+    const res = await fetch('/api/operational/legal-audit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        company_id: input.companyId,
+        action: input.action,
+        source: input.source ?? null,
+        ip_address: input.ipAddress ?? null,
+        device_key: input.deviceKey ?? null,
+        payload_before: input.payloadBefore ?? null,
+        payload_after: input.payloadAfter ?? null,
+        correlation_id: input.correlationId ?? null,
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+    if (res.ok && body.success !== false) {
+      noteAuditTrailSuccess();
+      return { ok: true };
+    }
+    return { ok: false, error: body.error ?? `http_${res.status}` };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 /** Regista auditoria quando possível (sessão atual); falhas silenciosas. */
-export function scheduleOperationalLegalAudit(input: Omit<OperationalLegalAuditInput, 'actorId'> & { actorId?: string }): void {
+export function scheduleOperationalLegalAudit(
+  input: Omit<OperationalLegalAuditInput, 'actorId' | 'companyId'> & {
+    companyId?: string;
+    /** Ignorado para RLS — actor é sempre auth.uid() da sessão. */
+    actorId?: string;
+    /** Colaborador alvo do evento (vai em payload_after.subject_employee_id). */
+    subjectEmployeeId?: string;
+  },
+): void {
   void (async () => {
     if (isAuditTrailCircuitOpen()) return;
-    if (!input.companyId?.trim()) return;
     const client = getSupabaseClient();
     if (!client) return;
     const { data } = await client.auth.getUser();
-    const uid = input.actorId ?? data.user?.id;
-    if (!uid) return;
+    const actorId = data.user?.id;
+    if (!actorId) return;
 
-    // Fonte de verdade para RLS: company_id do perfil (evita 403 quando o evento traz tenant divergente).
-    const { data: profile } = await client.from('users').select('company_id').eq('id', uid).maybeSingle();
-    const tenantId = profile?.company_id != null ? String(profile.company_id).trim() : '';
+    const { data: profile } = await client.from('users').select('company_id').eq('id', actorId).maybeSingle();
+    const tenantId = profile?.company_id != null ? String(profile.company_id).trim() : input.companyId?.trim() ?? '';
     if (!tenantId) return;
 
-    await insertOperationalLegalAuditTrail({
+    const subjectId =
+      input.subjectEmployeeId ??
+      (input.actorId && input.actorId !== actorId ? input.actorId : undefined);
+    const payloadAfter = subjectId
+      ? { ...(input.payloadAfter ?? {}), subject_employee_id: subjectId }
+      : input.payloadAfter ?? null;
+
+    const row: OperationalLegalAuditInput = {
       ...input,
       companyId: tenantId,
-      actorId: uid,
-    });
+      actorId,
+      payloadAfter,
+    };
+
+    const viaApi = await insertLegalAuditViaApi(row);
+    if (viaApi.ok) return;
+
+    await insertOperationalLegalAuditTrail(row);
   })();
 }
 

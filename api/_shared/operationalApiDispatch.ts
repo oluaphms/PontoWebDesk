@@ -58,6 +58,9 @@ export async function dispatchOperationalRequest(request: Request): Promise<Resp
   if (segs.length === 1 && segs[0] === 'audit') {
     return forward('./route-handlers/operationalAudit.js', request, `/api/operational-audit${u.search}`, 'audit');
   }
+  if (segs.length === 2 && segs[0] === 'legal' && segs[1] === 'audit') {
+    return forward('./route-handlers/operationalLegalAudit.js', request, `/api/operational-legal-audit${u.search}`, 'legal-audit');
+  }
   if (segs.length === 1 && segs[0] === 'timeline') {
     return forward('./route-handlers/operationalTimeline.js', request, `/api/operational-timeline${u.search}`, 'timeline');
   }
