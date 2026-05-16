@@ -119,13 +119,24 @@ export async function insertOperationalLegalAuditTrail(
 /** Regista auditoria quando possível (sessão atual); falhas silenciosas. */
 export function scheduleOperationalLegalAudit(input: Omit<OperationalLegalAuditInput, 'actorId'> & { actorId?: string }): void {
   void (async () => {
+    if (isAuditTrailCircuitOpen()) return;
     if (!input.companyId?.trim()) return;
     const client = getSupabaseClient();
     if (!client) return;
     const { data } = await client.auth.getUser();
     const uid = input.actorId ?? data.user?.id;
     if (!uid) return;
-    await insertOperationalLegalAuditTrail({ ...input, actorId: uid });
+
+    // Fonte de verdade para RLS: company_id do perfil (evita 403 quando o evento traz tenant divergente).
+    const { data: profile } = await client.from('users').select('company_id').eq('id', uid).maybeSingle();
+    const tenantId = profile?.company_id != null ? String(profile.company_id).trim() : '';
+    if (!tenantId) return;
+
+    await insertOperationalLegalAuditTrail({
+      ...input,
+      companyId: tenantId,
+      actorId: uid,
+    });
   })();
 }
 

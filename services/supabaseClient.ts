@@ -210,7 +210,9 @@ export async function safeUserSelectColumns(
       userSelectCapabilityCache = ['id', 'company_id'];
       userSelectCapabilityCacheAtMs = Date.now();
     }
-    console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'base' });
+    if (import.meta.env?.DEV) {
+      console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'base' });
+    }
   }
 
   const tryAdd = uniqueColumns(
@@ -231,7 +233,9 @@ export async function safeUserSelectColumns(
     }
   }
   if (grown) {
-    console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'extended' });
+    if (import.meta.env?.DEV) {
+      console.info('[SUPABASE SAFE SELECT]', { columns: userSelectCapabilityCache, phase: 'extended' });
+    }
   }
 
   return pickUserColumnsForRequest(userSelectCapabilityCache, requested);
