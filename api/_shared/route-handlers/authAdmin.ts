@@ -1,4 +1,4 @@
-/**
+﻿/**
  * POST /api/auth-admin
  * Body: { action: 'confirm-email' | 'set-password' | 'create-user', email: string, ... }
  * Header: Authorization: Bearer <jwt do admin> (obrigatório para ações diferentes de create-user)
@@ -11,10 +11,10 @@
  * Reduz o número de funções no plano Hobby da Vercel (máx. 12).
  */
 
-import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
+import { getSupabaseUrlForServer } from '../getSupabaseConfig.js';
 import { z } from 'zod';
-import { noCache } from './_shared/cache.js';
-import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
+import { noCache } from '../cache.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from '../security.js';
 
 console.log('[AUTH ADMIN LOADED]');
 

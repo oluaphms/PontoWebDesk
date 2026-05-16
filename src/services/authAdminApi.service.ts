@@ -27,7 +27,7 @@ export async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
     const token = await getAdminAccessToken();
     const base = resolveAppBaseUrl();
     if (!base) return;
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
+    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ action: 'confirm-email', email: email.trim().toLowerCase() }),
@@ -46,7 +46,7 @@ export async function setEmployeePasswordInAuth(
     const token = await getAdminAccessToken();
     const base = resolveAppBaseUrl();
     if (!base) return { success: false, error: 'URL do app não resolvida.' };
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
+    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ action: 'set-password', email: email.trim().toLowerCase(), newPassword: newPassword.trim() }),
@@ -78,7 +78,7 @@ export async function createEmployeeAuthUser(params: {
   if (email) requestBody.email = email;
   if (password) requestBody.password = password;
 
-  const res = await fetch('/api/auth-admin', {
+  const res = await fetch('/api/auth/admin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'omit',
@@ -117,7 +117,7 @@ export async function rollbackEmployeeAuthUser(params: { userId?: string; email?
   if (userId) body.userId = userId;
   if (email) body.email = email;
 
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/auth-admin`, {
+  const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),

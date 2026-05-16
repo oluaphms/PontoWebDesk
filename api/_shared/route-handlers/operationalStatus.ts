@@ -1,14 +1,14 @@
-/**
+﻿/**
  * GET /api/operational-status?company_id=...&date=YYYY-MM-DD (opcional)
  * Lista snapshots consolidados; valida API_KEY (service) ou sessão admin/RH do mesmo tenant.
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { cachePrivate, noCache, varyAuthorization } from './_shared/cache.js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-import { getCallerContext, isAdminOrHr } from './_shared/callerContext.js';
+import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
+import { resolveRequestUrl } from '../getRequestBaseUrl.js';
+import { getSupabaseConfig } from '../getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from '../callerContext.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 

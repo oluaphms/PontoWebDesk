@@ -26,7 +26,7 @@ export async function fetchOperationalTasks(companyId: string): Promise<Operatio
   } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
 
-  const res = await fetch(`/api/operational-tasks?company_id=${encodeURIComponent(cid)}`, {
+  const res = await fetch(`/api/operational/tasks?company_id=${encodeURIComponent(cid)}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 
@@ -51,7 +51,7 @@ export async function completeOperationalTask(taskId: string): Promise<void> {
   } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
 
-  const res = await fetch(`/api/operational-tasks/${encodeURIComponent(id)}/complete`, {
+  const res = await fetch(`/api/operational/tasks/${encodeURIComponent(id)}/complete`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${session.access_token}` },
   });

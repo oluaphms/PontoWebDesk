@@ -27,7 +27,7 @@ export async function fetchOperationalStatus(companyId: string): Promise<Operati
     throw new Error('Sessão expirada. Faça login novamente.');
   }
 
-  const res = await fetch(`/api/operational-status?company_id=${encodeURIComponent(cid)}`, {
+  const res = await fetch(`/api/operational/status?company_id=${encodeURIComponent(cid)}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 

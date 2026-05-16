@@ -33,7 +33,7 @@ const AcceptInvitePage: React.FC = () => {
       setLoading(false);
       return;
     }
-    fetch(`${API_BASE}/api/employee-invite?token=${encodeURIComponent(t)}`)
+    fetch(`${API_BASE}/api/auth/employee-invite?token=${encodeURIComponent(t)}`)
       .then((res) => res.json().then((data) => ({ status: res.status, ok: res.ok, ...data })).catch(() => ({ status: res.status, ok: false, error: 'Resposta inválida' })))
       .then((data) => {
         if (data.error) {
@@ -45,7 +45,7 @@ const AcceptInvitePage: React.FC = () => {
         }
       })
       .catch(() => {
-        setError('Erro ao validar o link. Verifique se as APIs estão no mesmo domínio (/api/employee-invite) ou configure o proxy.');
+        setError('Erro ao validar o link. Verifique se as APIs estão no mesmo domínio (/api/auth/employee-invite) ou configure o proxy.');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -69,7 +69,7 @@ const AcceptInvitePage: React.FC = () => {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/accept-employee-invite`, {
+      const res = await fetch(`${API_BASE}/api/auth/employee-invite/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, name: nameTrim, password }),

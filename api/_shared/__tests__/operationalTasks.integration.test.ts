@@ -15,21 +15,21 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient,
 }));
 
-vi.mock('../modules/alerts/operationalAlertsEngine', () => ({
+vi.mock('../../../modules/alerts/operationalAlertsEngine', () => ({
   evaluateAndNotifyCompanyOperationalRisk: riskMock,
 }));
 
-vi.mock('../modules/alerts/riskExecutionGuard', () => ({
+vi.mock('../../../modules/alerts/riskExecutionGuard', () => ({
   runRiskOnce: async (_companyId: string, fn: () => Promise<void>) => {
     await fn();
   },
 }));
 
-vi.mock('../modules/audit/auditLogger', () => ({
+vi.mock('../../../modules/audit/auditLogger', () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('./_shared/security.js', () => ({
+vi.mock('../security.js', () => ({
   getSecureCorsHeaders: vi.fn(() => ({})),
   checkRateLimit: vi.fn(() => ({ allowed: true, resetAt: Date.now() + 60_000 })),
   getClientIP: vi.fn(() => '127.0.0.1'),
@@ -37,12 +37,12 @@ vi.mock('./_shared/security.js', () => ({
   secureCompare: vi.fn((a: string, b: string) => a === b),
 }));
 
-vi.mock('./_shared/getSupabaseConfig.js', () => ({
+vi.mock('../getSupabaseConfig.js', () => ({
   getSupabaseConfig: vi.fn(() => ({ url: 'https://test.supabase.co', serviceKey: 'sk' })),
 }));
 
-import tasksMod from './operational-tasks';
-import alertsMod from './operational-alerts';
+import tasksMod from '../route-handlers/operationalTasks';
+import alertsMod from '../route-handlers/operationalAlerts';
 
 const API_KEY = 'integration-test-api-key';
 

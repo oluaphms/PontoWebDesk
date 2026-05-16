@@ -31,7 +31,7 @@ export async function fetchOperationalTimeline(
     date: d,
   });
 
-  const res = await fetch(`/api/operational-timeline?${params.toString()}`, {
+  const res = await fetch(`/api/operational/timeline?${params.toString()}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 

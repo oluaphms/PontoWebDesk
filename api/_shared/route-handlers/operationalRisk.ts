@@ -1,15 +1,15 @@
-/**
+﻿/**
  * GET /api/operational-risk?company_id=...
  * Agrega alertas não resolvidos + SLA e devolve avaliação de risco.
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { cachePrivate, noCache, varyAuthorization } from './_shared/cache.js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-import { getCallerContext, isAdminOrHr } from './_shared/callerContext.js';
-import { evaluateCompanyRisk } from '../modules/alerts/operationalRiskEngine';
+import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
+import { resolveRequestUrl } from '../getRequestBaseUrl.js';
+import { getSupabaseConfig } from '../getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from '../callerContext.js';
+import { evaluateCompanyRisk } from '../../../modules/alerts/operationalRiskEngine';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 

@@ -1,17 +1,17 @@
-/**
+﻿/**
  * GET /api/operational-alerts?company_id=...
  * PATCH /api/operational-alerts/:id/resolve
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { cachePrivate, noCache, varyAuthorization } from './_shared/cache.js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-import { getCallerContext, isAdminOrHr } from './_shared/callerContext.js';
-import { evaluateAndNotifyCompanyOperationalRisk } from '../modules/alerts/operationalAlertsEngine';
-import { runRiskOnce } from '../modules/alerts/riskExecutionGuard';
-import { logAudit } from '../modules/audit/auditLogger';
+import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
+import { resolveRequestUrl } from '../getRequestBaseUrl.js';
+import { getSupabaseConfig } from '../getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from '../callerContext.js';
+import { evaluateAndNotifyCompanyOperationalRisk } from '../../../modules/alerts/operationalAlertsEngine';
+import { runRiskOnce } from '../../../modules/alerts/riskExecutionGuard';
+import { logAudit } from '../../../modules/audit/auditLogger';
 
 const ALLOWED_METHODS = 'GET, PATCH, OPTIONS';
 

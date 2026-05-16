@@ -15,7 +15,7 @@ $body | Set-Content -Encoding utf8 body.json
 
 Invoke-WebRequest `
   -Method POST `
-  -Uri "https://pontowebdesk.vercel.app/api/auth-admin" `
+  -Uri "https://pontowebdesk.vercel.app/api/auth/admin" `
   -ContentType "application/json" `
   -InFile "body.json" |
   Select-Object -ExpandProperty Content

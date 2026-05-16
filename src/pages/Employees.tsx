@@ -580,7 +580,7 @@ const EmployeesPage: React.FC = () => {
 
       <ModalForm
         title="Convidar por link"
-        description="Gera um link único. Envie o link ao colaborador; ele acessa e define nome e senha. Configure as APIs /api/employee-invite e /api/accept-employee-invite (e a tabela employee_invites no Supabase)."
+        description="Gera um link único. Envie o link ao colaborador; ele acessa e define nome e senha. APIs /api/auth/employee-invite e /api/auth/employee-invite/accept (e a tabela employee_invites no Supabase)."
         isOpen={inviteByLinkOpen}
         onClose={() => { setInviteByLinkOpen(false); setInviteByLinkResult(null); }}
         onSubmit={handleInviteByLinkSubmit}

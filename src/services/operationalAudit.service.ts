@@ -30,7 +30,7 @@ export async function fetchOperationalAudit(
   if (opts?.entityId?.trim()) params.set('entity_id', opts.entityId.trim());
   if (opts?.limit != null) params.set('limit', String(opts.limit));
 
-  const res = await fetch(`/api/operational-audit?${params.toString()}`, {
+  const res = await fetch(`/api/operational/audit?${params.toString()}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 

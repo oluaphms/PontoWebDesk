@@ -1,13 +1,13 @@
-/**
+﻿/**
  * GET /api/operational-audit?company_id=...&entity_type=&entity_id=
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { cachePrivate, noCache, varyAuthorization } from './_shared/cache.js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-import { getCallerContext, isAdminOrHr } from './_shared/callerContext.js';
+import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
+import { resolveRequestUrl } from '../getRequestBaseUrl.js';
+import { getSupabaseConfig } from '../getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from '../callerContext.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 

@@ -23,7 +23,7 @@ export async function fetchOperationalAlerts(companyId: string): Promise<Operati
   } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
 
-  const res = await fetch(`/api/operational-alerts?company_id=${encodeURIComponent(cid)}`, {
+  const res = await fetch(`/api/operational/alerts?company_id=${encodeURIComponent(cid)}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 
@@ -48,7 +48,7 @@ export async function resolveOperationalAlert(alertId: string): Promise<void> {
   } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
 
-  const res = await fetch(`/api/operational-alerts/${encodeURIComponent(id)}/resolve`, {
+  const res = await fetch(`/api/operational/alerts/${encodeURIComponent(id)}/resolve`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${session.access_token}` },
   });

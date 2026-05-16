@@ -29,7 +29,7 @@ export async function fetchOperationalRisk(companyId: string): Promise<CompanyRi
   } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
 
-  const res = await fetch(`/api/operational-risk?company_id=${encodeURIComponent(cid)}`, {
+  const res = await fetch(`/api/operational/risk?company_id=${encodeURIComponent(cid)}`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 

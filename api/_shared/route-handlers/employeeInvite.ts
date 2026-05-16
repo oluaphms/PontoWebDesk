@@ -1,15 +1,15 @@
-/**
+﻿/**
  * Endpoint consolidado de convites:
  * - GET  /api/employee-invite?token=xxx
  * - POST /api/employee-invite/accept  (via rewrite legada /api/accept-employee-invite)
  */
 
 import type { PostgrestError } from '@supabase/supabase-js';
-import { getSecureCorsHeaders, checkRateLimit, getClientIP, requireTrustedOrigin } from './_shared/security.js';
-import { noCache } from './_shared/cache.js';
-import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
-import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
-import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
+import { getSecureCorsHeaders, checkRateLimit, getClientIP, requireTrustedOrigin } from '../security.js';
+import { noCache } from '../cache.js';
+import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../../../services/planEnforcement';
+import { resolveRequestUrl } from '../getRequestBaseUrl.js';
+import { getSupabaseUrlForServer } from '../getSupabaseConfig.js';
 import { z } from 'zod';
 
 /** API Admin do GoTrue (service role). Tipagem local — o cliente tipado do browser não expõe `admin`. */
