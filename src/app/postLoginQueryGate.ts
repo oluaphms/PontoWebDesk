@@ -1,5 +1,9 @@
 /**
  * Cooldown pós-login: reduz tempestade de invalidação/refetch e foco na aba.
+ *
+ * Invalidações originadas por **mutação** devem passar `{ force: true }` em
+ * `queryClient.invalidateQueries(..., { force: true })` (ver `queryInvalidationAudit`)
+ * para este cooldown não bloquear a UI.
  */
 import { devVerboseInfo } from '../utils/devVerboseLogs';
 
@@ -16,8 +20,14 @@ export function isPostLoginQueryCooldownActive(): boolean {
   return Date.now() < cooldownUntil;
 }
 
-/** Prefixos de queryKey que podem invalidar/refetch durante o cooldown. */
-const CRITICAL_QUERY_HEADS = new Set(['records']);
+/** Prefixos de queryKey que podem invalidar/refetch durante o cooldown (dados operacionais pós-mutação). */
+const CRITICAL_QUERY_HEADS = new Set([
+  'records',
+  'employees',
+  'timesheet',
+  'dashboard',
+  'rep-pending',
+]);
 
 export function isCriticalReactQueryKey(queryKey: readonly unknown[] | undefined): boolean {
   if (!queryKey?.length) return false;

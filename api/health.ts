@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { cachePrivate, noCache } from './_shared/cache.js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP } from './_shared/security.js';
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 
@@ -41,16 +42,18 @@ async function handler(request: Request): Promise<Response> {
   });
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
 
   // Rate limiting por IP (mais permissivo para health checks)
   const clientIP = getClientIP(request);
   const rateLimit = checkRateLimit(clientIP, 'general');
   if (!rateLimit.allowed) {
-    return Response.json(
-      { error: 'Rate limit exceeded', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
-      { status: 429, headers: corsHeaders }
+    return noCache(
+      Response.json(
+        { error: 'Rate limit exceeded', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
+        { status: 429, headers: corsHeaders },
+      ),
     );
   }
 
@@ -83,13 +86,16 @@ async function handler(request: Request): Promise<Response> {
   const allOk = Object.values(checks).every(c => c.ok);
   const status = allOk ? 200 : 503;
 
-  return Response.json(
-    {
-      status: allOk ? 'ok' : 'degraded',
-      timestamp: new Date().toISOString(),
-      checks,
-    },
-    { status, headers: corsHeaders }
+  return cachePrivate(
+    Response.json(
+      {
+        status: allOk ? 'ok' : 'degraded',
+        timestamp: new Date().toISOString(),
+        checks,
+      },
+      { status, headers: corsHeaders },
+    ),
+    5,
   );
 }
 

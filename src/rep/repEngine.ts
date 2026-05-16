@@ -7,6 +7,8 @@
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
 import { supabase, db, isSupabaseConfigured } from '../services/supabaseClient';
 import { withTimeout } from '../utils/withTimeout';
+import { fetchReconcileAndUpsertOperationalDayStatus } from '../../modules/rep-integration/repOperationalSequenceResolver';
+import { repCivilDateFromIsoUtc } from '../../modules/rep-integration/repIngestPunchCore';
 
 export interface RegisterPunchParams {
   userId: string;
@@ -133,7 +135,15 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
   if (error) throw normalizePunchRegistrationError(error);
   if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
 
-  return data as RegisterPunchResult;
+  const result = data as RegisterPunchResult;
+  const ymd = repCivilDateFromIsoUtc(result.timestamp);
+  if (ymd) {
+    void fetchReconcileAndUpsertOperationalDayStatus(supabase, companyId, userId, ymd).catch((err) => {
+      console.warn('[repEngine] fetchReconcileAndUpsertOperationalDayStatus', err);
+    });
+  }
+
+  return result;
 }
 
 const RPC_SECURE_NAME = 'rep_register_punch_secure';
@@ -199,7 +209,15 @@ export async function registerPunchSecure(params: RegisterPunchSecureParams): Pr
   }
   if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
 
-  return data as RegisterPunchResult;
+  const result = data as RegisterPunchResult;
+  const ymd = repCivilDateFromIsoUtc(result.timestamp);
+  if (ymd) {
+    void fetchReconcileAndUpsertOperationalDayStatus(supabase, companyId, userId, ymd).catch((err) => {
+      console.warn('[repEngine] fetchReconcileAndUpsertOperationalDayStatus', err);
+    });
+  }
+
+  return result;
 }
 
 /**

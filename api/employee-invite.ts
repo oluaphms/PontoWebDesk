@@ -6,6 +6,7 @@
 
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, requireTrustedOrigin } from './_shared/security.js';
+import { noCache } from './_shared/cache.js';
 import { assertPlanLimit, isPlanLimitError, PLAN_LIMIT_CODE } from '../services/planEnforcement';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
@@ -52,33 +53,33 @@ async function handler(request: Request): Promise<Response> {
   });
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
 
   // Rate limiting por IP (mais restritivo para convites)
   const clientIP = getClientIP(request);
   const rateLimit = checkRateLimit(clientIP, 'login');
   if (!rateLimit.allowed) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Muitas tentativas. Aguarde alguns minutos.', code: 'RATE_LIMITED', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
       { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    ));
   }
 
   const pathname = resolveRequestUrl(request).pathname;
   const isAccept = /\/api\/employee-invite\/accept\/?$/.test(pathname);
 
   if (!isAccept && request.method !== 'GET') {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    ));
   }
   if (isAccept && request.method !== 'POST') {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    ));
   }
   if (isAccept) {
     const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
@@ -89,10 +90,10 @@ async function handler(request: Request): Promise<Response> {
   const supabaseUrl = getSupabaseUrlForServer();
 
   if (!serviceKey || !supabaseUrl) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Configuração indisponível.', code: 'CONFIG_MISSING' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    ));
   }
 
   try {
@@ -105,10 +106,10 @@ async function handler(request: Request): Promise<Response> {
       const url = resolveRequestUrl(request);
       const token = url.searchParams.get('token')?.trim();
       if (!token) {
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Token obrigatório', code: 'BAD_REQUEST' },
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
 
       const { data, error } = await adminSup
@@ -119,34 +120,34 @@ async function handler(request: Request): Promise<Response> {
 
       if (error) {
         console.error('[employee-invite]', error);
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Erro ao consultar convite', code: 'DB_ERROR' },
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
       if (!data) {
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Link inválido ou expirado', code: 'INVALID_TOKEN' },
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
       if (data.used_at) {
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Este convite já foi utilizado', code: 'ALREADY_USED' },
           { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
       const expiresAt = data.expires_at ? new Date(data.expires_at).getTime() : 0;
       if (Date.now() > expiresAt) {
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Este link expirou', code: 'EXPIRED' },
           { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
-      return Response.json(
+      return noCache(Response.json(
         { email: data.email, role: data.role, expiresAt: data.expires_at },
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      ));
     }
 
     let body: z.infer<typeof AcceptInviteSchema>;
@@ -154,25 +155,25 @@ async function handler(request: Request): Promise<Response> {
       const raw = await request.json();
       const parsed = AcceptInviteSchema.safeParse(raw);
       if (!parsed.success) {
-        return Response.json(
+        return noCache(Response.json(
           { error: 'Body inválido', code: 'BAD_REQUEST', details: parsed.error.flatten() },
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        ));
       }
       body = parsed.data;
     } catch {
-      return Response.json(
+      return noCache(Response.json(
         { error: 'Body inválido', code: 'BAD_REQUEST' },
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      ));
     }
 
     const token = body.token.trim();
     const name = body.name.trim();
     const password = body.password.trim();
-    if (!token) return Response.json({ error: 'Token é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    if (!name || name.length < 2) return Response.json({ error: 'Nome completo é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    if (!password || password.length < 6) return Response.json({ error: 'Senha deve ter no mínimo 6 caracteres', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (!token) return noCache(Response.json({ error: 'Token é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
+    if (!name || name.length < 2) return noCache(Response.json({ error: 'Nome completo é obrigatório', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
+    if (!password || password.length < 6) return noCache(Response.json({ error: 'Senha deve ter no mínimo 6 caracteres', code: 'BAD_REQUEST' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
 
     const { data: invite, error: inviteError } = await adminSup
       .from('employee_invites')
@@ -180,9 +181,9 @@ async function handler(request: Request): Promise<Response> {
       .eq('token', token)
       .maybeSingle();
     const row = invite as InviteRow | null;
-    if (inviteError || !row) return Response.json({ error: 'Link inválido ou expirado', code: 'INVALID_TOKEN' }, { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    if (row.used_at) return Response.json({ error: 'Este convite já foi utilizado', code: 'ALREADY_USED' }, { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    if (Date.now() > (row.expires_at ? new Date(row.expires_at).getTime() : 0)) return Response.json({ error: 'Este link expirou', code: 'EXPIRED' }, { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (inviteError || !row) return noCache(Response.json({ error: 'Link inválido ou expirado', code: 'INVALID_TOKEN' }, { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
+    if (row.used_at) return noCache(Response.json({ error: 'Este convite já foi utilizado', code: 'ALREADY_USED' }, { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
+    if (Date.now() > (row.expires_at ? new Date(row.expires_at).getTime() : 0)) return noCache(Response.json({ error: 'Este link expirou', code: 'EXPIRED' }, { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
 
     const email = String(row.email).trim().toLowerCase();
     const role = row.role || 'employee';
@@ -195,27 +196,27 @@ async function handler(request: Request): Promise<Response> {
       if (msg.includes('already') || msg.includes('registered')) {
         const { data: list } = await authAdmin.listUsers({ perPage: 1000 });
         const existing = list?.users?.find((u) => String(u.email || '').toLowerCase() === email);
-        if (!existing?.id) return Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (!existing?.id) return noCache(Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
         const { error: updateErr } = await authAdmin.updateUserById(existing.id, { password });
-        if (updateErr) return Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (updateErr) return noCache(Response.json({ error: 'Este e-mail já possui cadastro. Use "Esqueci minha senha" na tela de login.', code: 'EMAIL_EXISTS' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
         authUserId = existing.id;
       } else {
-        return Response.json({ error: authError.message || 'Erro ao criar conta', code: 'AUTH_ERROR' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return noCache(Response.json({ error: authError.message || 'Erro ao criar conta', code: 'AUTH_ERROR' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
       }
     } else {
       authUserId = authData?.user?.id ?? authData?.id ?? null;
     }
-    if (!authUserId) return Response.json({ error: 'Erro ao criar usuário', code: 'AUTH_ERROR' }, { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (!authUserId) return noCache(Response.json({ error: 'Erro ao criar usuário', code: 'AUTH_ERROR' }, { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
 
     if (companyId && (role === 'employee' || !row.role)) {
       try {
         await assertPlanLimit(adminSup, { tenantId: companyId, action: { type: 'CREATE_EMPLOYEE' } });
       } catch (e) {
         if (isPlanLimitError(e)) {
-          return Response.json(
+          return noCache(Response.json(
             { code: PLAN_LIMIT_CODE, message: e.message, error: e.message },
             { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          ));
         }
         throw e;
       }
@@ -233,18 +234,18 @@ async function handler(request: Request): Promise<Response> {
         if (companyId && String(companyId).trim() !== '') patch.company_id = companyId;
         await adminSup.from('users').update(patch).eq('id', authUserId);
       } else {
-        return Response.json({ error: userInsertError.message || 'Erro ao criar perfil', code: 'DB_ERROR' }, { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return noCache(Response.json({ error: userInsertError.message || 'Erro ao criar perfil', code: 'DB_ERROR' }, { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
       }
     }
     await adminSup.from('employee_invites').update({ used_at: new Date().toISOString() }).eq('id', row.id);
-    return Response.json({ success: true, message: 'Conta criada. Faça login com seu e-mail e senha.' }, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return noCache(Response.json({ success: true, message: 'Conta criada. Faça login com seu e-mail e senha.' }, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[employee-invite]', msg);
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Erro interno', code: 'INTERNAL_ERROR' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    ));
   }
 }
 

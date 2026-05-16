@@ -39,12 +39,19 @@ export function recordMemoryCacheInvalidation(prefix: string, removed: number): 
 
 let patched = false;
 
+function stripForceFromInvalidateOptions(options?: unknown): unknown {
+  if (!options || typeof options !== 'object') return options;
+  const { force: _omit, ...rest } = options as { force?: boolean };
+  return Object.keys(rest).length ? rest : undefined;
+}
+
 export function patchQueryClientInvalidationAudit(queryClient: QueryClient): void {
   if (patched) return;
   patched = true;
   const orig = queryClient.invalidateQueries.bind(queryClient);
   queryClient.invalidateQueries = async (filters?: InvalidateQueryFilters, options?: unknown) => {
-    if (isPostLoginQueryCooldownActive()) {
+    const force = (options as { force?: boolean } | undefined)?.force === true;
+    if (isPostLoginQueryCooldownActive() && !force) {
       const key = filters?.queryKey as readonly unknown[] | undefined;
       if (!isCriticalReactQueryKey(key)) {
         if (typeof console !== 'undefined') {
@@ -63,6 +70,7 @@ export function patchQueryClientInvalidationAudit(queryClient: QueryClient): voi
     } catch {
       bump('react_query', 'unknown');
     }
-    return orig(filters as never, options as never);
+    const rest = stripForceFromInvalidateOptions(options);
+    return orig(filters as never, rest as never);
   };
 }

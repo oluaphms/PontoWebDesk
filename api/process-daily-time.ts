@@ -8,6 +8,7 @@
 import { messageFromUnknown } from '../src/utils/messageFromUnknown';
 import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
+import { noCache } from './_shared/cache.js';
 
 async function handler(request: Request): Promise<Response> {
   const route = '/api/process-daily-time';
@@ -16,13 +17,13 @@ async function handler(request: Request): Promise<Response> {
     allowHeaders: 'Content-Type, Authorization, X-Cron-Secret',
   });
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'POST') {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
   const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
   if (blockedOrigin) return blockedOrigin;
@@ -30,10 +31,10 @@ async function handler(request: Request): Promise<Response> {
   const secret = request.headers.get('X-Cron-Secret')?.trim();
   const cronSecret = (process.env.CRON_SECRET || process.env.VITE_CRON_SECRET || '').trim();
   if (cronSecret && secret !== cronSecret) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Unauthorized', code: 'UNAUTHORIZED' },
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   let supabaseUrl: string;
@@ -41,10 +42,10 @@ async function handler(request: Request): Promise<Response> {
   try {
     ({ url: supabaseUrl, serviceKey } = getSupabaseConfig());
   } catch {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Supabase não configurado.', code: 'CONFIG_MISSING' },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   try {
@@ -128,16 +129,16 @@ async function handler(request: Request): Promise<Response> {
     }
 
     console.log('[API RESPONSE]', route, Date.now());
-    return Response.json(
+    return noCache(Response.json(
       { ok: true, processed, date: dateStr, errors: errors.slice(0, 10) },
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   } catch (e: unknown) {
     console.log('[API RESPONSE]', route, Date.now());
-    return Response.json(
+    return noCache(Response.json(
       { error: messageFromUnknown(e, 'Erro ao processar'), code: 'PROCESS_ERROR' },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 }
 

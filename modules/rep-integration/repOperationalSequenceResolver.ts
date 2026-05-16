@@ -3,6 +3,9 @@
  * O espelho continua protegido pelo trigger SQL; aqui apenas timeline, gaps e telemetria.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { replaceOperationalAlertsForDay } from '../alerts/operationalAlertsEngine';
+
 export type OperationalSequenceResolution =
   | 'promote_normally'
   | 'recover_missing_clock_out'
@@ -43,6 +46,207 @@ export type OperationalDayReconciliation = {
   /** Por rep_punch_log id: leitura operacional para pré-voo (não substitui o trigger). */
   resolutionByRepId: Record<string, OperationalSequenceResolution>;
 };
+
+/** Mesmos valores persistidos em `operational_day_status.status`. */
+export type OperationalDayUiStatus = 'ok' | 'incomplete' | 'inconsistent' | 'pending_rep' | 'error';
+
+/**
+ * Prioridade alinhada ao produto: error → inconsistent → incomplete → pending_rep → ok.
+ * `extraErrors` cobre falhas de leitura/persistência fora da reconciliação pura.
+ */
+export function deriveOperationalDayUiStatus(
+  result: OperationalDayReconciliation,
+  repPendingCount: number,
+  extraErrors: readonly string[] = [],
+): OperationalDayUiStatus {
+  const errors = extraErrors.filter((s) => String(s).trim().length > 0);
+  const kinds = new Set(result.issues.map((i) => i.kind));
+  const hasInconsistency =
+    kinds.has('overlap') ||
+    kinds.has('duplicate_entry') ||
+    kinds.has('orphan_exit') ||
+    kinds.has('orphan_pause');
+  const hasGaps = kinds.has('sequence_gap');
+
+  if (errors.length > 0) return 'error';
+  if (hasInconsistency) return 'inconsistent';
+  if (hasGaps) return 'incomplete';
+  if (repPendingCount > 0) return 'pending_rep';
+  return 'ok';
+}
+
+function firstLastPunchFromMirrorRecords(
+  rows: Array<{ timestamp: string }>,
+): { first: string | null; last: string | null } {
+  const sorted = rows
+    .map((r) => ({ iso: r.timestamp, t: Date.parse(r.timestamp) }))
+    .filter((x) => !Number.isNaN(x.t))
+    .sort((a, b) => a.t - b.t);
+  if (sorted.length === 0) return { first: null, last: null };
+  return { first: sorted[0].iso, last: sorted[sorted.length - 1].iso };
+}
+
+/** Leitura espelho + REP pendente, reconciliação TS e RPC `upsert_operational_day_status`. */
+export async function fetchReconcileAndUpsertOperationalDayStatus(
+  supabase: SupabaseClient,
+  companyId: string,
+  employeeId: string,
+  dateYmd: string,
+  extraErrors: readonly string[] = [],
+): Promise<OperationalDayReconciliation | null> {
+  const company = companyId.trim();
+  const emp = employeeId.trim();
+  const day = dateYmd.trim();
+  if (!company || !emp || !day) return null;
+
+  const runUpsert = async (input: {
+    status: OperationalDayUiStatus;
+    totalRecords: number;
+    totalRepPending: number;
+    issues: unknown;
+    firstPunch: string | null;
+    lastPunch: string | null;
+  }): Promise<boolean> => {
+    const { error } = await supabase.rpc('upsert_operational_day_status', {
+      p_company_id: company,
+      p_employee_id: emp,
+      p_date: day,
+      p_status: input.status,
+      p_total_records: input.totalRecords,
+      p_total_rep_pending: input.totalRepPending,
+      p_issues: input.issues,
+      p_first_punch: input.firstPunch,
+      p_last_punch: input.lastPunch,
+    });
+    if (error) {
+      console.error('[OPERATIONAL STATUS UPSERT FAILED]', {
+        companyId: company,
+        employeeId: emp,
+        date: day,
+        status: input.status,
+        message: error.message,
+      });
+      return false;
+    }
+    console.log('[OPERATIONAL STATUS UPDATED]', {
+      companyId: company,
+      employeeId: emp,
+      date: day,
+      status: input.status,
+    });
+    return true;
+  };
+
+  try {
+    const { startIso, endIso } = saoPauloCivilBoundsUtc(day);
+    const { data: trs, error: e1 } = await supabase
+      .from('time_records')
+      .select('id,timestamp,type')
+      .eq('company_id', company)
+      .eq('user_id', emp)
+      .gte('timestamp', startIso)
+      .lte('timestamp', endIso)
+      .limit(800);
+    if (e1) {
+      await runUpsert({
+        status: 'error',
+        totalRecords: 0,
+        totalRepPending: 0,
+        issues: [{ scope: 'time_records', message: e1.message }],
+        firstPunch: null,
+        lastPunch: null,
+      });
+      return null;
+    }
+
+    const { data: pend, error: e2 } = await supabase
+      .from('rep_punch_logs')
+      .select('id,data_hora,tipo_marcacao')
+      .eq('company_id', company)
+      .eq('resolved_user_id', emp)
+      .is('time_record_id', null)
+      .eq('ignored', false)
+      .gte('data_hora', startIso)
+      .lte('data_hora', endIso)
+      .limit(800);
+    if (e2) {
+      await runUpsert({
+        status: 'error',
+        totalRecords: trs?.length ?? 0,
+        totalRepPending: 0,
+        issues: [{ scope: 'rep_punch_logs', message: e2.message }],
+        firstPunch: null,
+        lastPunch: null,
+      });
+      return null;
+    }
+
+    const mirrorRows = trs ?? [];
+    const pendingRows = pend ?? [];
+    const rec = reconcileOperationalDaySequence({
+      employeeId: emp,
+      date: day,
+      timeRecords: mirrorRows.map((r) => ({
+        id: r.id as string,
+        timestamp: r.timestamp as string,
+        type: r.type as string,
+      })),
+      pendingRepPunches: pendingRows.map((r) => ({
+        id: r.id as string,
+        data_hora: r.data_hora as string,
+        tipo_marcacao: (r.tipo_marcacao as string | null) ?? null,
+      })),
+    });
+
+    const repPendingCount = pendingRows.length;
+    const { first, last } = firstLastPunchFromMirrorRecords(
+      mirrorRows.map((r) => ({ timestamp: r.timestamp as string })),
+    );
+
+    const status = deriveOperationalDayUiStatus(rec, repPendingCount, extraErrors);
+    const issuesPayload = rec.issues.length > 0 ? rec.issues : [];
+
+    const statusOk = await runUpsert({
+      status,
+      totalRecords: mirrorRows.length,
+      totalRepPending: repPendingCount,
+      issues: issuesPayload,
+      firstPunch: first,
+      lastPunch: last,
+    });
+
+    if (statusOk) {
+      await replaceOperationalAlertsForDay(
+        supabase,
+        company,
+        emp,
+        day,
+        mirrorRows.map((r) => ({
+          timestamp: r.timestamp as string,
+          type: r.type as string,
+        })),
+        pendingRows.map((r) => ({
+          data_hora: r.data_hora as string,
+          tipo_marcacao: (r.tipo_marcacao as string | null) ?? null,
+        })),
+        status,
+      );
+    }
+
+    return rec;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await runUpsert({
+      status: 'error',
+      totalRecords: 0,
+      totalRepPending: 0,
+      issues: [{ scope: 'reconcile', message: msg }],
+      firstPunch: null,
+      lastPunch: null,
+    });
+    return null;
+  }
+}
 
 /** Meia-noite a fim do dia em America/Sao_Paulo como UTC (offset fixo −3, sem DST). */
 export function saoPauloCivilBoundsUtc(ymd: string): { startIso: string; endIso: string } {

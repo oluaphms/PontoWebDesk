@@ -206,6 +206,24 @@ export default defineConfig(({ mode }) => {
               if (pathname === '/api/rep-punch') {
                 const { handleRepPunchRpcLite } = await import('./api/_shared/repPunchRpcLite.ts');
                 response = await run(handleRepPunchRpcLite, req.url ?? pathname);
+              } else if (pathname === '/api/operational-status') {
+                const { default: opMod } = await import('./api/operational-status.ts');
+                response = await run(opMod.fetch.bind(opMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
+              } else if (pathname === '/api/operational-risk') {
+                const { default: riskMod } = await import('./api/operational-risk.ts');
+                response = await run(riskMod.fetch.bind(riskMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
+              } else if (pathname.startsWith('/api/operational-alerts')) {
+                const { default: alertsMod } = await import('./api/operational-alerts.ts');
+                response = await run(alertsMod.fetch.bind(alertsMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
+              } else if (pathname.startsWith('/api/operational-tasks')) {
+                const { default: tasksMod } = await import('./api/operational-tasks.ts');
+                response = await run(tasksMod.fetch.bind(tasksMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
+              } else if (pathname.startsWith('/api/operational-audit')) {
+                const { default: auditMod } = await import('./api/operational-audit.ts');
+                response = await run(auditMod.fetch.bind(auditMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
+              } else if (pathname.startsWith('/api/operational-timeline')) {
+                const { default: tlMod } = await import('./api/operational-timeline.ts');
+                response = await run(tlMod.fetch.bind(tlMod) as (r: Request) => Promise<Response>, req.url ?? pathname);
               } else if (pathname === '/api/test-supabase') {
                 const { default: bridgeMod } = await import('./api/rep/[slug].ts');
                 const raw = req.url ?? pathname;

@@ -23,6 +23,11 @@ import { markDashboardInteractiveIfNeeded } from '../../app/loginPerformanceBudg
 import { opLog } from '../../utils/operationalLogger';
 
 const DashboardLastRecordsGeoPanel = lazy(() => import('./DashboardLastRecordsGeoPanel'));
+const OperationalRiskCard = lazy(() => import('../../components/dashboard/OperationalRiskCard'));
+const OperationalStatusPanel = lazy(() => import('../../components/dashboard/OperationalStatusPanel'));
+const OperationalAlertsPanel = lazy(() => import('../../components/dashboard/OperationalAlertsPanel'));
+const OperationalTasksPanel = lazy(() => import('../../components/dashboard/OperationalTasksPanel'));
+const OperationalAuditPanel = lazy(() => import('../../components/dashboard/OperationalAuditPanel'));
 
 interface CardData {
   totalEmployees: number;
@@ -207,6 +212,46 @@ const AdminDashboard: React.FC = () => {
               );
             })}
           </div>
+
+          {user.companyId && (
+            <Suspense
+              fallback={<div className="h-28 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
+            >
+              <OperationalRiskCard companyId={user.companyId} />
+            </Suspense>
+          )}
+
+          {user.companyId && (
+            <Suspense
+              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
+            >
+              <OperationalStatusPanel companyId={user.companyId} />
+            </Suspense>
+          )}
+
+          {user.companyId && (
+            <Suspense
+              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
+            >
+              <OperationalAlertsPanel companyId={user.companyId} />
+            </Suspense>
+          )}
+
+          {user.companyId && (
+            <Suspense
+              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
+            >
+              <OperationalTasksPanel companyId={user.companyId} />
+            </Suspense>
+          )}
+
+          {user.companyId && (
+            <Suspense
+              fallback={<div className="h-64 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
+            >
+              <OperationalAuditPanel companyId={user.companyId} />
+            </Suspense>
+          )}
 
           {loadingRecords ? (
             <div className="h-64 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />

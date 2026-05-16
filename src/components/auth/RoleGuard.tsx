@@ -24,7 +24,7 @@ const RoleGuard: React.FC<RoleGuardProps> = ({
   const location = useLocation();
 
   if (!user) {
-    return <Navigate to="/" state={{ from: location }} replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   const hasRole = allowedRoles.includes(user.role as AllowedRole);

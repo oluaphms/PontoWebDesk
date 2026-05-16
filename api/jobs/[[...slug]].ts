@@ -16,6 +16,7 @@ import { setSupabaseServiceRoleOverride } from '../../src/lib/supabaseClient';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
+import { noCache } from '../_shared/cache.js';
 
 const MAX_DAYS = 120;
 const RESERVED = new Set(['calc-period', 'process']);
@@ -34,7 +35,7 @@ function corsFor(request: Request, allowMethods: string): Record<string, string>
 
 function jsonWithLog(body: unknown, status: number, route: string, headers: Record<string, string>): Response {
   console.log('[API RESPONSE]', route, Date.now());
-  return Response.json(body, { status, headers });
+  return noCache(Response.json(body, { status, headers }));
 }
 
 function isJobIdSegment(s: string): boolean {
@@ -67,7 +68,7 @@ async function executeCalcPeriodFallback(
 async function handleCalcPeriod(request: Request): Promise<Response> {
   const corsHeaders = corsFor(request, 'POST, OPTIONS');
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'POST') {
     return jsonWithLog(
@@ -251,7 +252,7 @@ async function handleCalcPeriod(request: Request): Promise<Response> {
 async function handleProcess(request: Request): Promise<Response> {
   const corsHeaders = corsFor(request, 'POST, OPTIONS');
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'POST') {
     return jsonWithLog(
@@ -333,7 +334,7 @@ async function handleProcess(request: Request): Promise<Response> {
 async function handleJobGet(request: Request, jobId: string): Promise<Response> {
   const corsHeaders = corsFor(request, 'GET, OPTIONS');
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'GET') {
     return jsonWithLog(
@@ -440,7 +441,7 @@ async function handler(request: Request): Promise<Response> {
   }
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsFor(request, 'GET, POST, OPTIONS') });
+    return noCache(new Response(null, { status: 204, headers: corsFor(request, 'GET, POST, OPTIONS') }));
   }
 
   return jsonWithLog(

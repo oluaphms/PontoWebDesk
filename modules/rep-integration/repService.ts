@@ -17,10 +17,7 @@ import {
   TimeAttendanceTimelineSeverity,
 } from '../../src/services/timeAttendanceTimeline.constants';
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
-import {
-  reconcileOperationalDaySequence,
-  saoPauloCivilBoundsUtc,
-} from './repOperationalSequenceResolver';
+import { fetchReconcileAndUpsertOperationalDayStatus } from './repOperationalSequenceResolver';
 
 type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.service').AppendTimeAttendanceTimelineEventInput;
 
@@ -405,42 +402,9 @@ async function logRepOperationalReconciliationForPromoteBatch(
     const userId = key.slice(0, pipe);
     const date = key.slice(pipe + 1);
     try {
-      const { startIso, endIso } = saoPauloCivilBoundsUtc(date);
-      const { data: trs, error: e1 } = await supabase
-        .from('time_records')
-        .select('id,timestamp,type')
-        .eq('company_id', companyId)
-        .eq('user_id', userId)
-        .gte('timestamp', startIso)
-        .lte('timestamp', endIso)
-        .limit(800);
-      if (e1) continue;
-      const { data: pend, error: e2 } = await supabase
-        .from('rep_punch_logs')
-        .select('id,data_hora,tipo_marcacao')
-        .eq('company_id', companyId)
-        .eq('resolved_user_id', userId)
-        .is('time_record_id', null)
-        .eq('ignored', false)
-        .gte('data_hora', startIso)
-        .lte('data_hora', endIso)
-        .limit(800);
-      if (e2) continue;
-      const rec = reconcileOperationalDaySequence({
-        employeeId: userId,
-        date,
-        timeRecords: (trs ?? []).map((r) => ({
-          id: r.id as string,
-          timestamp: r.timestamp as string,
-          type: r.type as string,
-        })),
-        pendingRepPunches: (pend ?? []).map((r) => ({
-          id: r.id as string,
-          data_hora: r.data_hora as string,
-          tipo_marcacao: (r.tipo_marcacao as string | null) ?? null,
-        })),
-      });
-      const pendingCount = pend?.length ?? 0;
+      const rec = await fetchReconcileAndUpsertOperationalDayStatus(supabase, companyId, userId, date);
+      if (!rec) continue;
+      const pendingCount = rec.counts.pendingRep;
       const promotedSameDay = batch.promoted.filter((p) => {
         const u = String(p.user_id ?? '').trim();
         const y = p.data_hora != null ? repCivilDateFromIsoUtc(String(p.data_hora)) : null;
@@ -451,14 +415,14 @@ async function logRepOperationalReconciliationForPromoteBatch(
         const y = f.data_hora != null ? repCivilDateFromIsoUtc(String(f.data_hora)) : null;
         return u === userId && y === date;
       }).length;
-      const partial = pendingCount > 0 && (promotedSameDay > 0 || (trs?.length ?? 0) > 0);
+      const partial = pendingCount > 0 && (promotedSameDay > 0 || (rec.counts.mirror ?? 0) > 0);
 
       if (typeof globalThis !== 'undefined' && globalThis.console) {
         globalThis.console.info('[REP DAY RECONCILIATION]', {
           employee_id: userId,
           date,
           pending_rep_in_mirror_day: pendingCount,
-          mirror_records_in_day: trs?.length ?? 0,
+          mirror_records_in_day: rec.counts.mirror ?? 0,
           issues: rec.issues.length,
           batch_promoted_this_window: promotedSameDay,
           batch_failed_this_window: failedSameDay,

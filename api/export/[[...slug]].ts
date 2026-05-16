@@ -7,6 +7,7 @@
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders } from '../_shared/security.js';
+import { noCache } from '../_shared/cache.js';
 
 function formatAfdLine(
   record: { nsr: number; timestamp?: string; created_at: string; user_id: string; type: string },
@@ -43,19 +44,19 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
   const authHeader = request.headers.get('Authorization');
   const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Authorization Bearer obrigatório' },
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   const supabaseUrl = getSupabaseUrlForServer();
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
   if (!anonKey || !supabaseUrl) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Supabase não configurado' },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   const { createClient } = await import('@supabase/supabase-js');
@@ -66,10 +67,10 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
 
   const { data: { user } } = await sup.auth.getUser(token);
   if (!user) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Token inválido ou expirado' },
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   const url = resolveRequestUrl(request);
@@ -81,10 +82,10 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
     targetCompanyId = (profile as { company_id?: string } | null)?.company_id ?? null;
   }
   if (!targetCompanyId) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Empresa não identificada' },
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   const { data: records } = await sup
@@ -116,14 +117,14 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
     const header = 'NSR\tDATA\tHORA\tCPF\tTIPO';
     const lines = list.map((r) => formatAfdLine(r, cpfByUserId[r.user_id] || ''));
     const body = [header, ...lines].join('\r\n');
-    return new Response(body, {
+    return noCache(new Response(body, {
       status: 200,
       headers: {
         ...corsHeaders,
         'Content-Type': 'text/plain; charset=utf-8',
         'Content-Disposition': `attachment; filename="AFD_${targetCompanyId}_${new Date().toISOString().slice(0, 10)}.txt"`,
       },
-    });
+    }));
   }
 
   const sorted = [...list].filter((r) => r.nsr != null).sort((a, b) => (a.nsr ?? 0) - (b.nsr ?? 0));
@@ -157,14 +158,14 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
     registros,
   };
 
-  return new Response(JSON.stringify(jsonBody, null, 2), {
+  return noCache(new Response(JSON.stringify(jsonBody, null, 2), {
     status: 200,
     headers: {
       ...corsHeaders,
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Disposition': `attachment; filename="AEJ_${targetCompanyId}_${new Date().toISOString().slice(0, 10)}.json"`,
     },
-  });
+  }));
 }
 
 async function handler(request: Request): Promise<Response> {
@@ -173,31 +174,31 @@ async function handler(request: Request): Promise<Response> {
     allowHeaders: 'Content-Type, Authorization',
   });
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'GET') {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Method not allowed' },
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   const kind = resolveExportKind(request);
   if (!kind) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Use /api/export/afd, /api/export/aej ou ?type=afd|aej' },
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 
   try {
     return await handleExport(request, kind);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Erro ao exportar';
-    return Response.json(
+    return noCache(Response.json(
       { error: msg },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ));
   }
 }
 

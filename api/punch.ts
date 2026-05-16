@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { PUNCH_SOURCE_WEB } from '../src/constants/punchSource';
 import { sendPunch } from '../src/services/sendPunch.service';
 import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
+import { cachePublic, noCache } from './_shared/cache.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 // NOTA: Rate limiting em memória não funciona em serverless (Vercel).
@@ -71,19 +72,20 @@ async function handler(request: Request): Promise<Response> {
     allowHeaders: 'Content-Type, Authorization, x-api-key',
   });
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
 
   // Health check leve (para agente verificar disponibilidade antes de enviar batches)
   if (request.method === 'GET' || request.method === 'HEAD') {
-    return Response.json(
-      { ok: true, mode: 'api-punch', version: 1 },
-      { status: 200, headers: corsHeaders }
+    return cachePublic(
+      Response.json({ ok: true, mode: 'api-punch', version: 1 }, { status: 200, headers: corsHeaders }),
+      30,
+      120,
     );
   }
 
   if (request.method !== 'POST') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders }));
   }
   const blockedOrigin = requireTrustedOrigin(request, corsHeaders);
   if (blockedOrigin) return blockedOrigin;
@@ -91,10 +93,10 @@ async function handler(request: Request): Promise<Response> {
   // Auth: API_KEY via Bearer ou x-api-key
   const apiKey = (process.env.CLOCK_AGENT_API_KEY || process.env.API_KEY || '').trim();
   if (!apiKey) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'API_KEY não configurada no servidor.' },
       { status: 500, headers: corsHeaders }
-    );
+    ));
   }
 
   const authHeader = request.headers.get('Authorization') || '';
@@ -102,7 +104,7 @@ async function handler(request: Request): Promise<Response> {
   const xApiKey = request.headers.get('x-api-key') || '';
 
   if (token !== apiKey && xApiKey !== apiKey) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders }));
   }
 
   // Parse e validação
@@ -110,7 +112,7 @@ async function handler(request: Request): Promise<Response> {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'Body JSON inválido.' }, { status: 400, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Body JSON inválido.' }, { status: 400, headers: corsHeaders }));
   }
 
   // Conexão Supabase (service role - NUNCA exposta no frontend)
@@ -119,10 +121,10 @@ async function handler(request: Request): Promise<Response> {
   try {
     ({ url, serviceKey } = getSupabaseConfig());
   } catch {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Configuração Supabase ausente no servidor.' },
       { status: 500, headers: corsHeaders }
-    );
+    ));
   }
 
   const supabase = createClient(url, serviceKey, {
@@ -134,15 +136,15 @@ async function handler(request: Request): Promise<Response> {
   if (isLegacyPunches) {
     const parsed = SinglePunchSchema.safeParse(body);
     if (!parsed.success) {
-      return Response.json(
+      return noCache(Response.json(
         { error: 'Schema inválido.', details: parsed.error.format() },
         { status: 400, headers: corsHeaders },
-      );
+      ));
     }
     const { employeeId, companyId, type, method, timestamp } = parsed.data;
     const ts = new Date(timestamp);
     if (Number.isNaN(ts.getTime())) {
-      return Response.json({ error: 'timestamp inválido.' }, { status: 400, headers: corsHeaders });
+      return noCache(Response.json({ error: 'timestamp inválido.' }, { status: 400, headers: corsHeaders }));
     }
     try {
       await sendPunch(supabase, {
@@ -153,19 +155,19 @@ async function handler(request: Request): Promise<Response> {
         created_at: ts.toISOString(),
         source: PUNCH_SOURCE_WEB,
       });
-      return Response.json({ success: true }, { status: 200, headers: corsHeaders });
+      return noCache(Response.json({ success: true }, { status: 200, headers: corsHeaders }));
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e);
-      return Response.json({ error: msg }, { status: 500, headers: corsHeaders });
+      return noCache(Response.json({ error: msg }, { status: 500, headers: corsHeaders }));
     }
   }
 
   const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Schema inválido.', details: parsed.error.format() },
       { status: 400, headers: corsHeaders }
-    );
+    ));
   }
 
   const { deviceId, companyId, punches } = parsed.data;
@@ -183,14 +185,14 @@ async function handler(request: Request): Promise<Response> {
 
   if (deviceError) {
     console.error('[API /punch] Erro ao validar device:', deviceError);
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Erro ao validar device.', deviceId, companyId },
       { status: 500, headers: corsHeaders }
-    );
+    ));
   }
 
   if (!device) {
-    return Response.json(
+    return noCache(Response.json(
       { 
         error: 'Device não encontrado ou não autorizado.',
         details: 'Verifique se o device_id existe, pertence à company e está ativo.',
@@ -198,7 +200,7 @@ async function handler(request: Request): Promise<Response> {
         companyId,
       },
       { status: 403, headers: corsHeaders }
-    );
+    ));
   }
 
   // Log de auditoria (opcional: verificar IP se necessário)
@@ -235,7 +237,7 @@ async function handler(request: Request): Promise<Response> {
       throw error;
     }
 
-    return Response.json(
+    return noCache(Response.json(
       {
         success: true,
         inserted: rows.length,
@@ -244,11 +246,11 @@ async function handler(request: Request): Promise<Response> {
         companyId,
       },
       { status: 200, headers: corsHeaders }
-    );
+    ));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[API /punch] Erro ao inserir:', msg);
-    return Response.json(
+    return noCache(Response.json(
       {
         success: false,
         error: msg,
@@ -257,7 +259,7 @@ async function handler(request: Request): Promise<Response> {
         failedCount: rows.length,
       },
       { status: 500, headers: corsHeaders }
-    );
+    ));
   }
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveOperationalDayUiStatus,
   reconcileOperationalDaySequence,
   repTipoMarcacaoToNorm,
   saoPauloCivilBoundsUtc,
@@ -18,6 +19,46 @@ describe('repTipoMarcacaoToNorm', () => {
     expect(repTipoMarcacaoToNorm('E')).toBe('entrada');
     expect(repTipoMarcacaoToNorm('s')).toBe('saida');
     expect(repTipoMarcacaoToNorm('P')).toBe('pausa');
+  });
+});
+
+describe('deriveOperationalDayUiStatus', () => {
+  const day = '2026-05-06';
+  const emp = '00000000-0000-0000-0000-000000000001';
+
+  it('pending_rep quando só há fila REP sem issues', () => {
+    const r = reconcileOperationalDaySequence({
+      employeeId: emp,
+      date: day,
+      timeRecords: [],
+      pendingRepPunches: [
+        { id: 'a', data_hora: '2026-05-06T11:00:00.000Z', tipo_marcacao: 'E' },
+      ],
+    });
+    expect(deriveOperationalDayUiStatus(r, 1, [])).toBe('pending_rep');
+  });
+
+  it('inconsistent quando sequência inválida (ex.: dupla entrada) mesmo com REP pendente', () => {
+    const r = reconcileOperationalDaySequence({
+      employeeId: emp,
+      date: day,
+      timeRecords: [],
+      pendingRepPunches: [
+        { id: 'a', data_hora: '2026-05-06T11:00:00.000Z', tipo_marcacao: 'E' },
+        { id: 'b', data_hora: '2026-05-06T12:00:00.000Z', tipo_marcacao: 'E' },
+      ],
+    });
+    expect(deriveOperationalDayUiStatus(r, 2, [])).toBe('inconsistent');
+  });
+
+  it('error quando extraErrors não vazio', () => {
+    const r = reconcileOperationalDaySequence({
+      employeeId: emp,
+      date: day,
+      timeRecords: [],
+      pendingRepPunches: [],
+    });
+    expect(deriveOperationalDayUiStatus(r, 0, ['db'])).toBe('error');
   });
 });
 

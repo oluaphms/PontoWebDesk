@@ -16,6 +16,12 @@ import { recordMemoryCacheInvalidation } from '../performance/queryInvalidationA
 import { clearGeocodeCache } from './geolocation/reverseGeocode.service';
 import { recordBrowserOnlineReconnectForOperationalResilience } from '../performance/reconnectLoopGuard';
 import { opLog } from '../utils/operationalLogger';
+import {
+  invalidateDashboardQueriesForCompany,
+  invalidateEmployeesQueries,
+  invalidateOperationalStatusQueries,
+  invalidatePunchRelatedReactQueries,
+} from '../lib/reactQueryInvalidation';
 
 interface CacheEntry<T> {
   data: T;
@@ -313,6 +319,8 @@ export function adminReportCacheKey(companyId: string, reportSlug: string, ...pa
 /** Listas e KPIs admin (Dashboard, BankHours) — `users:`, `time_records:week:` e relatórios `admin_report:`. */
 export function invalidateCompanyListCaches(companyId: string): void {
   if (!companyId) return;
+  invalidateEmployeesQueries(companyId);
+  invalidateDashboardQueriesForCompany(companyId);
   queryCache.invalidate(`users:${companyId}`);
   queryCache.invalidate(`time_records:week:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);
@@ -331,6 +339,9 @@ export function invalidateAfterPunch(userId: string, companyId: string | undefin
   if (!userId) return;
   if (companyId) {
     invalidateCompanyListCaches(companyId);
+    const monthYyyyMm = new Date().toISOString().slice(0, 7);
+    invalidatePunchRelatedReactQueries(companyId, userId, monthYyyyMm);
+    invalidateOperationalStatusQueries(companyId);
   }
   queryCache.invalidate(`time_records:user:${userId}`);
   queryCache.invalidate(`time_balance:${userId}`);

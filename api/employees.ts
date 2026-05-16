@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from './_shared/security.js';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
+import { noCache } from './_shared/cache.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 
@@ -12,30 +13,30 @@ async function handler(request: Request): Promise<Response> {
   });
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'GET') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders }));
   }
 
   // Rate limiting por IP
   const clientIP = getClientIP(request);
   const rateLimit = checkRateLimit(clientIP, 'api');
   if (!rateLimit.allowed) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'Rate limit exceeded. Try again later.', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) },
       { status: 429, headers: corsHeaders }
-    );
+    ));
   }
 
   const apiKey = (process.env.API_KEY || '').trim();
   if (!apiKey) {
-    return Response.json({ error: 'API_KEY não configurada.' }, { status: 500, headers: corsHeaders });
+    return noCache(Response.json({ error: 'API_KEY não configurada.' }, { status: 500, headers: corsHeaders }));
   }
 
   const token = extractBearerToken(request);
   if (!token || !secureCompare(token, apiKey)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders }));
   }
 
   let url: string;
@@ -43,7 +44,7 @@ async function handler(request: Request): Promise<Response> {
   try {
     ({ url, serviceKey } = getSupabaseConfig());
   } catch {
-    return Response.json({ error: 'Configuração Supabase ausente.' }, { status: 500, headers: corsHeaders });
+    return noCache(Response.json({ error: 'Configuração Supabase ausente.' }, { status: 500, headers: corsHeaders }));
   }
 
   const supabase = createClient(url, serviceKey, {
@@ -53,10 +54,10 @@ async function handler(request: Request): Promise<Response> {
   const searchParams = resolveRequestUrl(request).searchParams;
   const companyId = searchParams.get('companyId')?.trim() || '';
   if (!companyId) {
-    return Response.json(
+    return noCache(Response.json(
       { error: 'companyId é obrigatório (isolamento por tenant).', code: 'COMPANY_ID_REQUIRED' },
       { status: 400, headers: corsHeaders }
-    );
+    ));
   }
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
@@ -71,7 +72,7 @@ async function handler(request: Request): Promise<Response> {
 
   const { count, error: countError } = await countQuery;
   if (countError) {
-    return Response.json({ error: countError.message }, { status: 500, headers: corsHeaders });
+    return noCache(Response.json({ error: countError.message }, { status: 500, headers: corsHeaders }));
   }
 
   // Get paginated data
@@ -85,11 +86,11 @@ async function handler(request: Request): Promise<Response> {
 
   const { data, error } = await query;
   if (error) {
-    return Response.json({ error: error.message }, { status: 500, headers: corsHeaders });
+    return noCache(Response.json({ error: error.message }, { status: 500, headers: corsHeaders }));
   }
 
   const totalPages = Math.ceil((count || 0) / limit);
-  return Response.json(
+  return noCache(Response.json(
     {
       employees: data ?? [],
       pagination: {
@@ -102,7 +103,7 @@ async function handler(request: Request): Promise<Response> {
       },
     },
     { status: 200, headers: corsHeaders }
-  );
+  ));
 }
 
 export default { fetch: handler };

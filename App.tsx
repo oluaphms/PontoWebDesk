@@ -59,7 +59,7 @@ import {
 } from 'lucide-react';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
 import RoleGuard from './src/components/auth/RoleGuard';
-import ProtectedRoute from './src/components/auth/ProtectedRoute';
+import RequireAuth from './src/components/auth/RequireAuth';
 import { PresentationPanel } from './src/components/auth/PresentationPanel';
 import { LoginCard, type LoginRole } from './src/components/auth/LoginCard';
 import SchemaGuardBadge from './src/components/dev/SchemaGuardBadge';
@@ -675,7 +675,7 @@ const AppMain: React.FC = () => {
         clearTenantScopedCaches();
         window.dispatchEvent(new Event('current_user_changed'));
         if (typeof window !== 'undefined') {
-          window.location.href = window.location.origin + '/';
+          window.location.href = window.location.origin + '/login';
         }
       })();
     };
@@ -1656,8 +1656,8 @@ const AppMain: React.FC = () => {
       console.error('Erro ao fazer logout:', error);
     }
 
-    // Logout SPA: evita “flash” cinza causado por recarga completa.
-    navigate('/', { replace: true });
+    // Logout SPA: URL explícita de login (consistente com RequireAuth).
+    navigate('/login', { replace: true });
   }, [navigate]);
 
   useSessionTimeout(
@@ -1810,6 +1810,35 @@ const AppMain: React.FC = () => {
           <AcceptInviteRoute />
         </React.Suspense>
       );
+    }
+
+    /** Deep links do portal (incl. legados): aguardar sessão Supabase antes do ecrã de login. */
+    const p = location.pathname;
+    const wantsAuthPortal =
+      p.startsWith('/admin') ||
+      p.startsWith('/employee') ||
+      p === '/dashboard' ||
+      p === '/dashboard-admin' ||
+      p === '/dashboard-employee' ||
+      p === '/time-clock' ||
+      p === '/time-records' ||
+      p === '/settings' ||
+      p === '/profile' ||
+      p === '/employees' ||
+      p === '/schedules' ||
+      p === '/real-time-insights' ||
+      p === '/company' ||
+      p === '/reports' ||
+      p === '/time-balance' ||
+      p === '/requests' ||
+      p === '/vacations' ||
+      p === '/absences' ||
+      p === '/notifications' ||
+      p === '/ai-chat' ||
+      p === '/locations' ||
+      p === '/devices';
+    if (wantsAuthPortal) {
+      return <RequireAuth appUser={user} />;
     }
 
     return (
@@ -1966,8 +1995,8 @@ const AppMain: React.FC = () => {
     );
   }
 
-  // Sempre redirecionar raiz para a dashboard correta por role (evita mostrar layout antigo)
-  if (path === '/') {
+  // Sempre redirecionar raiz ou /login para a dashboard correta por role (evita mostrar layout antigo)
+  if (path === '/' || path === '/login') {
     return <Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />;
   }
 
@@ -2001,11 +2030,13 @@ const AppMain: React.FC = () => {
             <Route
               path="/admin"
               element={
-                <ProtectedRoute user={user} allowedRoles={['admin', 'hr']}>
-                  <AppErrorBoundary>
-                    <Outlet />
-                  </AppErrorBoundary>
-                </ProtectedRoute>
+                <RequireAuth appUser={user}>
+                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} redirectTo="/employee/dashboard">
+                    <AppErrorBoundary>
+                      <Outlet />
+                    </AppErrorBoundary>
+                  </RoleGuard>
+                </RequireAuth>
               }
             >
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
@@ -2076,11 +2107,13 @@ const AppMain: React.FC = () => {
             <Route
               path="/employee"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
-                  <AppErrorBoundary>
-                    <Outlet />
-                  </AppErrorBoundary>
-                </RoleGuard>
+                <RequireAuth appUser={user}>
+                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                    <AppErrorBoundary>
+                      <Outlet />
+                    </AppErrorBoundary>
+                  </RoleGuard>
+                </RequireAuth>
               }
             >
               <Route index element={<Navigate to="/employee/dashboard" replace />} />

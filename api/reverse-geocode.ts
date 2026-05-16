@@ -1,3 +1,4 @@
+import { cachePublic, noCache } from './_shared/cache.js';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { getSecureCorsHeaders } from './_shared/security.js';
 
@@ -135,23 +136,27 @@ async function handler(request: Request): Promise<Response> {
   });
   try {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return noCache(new Response(null, { status: 204, headers: corsHeaders }));
     }
     if (request.method !== 'GET') {
-      return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders });
+      return noCache(Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders }));
     }
 
     const { searchParams } = resolveRequestUrl(request);
     const latRaw = searchParams.get('lat');
     const lonRaw = searchParams.get('lon') ?? searchParams.get('lng');
     if (latRaw == null || lonRaw == null) {
-      return Response.json({ error: 'Parâmetros lat e lon são obrigatórios.' }, { status: 400, headers: corsHeaders });
+      return noCache(
+        Response.json({ error: 'Parâmetros lat e lon são obrigatórios.' }, { status: 400, headers: corsHeaders }),
+      );
     }
 
     const lat = Number(latRaw);
     const lon = Number(lonRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      return Response.json({ error: 'lat e lon devem ser números válidos.' }, { status: 400, headers: corsHeaders });
+      return noCache(
+        Response.json({ error: 'lat e lon devem ser números válidos.' }, { status: 400, headers: corsHeaders }),
+      );
     }
 
     const geo = await Promise.race([
@@ -161,10 +166,21 @@ async function handler(request: Request): Promise<Response> {
       }),
     ]);
 
-    return Response.json(geo, { status: 200, headers: corsHeaders });
+    return cachePublic(Response.json(geo, { status: 200, headers: corsHeaders }), 86400, 604800);
   } catch (e) {
     console.error('Reverse geocode handler error:', e);
-    return Response.json({ address: '', address_parts: null, provider: 'nominatim', status: 'provider_error', response: { reason: 'handler_error', message: e instanceof Error ? e.message : String(e) } }, { status: 200, headers: corsHeaders });
+    return noCache(
+      Response.json(
+        {
+          address: '',
+          address_parts: null,
+          provider: 'nominatim',
+          status: 'provider_error',
+          response: { reason: 'handler_error', message: e instanceof Error ? e.message : String(e) },
+        },
+        { status: 200, headers: corsHeaders },
+      ),
+    );
   }
 }
 

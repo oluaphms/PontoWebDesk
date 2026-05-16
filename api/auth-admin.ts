@@ -13,6 +13,7 @@
 
 import { getSupabaseUrlForServer } from './_shared/getSupabaseConfig.js';
 import { z } from 'zod';
+import { noCache } from './_shared/cache.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
 
 console.log('[AUTH ADMIN LOADED]');
@@ -158,10 +159,12 @@ function authAdminResponse(
   if (isDebugRequest(request) && rawBodyForDebug) {
     out.debug = { receivedKeys: Object.keys(rawBodyForDebug) };
   }
-  return Response.json(out, {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  return noCache(
+    Response.json(out, {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }),
+  );
 }
 
 /** Formato B simplificado → create-user (Formato A). */
@@ -199,7 +202,7 @@ async function handleRequest(request: Request): Promise<Response> {
     allowHeaders: 'Content-Type, Authorization, x-debug',
   });
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return noCache(new Response(null, { status: 204, headers: corsHeaders }));
   }
   if (request.method !== 'POST') {
     return authAdminResponse(405, corsHeaders, request, {
@@ -623,13 +626,15 @@ async function handler(request: Request): Promise<Response> {
       allowMethods: 'POST, OPTIONS',
       allowHeaders: 'Content-Type, Authorization, x-debug',
     });
-    return Response.json(
-      {
-        success: false,
-        error: 'RUNTIME_ERROR',
-        detail: err.message,
-      },
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    return noCache(
+      Response.json(
+        {
+          success: false,
+          error: 'RUNTIME_ERROR',
+          detail: err.message,
+        },
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      ),
     );
   }
 }

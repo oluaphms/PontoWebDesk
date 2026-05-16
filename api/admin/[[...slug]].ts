@@ -27,15 +27,13 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
+import { noCache } from '../_shared/cache.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
 const CORS_BASE: Record<string, string> = {
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -61,7 +59,7 @@ function authOk(request: Request): boolean {
 
 function json(body: unknown, status = 200, headers: Record<string, string> = CORS_BASE): Response {
   console.log('[API RESPONSE]', '/api/admin', Date.now());
-  return Response.json(body, { status, headers });
+  return noCache(Response.json(body, { status, headers }));
 }
 
 function getSlug(url: URL): string[] {
@@ -624,7 +622,7 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
 
 async function handler(request: Request): Promise<Response> {
   const corsHeaders = buildCors(request);
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+  if (request.method === 'OPTIONS') return noCache(new Response(null, { status: 204, headers: corsHeaders }));
 
   if (request.method === 'POST' || request.method === 'PATCH' || request.method === 'PUT' || request.method === 'DELETE') {
     const blockedOrigin = requireTrustedOrigin(request, corsHeaders);

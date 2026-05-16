@@ -641,7 +641,7 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       await loadTodayState();
-      await queryClient.invalidateQueries({ queryKey: ['records'] });
+      await queryClient.invalidateQueries({ queryKey: ['records'] }, { force: true });
       invalidateAfterPunch(user.id, user.companyId);
       const label =
         persistenceType === 'intervalo_volta'

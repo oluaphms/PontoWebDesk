@@ -53,7 +53,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
       if (batchedTimer) return;
       batchedTimer = setTimeout(() => {
         batchedTimer = null;
-        queryClient.invalidateQueries({ queryKey: ['records', userId] });
+        queryClient.invalidateQueries({ queryKey: ['records', userId] }, { force: true });
         invalidateAfterPunch(userId, companyId);
       }, debounceMs);
     };
@@ -145,7 +145,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
         }
         syncedIds.push(item.id);
         // ✅ OTIMIZADO: Invalidar cache após sincronizar
-        queryClient.invalidateQueries({ queryKey: ['records', userId] });
+        queryClient.invalidateQueries({ queryKey: ['records', userId] }, { force: true });
         invalidateAfterPunch(userId, companyId);
       } catch (err) {
         // Se falhar, mantém na fila para tentar depois
@@ -197,7 +197,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
             data.justification
           );
       // ✅ OTIMIZADO: Invalidar cache após registrar ponto
-      queryClient.invalidateQueries({ queryKey: ['records', userId] });
+      queryClient.invalidateQueries({ queryKey: ['records', userId] }, { force: true });
       invalidateAfterPunch(userId, companyId);
       return newRecord;
     } catch (err: any) {

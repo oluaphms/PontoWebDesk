@@ -56,6 +56,7 @@ import type { RepExchangeOp, RepUserFromDevice } from '../../../../modules/rep-i
 import { upsertTimeClockDeviceMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import type { RepDeviceRowForMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { invalidateCompanyListCaches } from '../../../services/queryCache';
+import { invalidateRepPendingQueries } from '../../../lib/reactQueryInvalidation';
 import {
   isTimesheetClosed,
   logBlockedTimesheetMutation,
@@ -499,6 +500,7 @@ const AdminRepDevices: React.FC = () => {
       if (!syncRes.ok) {
         // Fallback operacional já existente no sistema (sync por dispositivo com sessão autenticada).
         await srRunReceivePunches('incremental');
+        if (user.companyId) invalidateRepPendingQueries(user.companyId);
         return;
       }
 
@@ -516,6 +518,7 @@ const AdminRepDevices: React.FC = () => {
         type: body.success === false ? 'error' : 'success',
         text: body.success === false ? 'Sincronização finalizou com falhas.' : 'Sincronização concluída.',
       });
+      if (user.companyId) invalidateRepPendingQueries(user.companyId);
       await loadDevices();
     } catch (e) {
       setMessage({ type: 'error', text: (e as Error).message });
@@ -860,6 +863,7 @@ const AdminRepDevices: React.FC = () => {
             }
           }
           invalidateCompanyListCaches(user.companyId);
+          if (user.companyId) invalidateRepPendingQueries(user.companyId);
         }
 
         const ingestPeriodClosed = Boolean(r.ingestErrors?.some((e) => isTimesheetPeriodClosedError(e)));
@@ -1146,6 +1150,7 @@ const AdminRepDevices: React.FC = () => {
         })(),
       });
       invalidateCompanyListCaches(user.companyId);
+      if (user.companyId) invalidateRepPendingQueries(user.companyId);
       await loadDevices();
     } catch (e) {
       appendSrLog(`Erro: ${(e as Error).message}`);

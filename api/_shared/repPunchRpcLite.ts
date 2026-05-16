@@ -7,6 +7,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js';
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
+import { noCache } from './cache.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
 type RepPunchBody = {
@@ -46,10 +47,12 @@ function jsonResponse(
   status: number,
   body: unknown,
 ): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...baseHeaders, 'Content-Type': 'application/json' },
-  });
+  return noCache(
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...baseHeaders, 'Content-Type': 'application/json' },
+    }),
+  );
 }
 
 type RpcRepIngestResult = {
@@ -597,7 +600,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     const headersJson = { ...cors, 'Content-Type': 'application/json' };
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: cors });
+      return noCache(new Response(null, { status: 204, headers: cors }));
     }
 
     if (request.method !== 'POST') {
@@ -675,12 +678,14 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     if (nsr !== undefined && nsr !== null && String(nsr).trim() !== '') {
       const n = Number(nsr);
       if (Number.isNaN(n)) {
-        return new Response(
-          JSON.stringify({
-            error: 'INVALID_NSR',
-            detail: nsr,
-          }),
-          { status: 400, headers: { ...headersJson } },
+        return noCache(
+          new Response(
+            JSON.stringify({
+              error: 'INVALID_NSR',
+              detail: nsr,
+            }),
+            { status: 400, headers: { ...headersJson } },
+          ),
         );
       }
       nsrNumber = Math.trunc(n);
@@ -927,16 +932,18 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       stack,
       elapsed_ms: Date.now() - startedAt,
     });
-    return new Response(
-      JSON.stringify({
-        error: 'REP_PUNCH_FATAL',
-        detail: message,
-        stack: stack ?? null,
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
-      },
+    return noCache(
+      new Response(
+        JSON.stringify({
+          error: 'REP_PUNCH_FATAL',
+          detail: message,
+          stack: stack ?? null,
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
+        },
+      ),
     );
   }
 }

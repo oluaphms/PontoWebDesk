@@ -1,3 +1,5 @@
+import { noCache } from '../_shared/cache.js';
+
 function extractRepSlug(request: Request): string {
   const url = new URL(request.url, 'https://local.invalid');
   const path = url.pathname.replace(/\/+$/, '');
@@ -11,9 +13,11 @@ function extractRepSlug(request: Request): string {
 async function handler(request: Request): Promise<Response> {
   const slug = extractRepSlug(request);
   if (!slug) {
-    return Response.json(
-      { error: 'Rota REP inválida' },
-      { status: 404, headers: { 'Content-Type': 'application/json' } },
+    return noCache(
+      Response.json(
+        { error: 'Rota REP inválida' },
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
   }
   if (slug === 'punch') {
@@ -22,9 +26,11 @@ async function handler(request: Request): Promise<Response> {
       return handleRepPunchRpcLite(request);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      return Response.json(
-        { error: 'REP_PUNCH_MODULE_LOAD_FAILED', detail },
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      return noCache(
+        Response.json(
+          { error: 'REP_PUNCH_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
       );
     }
   }

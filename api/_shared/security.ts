@@ -1,3 +1,5 @@
+import { noCache } from './cache.js';
+
 /**
  * Módulo de segurança centralizado para APIs serverless.
  *
@@ -152,12 +154,10 @@ export function getSecureCorsHeaders(
     console.warn(`[CORS] Origem bloqueada: ${requestOrigin}`);
   }
 
+  // Headers comuns; Cache-Control fica a cargo de cada endpoint (`api/_shared/cache.ts`).
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': options?.allowMethods || 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': options?.allowHeaders || 'Content-Type, Authorization',
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    Pragma: 'no-cache',
-    Expires: '0',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'X-XSS-Protection': '1; mode=block',
@@ -192,9 +192,11 @@ export function requireTrustedOrigin(
   corsHeaders: Record<string, string>,
 ): Response | null {
   if (isTrustedOrigin(request)) return null;
-  return Response.json(
-    { error: 'Origem não permitida.', code: 'FORBIDDEN_ORIGIN' },
-    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  return noCache(
+    Response.json(
+      { error: 'Origem não permitida.', code: 'FORBIDDEN_ORIGIN' },
+      { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    ),
   );
 }
 
