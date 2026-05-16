@@ -1,20 +1,27 @@
 ﻿/**
  * GET /api/operational-risk?company_id=...
- * Agrega alertas não resolvidos + SLA e devolve avaliação de risco.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
 import { resolveRequestUrl } from '../getRequestBaseUrl.js';
 import { getSupabaseConfig } from '../getSupabaseConfig.js';
 import { getCallerContext, isAdminOrHr } from '../callerContext.js';
 import { evaluateCompanyRisk } from '../../../modules/alerts/operationalRiskEngine';
+import {
+  createOperationalServiceClient,
+  degradedObjectResponse,
+  logOperationalApiError,
+  OPERATIONAL_QUERY_LIMIT,
+  verifyOperationalCoreTables,
+  withQueryTimeout,
+  isOperationalTimeoutError,
+} from '../operationalApiResilience.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
+const ROUTE = 'operational-risk';
 
 async function handler(request: Request): Promise<Response> {
-  const route = 'operational-risk';
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
@@ -40,29 +47,22 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const sp = resolveRequestUrl(request).searchParams;
-    const query = Object.fromEntries(sp.entries());
-    console.log('[OP API START]', { route, query });
+    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
     const companyId = sp.get('company_id')?.trim() || '';
     if (!companyId) {
       return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING');
-      return noCache(
-        Response.json(
-          { success: false, error: 'CONFIG_ERROR', detail: 'SUPABASE_SERVICE_ROLE_KEY missing' },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
     let url: string;
-    let serviceKey: string;
     try {
-      ({ url, serviceKey } = getSupabaseConfig());
+      ({ url } = getSupabaseConfig());
     } catch {
-      return noCache(Response.json({ success: false, error: 'SUPABASE_ENV_MISSING' }, { status: 500, headers: corsHeaders }));
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, 'SUPABASE_ENV_MISSING');
     }
 
     const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -70,19 +70,11 @@ async function handler(request: Request): Promise<Response> {
     const bearer = extractBearerToken(request);
     const useServiceRole = !!(apiKey && bearer && secureCompare(bearer, apiKey));
 
-    const supabase = createClient(url, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createOperationalServiceClient();
 
-    const { error: testError } = await supabase.from('operational_day_status').select('id').limit(1);
-    if (testError) {
-      console.error('[DB ERROR]', testError);
-      return noCache(
-        Response.json(
-          { success: false, error: 'DB_ERROR', detail: testError.message },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+    const schema = await verifyOperationalCoreTables(supabase);
+    if (!schema.ok) {
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, `missing_tables:${schema.missing.join(',')}`);
     }
 
     if (!useServiceRole) {
@@ -95,26 +87,29 @@ async function handler(request: Request): Promise<Response> {
       }
     }
 
-    const { data: alerts, error: aErr } = await supabase
-      .from('operational_alerts')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('resolved', false);
+    const { data: alerts, error: aErr } = await withQueryTimeout(
+      supabase
+        .from('operational_alerts')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('resolved', false)
+        .limit(OPERATIONAL_QUERY_LIMIT),
+      `${ROUTE}.alerts`,
+    );
 
     if (aErr) {
       console.error('[api/operational-risk] alerts', aErr);
-      return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, aErr.message);
     }
 
-    const { data: sla, error: sErr } = await supabase
-      .from('operational_sla_config')
-      .select('*')
-      .eq('company_id', companyId)
-      .maybeSingle();
+    const { data: sla, error: sErr } = await withQueryTimeout(
+      supabase.from('operational_sla_config').select('*').eq('company_id', companyId).maybeSingle(),
+      `${ROUTE}.sla`,
+    );
 
     if (sErr) {
       console.error('[api/operational-risk] sla', sErr);
-      return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, sErr.message);
     }
 
     const result = evaluateCompanyRisk({ alerts: alerts ?? [], sla: sla ?? null });
@@ -133,22 +128,11 @@ async function handler(request: Request): Promise<Response> {
     res = cachePrivate(res, 5);
     return res;
   } catch (error) {
-    console.error('[OPERATIONAL API ERROR]', {
-      route: request.url,
-      message: (error as { message?: string } | null)?.message,
-      stack: (error as { stack?: string } | null)?.stack,
-    });
-
-    return noCache(
-      Response.json(
-        {
-          success: false,
-          error: 'INTERNAL_ERROR',
-          detail: (error as { message?: string } | null)?.message,
-        },
-        { status: 500, headers: corsHeaders },
-      ),
-    );
+    logOperationalApiError(ROUTE, error);
+    if (isOperationalTimeoutError(error)) {
+      return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, (error as Error).message);
+    }
+    return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, (error as { message?: string } | null)?.message);
   }
 }
 

@@ -29,8 +29,10 @@ async function forward(
       stack: (error as { stack?: string } | null)?.stack,
     });
 
-    return noCacheJson(500, {
-      success: false,
+    return noCacheJson(200, {
+      success: true,
+      data: [],
+      degraded: true,
       error: 'INTERNAL_ERROR',
       detail: (error as { message?: string } | null)?.message,
     });

@@ -73,6 +73,7 @@ function patchAlertResolve(alertId: string) {
 describe('operationalTasks.integration — PATCH task complete', () => {
   beforeEach(() => {
     process.env.API_KEY = API_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'sk-test';
     riskMock.mockClear();
     mockFrom.mockReset();
   });
@@ -245,7 +246,10 @@ describe('operationalTasks.integration — PATCH task complete', () => {
     });
 
     const res = await tasksMod.fetch(patchTasksComplete('t3'));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success?: boolean; degraded?: boolean };
+    expect(body.success).toBe(false);
+    expect(body.degraded).toBe(true);
     const taskUpdates = mockFrom.mock.calls.filter((c) => c[0] === 'operational_tasks').length;
     expect(taskUpdates).toBeGreaterThanOrEqual(2);
   });
@@ -282,6 +286,7 @@ describe('operationalTasks.integration — PATCH task complete', () => {
 describe('operationalTasks.integration — PATCH alert resolve (fecha tasks)', () => {
   beforeEach(() => {
     process.env.API_KEY = API_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'sk-test';
     riskMock.mockClear();
     mockFrom.mockReset();
   });

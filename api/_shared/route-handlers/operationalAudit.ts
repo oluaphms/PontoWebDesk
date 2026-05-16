@@ -2,14 +2,23 @@
  * GET /api/operational-audit?company_id=...&entity_type=&entity_id=
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
 import { resolveRequestUrl } from '../getRequestBaseUrl.js';
 import { getSupabaseConfig } from '../getSupabaseConfig.js';
 import { getCallerContext, isAdminOrHr } from '../callerContext.js';
+import {
+  createOperationalServiceClient,
+  degradedListResponse,
+  fetchUserNamesByIds,
+  logOperationalApiError,
+  verifyOperationalCoreTables,
+  withQueryTimeout,
+  isOperationalTimeoutError,
+} from '../operationalApiResilience.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
+const ROUTE = 'operational-audit';
 
 type AuditRow = Record<string, unknown> & {
   id: string;
@@ -17,7 +26,6 @@ type AuditRow = Record<string, unknown> & {
 };
 
 async function handler(request: Request): Promise<Response> {
-  const route = 'operational-audit';
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
@@ -44,29 +52,22 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const reqUrl = resolveRequestUrl(request);
-    const query = Object.fromEntries(reqUrl.searchParams.entries());
-    console.log('[OP API START]', { route, query });
+    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(reqUrl.searchParams.entries()) });
     const companyId = reqUrl.searchParams.get('company_id')?.trim() || '';
     if (!companyId) {
       return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING');
-      return noCache(
-        Response.json(
-          { success: false, error: 'CONFIG_ERROR', detail: 'SUPABASE_SERVICE_ROLE_KEY missing' },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
     let url: string;
-    let serviceKey: string;
     try {
-      ({ url, serviceKey } = getSupabaseConfig());
+      ({ url } = getSupabaseConfig());
     } catch {
-      return noCache(Response.json({ success: false, error: 'SUPABASE_ENV_MISSING' }, { status: 500, headers: corsHeaders }));
+      return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_ENV_MISSING');
     }
 
     const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -74,19 +75,11 @@ async function handler(request: Request): Promise<Response> {
     const bearer = extractBearerToken(request);
     const useServiceRole = !!(apiKey && bearer && secureCompare(bearer, apiKey));
 
-    const supabase = createClient(url, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createOperationalServiceClient();
 
-    const { error: testError } = await supabase.from('operational_day_status').select('id').limit(1);
-    if (testError) {
-      console.error('[DB ERROR]', testError);
-      return noCache(
-        Response.json(
-          { success: false, error: 'DB_ERROR', detail: testError.message },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+    const schema = await verifyOperationalCoreTables(supabase);
+    if (!schema.ok) {
+      return degradedListResponse(corsHeaders, ROUTE, `missing_tables:${schema.missing.join(',')}`);
     }
 
     if (!useServiceRole) {
@@ -118,19 +111,20 @@ async function handler(request: Request): Promise<Response> {
       q = q.eq('entity_id', entityId);
     }
 
-    const { data: rows, error } = await q;
+    const { data: rows, error } = await withQueryTimeout(q, `${ROUTE}.list`);
 
     if (error) {
       console.error('[api/operational-audit]', error);
-      return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
+      return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 
     const list = (rows ?? []) as AuditRow[];
     const actorIds = [...new Set(list.map((r) => String(r.actor_id || '').trim()).filter(Boolean))];
     let actorNameById: Record<string, string | null> = {};
-    if (actorIds.length > 0) {
-      const { data: users } = await supabase.from('users').select('id,nome').eq('company_id', companyId).in('id', actorIds);
-      actorNameById = Object.fromEntries((users ?? []).map((u: { id: string; nome: string | null }) => [u.id, u.nome ?? null]));
+    try {
+      actorNameById = await fetchUserNamesByIds(supabase, companyId, actorIds);
+    } catch (nameErr) {
+      logOperationalApiError(`${ROUTE}.users`, nameErr);
     }
 
     const data = list.map((row) => ({
@@ -143,22 +137,11 @@ async function handler(request: Request): Promise<Response> {
     res = cachePrivate(res, 5);
     return res;
   } catch (error) {
-    console.error('[OPERATIONAL API ERROR]', {
-      route: request.url,
-      message: (error as { message?: string } | null)?.message,
-      stack: (error as { stack?: string } | null)?.stack,
-    });
-
-    return noCache(
-      Response.json(
-        {
-          success: false,
-          error: 'INTERNAL_ERROR',
-          detail: (error as { message?: string } | null)?.message,
-        },
-        { status: 500, headers: corsHeaders },
-      ),
-    );
+    logOperationalApiError(ROUTE, error);
+    if (isOperationalTimeoutError(error)) {
+      return degradedListResponse(corsHeaders, ROUTE, (error as Error).message);
+    }
+    return degradedListResponse(corsHeaders, ROUTE, (error as { message?: string } | null)?.message);
   }
 }
 

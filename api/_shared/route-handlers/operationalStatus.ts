@@ -1,23 +1,31 @@
 ﻿/**
  * GET /api/operational-status?company_id=...&date=YYYY-MM-DD (opcional)
- * Lista snapshots consolidados; valida API_KEY (service) ou sessão admin/RH do mesmo tenant.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { cachePrivate, noCache, varyAuthorization } from '../cache.js';
 import { getSecureCorsHeaders, checkRateLimit, getClientIP, extractBearerToken, secureCompare } from '../security.js';
 import { resolveRequestUrl } from '../getRequestBaseUrl.js';
 import { getSupabaseConfig } from '../getSupabaseConfig.js';
 import { getCallerContext, isAdminOrHr } from '../callerContext.js';
+import {
+  createOperationalServiceClient,
+  degradedListResponse,
+  fetchUserNamesByIds,
+  logOperationalApiError,
+  OPERATIONAL_QUERY_LIMIT,
+  verifyOperationalCoreTables,
+  withQueryTimeout,
+  isOperationalTimeoutError,
+} from '../operationalApiResilience.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
+const ROUTE = 'operational-status';
 
 type OperationalStatusRow = Record<string, unknown> & {
   employee_id: string;
 };
 
 async function handler(request: Request): Promise<Response> {
-  const route = 'operational-status';
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: ALLOWED_METHODS,
     allowHeaders: 'Content-Type, Authorization',
@@ -43,8 +51,7 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const sp = resolveRequestUrl(request).searchParams;
-    const query = Object.fromEntries(sp.entries());
-    console.log('[OP API START]', { route, query });
+    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
 
     const companyId = sp.get('company_id')?.trim() || '';
     const date = sp.get('date')?.trim() || null;
@@ -54,21 +61,15 @@ async function handler(request: Request): Promise<Response> {
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING');
-      return noCache(
-        Response.json(
-          { success: false, error: 'CONFIG_ERROR', detail: 'SUPABASE_SERVICE_ROLE_KEY missing' },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
     let url: string;
-    let serviceKey: string;
     try {
-      ({ url, serviceKey } = getSupabaseConfig());
+      ({ url } = getSupabaseConfig());
     } catch {
-      return noCache(Response.json({ success: false, error: 'SUPABASE_ENV_MISSING' }, { status: 500, headers: corsHeaders }));
+      return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_ENV_MISSING');
     }
 
     const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -76,19 +77,12 @@ async function handler(request: Request): Promise<Response> {
     const bearer = extractBearerToken(request);
     const useServiceRole = !!(apiKey && bearer && secureCompare(bearer, apiKey));
 
-    const supabase = createClient(url, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createOperationalServiceClient();
 
-    const { error: testError } = await supabase.from('operational_day_status').select('id').limit(1);
-    if (testError) {
-      console.error('[DB ERROR]', testError);
-      return noCache(
-        Response.json(
-          { success: false, error: 'DB_ERROR', detail: testError.message },
-          { status: 500, headers: corsHeaders },
-        ),
-      );
+    const schema = await verifyOperationalCoreTables(supabase);
+    if (!schema.ok) {
+      console.error('[DB SCHEMA]', { route: ROUTE, missing: schema.missing });
+      return degradedListResponse(corsHeaders, ROUTE, `missing_tables:${schema.missing.join(',')}`);
     }
 
     if (!useServiceRole) {
@@ -106,24 +100,25 @@ async function handler(request: Request): Promise<Response> {
       .select('*')
       .eq('company_id', companyId)
       .order('date', { ascending: false })
-      .limit(100);
+      .limit(OPERATIONAL_QUERY_LIMIT);
 
     if (date) {
       q = q.eq('date', date);
     }
 
-    const { data: rows, error } = await q;
+    const { data: rows, error } = await withQueryTimeout(q, `${ROUTE}.list`);
     if (error) {
       console.error('[api/operational-status]', error);
-      return noCache(Response.json({ success: false, error: 'DB_ERROR' }, { status: 500, headers: corsHeaders }));
+      return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 
     const list = (rows ?? []) as OperationalStatusRow[];
     const ids = [...new Set(list.map((r) => String(r.employee_id || '').trim()).filter(Boolean))];
     let nameById: Record<string, string | null> = {};
-    if (ids.length > 0) {
-      const { data: users } = await supabase.from('users').select('id,nome').eq('company_id', companyId).in('id', ids);
-      nameById = Object.fromEntries((users ?? []).map((u: { id: string; nome: string | null }) => [u.id, u.nome ?? null]));
+    try {
+      nameById = await fetchUserNamesByIds(supabase, companyId, ids);
+    } catch (nameErr) {
+      logOperationalApiError(`${ROUTE}.users`, nameErr);
     }
 
     const data = list.map((row) => ({
@@ -136,22 +131,11 @@ async function handler(request: Request): Promise<Response> {
     res = cachePrivate(res, 5);
     return res;
   } catch (error) {
-    console.error('[OPERATIONAL API ERROR]', {
-      route: request.url,
-      message: (error as { message?: string } | null)?.message,
-      stack: (error as { stack?: string } | null)?.stack,
-    });
-
-    return noCache(
-      Response.json(
-        {
-          success: false,
-          error: 'INTERNAL_ERROR',
-          detail: (error as { message?: string } | null)?.message,
-        },
-        { status: 500, headers: corsHeaders },
-      ),
-    );
+    logOperationalApiError(ROUTE, error);
+    if (isOperationalTimeoutError(error)) {
+      return degradedListResponse(corsHeaders, ROUTE, (error as Error).message);
+    }
+    return degradedListResponse(corsHeaders, ROUTE, (error as { message?: string } | null)?.message);
   }
 }
 
