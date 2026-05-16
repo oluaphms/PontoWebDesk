@@ -3,21 +3,38 @@
  * Replica URLs legadas /api/operational-foo antes de delegar aos handlers.
  */
 
-import operationalStatus from './route-handlers/operationalStatus.js';
-import operationalRisk from './route-handlers/operationalRisk.js';
-import operationalAlerts from './route-handlers/operationalAlerts.js';
-import operationalTasks from './route-handlers/operationalTasks.js';
-import operationalAudit from './route-handlers/operationalAudit.js';
-import operationalTimeline from './route-handlers/operationalTimeline.js';
-
 function withPathname(request: Request, pathname: string): Request {
   const u = new URL(request.url);
   u.pathname = pathname;
   return new Request(u.toString(), request);
 }
 
-function forward(mod: { fetch: (r: Request) => Promise<Response> }, request: Request, legacyPath: string): Promise<Response> {
-  return mod.fetch(withPathname(request, legacyPath));
+async function forward(
+  modulePath: string,
+  request: Request,
+  legacyPath: string,
+  route: string,
+): Promise<Response> {
+  try {
+    const loaded = (await import(modulePath)) as { default?: { fetch?: (r: Request) => Promise<Response> } };
+    const mod = loaded?.default;
+    if (!mod?.fetch) throw new Error(`INVALID_HANDLER_MODULE:${modulePath}`);
+    return mod.fetch(withPathname(request, legacyPath));
+  } catch (error) {
+    console.error('[OPERATIONAL DISPATCH ERROR]', {
+      route,
+      requestUrl: request.url,
+      modulePath,
+      message: (error as { message?: string } | null)?.message,
+      stack: (error as { stack?: string } | null)?.stack,
+    });
+
+    return noCacheJson(500, {
+      success: false,
+      error: 'INTERNAL_ERROR',
+      detail: (error as { message?: string } | null)?.message,
+    });
+  }
 }
 
 /** Devolve resposta ou null se o caminho não for operacional. */
@@ -31,32 +48,32 @@ export async function dispatchOperationalRequest(request: Request): Promise<Resp
   const segs = rest.split('/').filter(Boolean);
 
   if (segs.length === 1 && segs[0] === 'status') {
-    return forward(operationalStatus, request, `/api/operational-status${u.search}`);
+    return forward('./route-handlers/operationalStatus.js', request, `/api/operational-status${u.search}`, 'status');
   }
   if (segs.length === 1 && segs[0] === 'risk') {
-    return forward(operationalRisk, request, `/api/operational-risk${u.search}`);
+    return forward('./route-handlers/operationalRisk.js', request, `/api/operational-risk${u.search}`, 'risk');
   }
   if (segs.length === 1 && segs[0] === 'audit') {
-    return forward(operationalAudit, request, `/api/operational-audit${u.search}`);
+    return forward('./route-handlers/operationalAudit.js', request, `/api/operational-audit${u.search}`, 'audit');
   }
   if (segs.length === 1 && segs[0] === 'timeline') {
-    return forward(operationalTimeline, request, `/api/operational-timeline${u.search}`);
+    return forward('./route-handlers/operationalTimeline.js', request, `/api/operational-timeline${u.search}`, 'timeline');
   }
 
   if (segs.length === 1 && segs[0] === 'alerts') {
-    return forward(operationalAlerts, request, `/api/operational-alerts${u.search}`);
+    return forward('./route-handlers/operationalAlerts.js', request, `/api/operational-alerts${u.search}`, 'alerts');
   }
   if (segs.length === 3 && segs[0] === 'alerts' && segs[2] === 'resolve') {
     const id = encodeURIComponent(segs[1]);
-    return forward(operationalAlerts, request, `/api/operational-alerts/${id}/resolve${u.search}`);
+    return forward('./route-handlers/operationalAlerts.js', request, `/api/operational-alerts/${id}/resolve${u.search}`, 'alerts-resolve');
   }
 
   if (segs.length === 1 && segs[0] === 'tasks') {
-    return forward(operationalTasks, request, `/api/operational-tasks${u.search}`);
+    return forward('./route-handlers/operationalTasks.js', request, `/api/operational-tasks${u.search}`, 'tasks');
   }
   if (segs.length === 3 && segs[0] === 'tasks' && segs[2] === 'complete') {
     const id = encodeURIComponent(segs[1]);
-    return forward(operationalTasks, request, `/api/operational-tasks/${id}/complete${u.search}`);
+    return forward('./route-handlers/operationalTasks.js', request, `/api/operational-tasks/${id}/complete${u.search}`, 'tasks-complete');
   }
 
   return noCacheJson(404, { success: false, error: 'NOT_FOUND' });
