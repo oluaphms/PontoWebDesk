@@ -413,6 +413,7 @@ const RequestsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpSlug="solicitacoes"
         title="Solicitações"
         subtitle={
           isAdminView

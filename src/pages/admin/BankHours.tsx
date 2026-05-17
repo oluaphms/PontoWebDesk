@@ -212,6 +212,8 @@ const AdminBankHours: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpSlug="banco-de-horas"
+        helpSection="como-funciona"
         title="Banco de Horas"
         subtitle="Ledger atual (FIFO) e registros legados; fechamento mensal quando existir."
         icon={<Scale className="w-5 h-5" />}

@@ -349,6 +349,7 @@ const AdminJustificativas: React.FC = () => {
           subtitle="Cadastro para Cartão Ponto e ajustes. Nome curto típico: AT MEDI, FERIADO, FÉRIAS, FOLGA, L.MATER, LUTO, T.EXTER."
           icon={<FileCheck size={24} />}
           actions={toolbar}
+          helpSlug="justificativas"
         />
 
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden">

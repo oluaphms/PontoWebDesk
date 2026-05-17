@@ -1138,7 +1138,7 @@ const AdminTimesheet: React.FC = () => {
 
   return (
     <div className="space-y-6 print:space-y-4">
-      <PageHeader title="Espelho de Ponto" />
+      <PageHeader title="Espelho de Ponto" helpSlug="espelho-de-ponto" helpSection="como-funciona" />
 
       {/* FILTROS — layout original (departamento → colaborador → período) */}
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm backdrop-blur-sm print:border print:shadow-none">

@@ -141,6 +141,7 @@ const AdminJobTitles: React.FC = () => {
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
+            helpSlug="cargos"
             title="Cargos"
             subtitle="Cadastre cargos para atribuir aos funcionários"
             icon={<Briefcase size={24} />}

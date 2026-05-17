@@ -1,0 +1,42 @@
+---
+description: Bundle operacional único — useOperationalBundle (P0)
+globs: src/components/help/**/*,src/pages/admin/Dashboard.tsx,src/pages/admin/OperationalIntelligence.tsx
+alwaysApply: false
+---
+
+# OPERATIONAL BUNDLE RULE — Dados operacionais (P0)
+
+## Fonte única
+
+`src/hooks/useOperationalBundle.ts` — **single source of truth** para alerts, tasks, status, risk, insights, maturity e diagnostics.
+
+## Nunca fazer em componentes
+
+```ts
+// ❌ PROIBIDO em src/components/help/*
+const [alertsQ, ...] = useQueries({ ... fetchOperationalAlerts ... });
+const maturity = computeOperationalMaturity(...);
+const diagnostics = analyzeOperationalState(...);
+```
+
+## Sempre fazer
+
+```ts
+// ✅ Na página (Dashboard, Inteligência Operacional)
+const op = useOperationalBundle(companyId, totalEmployees);
+
+<OperationalMaturityCard bundle={op} />
+<OperationalDiagnosticPanel bundle={op} maxItems={3} />
+<MisuseWarningsPanel bundle={op} />
+```
+
+## Exceções permitidas
+
+- `useOperationalBundle.ts` (implementação)
+- `helpSnapshotCollector.ts`, `helpImpactConnector.ts` (export/relatório)
+- `HelpDebugPanel.tsx` (modo debug admin)
+- Painéis de dashboard operacional em `src/components/dashboard/*` (domínio separado)
+
+## ESLint
+
+Imports de `fetchOperationalAlerts`, `computeOperationalMaturity`, `useQueries` em `src/components/help/**` são bloqueados pelo lint (ver `eslint/p0-guardrails.mjs`).

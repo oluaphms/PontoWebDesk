@@ -162,6 +162,7 @@ const AdminReports: React.FC = () => {
         title="Relatórios"
         subtitle="Relatórios analíticos e leituras resumidas para auditoria."
         icon={<BarChart3 className="w-5 h-5" />}
+        helpSlug="relatorios"
       />
 
       <div className="space-y-10">

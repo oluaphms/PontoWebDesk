@@ -263,6 +263,7 @@ const AdminEstruturas: React.FC = () => {
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
+            helpSlug="estruturas"
             title="Estruturas"
             subtitle="Cadastro do organograma (cadeia de comando). Utilizado para filtro de relatórios. Vincule a pessoa em Cadastro > Funcionários."
             icon={<GitBranch size={24} />}

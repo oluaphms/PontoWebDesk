@@ -389,7 +389,7 @@ const AdminShifts: React.FC = () => {
         </div>
       )}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <PageHeader title="Cadastro de Horários" />
+        <PageHeader title="Cadastro de Horários" helpSlug="horarios" />
         <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
           <Plus className="w-5 h-5" /> Incluir horário
         </button>

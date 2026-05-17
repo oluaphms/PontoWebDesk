@@ -67,7 +67,8 @@ import { useSettings, SettingsProvider } from './src/contexts/SettingsContext';
 import { useLanguage } from './src/contexts/LanguageContext';
 import { i18n } from './lib/i18n';
 import { useSessionTimeout } from './src/hooks/useSessionTimeout';
-import { readCachedUser } from './src/hooks/useCurrentUser';
+import { AuthSessionProvider, readCachedSessionUser } from './src/contexts/AuthSessionProvider';
+import { useAuth } from './src/hooks/useAuth';
 import { withTimeout } from './src/utils/withTimeout';
 import {
   authFlowReducer,
@@ -107,6 +108,7 @@ import {
   AbsencesPage,
   AcceptInviteRoute,
   AdminAjuda,
+  AdminInteligenciaOperacional,
   AdminMetricasProduto,
   AdminArquivarCalculos,
   AdminAusencias,
@@ -252,7 +254,7 @@ const MANUAL_LOGIN_UI_TIMEOUT_MS = 55_000;
 const MANUAL_LOGIN_WATCHDOG_HARD_MS = MANUAL_LOGIN_UI_TIMEOUT_MS + 8_000;
 
 const AppMain: React.FC = () => {
-  const [user, setUser] = useState<User | null>(() => readCachedUser());
+  const { user, setSessionUser, clearSession } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [insights, setInsights] = useState<{ insight: string, score: number } | null>(null);
   /** Evita múltiplas chamadas à API quando `fetchInsights` é recriado ou o efeito reexecuta. */
@@ -268,7 +270,7 @@ const AppMain: React.FC = () => {
     if (!checkSupabaseConfigured()) return false;
     // Só mostrar loading inicial se usuário marcou "lembrar-me"
     const rememberMe = typeof window !== 'undefined' && localStorage.getItem('pontowebdesk_remember_me') === 'true';
-    return rememberMe && readCachedUser() != null;
+    return rememberMe && readCachedSessionUser() != null;
   });
   const [company, setCompany] = useState<Company | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
@@ -425,7 +427,7 @@ const AppMain: React.FC = () => {
       const ce = e as CustomEvent<User>;
       const next = ce.detail;
       if (!next?.id) return;
-      setUser((prev) => (prev?.id === next.id ? next : prev));
+      setSessionUser((prev) => (prev?.id === next.id ? next : prev));
     };
     window.addEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
     return () => window.removeEventListener(SMARTPONTO_PROFILE_ENRICHED_EVENT, onEnrich);
@@ -511,7 +513,7 @@ const AppMain: React.FC = () => {
         });
 
         if (isMounted && currentUser) {
-          setUser(currentUser);
+          setSessionUser(currentUser);
           beginPostLoginRequestBudgetWindow('session_restored');
           scheduleDeferredBootstrap('init_company', async () => {
             try {
@@ -602,7 +604,7 @@ const AppMain: React.FC = () => {
                 } catch {
                   // ignora
                 }
-                setUser(null);
+                clearSession();
                 setCompany(null);
                 window.dispatchEvent(new Event('current_user_changed'));
                 roleMismatchHandlingRef.current = false;
@@ -616,7 +618,7 @@ const AppMain: React.FC = () => {
             // Sincroniza sempre com a sessão do Supabase (TOKEN_REFRESHED, SIGNED_IN, etc.).
             // A flag de logout em authService evita corrida com signOut; não bloquear aqui —
             // bloquear quando `current === null` impedia recuperar sessão válida após eventos tardios.
-            setUser(authUser);
+            setSessionUser(authUser);
             alreadyAuthenticatedRef.current = true;
             dispatchAuthFlow({
               type: 'AUTHENTICATED',
@@ -639,7 +641,7 @@ const AppMain: React.FC = () => {
               pipelineId,
               authUserExists: false,
             });
-            setUser(null);
+            clearSession();
             setCompany(null);
             alreadyAuthenticatedRef.current = false;
             dispatchAuthFlow({ type: 'RESET' });
@@ -944,7 +946,7 @@ const AppMain: React.FC = () => {
       } catch {
         // ignora
       }
-      setUser(null);
+      clearSession();
       setCompany(null);
       window.dispatchEvent(new Event('current_user_changed'));
     };
@@ -1064,7 +1066,7 @@ const AppMain: React.FC = () => {
           pendingLoginRoleRef.current = null;
           return false;
         }
-        setUser(hydratedUser);
+        setSessionUser(hydratedUser);
         beginPostLoginRequestBudgetWindow('manual_login_hydrated');
         alreadyAuthenticatedRef.current = true;
         setIsInitialLoading(false);
@@ -1287,7 +1289,7 @@ const AppMain: React.FC = () => {
             : '/employee/dashboard';
 
         flushSync(() => {
-          setUser(result.user);
+          setSessionUser(result.user);
           alreadyAuthenticatedRef.current = true;
           setIsInitialLoading(false);
           if (typeof console !== 'undefined' && import.meta.env.DEV) {
@@ -1490,7 +1492,7 @@ const AppMain: React.FC = () => {
           setLoginError(getRoleMismatchMessageForLogin(selectedRole));
           return;
         }
-        setUser(hydrated);
+        setSessionUser(hydrated);
         setIsInitialLoading(false);
         const targetRoute =
           hydrated.role === 'admin' || hydrated.role === 'hr'
@@ -1571,7 +1573,7 @@ const AppMain: React.FC = () => {
             const u = await withTimeout(authService.getCurrentUser(), 8000, 'foreground_resume_hydrate');
             if (u) {
               flushSync(() => {
-                setUser(u);
+                setSessionUser(u);
                 alreadyAuthenticatedRef.current = true;
                 setIsInitialLoading(false);
               });
@@ -1612,7 +1614,7 @@ const AppMain: React.FC = () => {
   const handleLogout = useCallback(async () => {
     // Zera o estado React imediatamente — evita qualquer re-render com usuário ainda presente
     // enquanto o signOut assíncrono ainda está em andamento.
-    setUser(null);
+    clearSession();
     setCompany(null);
     setInsights(null);
     insightsAutoFetchDoneRef.current = false;
@@ -1838,7 +1840,7 @@ const AppMain: React.FC = () => {
       p === '/locations' ||
       p === '/devices';
     if (wantsAuthPortal) {
-      return <RequireAuth appUser={user} />;
+      return <RequireAuth />;
     }
 
     return (
@@ -2014,13 +2016,7 @@ const AppMain: React.FC = () => {
 
   if (isPortalRoute) {
     return (
-      <LayoutComponent
-        user={user}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onLogout={handleLogout}
-        operationalChromeReady={portalChromeReady}
-      >
+      <LayoutComponent onLogout={handleLogout} operationalChromeReady={portalChromeReady}>
         <React.Suspense
           key={`route-load-${routeLoadAttempt}`}
           fallback={<RouteLoadingFallback message="Carregando página..." onRetry={handleRouteRetry} />}
@@ -2030,7 +2026,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/admin"
               element={
-                <RequireAuth appUser={user}>
+                <RequireAuth>
                   <RoleGuard user={user} allowedRoles={['admin', 'hr']} redirectTo="/employee/dashboard">
                     <AppErrorBoundary>
                       <Outlet />
@@ -2100,6 +2096,7 @@ const AppMain: React.FC = () => {
               <Route path="reports/security" element={<ReportSecurity />} />
               <Route path="bank-hours" element={<AdminBankHours />} />
               <Route path="ajuda" element={<AdminAjuda />} />
+              <Route path="inteligencia-operacional" element={<AdminInteligenciaOperacional />} />
               <Route path="metricas-produto" element={<AdminMetricasProduto />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
@@ -2107,7 +2104,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/employee"
               element={
-                <RequireAuth appUser={user}>
+                <RequireAuth>
                   <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
                     <AppErrorBoundary>
                       <Outlet />
@@ -2225,13 +2222,7 @@ const AppMain: React.FC = () => {
   }
 
   return (
-    <Layout
-      user={user}
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      onLogout={handleLogout}
-      operationalChromeReady={portalChromeReady}
-    >
+    <Layout onLogout={handleLogout} operationalChromeReady={portalChromeReady}>
       {showOnboarding && (
         <Onboarding
           onComplete={() => {
@@ -2646,10 +2637,12 @@ const AppContent: React.FC = () =>
   ) : (
     <QueryClientProvider client={queryClient}>
       <SettingsProvider>
-        <Profiler id="AppMain" onRender={appMainProfilerOnRender}>
-          <AppMain />
-        </Profiler>
-        <DeferredSchemaGuardBadge />
+        <AuthSessionProvider>
+          <Profiler id="AppMain" onRender={appMainProfilerOnRender}>
+            <AppMain />
+          </Profiler>
+          <DeferredSchemaGuardBadge />
+        </AuthSessionProvider>
       </SettingsProvider>
     </QueryClientProvider>
   );

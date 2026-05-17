@@ -1,27 +1,27 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import type { User } from '../../../types';
+import { useAuth } from '../../hooks/useAuth';
 
 export type AllowedRole = 'employee' | 'admin' | 'hr' | 'supervisor';
 
 export interface RoleGuardProps {
-  user: User | null;
+  /** @deprecated Use sessão via `useAuth()` — mantido para compatibilidade pontual. */
+  user?: User | null;
   allowedRoles: AllowedRole[];
   children: React.ReactNode;
   redirectTo?: string;
 }
 
-/**
- * Redireciona usuários que não têm permissão para a rota.
- * Se user.role === 'employee' e a rota é apenas para admin/hr, redireciona.
- */
 const RoleGuard: React.FC<RoleGuardProps> = ({
-  user,
+  user: userProp,
   allowedRoles,
   children,
   redirectTo = '/employee/dashboard',
 }) => {
   const location = useLocation();
+  const { user: sessionUser } = useAuth();
+  const user = userProp ?? sessionUser;
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location }} />;

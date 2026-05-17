@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '../../../types';
 import { LoadingState } from '../../../components/UI';
+import { useAuth } from '../../hooks/useAuth';
 import { getSupabaseClient } from '../../lib/supabaseClient';
 import { checkSupabaseConfigured, clearBrokenSession } from '../../../services/supabase';
 
@@ -22,8 +23,8 @@ function isInvalidRefreshLikeMessage(msg: string): boolean {
 }
 
 export type RequireAuthProps = {
-  /** Utilizador da aplicação (perfil); quando preenchido, liberta filhos. */
-  appUser: User | null;
+  /** @deprecated Perfil vem de `useAuth()` — mantido para compatibilidade. */
+  appUser?: User | null;
   children?: React.ReactNode;
 };
 
@@ -31,9 +32,11 @@ export type RequireAuthProps = {
  * Única gate de sessão Supabase: getSession, loading, refresh inválido e redirect para /login (SPA).
  * RBAC fica em RoleGuard nos filhos.
  */
-const RequireAuth: React.FC<RequireAuthProps> = ({ appUser, children }) => {
+const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, children }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user: sessionUser } = useAuth();
+  const appUser = appUserProp ?? sessionUser;
   const [sessionChecked, setSessionChecked] = useState(false);
   const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
   const [profileWaitExpired, setProfileWaitExpired] = useState(false);

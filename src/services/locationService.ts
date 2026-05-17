@@ -13,6 +13,7 @@ import {
 } from '../domain/operational/cache/tenantCacheIsolation';
 import { appendOperationalTraceSpan, beginOperationalTrace, failOperationalTrace, finalizeOperationalTrace } from '../domain/operational/tracing';
 import { recordOperationalMetric } from '../domain/operational/metrics';
+import { getSessionTenantScope } from '../auth/sessionAccess';
 
 export interface GeoPosition {
   latitude: number;
@@ -91,17 +92,7 @@ function readCurrentUserScope(): TenantScope {
   if (typeof window === 'undefined') {
     return { companyId: 'no-company', userId: 'no-user' };
   }
-  try {
-    const raw = localStorage.getItem('current_user');
-    if (!raw) return { companyId: 'no-company', userId: 'no-user' };
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const companyId = String(parsed.companyId ?? parsed.company_id ?? parsed.tenantId ?? '').trim() || 'no-company';
-    const userId = String(parsed.id ?? '').trim() || 'no-user';
-    const role = String(parsed.role ?? '').trim() || undefined;
-    return { companyId, userId, role };
-  } catch {
-    return { companyId: 'no-company', userId: 'no-user' };
-  }
+  return getSessionTenantScope();
 }
 
 function buildGeoStorageKeys(position: GeoPosition) {

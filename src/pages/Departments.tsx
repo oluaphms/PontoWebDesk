@@ -159,6 +159,7 @@ const DepartmentsPage: React.FC = () => {
             title="Departamentos"
             subtitle="Cadastro de departamentos para fins de cadastro de pessoas. Nº Folha pode ser exportado no arquivo de cálculos."
             icon={<Building2 size={24} />}
+            helpSlug="departamentos"
           />
           <button
             type="button"

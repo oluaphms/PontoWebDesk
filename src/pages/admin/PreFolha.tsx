@@ -283,6 +283,7 @@ const AdminPreFolha: React.FC = () => {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
+            helpSlug="pre-folha"
             title="Pré-Folha de Jornada"
             subtitle="Cálculo de horas trabalhadas, extras, faltas e noturnas para exportação. Não calcula valores monetários."
             icon={<Calculator size={24} />}

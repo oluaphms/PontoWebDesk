@@ -228,6 +228,7 @@ const AdminSettings: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader
+        helpSlug="configuracoes"
         title={i18n.t('settings.title')}
         subtitle={i18n.t('settings.subtitleAdmin')}
       />

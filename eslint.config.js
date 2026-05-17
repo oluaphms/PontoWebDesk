@@ -2,6 +2,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
+import { p0AuthSessionRule, p0OperationalBundleRule } from './eslint/p0-guardrails.mjs';
 
 /** Pastas geradas / backend / ferramentas — fora do escopo do lint de app React. */
 const ignores = [
@@ -58,4 +59,8 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'error',
     },
   },
+  /** P0: bloqueia leitura direta de current_user fora da camada de auth. */
+  p0AuthSessionRule,
+  /** P0: congela useOperationalBundle como única fonte em componentes help. */
+  p0OperationalBundleRule,
 );

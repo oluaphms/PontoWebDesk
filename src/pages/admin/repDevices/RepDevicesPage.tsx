@@ -2221,6 +2221,7 @@ const AdminRepDevices: React.FC = () => {
         title="Relógios REP"
         subtitle="Gerenciamento e coleta de marcações via agente local"
         icon={<Clock size={24} />}
+        helpSlug="relogios-rep"
         actions={
           <div className={repPageUi.c128}>
             <Button

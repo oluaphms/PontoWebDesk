@@ -124,6 +124,7 @@ const AdminImportRep: React.FC = () => {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
       <PageHeader
+        helpSlug="importar-afd"
         title="Importar AFD / REP"
         subtitle="Envie arquivo AFD, TXT ou CSV com marcações do relógio de ponto"
         icon={<Upload size={24} />}

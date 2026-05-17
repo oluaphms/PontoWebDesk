@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User } from '../types';
+import type { User } from '../types';
+import { useAuth } from '../src/hooks/useAuth';
 import { Bell, Search, Sun, Moon } from 'lucide-react';
 import NotificationCenter from './NotificationCenter';
 import { NotificationService } from '../services/notificationService';
@@ -34,15 +35,17 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({
-  user,
+  user: userProp,
   children,
-  activeTab,
-  setActiveTab,
   onLogout,
   layoutVariant,
   operationalChromeReady = true,
 }) => {
   const navigate = useNavigate();
+  const { user: sessionUser } = useAuth();
+  const user = userProp ?? sessionUser;
+  if (!user) return null;
+
   const tenantId = resolveTenantId(user);
   const auditNavEnabled =
     operationalChromeReady && (user?.role === 'admin' || user?.role === 'hr');

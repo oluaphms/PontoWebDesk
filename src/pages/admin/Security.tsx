@@ -191,6 +191,7 @@ export default function AdminSecurity() {
   return (
     <div className="space-y-8">
       <PageHeader
+        helpSlug="seguranca-antifraude"
         title="Segurança e Antifraude"
         subtitle="Registros suspeitos, alertas e mapa de marcações"
         icon={<ShieldAlert className="w-5 h-5" />}

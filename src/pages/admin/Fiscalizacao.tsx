@@ -103,6 +103,7 @@ export default function AdminFiscalizacao() {
   return (
     <div className="space-y-8">
       <PageHeader
+        helpSlug="fiscalizacao-rep-p"
         title="Fiscalização REP-P"
         subtitle="Exportações e validação de integridade conforme Portaria 671/2021"
       />

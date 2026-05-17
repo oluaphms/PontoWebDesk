@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useAuth } from '../../hooks/useAuth';
 import PageHeader from '../../components/PageHeader';
 import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
@@ -45,7 +45,7 @@ function Label({
 }
 
 const AdminCompany: React.FC = () => {
-  const { user, loading } = useCurrentUser();
+  const { user, loading, setSessionUser } = useAuth();
   const [form, setForm] = useState({
     name: '',
     cnpj: '',
@@ -330,17 +330,25 @@ const AdminCompany: React.FC = () => {
           } catch (linkErr) {
             console.error('Erro ao vincular usuário à empresa:', linkErr);
           }
-          try {
-            const store = getUserProfileStorage();
-            const stored = store.getItem('current_user');
-            if (stored) {
-              const parsed = JSON.parse(stored);
-              parsed.companyId = idToUse;
-              parsed.tenantId = idToUse;
-              store.setItem('current_user', JSON.stringify(parsed));
+          if (user) {
+            setSessionUser({ ...user, companyId: idToUse, tenantId: idToUse });
+            try {
+              getUserProfileStorage().setItem(
+                'current_user',
+                JSON.stringify({
+                  id: user.id,
+                  email: user.email,
+                  nome: user.nome,
+                  cargo: user.cargo,
+                  role: user.role,
+                  companyId: idToUse,
+                  tenantId: idToUse,
+                }),
+              );
+              window.dispatchEvent(new Event('current_user_changed'));
+            } catch (err) {
+              console.warn('[Company] Falha ao atualizar cache local de usuário:', err);
             }
-          } catch (err) {
-            console.warn('[Company] Falha ao atualizar cache local de usuário:', err);
           }
           clearTenantMetadataSyncCache();
         }
@@ -370,7 +378,7 @@ const AdminCompany: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Empresa" />
+      <PageHeader title="Empresa" helpSlug="empresa" />
       {message && (
         <div
           className={`p-4 rounded-xl ${message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'} text-sm`}

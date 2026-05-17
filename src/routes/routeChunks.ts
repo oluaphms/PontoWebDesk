@@ -86,6 +86,7 @@ const RAW_ROUTE_LOADERS: Record<string, RouteLoader> = {
   '/admin/reports/security': () => import('../pages/admin/reports/ReportSecurity'),
   '/admin/bank-hours': () => import('../pages/admin/BankHours'),
   '/admin/ajuda': () => import('../pages/admin/Ajuda'),
+  '/admin/inteligencia-operacional': () => import('../pages/admin/OperationalIntelligence'),
   '/admin/settings': () => import('../pages/admin/Settings'),
   '/admin/metricas-produto': () => import('../pages/admin/MetricasProduto'),
 

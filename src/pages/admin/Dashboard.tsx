@@ -1,4 +1,4 @@
-import React, { useEffect, useState, memo, useCallback, lazy, Suspense } from 'react';
+﻿import React, { useEffect, useState, memo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import {
   Users,
@@ -6,7 +6,7 @@ import {
   ClipboardList,
   UserX,
 } from 'lucide-react';
-import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useAuth } from '../../hooks/useAuth';
 import PageHeader from '../../components/PageHeader';
 import { checkSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
@@ -21,14 +21,12 @@ import { getActiveLoginTrace, traceLoginStep } from '../../auth/authPerformanceT
 import { logReactRenderTraceTop10 } from '../../performance/reactRenderTrace';
 import { markDashboardInteractiveIfNeeded } from '../../app/loginPerformanceBudgets';
 import { opLog } from '../../utils/operationalLogger';
+import { explainDashboardMetric, type DashboardMetricId } from '../../help/helpExplainMetrics';
 
 const DashboardLastRecordsGeoPanel = lazy(() => import('./DashboardLastRecordsGeoPanel'));
-const OperationalRiskCard = lazy(() => import('../../components/dashboard/OperationalRiskCard'));
-const OperationalStatusPanel = lazy(() => import('../../components/dashboard/OperationalStatusPanel'));
-const OperationalAlertsPanel = lazy(() => import('../../components/dashboard/OperationalAlertsPanel'));
-const OperationalTasksPanel = lazy(() => import('../../components/dashboard/OperationalTasksPanel'));
-const OperationalAuditPanel = lazy(() => import('../../components/dashboard/OperationalAuditPanel'));
-
+const OnboardingGuide = lazy(() =>
+  import('../../components/help/OnboardingGuide').then((m) => ({ default: m.OnboardingGuide })),
+);
 interface CardData {
   totalEmployees: number;
   activeEmployees: number;
@@ -54,7 +52,7 @@ function DashboardSkeleton() {
 }
 
 const AdminDashboard: React.FC = () => {
-  const { user, loading } = useCurrentUser();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   useLanguage();
   const [cards, setCards] = useState<CardData>({
@@ -168,11 +166,41 @@ const AdminDashboard: React.FC = () => {
   if (!user && loading) return <LoadingState message={i18n.t('common.loading')} />;
   if (!user) return <Navigate to="/" replace />;
 
-  const cardItems = [
-    { label: i18n.t('dashboard.totalEmployees'), value: cards.totalEmployees, icon: Users, color: 'bg-indigo-500' },
-    { label: i18n.t('dashboard.activeEmployees'), value: cards.activeEmployees, icon: UserCheck, color: 'bg-emerald-500' },
-    { label: i18n.t('dashboard.recordsToday'), value: cards.recordsToday, icon: ClipboardList, color: 'bg-blue-500' },
-    { label: i18n.t('dashboard.absentToday'), value: cards.absentToday, icon: UserX, color: 'bg-amber-500' },
+  const cardItems: {
+    label: string;
+    value: number;
+    icon: typeof Users;
+    color: string;
+    metricId: DashboardMetricId;
+  }[] = [
+    {
+      label: i18n.t('dashboard.totalEmployees'),
+      value: cards.totalEmployees,
+      icon: Users,
+      color: 'bg-indigo-500',
+      metricId: 'totalEmployees',
+    },
+    {
+      label: i18n.t('dashboard.activeEmployees'),
+      value: cards.activeEmployees,
+      icon: UserCheck,
+      color: 'bg-emerald-500',
+      metricId: 'activeEmployees',
+    },
+    {
+      label: i18n.t('dashboard.recordsToday'),
+      value: cards.recordsToday,
+      icon: ClipboardList,
+      color: 'bg-blue-500',
+      metricId: 'recordsToday',
+    },
+    {
+      label: i18n.t('dashboard.absentToday'),
+      value: cards.absentToday,
+      icon: UserX,
+      color: 'bg-amber-500',
+      metricId: 'absentToday',
+    },
   ];
 
   const showFullSkeleton = loadingCards && cards.totalEmployees === 0 && cards.recordsToday === 0;
@@ -180,6 +208,10 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader title={i18n.t('dashboard.adminTitle')} />
+
+      <Suspense fallback={null}>
+        <OnboardingGuide totalEmployees={cards.totalEmployees} />
+      </Suspense>
 
       {showFullSkeleton ? (
         <DashboardSkeleton />
@@ -207,51 +239,15 @@ const AdminDashboard: React.FC = () => {
                     >
                       {loadingCards ? '—' : item.value}
                     </p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 leading-snug max-w-[200px]">
+                      {explainDashboardMetric(item.metricId)}
+                    </p>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {user.companyId && (
-            <Suspense
-              fallback={<div className="h-28 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
-            >
-              <OperationalRiskCard companyId={user.companyId} />
-            </Suspense>
-          )}
-
-          {user.companyId && (
-            <Suspense
-              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
-            >
-              <OperationalStatusPanel companyId={user.companyId} />
-            </Suspense>
-          )}
-
-          {user.companyId && (
-            <Suspense
-              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
-            >
-              <OperationalAlertsPanel companyId={user.companyId} />
-            </Suspense>
-          )}
-
-          {user.companyId && (
-            <Suspense
-              fallback={<div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
-            >
-              <OperationalTasksPanel companyId={user.companyId} />
-            </Suspense>
-          )}
-
-          {user.companyId && (
-            <Suspense
-              fallback={<div className="h-64 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />}
-            >
-              <OperationalAuditPanel companyId={user.companyId} />
-            </Suspense>
-          )}
 
           {loadingRecords ? (
             <div className="h-64 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" aria-hidden />

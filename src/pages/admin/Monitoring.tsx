@@ -236,6 +236,7 @@ const AdminMonitoring: React.FC = () => {
     <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto w-full min-w-0 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <PageHeader
+          helpSlug="monitoramento"
           title="Monitoramento"
           subtitle={
             usingOperationalStateTable

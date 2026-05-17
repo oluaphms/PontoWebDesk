@@ -255,6 +255,7 @@ const TimeAttendancePage: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader
+        helpSlug="jornada"
         title="Jornada de Trabalho"
         subtitle="Controle de registros de entrada, saída e intervalos"
         icon={<CalendarClock className="w-5 h-5" />}

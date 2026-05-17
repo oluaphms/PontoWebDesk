@@ -171,6 +171,7 @@ const AbsencesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpSlug="ausencias"
         title="Ausências"
         subtitle="Registre e acompanhe ausências justificadas ou não"
         icon={<CircleOff className="w-5 h-5" />}

@@ -937,6 +937,7 @@ const TimeAttendanceAuditPage: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader
+        helpSlug="auditoria-jornada"
         title="Auditoria — Jornada de trabalho"
         subtitle="Diagnóstico e ações seguras: ver batidas, recalcular dia, marcar revisado e abrir espelho — sem sair da tela."
         icon={<ClipboardList className="w-5 h-5" />}

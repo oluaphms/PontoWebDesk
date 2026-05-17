@@ -543,7 +543,7 @@ const AdminSchedules: React.FC = () => {
         </div>
       )}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <PageHeader title="Escalas" />
+        <PageHeader title="Escalas" helpSlug="escalas" />
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">

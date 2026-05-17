@@ -1484,6 +1484,7 @@ const AdminEmployees: React.FC = () => {
           <PageHeader
             title="Colaborador"
             subtitle="Cadastro trabalhista: tipo de vínculo, documentos e datas para conformidade, REP e exportação à folha."
+            helpSlug="colaboradores"
           />
           <div className="flex flex-wrap items-center gap-2">
             <button

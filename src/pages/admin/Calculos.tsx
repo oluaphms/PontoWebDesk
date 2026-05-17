@@ -663,7 +663,7 @@ const AdminCalculos: React.FC = () => {
   return (
     <div className="calculos-report-root space-y-4 print:space-y-2">
       <div className="print:hidden">
-        <PageHeader title="Cálculos" />
+        <PageHeader title="Cálculos" helpSlug="calculos" />
       </div>
 
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden print:border-0 print:shadow-none print:overflow-visible">

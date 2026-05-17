@@ -136,6 +136,7 @@ const AdminBackup: React.FC = () => {
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
       <div className="space-y-6 max-w-3xl">
         <PageHeader
+          helpSlug="backup-dados"
           title={i18n.t('backup.title')}
           subtitle={i18n.t('backup.intro')}
           icon={<DatabaseBackup className="w-7 h-7 text-indigo-600 dark:text-indigo-400" aria-hidden />}
