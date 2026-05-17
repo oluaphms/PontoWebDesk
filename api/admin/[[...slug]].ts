@@ -467,7 +467,11 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
         try {
           const sb = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
           const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-          const { data } = await sb.from('audit_daily_reports').select('*').eq('date', yesterday).single();
+          const { data } = await sb
+            .from('audit_daily_reports')
+            .select('id,date,integrity,anchor,overall,created_at')
+            .eq('date', yesterday)
+            .single();
           if (data) return json({ source: 'supabase', ...data });
         } catch { /* fallback */ }
       }

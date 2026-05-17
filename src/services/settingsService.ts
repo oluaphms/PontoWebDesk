@@ -6,6 +6,8 @@
 import { supabase, checkSupabaseConfigured } from '../../services/supabaseClient';
 import type { GlobalSettings, CompanyLocation } from '../types/settings';
 import { DEFAULT_GLOBAL_SETTINGS } from '../types/settings';
+import { COMPANY_LOCATION_COLUMNS, GLOBAL_SETTINGS_COLUMNS } from './egressSelectColumns';
+import { queryCache, TTL } from './queryCache';
 
 const TABLE = 'global_settings';
 const LOCATIONS_TABLE = 'company_locations';
@@ -51,9 +53,10 @@ function mapRow(row: any): GlobalSettings | null {
  */
 export async function getSettings(): Promise<GlobalSettings | null> {
   if (!checkSupabaseConfigured()) return null;
+  return queryCache.getOrFetch('global_settings:singleton', async () => {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('*')
+    .select(GLOBAL_SETTINGS_COLUMNS)
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -61,6 +64,7 @@ export async function getSettings(): Promise<GlobalSettings | null> {
     return null;
   }
   return mapRow(data);
+  }, TTL.STATIC);
 }
 
 /**
@@ -81,12 +85,13 @@ export async function updateSettings(
     .from(TABLE)
     .update(payload)
     .eq('id', id)
-    .select()
+    .select(GLOBAL_SETTINGS_COLUMNS)
     .single();
   if (error) {
     console.error('[settingsService] updateSettings error:', error);
     return { data: null, error };
   }
+  queryCache.invalidate('global_settings:');
   return { data: mapRow(updated), error: null };
 }
 
@@ -95,11 +100,14 @@ export async function updateSettings(
  */
 export async function getCompanyLocations(companyId: string): Promise<CompanyLocation[]> {
   if (!checkSupabaseConfigured()) return [];
+  const cacheKey = `company_locations:${companyId}`;
+  return queryCache.getOrFetch(cacheKey, async () => {
   const { data, error } = await supabase
     .from(LOCATIONS_TABLE)
-    .select('*')
+    .select(COMPANY_LOCATION_COLUMNS)
     .eq('company_id', companyId)
-    .order('is_default', { ascending: false });
+    .order('is_default', { ascending: false })
+    .limit(100);
   if (error) {
     console.error('[settingsService] getCompanyLocations error:', error);
     return [];
@@ -115,6 +123,7 @@ export async function getCompanyLocations(companyId: string): Promise<CompanyLoc
     created_at: row.created_at,
     updated_at: row.updated_at,
   }));
+  }, TTL.STATIC);
 }
 
 /**

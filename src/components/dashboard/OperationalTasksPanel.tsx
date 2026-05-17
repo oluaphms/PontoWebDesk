@@ -4,6 +4,7 @@ import { ListChecks } from 'lucide-react';
 import { apiQueryKeys } from '../../lib/apiQueryKeys';
 import { invalidateOperationalStatusQueries } from '../../lib/reactQueryInvalidation';
 import { completeOperationalTask, fetchOperationalTasks, type OperationalTaskRow } from '../../services/operationalTasks.service';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 
 const PRIORITY_UI: Record<string, { label: string; className: string }> = {
   critical: {
@@ -46,7 +47,8 @@ const OperationalTasksPanel = memo(function OperationalTasksPanel({ companyId }:
     queryKey: qk,
     queryFn: () => fetchOperationalTasks(companyId),
     enabled: !!companyId.trim(),
-    refetchInterval: 10_000,
+    // HARD LOCK egress: 10s → intervalo adaptativo (mín. 30s) com pausa se aba oculta.
+    refetchInterval: () => (isPollingSuppressedByVisibility() ? false : getAdaptiveRefetchIntervalMs(30_000)),
   });
 
   const completeMutation = useMutation({

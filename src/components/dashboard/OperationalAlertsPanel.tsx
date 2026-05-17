@@ -4,6 +4,7 @@ import { BellRing } from 'lucide-react';
 import { apiQueryKeys } from '../../lib/apiQueryKeys';
 import { invalidateOperationalStatusQueries } from '../../lib/reactQueryInvalidation';
 import { fetchOperationalAlerts, resolveOperationalAlert, type OperationalAlertRow } from '../../services/operationalAlerts.service';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 
 const SEVERITY_UI: Record<string, { label: string; className: string }> = {
   critical: {
@@ -52,7 +53,7 @@ const OperationalAlertsPanel = memo(function OperationalAlertsPanel({ companyId 
     queryKey: qk,
     queryFn: () => fetchOperationalAlerts(companyId),
     enabled: !!companyId.trim(),
-    refetchInterval: 10_000,
+    refetchInterval: () => (isPollingSuppressedByVisibility() ? false : getAdaptiveRefetchIntervalMs(30_000)),
   });
 
   const resolveMutation = useMutation({

@@ -16,6 +16,7 @@ import {
   withQueryTimeout,
   isOperationalTimeoutError,
 } from '../operationalApiResilience.js';
+import { OPERATIONAL_AUDIT_COLUMNS } from '../operationalSelectColumns.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 const ROUTE = 'operational-audit';
@@ -99,7 +100,7 @@ async function handler(request: Request): Promise<Response> {
 
     let q = supabase
       .from('operational_audit_log')
-      .select('*')
+      .select(OPERATIONAL_AUDIT_COLUMNS)
       .eq('company_id', companyId)
       .order('created_at', { ascending: false })
       .limit(limit);

@@ -5,6 +5,7 @@
 
 import { supabase, checkSupabaseConfigured } from '../../services/supabase';
 import { db } from '../../services/supabaseClient';
+import { TIME_ADJUSTMENTS_HISTORY_COLUMNS } from './egressSelectColumns';
 
 export interface AdjustmentHistoryEntry {
   id: string;
@@ -61,9 +62,10 @@ export const AdjustmentHistoryService = {
     try {
       const { data, error } = await supabase
         .from('time_adjustments_history')
-        .select('*')
+        .select(TIME_ADJUSTMENTS_HISTORY_COLUMNS)
         .eq('adjustment_id', adjustmentId)
-        .order('changed_at', { ascending: true });
+        .order('changed_at', { ascending: true })
+        .limit(200);
 
       if (error) {
         console.error('[AdjustmentHistoryService] Error fetching history:', error);
@@ -100,9 +102,10 @@ export const AdjustmentHistoryService = {
     try {
       const { data, error } = await supabase
         .from('time_adjustments_history')
-        .select('*')
+        .select(TIME_ADJUSTMENTS_HISTORY_COLUMNS)
         .in('adjustment_id', adjustmentIds)
-        .order('changed_at', { ascending: true });
+        .order('changed_at', { ascending: true })
+        .limit(500);
 
       if (error) {
         console.error('[AdjustmentHistoryService] Error fetching batch history:', error);

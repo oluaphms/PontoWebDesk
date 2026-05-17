@@ -28,7 +28,12 @@ export function useCompanyEmployees(companyId: string | undefined): {
       try {
         const list = (await queryCache.getOrFetch(
           `users:${companyId}`,
-          () => db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }]) as Promise<any[]>,
+          () =>
+            db.select(
+              'users',
+              [{ column: 'company_id', operator: 'eq', value: companyId }],
+              { columns: 'id,nome,email,department_id', limit: 500 },
+            ) as Promise<any[]>,
           TTL.NORMAL,
         )) as any[];
         if (isCancelled()) return;

@@ -110,11 +110,14 @@ const RealTimeInsightsPage: React.FC = () => {
   useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
 
+    const companyId = user.companyId?.trim();
+    if (!companyId) return;
+
     const channel = supabase
-      .channel('realtime-activity-sessions')
+      .channel(`realtime-activity-sessions:${companyId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'activity_sessions' },
+        { event: '*', schema: 'public', table: 'activity_sessions', filter: `company_id=eq.${companyId}` },
         (payload) => {
           setSessions((prev) => {
             const clone = [...prev];

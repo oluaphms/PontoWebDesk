@@ -9,6 +9,10 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { linkUnresolvedRepPunchAndPromote } from '../../../modules/rep-integration/repService';
+import {
+  REP_PUNCH_LOG_EMBED_COLUMNS,
+  REP_UNRESOLVED_PUNCH_COLUMNS,
+} from '../../services/egressSelectColumns';
 import { LoadingState } from '../../../components/UI';
 import { i18n } from '../../../lib/i18n';
 
@@ -59,7 +63,7 @@ const AdminRepUnresolvedPunches: React.FC = () => {
     try {
       const { data: quarantine, error: qErr } = await supabase
         .from('rep_unresolved_punches')
-        .select('*, rep_punch_logs(*)')
+        .select(`${REP_UNRESOLVED_PUNCH_COLUMNS}, rep_punch_logs(${REP_PUNCH_LOG_EMBED_COLUMNS})`)
         .eq('company_id', user.companyId.trim())
         .is('resolved_at', null)
         .order('created_at', { ascending: false })

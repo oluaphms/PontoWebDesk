@@ -655,8 +655,17 @@ export const db: DbInterface = {
       return () => {};
     }
 
+    // HARD LOCK egress: subscription sem filtro tenant dispara eventos de toda a tabela.
+    if (!filter?.trim()) {
+      if (import.meta.env?.PROD) {
+        console.error('[db.subscribe] BLOQUEADO: filtro company_id/user_id obrigatório', { table });
+        return () => {};
+      }
+      console.warn('[db.subscribe] DEV: subscription sem filtro — alto egress em produção', { table });
+    }
+
     const channel = client
-      .channel(`db-changes-${table}`)
+      .channel(`db-changes-${table}${filter ? `:${filter.slice(0, 48)}` : ''}`)
       .on(
         'postgres_changes',
         {

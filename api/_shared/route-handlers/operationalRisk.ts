@@ -17,6 +17,7 @@ import {
   withQueryTimeout,
   isOperationalTimeoutError,
 } from '../operationalApiResilience.js';
+import { OPERATIONAL_ALERT_COLUMNS, OPERATIONAL_SLA_CONFIG_COLUMNS } from '../operationalSelectColumns.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 const ROUTE = 'operational-risk';
@@ -90,7 +91,7 @@ async function handler(request: Request): Promise<Response> {
     const { data: alerts, error: aErr } = await withQueryTimeout(
       supabase
         .from('operational_alerts')
-        .select('*')
+        .select(OPERATIONAL_ALERT_COLUMNS)
         .eq('company_id', companyId)
         .eq('resolved', false)
         .limit(OPERATIONAL_QUERY_LIMIT),
@@ -103,7 +104,7 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const { data: sla, error: sErr } = await withQueryTimeout(
-      supabase.from('operational_sla_config').select('*').eq('company_id', companyId).maybeSingle(),
+      supabase.from('operational_sla_config').select(OPERATIONAL_SLA_CONFIG_COLUMNS).eq('company_id', companyId).maybeSingle(),
       `${ROUTE}.sla`,
     );
 

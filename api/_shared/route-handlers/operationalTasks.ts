@@ -22,6 +22,7 @@ import {
   withQueryTimeout,
   isOperationalTimeoutError,
 } from '../operationalApiResilience.js';
+import { OPERATIONAL_TASK_COLUMNS } from '../operationalSelectColumns.js';
 
 const ALLOWED_METHODS = 'GET, PATCH, OPTIONS';
 const ROUTE = 'operational-tasks';
@@ -103,7 +104,7 @@ async function handler(request: Request): Promise<Response> {
       }
 
       const { data: task, error: taskFetchErr } = await withQueryTimeout(
-        supabase.from('operational_tasks').select('*').eq('id', taskId).maybeSingle(),
+        supabase.from('operational_tasks').select(OPERATIONAL_TASK_COLUMNS).eq('id', taskId).maybeSingle(),
         `${ROUTE}.complete.fetch`,
       );
 
@@ -168,7 +169,7 @@ async function handler(request: Request): Promise<Response> {
           })
           .eq('id', taskId)
           .eq('version', currentVersion)
-          .select()
+          .select(OPERATIONAL_TASK_COLUMNS)
           .maybeSingle(),
         `${ROUTE}.complete.update`,
       );
@@ -288,7 +289,7 @@ async function handler(request: Request): Promise<Response> {
     const { data: rows, error } = await withQueryTimeout(
       supabase
         .from('operational_tasks')
-        .select('*')
+        .select(OPERATIONAL_TASK_COLUMNS)
         .eq('company_id', companyId)
         .neq('status', 'done')
         .order('created_at', { ascending: false })

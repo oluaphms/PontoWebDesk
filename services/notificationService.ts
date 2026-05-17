@@ -4,6 +4,7 @@
 
 import { InAppNotification, NotificationStatus } from '../types';
 import { db, isSupabaseConfigured, supabase, type Filter } from './supabaseClient';
+import { NOTIFICATION_LIST_COLUMNS } from '../src/services/egressSelectColumns';
 
 /** Evita inundar o console quando vários componentes chamam getAll e o Supabase está lento. */
 let lastNotifSlowWarnAt = 0;
@@ -123,12 +124,11 @@ export const NotificationService = {
         ];
 
         const fetchOnce = () =>
-          db.select(
-            'notifications',
-            filters,
-            { column: 'created_at', ascending: false },
-            100,
-          ) as Promise<any[]>;
+          db.select('notifications', filters, {
+            columns: NOTIFICATION_LIST_COLUMNS,
+            orderBy: { column: 'created_at', ascending: false },
+            limit: 100,
+          }) as Promise<any[]>;
 
         try {
           let rows: any[];
@@ -192,7 +192,6 @@ export const NotificationService = {
         // REMOVER completamente a notificação, não apenas marcar como lida
         const updated = parsed.filter((n: any) => n.id !== notificationId);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        console.log('Notificação removida do localStorage:', notificationId);
       }
     } catch (e) {
       console.error('localStorage update failed:', e);
@@ -257,7 +256,6 @@ export const NotificationService = {
         // REMOVER completamente a notificação, não apenas marcar como resolvida
         const updated = parsed.filter((n: any) => n.id !== notificationId);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        console.log('Notificação removida do localStorage:', notificationId);
       }
     } catch (e) {
       console.error('localStorage update failed:', e);

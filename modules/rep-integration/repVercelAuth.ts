@@ -91,7 +91,11 @@ async function authenticateWithServiceRole(
   const bridgeToken = getBridgeToken();
 
   if (bridgeToken && token === bridgeToken) {
-    const { data: device, error } = await admin.from('rep_devices').select('*').eq('id', deviceId).maybeSingle();
+    const { data: device, error } = await admin
+      .from('rep_devices')
+      .select('id,company_id,nome_dispositivo,provider_type,identifier_type,fabricante,modelo,ip,porta,tipo_conexao,status,ultima_sincronizacao,ativo,config_extra,created_at,updated_at')
+      .eq('id', deviceId)
+      .maybeSingle();
     if (error || !device) {
       return Response.json({ error: 'Dispositivo não encontrado' }, { status: 404, headers: JSON_HDR });
     }
@@ -113,7 +117,11 @@ async function authenticateWithServiceRole(
     return Response.json({ error: 'Perfil não encontrado' }, { status: 403, headers: JSON_HDR });
   }
 
-  const { data: device, error: dErr } = await admin.from('rep_devices').select('*').eq('id', deviceId).maybeSingle();
+  const { data: device, error: dErr } = await admin
+    .from('rep_devices')
+    .select('id,company_id,nome_dispositivo,provider_type,identifier_type,fabricante,modelo,ip,porta,tipo_conexao,status,ultima_sincronizacao,ativo,config_extra,created_at,updated_at')
+    .eq('id', deviceId)
+    .maybeSingle();
   if (dErr || !device) {
     return Response.json({ error: 'Dispositivo não encontrado' }, { status: 404, headers: JSON_HDR });
   }
@@ -166,7 +174,11 @@ async function authenticateWithUserJwt(deviceId: string, jwt: string): Promise<{
     return Response.json({ error: 'Token inválido' }, { status: 401, headers: JSON_HDR });
   }
 
-  const { data: device, error: dErr } = await userClient.from('rep_devices').select('*').eq('id', deviceId).maybeSingle();
+  const { data: device, error: dErr } = await userClient
+    .from('rep_devices')
+    .select('id,company_id,nome_dispositivo,provider_type,identifier_type,fabricante,modelo,ip,porta,tipo_conexao,status,ultima_sincronizacao,ativo,config_extra,created_at,updated_at')
+    .eq('id', deviceId)
+    .maybeSingle();
   if (dErr || !device) {
     return Response.json({ error: 'Dispositivo não encontrado' }, { status: 404, headers: JSON_HDR });
   }

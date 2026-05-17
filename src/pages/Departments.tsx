@@ -36,9 +36,11 @@ const DepartmentsPage: React.FC = () => {
     const companyId = user.companyId || user.id;
     setLoadingData(true);
     try {
-      const data = (await db.select('departments', [
-        { column: 'company_id', operator: 'eq', value: companyId },
-      ])) as any[];
+      const data = (await db.select(
+        'departments',
+        [{ column: 'company_id', operator: 'eq', value: companyId }],
+        { columns: 'id,name,numero_folha,company_id,manager_id,created_at', limit: 500 },
+      )) as any[];
       setRows((data ?? []).map((r: any) => ({
         id: r.id,
         name: r.name || '',

@@ -15,6 +15,7 @@ import {
 } from '../src/navigation';
 import { resolveTenantId } from '../src/services/tenantScope';
 import { useTimeAttendanceAuditMenuSignal } from '../src/hooks/useTimeAttendanceAuditMenuSignal';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../src/performance/pollingGovernor';
 
 /** Cabeçalho: título + busca; ícone da marca fica no dock/radial, não duplicado aqui. */
 
@@ -68,12 +69,15 @@ const Layout: React.FC<LayoutProps> = ({
 
   useEffect(() => {
     if (!operationalChromeReady) return;
+    // HARD LOCK egress: intervalo adaptativo + pausa com aba oculta (evita polling duplicado agressivo).
+    const pollMs = getAdaptiveRefetchIntervalMs(90_000);
     const loadUnread = async () => {
+      if (isPollingSuppressedByVisibility()) return;
       const count = await NotificationService.getUnreadCount(user.id);
       setUnreadCount(count);
     };
-    loadUnread();
-    const interval = setInterval(loadUnread, 30000);
+    void loadUnread();
+    const interval = setInterval(() => void loadUnread(), pollMs);
     return () => clearInterval(interval);
   }, [user.id, operationalChromeReady]);
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { InAppNotification } from '../types';
 import { NotificationService } from '../services/notificationService';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../src/performance/pollingGovernor';
 import { Bell, Check, X, AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Button } from './UI';
 
@@ -35,8 +36,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
   }, [userId, onUnreadCountChange]);
 
   useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
+    void loadNotifications();
+    const pollMs = getAdaptiveRefetchIntervalMs(90_000);
+    const interval = setInterval(() => {
+      if (isPollingSuppressedByVisibility()) return;
+      void loadNotifications();
+    }, pollMs);
     return () => clearInterval(interval);
   }, [loadNotifications]);
 
@@ -47,11 +52,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
 
   const handleDeleteNotification = async (id: string) => {
     try {
-      console.log('Deletando notificação:', id);
       await NotificationService.markAsRead(userId, id);
-      console.log('Notificação deletada, recarregando lista...');
       await loadNotifications();
-      console.log('Lista recarregada');
     } catch (e) {
       console.error('Erro ao deletar notificação:', e);
     }

@@ -22,6 +22,7 @@ import {
   withQueryTimeout,
   isOperationalTimeoutError,
 } from '../operationalApiResilience.js';
+import { OPERATIONAL_ALERT_COLUMNS } from '../operationalSelectColumns.js';
 
 const ALLOWED_METHODS = 'GET, PATCH, OPTIONS';
 const ROUTE = 'operational-alerts';
@@ -219,7 +220,7 @@ async function handler(request: Request): Promise<Response> {
     const { data: rows, error } = await withQueryTimeout(
       supabase
         .from('operational_alerts')
-        .select('*')
+        .select(OPERATIONAL_ALERT_COLUMNS)
         .eq('company_id', companyId)
         .eq('resolved', false)
         .order('created_at', { ascending: false })

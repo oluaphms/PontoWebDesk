@@ -175,7 +175,7 @@ export async function evaluateAndNotifyCompanyOperationalRisk(
 
   const { data: slaRow, error: sErr } = await supabase
     .from('operational_sla_config')
-    .select('*')
+    .select('id,company_id,max_pending_rep_minutes,max_open_shift_minutes,max_inconsistencies,notify_email,notify_whatsapp')
     .eq('company_id', company)
     .maybeSingle();
 

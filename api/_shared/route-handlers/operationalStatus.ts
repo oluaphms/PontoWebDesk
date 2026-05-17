@@ -17,6 +17,7 @@ import {
   withQueryTimeout,
   isOperationalTimeoutError,
 } from '../operationalApiResilience.js';
+import { OPERATIONAL_DAY_STATUS_COLUMNS } from '../operationalSelectColumns.js';
 
 const ALLOWED_METHODS = 'GET, OPTIONS';
 const ROUTE = 'operational-status';
@@ -97,7 +98,7 @@ async function handler(request: Request): Promise<Response> {
 
     let q = supabase
       .from('operational_day_status')
-      .select('*')
+      .select(OPERATIONAL_DAY_STATUS_COLUMNS)
       .eq('company_id', companyId)
       .order('date', { ascending: false })
       .limit(OPERATIONAL_QUERY_LIMIT);

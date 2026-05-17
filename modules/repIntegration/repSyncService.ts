@@ -66,7 +66,7 @@ export async function syncDevice(
 ): Promise<{ ok: boolean; imported: number; error?: string }> {
   const { data: deviceRow, error: fetchError } = await supabase
     .from('rep_devices')
-    .select('*')
+    .select('id,company_id,nome_dispositivo,provider_type,identifier_type,fabricante,modelo,ip,porta,tipo_conexao,status,ultima_sincronizacao,ativo,config_extra,created_at,updated_at')
     .eq('id', deviceId)
     .eq('ativo', true)
     .maybeSingle();

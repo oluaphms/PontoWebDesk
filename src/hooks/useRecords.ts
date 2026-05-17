@@ -66,7 +66,8 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
           event: 'INSERT',
           schema: 'public',
           table: 'time_records',
-          filter: `company_id=eq.${companyId}`,
+          // HARD LOCK egress: filtro por user_id (antes company_id = todos os colaboradores da empresa).
+          filter: `user_id=eq.${userId}`,
         },
         () => {
           scheduleRealtimeCoalesce();

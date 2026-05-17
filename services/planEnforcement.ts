@@ -49,7 +49,7 @@ export async function countActiveEmployeesForEnforcement(
   if (!tenantId?.trim()) return 0;
   const { count, error } = await client
     .from('users')
-    .select('*', { count: 'exact', head: true })
+    .select('id', { count: 'exact', head: true })
     .eq('company_id', tenantId)
     .eq('role', 'employee')
     .eq('status', 'active');
