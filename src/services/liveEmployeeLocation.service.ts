@@ -12,6 +12,7 @@ import { normalizeOperationalDate, operationalNowUtcIso } from '../utils/operati
 import { operationalClockMs } from '../utils/operationalClock';
 import { reportDeviceOperationalReputationEvent } from './deviceOperationalReputation.service';
 import { reportGeoCircuitSignal } from '../domain/operational/geo/geoOperationalCircuitBreaker';
+import { opLog } from '../utils/operationalLogger';
 
 export const LIVE_LOCATION_TTL_MS = 45_000;
 
@@ -189,7 +190,7 @@ export function flagStaleLiveLocations(rows: LiveEmployeeLocationRow[], nowMs: n
     if (Number.isFinite(exp) && exp < nowMs) {
       staleCount += 1;
       if (!r.is_stale) {
-        console.info('[LIVE LOCATION STALE]', { company_id: r.company_id, employee_id: r.employee_id, expires_at: r.expires_at });
+        opLog.diag('LIVE LOCATION STALE', { company_id: r.company_id, employee_id: r.employee_id, expires_at: r.expires_at });
       }
       return { ...r, is_stale: true };
     }

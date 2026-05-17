@@ -3,6 +3,7 @@
  */
 
 import { invalidateOperationalGeoCaches } from '../services/queryCache';
+import { opLog } from '../utils/operationalLogger';
 import { isAndroidOrWebViewUa } from './networkMode';
 import { installRealtimeLoadSheddingObservers } from './realtimeLoadShedding';
 import { installOperationalPerformanceProfiler } from './operationalPerformanceProfiler';
@@ -31,9 +32,9 @@ function recoverRealtimeCaches(reason: string): void {
   try {
     invalidateOperationalGeoCaches(reason);
     window.dispatchEvent(new CustomEvent('smartponto:operational-realtime-recover', { detail: { reason } }));
-    console.info('[PWA RESTORE]', { reason, action: 'cache_invalidate_dispatch' });
+    opLog.diag('PWA RESTORE', { reason, action: 'cache_invalidate_dispatch' });
   } catch (e) {
-    console.warn('[PWA RESTORE]', { reason, error: String(e) });
+    opLog.diag('PWA RESTORE', { reason, error: String(e), failed: true });
   }
 }
 

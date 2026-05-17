@@ -3,6 +3,7 @@
  */
 
 import { operationalNowUtcIso } from '../../utils/operationalDateHardLock';
+import { opLog } from '../../utils/operationalLogger';
 
 export type OperationalAddressShape = {
   street: string | null;
@@ -68,7 +69,7 @@ export function normalizeOperationalAddressShape(input: OperationalAddressShape)
     formatted_address: formatted_address || null,
   };
 
-  console.info('[GEO ADDRESS NORMALIZED]', {
+  opLog.diag('GEO ADDRESS NORMALIZED', {
     has_street: Boolean(street),
     has_postal: Boolean(postal_code),
     has_city: Boolean(city),

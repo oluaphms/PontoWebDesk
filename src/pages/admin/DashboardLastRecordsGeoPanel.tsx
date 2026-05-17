@@ -79,7 +79,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     });
 
     if (degraded) {
-      opLog.info('GEO DASHBOARD ENRICH PENDING', {
+      opLog.diag('GEO DASHBOARD ENRICH PENDING', {
         reason: 'degraded_mobile_cpu',
         unresolved_skipped: recordsWithGeo.length,
       });
@@ -91,7 +91,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     const unresolved = recordsWithGeo.filter(
       (r) => !(r.geoStreet || r.geoDistrict || r.geoPostalCode || r.geoCity || r.geoState),
     );
-    console.info('[GEO DASHBOARD ENRICH PENDING]', {
+    opLog.diag('GEO DASHBOARD ENRICH PENDING', {
       unresolved_count: unresolved.length,
       unresolved_record_ids: unresolved.map((r) => r.id),
     });
@@ -102,7 +102,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
         try {
           if (cancelled) {
             if (import.meta.env.DEV) {
-              console.info('[GEO ENRICH SKIPPED]', {
+              opLog.diag('GEO ENRICH SKIPPED', {
                 reason: 'stale_request_cancelled',
                 record_id: r.id,
                 employee_id: r.userId,
@@ -112,7 +112,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
           }
           if (!navigator.onLine) {
             if (import.meta.env.DEV) {
-              console.info('[GEO ENRICH SKIPPED]', {
+              opLog.diag('GEO ENRICH SKIPPED', {
                 reason: 'offline',
                 record_id: r.id,
                 employee_id: r.userId,
@@ -188,7 +188,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
               formattedAddress: null,
             },
           }));
-          console.info('[GEO DASHBOARD ENRICH ERROR]', error);
+          opLog.diag('GEO DASHBOARD ENRICH ERROR', error);
         }
         if (!cancelled && i < unresolved.length - 1) {
           await new Promise((res) => setTimeout(res, 140));

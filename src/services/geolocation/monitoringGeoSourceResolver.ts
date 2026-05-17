@@ -25,6 +25,7 @@ import { validateStrictRealtimeGeoCandidate } from './strictRealtimeGeoGuard.ser
 import { confirmGeoCandidate } from './geoConfirmationWindow.service';
 import { getOperationalFeatureFlag } from '../../config/operationalFeatureFlags';
 import { appendGeoLegalAuditTrail } from './geoLegalAuditTrail.service';
+import { opLog } from '../../utils/operationalLogger';
 
 export type MonitoringGeoResolvedSource = 'live_employee_location' | 'current_operational_state' | 'time_record';
 const BRAZIL_BOUNDS = { minLat: -34, maxLat: 6, minLng: -74, maxLng: -28 };
@@ -156,7 +157,7 @@ function temporalOk(
   }
 
   if (source !== 'time_record' && isOperationalTimestampStale(capturedAt, nowMs, MONITORING_REALTIME_MAX_CAPTURE_AGE_MS)) {
-    console.info('[STALE GEO BLOCKED]', { employee_id: employeeId, source, freshness_ms: freshness });
+    opLog.diag('STALE GEO BLOCKED', { employee_id: employeeId, source, freshness_ms: freshness });
     return { ok: false, capMs, freshness };
   }
 

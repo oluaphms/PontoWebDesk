@@ -25,13 +25,13 @@ import {
   operationalGeocodeResolvedAtIso,
   type OperationalAddressShape,
 } from './addressNormalizer.service';
-import { opLog } from '../../utils/operationalLogger';
+import { geoPipelineDiag, opLog } from '../../utils/operationalLogger';
 
 function logReverseGeocodeApiFailure(apiError: unknown, lat: number, lng: number, extra?: Record<string, unknown>): void {
   const msg = apiError instanceof Error ? apiError.message : String(apiError);
   const softHttp = /reverse_geocode_http_(408|502|503|504)/.test(msg);
   if (softHttp) {
-    console.info('[GEO REVERSE API UNAVAILABLE]', { lat, lng, message: msg, ...extra });
+    geoPipelineDiag('GEO REVERSE API UNAVAILABLE', { lat, lng, message: msg, ...extra });
     return;
   }
   console.error('[GEO REVERSE ERROR RAW]', apiError);
@@ -305,10 +305,10 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
   const u = new URL('/api/reverse-geocode', getOrigin());
   u.searchParams.set('lat', String(lat));
   u.searchParams.set('lon', String(lng));
-  console.info('[GEO REVERSE REQUEST]', { lat, lng, provider: 'api_reverse_geocode', url: u.toString() });
+  geoPipelineDiag('GEO REVERSE REQUEST', { lat, lng, provider: 'api_reverse_geocode', url: u.toString() });
   const res = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
   if (!res.ok) {
-    console.info('[GEO REVERSE HTTP ERROR]', { lat, lng, status: res.status, status_text: res.statusText });
+    geoPipelineDiag('GEO REVERSE HTTP ERROR', { lat, lng, status: res.status, status_text: res.statusText });
     throw new Error(`reverse_geocode_http_${res.status}`);
   }
   const data = (await res.json()) as {
@@ -318,13 +318,13 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
     status?: 'ok' | 'partial' | 'timeout' | 'provider_error';
     response?: unknown;
   };
-  console.info('[GEO REVERSE RAW RESPONSE]', {
+  geoPipelineDiag('GEO REVERSE RAW RESPONSE', {
     lat,
     lng,
     provider: data.provider ?? 'unknown',
     response: data.response ?? data,
   });
-  console.info('[GEO REVERSE RESPONSE]', {
+  geoPipelineDiag('GEO REVERSE RESPONSE', {
     lat,
     lng,
     provider: data.provider ?? 'unknown',
@@ -336,7 +336,7 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
     response: data.response,
     address: data.address,
   });
-  console.info('[GEO ADDRESS PARSED]', {
+  geoPipelineDiag('GEO ADDRESS PARSED', {
     lat,
     lng,
     street: normalized.street,
@@ -355,7 +355,7 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
       normalized.formatted_address,
   );
   if (data.status === 'timeout') {
-    console.info('[GEO PROVIDER TIMEOUT]', { lat, lng, provider: data.provider ?? 'unknown' });
+    geoPipelineDiag('GEO PROVIDER TIMEOUT', { lat, lng, provider: data.provider ?? 'unknown' });
   }
   const finalAddress = finalizeGeocodeSnapshotWithNormalizer(lat, lng, data.provider || 'nominatim', {
     street: normalized.street,
@@ -370,7 +370,7 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
     formatted_address: normalized.formatted_address,
     reverse_geocode_status: data.status ?? (hasAnyAddressPart ? 'ok' : 'partial'),
   });
-  console.info('[GEO ADDRESS FINAL]', {
+  geoPipelineDiag('GEO ADDRESS FINAL', {
     lat,
     lng,
     street: finalAddress.street,
@@ -382,12 +382,12 @@ async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> 
     provider: finalAddress.provider,
     status: finalAddress.reverse_geocode_status,
   });
-  console.info('[GEO FORMATTED ADDRESS]', {
+  geoPipelineDiag('GEO FORMATTED ADDRESS', {
     lat,
     lng,
     formatted_address: finalAddress.formatted_address,
   });
-  console.info('[GEO POSTAL CODE]', {
+  geoPipelineDiag('GEO POSTAL CODE', {
     lat,
     lng,
     postal_code: finalAddress.postal_code,
@@ -401,25 +401,25 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
   url.searchParams.set('lat', String(lat));
   url.searchParams.set('lon', String(lng));
   url.searchParams.set('accept-language', 'pt-BR');
-  console.info('[GEO REVERSE REQUEST]', {
+  geoPipelineDiag('GEO REVERSE REQUEST', {
     lat,
     lng,
     provider: 'nominatim_direct',
     url: url.toString(),
   });
-  console.info('[GEO REVERSE DIRECT PROVIDER FALLBACK]', { lat, lng, url: url.toString() });
+  geoPipelineDiag('GEO REVERSE DIRECT PROVIDER FALLBACK', { lat, lng, url: url.toString() });
   const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
   if (!res.ok) {
     throw new Error(`reverse_geocode_direct_http_${res.status}`);
   }
   const response = (await res.json()) as Record<string, unknown>;
-  console.info('[GEO REVERSE RAW RESPONSE]', {
+  geoPipelineDiag('GEO REVERSE RAW RESPONSE', {
     lat,
     lng,
     provider: 'nominatim_direct',
     response,
   });
-  console.info('[GEO REVERSE RESPONSE]', {
+  geoPipelineDiag('GEO REVERSE RESPONSE', {
     lat,
     lng,
     provider: 'nominatim_direct',
@@ -431,7 +431,7 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
     response,
     address: String(response.display_name ?? ''),
   });
-  console.info('[GEO ADDRESS PARSED]', {
+  geoPipelineDiag('GEO ADDRESS PARSED', {
     lat,
     lng,
     street: normalized.street,
@@ -462,7 +462,7 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
     formatted_address: normalized.formatted_address,
     reverse_geocode_status: hasAnyAddressPart ? 'ok' : 'partial',
   });
-  console.info('[GEO ADDRESS FINAL]', {
+  geoPipelineDiag('GEO ADDRESS FINAL', {
     lat,
     lng,
     street: finalAddress.street,
@@ -474,12 +474,12 @@ async function fetchDirectFromNominatim(lat: number, lng: number): Promise<Geoco
     provider: finalAddress.provider,
     status: finalAddress.reverse_geocode_status,
   });
-  console.info('[GEO FORMATTED ADDRESS]', {
+  geoPipelineDiag('GEO FORMATTED ADDRESS', {
     lat,
     lng,
     formatted_address: finalAddress.formatted_address,
   });
-  console.info('[GEO POSTAL CODE]', {
+  geoPipelineDiag('GEO POSTAL CODE', {
     lat,
     lng,
     postal_code: finalAddress.postal_code,
@@ -598,7 +598,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
             return await fetchFromApi(lat, lng);
           } catch (apiError) {
             logReverseGeocodeApiFailure(apiError, lat, lng);
-            console.info('[GEO REVERSE API FALLBACK]', {
+            geoPipelineDiag('GEO REVERSE API FALLBACK', {
               lat,
               lng,
               error: apiError instanceof Error ? apiError.message : String(apiError),
@@ -612,7 +612,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
               return await fetchFromApi(lat, lng);
             } catch (apiError) {
               logReverseGeocodeApiFailure(apiError, lat, lng, { retry_attempt: attempt });
-              console.info('[GEO REVERSE API FALLBACK]', {
+              geoPipelineDiag('GEO REVERSE API FALLBACK', {
                 lat,
                 lng,
                 error: apiError instanceof Error ? apiError.message : String(apiError),
@@ -658,7 +658,7 @@ export async function reverseGeocodeSnapshot(lat: number, lng: number): Promise<
     finalizeOperationalTrace(trace.trace_id);
     return { snapshot, cacheHit: false };
   } catch (error) {
-    console.info('[GEO REVERSE FETCH ERROR]', {
+    geoPipelineDiag('GEO REVERSE FETCH ERROR', {
       lat,
       lng,
       error: error instanceof Error ? error.message : String(error),

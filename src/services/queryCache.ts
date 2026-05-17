@@ -171,7 +171,7 @@ function flushGeoHardInvalidation(): void {
   pendingGeoHardInvalidation = null;
   const reasonLabel = reasons.size === 1 ? Array.from(reasons)[0] : `coalesced(${reasons.size})`;
   bumpGeoCacheGeneration(reasonLabel);
-  opLog.warn('GEO CACHE HARD INVALIDATION', {
+  opLog.diag('GEO CACHE HARD INVALIDATION', {
     reasons: Array.from(reasons),
     coalesced,
   });

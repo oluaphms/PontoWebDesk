@@ -448,7 +448,7 @@ function mergeAdminLastRecordGeoFromSources(
     resolved.stale ||
     resolved.confidence === 'INVALID'
   ) {
-    console.info('[DASHBOARD STALE RECORD BLOCKED]', {
+    opLog.diag('DASHBOARD STALE RECORD BLOCKED', {
       user_id: row.userId,
       source: resolved.source,
       invalid_reason: resolved.invalid_reason,
@@ -456,7 +456,7 @@ function mergeAdminLastRecordGeoFromSources(
     });
     return row;
   }
-  console.info('[DASHBOARD GEO CONSISTENCY]', {
+  opLog.diag('DASHBOARD GEO CONSISTENCY', {
     user_id: row.userId,
     source: resolved.source,
     freshness_ms: resolved.freshness_ms,

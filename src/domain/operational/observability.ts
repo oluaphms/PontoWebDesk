@@ -24,7 +24,21 @@ type StructuredOperationalLog = {
 } & Record<string, unknown>;
 
 /** Prefixos: [OPERATIONAL_EVENT], [OPERATIONAL_RULE], … com envelope estruturado mínimo. */
+function isProductionRuntime(): boolean {
+  try {
+    const meta = (import.meta as unknown as { env?: { PROD?: boolean } }).env;
+    if (meta?.PROD) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 export function operationalLog(channel: OperationalLogChannel, data: StructuredOperationalLog): void {
+  const severity = (data.severity as StructuredOperationalLog['severity']) ?? 'info';
+  if (isProductionRuntime() && severity !== 'error' && severity !== 'critical' && severity !== 'warning') {
+    return;
+  }
   const envelope: StructuredOperationalLog = {
     company_id: (data.company_id as string | null | undefined) ?? null,
     employee_id: (data.employee_id as string | null | undefined) ?? null,
