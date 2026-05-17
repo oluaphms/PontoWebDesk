@@ -271,7 +271,7 @@ const SmartDock: React.FC = () => {
               <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2 pb-2 border-b border-slate-100 dark:border-slate-800 mb-2">
                 {i18n.t(openGroup.labelKey)}
               </p>
-              {showContextualHelp && (
+              {showContextualHelp && dockFloatingGroupKey === 'smart' && (
                   <button
                     type="button"
                     onClick={() => {
