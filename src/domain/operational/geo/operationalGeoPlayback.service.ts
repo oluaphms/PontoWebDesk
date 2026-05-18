@@ -3,7 +3,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseClient } from '../../../services/supabaseClient';
+import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { normalizeOperationalDate } from '../../../utils/operationalDateHardLock';
 import { computeGeoForensicsScore, type GeoForensicsPoint } from './geoForensics.service';
 

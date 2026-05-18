@@ -745,12 +745,12 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     const punchHash =
       (typeof bodyPunchHash === 'string' && bodyPunchHash.trim()) ||
       (typeof bodyHash === 'string' && bodyHash.trim()) ||
-      computeRepPunchHash({
+      (await computeRepPunchHash({
         deviceId: repDeviceId,
         pis: pis ?? cpf ?? null,
         dataHoraIso: data_hora,
         nsr: nsrNumber,
-      });
+      }));
     const identifierType = await fetchRepDeviceIdentifierType(supabase, company_id, repDeviceId);
     const pisDigits = normalizeDigits(pis);
     const cpfDigits = normalizeDigits(cpf);

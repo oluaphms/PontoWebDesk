@@ -1,3 +1,8 @@
+import {
+  beginOperationalTrace,
+  failOperationalTrace,
+  finalizeOperationalTrace,
+} from '../domain/operational/tracing';
 import { supabase } from './supabaseClient';
 
 export type AusenciasReportParams = {
@@ -15,19 +20,32 @@ export type AusenciasReportParams = {
 };
 
 export async function fetchAusenciasReport(params: AusenciasReportParams) {
-  const { data, error } = await supabase.rpc('rel_ausencias', {
-    p_data_ini: params.dataIni,
-    p_data_fim: params.dataFim,
-    p_user_id: params.employeeId || null,
-    p_department_id: params.departmentId || null,
-    p_carga_diaria_minutos: params.cargaDiaria,
-    p_extra_minutos: params.extraMin === '' ? null : Number(params.extraMin),
-    p_falta_minutos: params.faltaMin === '' ? null : Number(params.faltaMin),
-    p_almoco_min_min: params.almocoMin === '' ? null : Number(params.almocoMin),
-    p_almoco_min_max: params.almocoMax === '' ? null : Number(params.almocoMax),
-    p_interjornada_min_min: params.interjMin === '' ? null : Number(params.interjMin),
-    p_interjornada_min_max: params.interjMax === '' ? null : Number(params.interjMax),
+  const trace = beginOperationalTrace({
+    source: 'ausenciasReport.fetchAusenciasReport',
+    employee_id: params.employeeId ?? null,
   });
-  if (error) throw error;
-  return data ?? [];
+  try {
+    const { data, error } = await supabase.rpc('rel_ausencias', {
+      p_data_ini: params.dataIni,
+      p_data_fim: params.dataFim,
+      p_user_id: params.employeeId || null,
+      p_department_id: params.departmentId || null,
+      p_carga_diaria_minutos: params.cargaDiaria,
+      p_extra_minutos: params.extraMin === '' ? null : Number(params.extraMin),
+      p_falta_minutos: params.faltaMin === '' ? null : Number(params.faltaMin),
+      p_almoco_min_min: params.almocoMin === '' ? null : Number(params.almocoMin),
+      p_almoco_min_max: params.almocoMax === '' ? null : Number(params.almocoMax),
+      p_interjornada_min_min: params.interjMin === '' ? null : Number(params.interjMin),
+      p_interjornada_min_max: params.interjMax === '' ? null : Number(params.interjMax),
+    });
+    if (error) {
+      failOperationalTrace(trace.trace_id, error);
+      throw error;
+    }
+    finalizeOperationalTrace(trace.trace_id);
+    return data ?? [];
+  } catch (e) {
+    failOperationalTrace(trace.trace_id, e);
+    throw e;
+  }
 }
