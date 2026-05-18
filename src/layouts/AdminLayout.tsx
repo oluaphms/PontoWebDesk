@@ -1,9 +1,6 @@
 import React, { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { AdminAutoHelpChrome } from '../components/help/AdminAutoHelpChrome';
-import { HelpActionHintBanner } from '../components/help/HelpActionHintBanner';
-import { BehaviorSuggestionBanner } from '../components/help/BehaviorSuggestionBanner';
 import { HelpBehaviorTracker } from '../components/help/HelpBehaviorTracker';
 import { preloadCriticalHelpDocs } from '../help/helpDocLoader';
 
@@ -14,12 +11,6 @@ export interface AdminLayoutProps {
 }
 
 const AdminLayout: React.FC<AdminLayoutProps> = ({ children, operationalChromeReady, onLogout }) => {
-  const location = useLocation();
-  const path = location.pathname.replace(/\/+$/, '') || '/';
-  /** Páginas sem banner de atalho comportamental (dashboard, ajuda, relógios REP). */
-  const showBehaviorSuggestionBanner =
-    path !== '/admin/dashboard' && path !== '/admin/ajuda' && path !== '/admin/rep-devices';
-
   useEffect(() => {
     void preloadCriticalHelpDocs();
   }, []);
@@ -28,8 +19,6 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, operationalChromeRe
     <>
       <Layout onLogout={onLogout} layoutVariant="admin" operationalChromeReady={operationalChromeReady}>
         <HelpBehaviorTracker />
-        {showBehaviorSuggestionBanner && <BehaviorSuggestionBanner />}
-        <HelpActionHintBanner />
         {children}
       </Layout>
       <AdminAutoHelpChrome enabled={operationalChromeReady !== false} />

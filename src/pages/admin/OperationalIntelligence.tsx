@@ -12,7 +12,6 @@ import { downloadOperationalReport } from '../../help/helpReportBuilder';
 import { MaturityBenchmarkBlock } from '../../components/help/MaturityBenchmarkBlock';
 import { MaturityEvolutionSection } from '../../components/help/MaturityEvolutionSection';
 import { HelpDebugPanel } from '../../components/help/HelpDebugPanel';
-import { BehaviorSuggestionBanner } from '../../components/help/BehaviorSuggestionBanner';
 import { ValueProofTrigger } from '../../components/help/ValueProofTrigger';
 
 const OperationalMaturityCard = lazy(() =>
@@ -135,7 +134,6 @@ export default function OperationalIntelligence() {
               <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Engajamento
               </h2>
-              <BehaviorSuggestionBanner />
               <Suspense fallback={<PanelFallback />}>
                 <AchievementsPanel newlyUnlocked={newlyUnlocked} />
               </Suspense>
