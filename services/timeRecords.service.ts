@@ -23,6 +23,40 @@ function throwIfError(error: { message: string } | null, context: string): void 
   if (error) throw new Error(`${context}: ${error.message}`);
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertValidUuid(id: string, label: string): string {
+  const trimmed = String(id ?? '').trim();
+  if (!UUID_RE.test(trimmed)) {
+    throw new Error(`${label} inválido (UUID esperado).`);
+  }
+  return trimmed;
+}
+
+function isInsertTimeRecordRpcUnavailable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  const msg = String(error.message ?? '').toLowerCase();
+  if (code === '42883' || code === 'PGRST202' || code === 'PGRST204') return true;
+  if (msg.includes('could not find the function') || msg.includes('does not exist')) return true;
+  if (msg.includes('operator does not exist') && msg.includes('uuid')) return true;
+  return false;
+}
+
+function parseInsertTimeRecordRpcResult(
+  rpcData: unknown,
+): { id: string; timestamp?: string | number | null } | null {
+  if (!rpcData || typeof rpcData !== 'object') return null;
+  const row = rpcData as Record<string, unknown>;
+  const rawId = row.record_id ?? row.id;
+  if (rawId == null || String(rawId).trim() === '') return null;
+  return {
+    id: String(rawId),
+    timestamp: row.timestamp as string | number | null | undefined,
+  };
+}
+
 /** Mesmo pipeline que `db.select` (sessão + RLS + timeout interno). */
 export async function listTimeRecords(
   filters: Filter[],
@@ -327,17 +361,18 @@ export async function insertAdminMirrorTimeRecord(
   companyId: string,
   opts?: InsertAdminMirrorTimeRecordOpts,
 ): Promise<InsertAdminMirrorResult> {
-  const userId = String(data.user_id ?? '');
+  const userId = assertValidUuid(String(data.user_id ?? ''), 'user_id');
+  const companyUuid = assertValidUuid(companyId, 'company_id');
   const type = String(data.type ?? '');
   const createdAt = String(data.created_at ?? '');
-  if (!userId || !type || !createdAt) {
-    throw new Error('insertAdminMirrorTimeRecord: user_id, type e created_at são obrigatórios.');
+  if (!type || !createdAt) {
+    throw new Error('insertAdminMirrorTimeRecord: type e created_at são obrigatórios.');
   }
 
   assertNoFutureOperationalPunch(createdAt);
 
   await throwIfTimesheetClosedForPunchMutation({
-    companyId,
+    companyId: companyUuid,
     employeeId: userId,
     refIso: createdAt,
     auditSource: 'services/timeRecords.service.insertAdminMirrorTimeRecord:precheck-rpc',
@@ -347,7 +382,7 @@ export async function insertAdminMirrorTimeRecord(
   const sb = getSupabaseClientOrThrow();
   const { data: rpcData, error: rpcError } = await sb.rpc('insert_time_record_for_user', {
     p_user_id: userId,
-    p_company_id: companyId,
+    p_company_id: companyUuid,
     p_type: type,
     p_method: 'admin',
     p_source: opts?.rpcSource ?? 'admin',
@@ -357,51 +392,62 @@ export async function insertAdminMirrorTimeRecord(
     p_manual_reason: (data.manual_reason as string | null | undefined) ?? null,
   });
 
-  if (!rpcError && rpcData && typeof rpcData === 'object' && rpcData !== null && 'record_id' in rpcData) {
-    const r = rpcData as { record_id: string; timestamp?: string | number | null };
-    const id = String(r.record_id);
+  const rpcParsed = !rpcError ? parseInsertTimeRecordRpcResult(rpcData) : null;
+  if (rpcParsed) {
     let createdIso = createdAt;
-    if (typeof r.timestamp === 'string') {
-      createdIso = r.timestamp;
-    } else if (r.timestamp != null && (typeof r.timestamp === 'number' || typeof r.timestamp === 'object')) {
-      createdIso = new Date(r.timestamp as number | Date).toISOString();
+    if (typeof rpcParsed.timestamp === 'string') {
+      createdIso = rpcParsed.timestamp;
+    } else if (
+      rpcParsed.timestamp != null &&
+      (typeof rpcParsed.timestamp === 'number' || typeof rpcParsed.timestamp === 'object')
+    ) {
+      createdIso = new Date(rpcParsed.timestamp as number | Date).toISOString();
     }
     logAdminMirrorOperationalTimeline({
       client: sb,
-      companyId,
+      companyId: companyUuid,
       userId,
       createdIso,
       type,
-      recordId: id,
+      recordId: rpcParsed.id,
       rpcSource: opts?.rpcSource,
     });
     if (opts?.repGovernance?.repPunchLogIds?.length) {
       const dateYmd = extractLocalCalendarDateFromIso(createdIso);
-      void runRepGovernanceAfterManualMirrorAdjustment(sb, companyId, {
+      void runRepGovernanceAfterManualMirrorAdjustment(sb, companyUuid, {
         repPunchLogIds: opts.repGovernance.repPunchLogIds,
         employeeId: userId,
         dateYmd,
         reviewedBy: opts.repGovernance.reviewedBy,
       });
     }
-    return { id, createdAt: createdIso };
+    return { id: rpcParsed.id, createdAt: createdIso };
+  }
+
+  if (rpcError && !isInsertTimeRecordRpcUnavailable(rpcError)) {
+    throw new Error(`insert_time_record_for_user: ${rpcError.message}`);
   }
 
   if (rpcError && typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-    console.warn('[timeRecords.service] insert_time_record_for_user:', rpcError);
+    console.warn('[timeRecords.service] insert_time_record_for_user (fallback insert):', rpcError);
   }
 
   const mergeId = crypto.randomUUID();
   await createTimeRecord({
     ...data,
     id: mergeId,
-    company_id: companyId,
+    user_id: userId,
+    company_id: companyUuid,
+    type,
+    created_at: createdAt,
+    timestamp: createdAt,
+    source: opts?.rpcSource ?? 'admin',
     is_manual: true,
     method: 'admin',
   });
   logAdminMirrorOperationalTimeline({
     client: sb,
-    companyId,
+    companyId: companyUuid,
     userId,
     createdIso: createdAt,
     type,
@@ -410,7 +456,7 @@ export async function insertAdminMirrorTimeRecord(
   });
   if (opts?.repGovernance?.repPunchLogIds?.length) {
     const dateYmd = extractLocalCalendarDateFromIso(createdAt);
-    void runRepGovernanceAfterManualMirrorAdjustment(sb, companyId, {
+    void runRepGovernanceAfterManualMirrorAdjustment(sb, companyUuid, {
       repPunchLogIds: opts.repGovernance.repPunchLogIds,
       employeeId: userId,
       dateYmd,

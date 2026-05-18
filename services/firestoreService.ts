@@ -187,18 +187,32 @@ class SupabaseService {
         });
 
         if (error) {
-          // Se RPC falhar com "function does not exist", tentar insert direto
-          if (error.code === '42883') {
+          const msg = String(error.message ?? '').toLowerCase();
+          const rpcMissing =
+            error.code === '42883' ||
+            error.code === 'PGRST202' ||
+            msg.includes('does not exist') ||
+            msg.includes('could not find the function') ||
+            (msg.includes('operator does not exist') && msg.includes('uuid'));
+          if (rpcMissing) {
             supabaseData.method = supabaseData.method || 'admin';
+            supabaseData.is_manual = true;
             await db.insert('time_records', supabaseData);
           } else {
             throw error;
           }
         }
       } catch (rpcError: any) {
-        // Se RPC não existir ou falhar, tentar insert direto
-        if (rpcError?.code === '42883' || rpcError?.message?.includes('does not exist')) {
+        const msg = String(rpcError?.message ?? '').toLowerCase();
+        const rpcMissing =
+          rpcError?.code === '42883' ||
+          rpcError?.code === 'PGRST202' ||
+          msg.includes('does not exist') ||
+          msg.includes('could not find the function') ||
+          (msg.includes('operator does not exist') && msg.includes('uuid'));
+        if (rpcMissing) {
           supabaseData.method = supabaseData.method || 'admin';
+          supabaseData.is_manual = true;
           await db.insert('time_records', supabaseData);
         } else {
           throw rpcError;

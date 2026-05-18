@@ -11,7 +11,7 @@ export async function registerApprovedAdjustmentPunch(
     reason: string;
   },
 ): Promise<void> {
-  const { error } = await client.rpc('insert_time_record_for_user', {
+  const { data, error } = await client.rpc('insert_time_record_for_user', {
     p_user_id: params.userId,
     p_company_id: params.companyId,
     p_type: params.dbType,
@@ -20,5 +20,33 @@ export async function registerApprovedAdjustmentPunch(
     p_timestamp: params.timestampIso,
     p_manual_reason: `Aprovado via solicitação ${params.requestId}: ${params.reason}`,
   });
-  if (error) throw error;
+  if (!error && data && typeof data === 'object') return;
+
+  const msg = String(error?.message ?? '').toLowerCase();
+  const useFallback =
+    error &&
+    (error.code === '42883' ||
+      error.code === 'PGRST202' ||
+      msg.includes('does not exist') ||
+      msg.includes('could not find the function') ||
+      (msg.includes('operator does not exist') && msg.includes('uuid')));
+
+  if (!useFallback) {
+    if (error) throw error;
+    return;
+  }
+
+  const { error: insertError } = await client.from('time_records').insert({
+    user_id: params.userId,
+    company_id: params.companyId,
+    type: params.dbType,
+    method: 'admin',
+    source: 'request',
+    timestamp: params.timestampIso,
+    created_at: params.timestampIso,
+    updated_at: params.timestampIso,
+    is_manual: true,
+    manual_reason: `Aprovado via solicitação ${params.requestId}: ${params.reason}`,
+  });
+  if (insertError) throw insertError;
 }
