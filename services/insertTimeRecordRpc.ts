@@ -16,7 +16,8 @@ export function assertValidUuid(id: string, label: string): string {
   return trimmed;
 }
 
-export function isInsertTimeRecordRpcUnavailable(
+/** Erros em que faz sentido tentar INSERT direto em time_records (RLS admin/HR). */
+export function shouldFallbackToDirectTimeRecordInsert(
   error: { code?: string; message?: string; status?: number } | null,
 ): boolean {
   if (!error) return false;
@@ -25,6 +26,8 @@ export function isInsertTimeRecordRpcUnavailable(
   const status = Number(error.status ?? 0);
   if (
     code === '42883' ||
+    code === '42804' ||
+    code === '22P02' ||
     code === 'PGRST202' ||
     code === 'PGRST203' ||
     code === 'PGRST204' ||
@@ -39,6 +42,9 @@ export function isInsertTimeRecordRpcUnavailable(
   if (msg.includes('operator does not exist') && msg.includes('uuid')) return true;
   return false;
 }
+
+/** @deprecated Use shouldFallbackToDirectTimeRecordInsert */
+export const isInsertTimeRecordRpcUnavailable = shouldFallbackToDirectTimeRecordInsert;
 
 export type InsertTimeRecordRpcParams = {
   userId: string;
@@ -151,8 +157,13 @@ export async function insertTimeRecordForUserWithFallback(
   client: SupabaseClient,
   params: InsertTimeRecordRpcParams,
 ): Promise<InsertTimeRecordRpcResult> {
-  const userId = assertValidUuid(params.userId, 'user_id');
-  const companyId = assertValidUuid(params.companyId, 'company_id');
+  const userIdRaw = String(params.userId ?? '').trim();
+  const companyIdRaw = String(params.companyId ?? '').trim();
+  if (!userIdRaw || !companyIdRaw) {
+    throw new Error('IDs inválidos');
+  }
+  const userId = assertValidUuid(userIdRaw, 'user_id');
+  const companyId = assertValidUuid(companyIdRaw, 'company_id');
   const type = String(params.type ?? '').trim();
   const timestampIso = String(params.timestampIso ?? '').trim();
   if (!type || !timestampIso) {
@@ -182,14 +193,9 @@ export async function insertTimeRecordForUserWithFallback(
         via: 'rpc',
       };
     }
-  }
-
-  if (rpcError) {
-    console.error('[TIME RECORD ERROR]', rpcError);
-    if (!isInsertTimeRecordRpcUnavailable(rpcError)) {
-      throw new Error(`insert_time_record_for_user: ${rpcError.message}`);
-    }
-    console.warn('[RPC FAILED] tentando insert direto', rpcError);
+    console.warn('[RPC FAILED] resposta sem id — tentando insert direto', rpcData);
+  } else {
+    console.warn('[RPC FAILED]', rpcError);
   }
 
   const row = buildTimeRecordInsertRow({
@@ -204,7 +210,7 @@ export async function insertTimeRecordForUserWithFallback(
   const { error: insertError } = await client.from('time_records').insert(row);
   if (insertError) {
     console.error('[TIME RECORD ERROR]', insertError);
-    throw new Error(`time_records.insert: ${insertError.message}`);
+    throw insertError;
   }
 
   return { id: recordId, timestamp: timestampIso, via: 'insert' };
