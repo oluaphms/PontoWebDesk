@@ -168,7 +168,3 @@ export async function handleMirrorInsertTimeRecord(request: Request): Promise<Re
     corsHeaders,
   );
 }
-
-export default {
-  fetch: handleMirrorInsertTimeRecord,
-};

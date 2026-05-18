@@ -8,6 +8,10 @@
       "dest": "/api/operational/lgpd/$1"
     },
     {
+      "src": "^/api/mirror-insert-time-record$",
+      "dest": "/api/operational/mirror-insert-time-record"
+    },
+    {
       "src": "^/api/(.*)",
       "dest": "/api/$1"
     },

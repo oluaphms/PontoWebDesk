@@ -89,6 +89,11 @@ export async function dispatchOperationalRequest(request: Request): Promise<Resp
     return dispatchLgpdRequest(request);
   }
 
+  if (segs.length === 1 && segs[0] === 'mirror-insert-time-record') {
+    const { handleMirrorInsertTimeRecord } = await import('./mirrorInsertTimeRecord.js');
+    return handleMirrorInsertTimeRecord(request);
+  }
+
   return noCacheJson(404, { success: false, error: 'NOT_FOUND' });
 }
 
