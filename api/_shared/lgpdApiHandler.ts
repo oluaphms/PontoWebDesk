@@ -1,5 +1,6 @@
 /**
  * LGPD: portabilidade, exclusão (anonimização), consentimento e retenção.
+ * Rotas públicas: /api/lgpd/* (rewrite Vercel → /api/operational/lgpd/*)
  * GET  /api/lgpd/export?user_id=...&format=json|csv
  * POST /api/lgpd/delete  { user_id }
  * POST /api/lgpd/consent { user_id, accepted, version }
@@ -7,9 +8,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
-import { getSupabaseConfig, getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
-import { getCallerContext, isAdminOrHr } from '../_shared/callerContext.js';
+import { resolveRequestUrl } from './getRequestBaseUrl.js';
+import { getSupabaseConfig, getSupabaseUrlForServer } from './getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from './callerContext.js';
 import {
   auditLog,
   canAccessUserData,
@@ -17,9 +18,9 @@ import {
   logExport,
   logViewSensitiveData,
   runRetentionForCompany,
-} from '../_shared/lgpdGovernance.js';
-import { getSecureCorsHeaders } from '../_shared/security.js';
-import { noCache } from '../_shared/cache.js';
+} from './lgpdGovernance.js';
+import { getSecureCorsHeaders } from './security.js';
+import { noCache } from './cache.js';
 
 function corsFor(request: Request): Record<string, string> {
   return getSecureCorsHeaders(request, {
@@ -265,7 +266,8 @@ async function handleRetention(request: Request, headers: Record<string, string>
   return json({ success: true, results }, 200, headers);
 }
 
-async function handler(request: Request): Promise<Response> {
+/** Despacho LGPD — usado por /api/lgpd/* (rewrite) e /api/operational/lgpd/*. */
+export async function dispatchLgpdRequest(request: Request): Promise<Response> {
   const headers = corsFor(request);
   if (request.method === 'OPTIONS') {
     return noCache(new Response(null, { status: 204, headers }));
@@ -288,5 +290,3 @@ async function handler(request: Request): Promise<Response> {
 
   return json({ error: 'Rota não encontrada', routes: ['export', 'delete', 'consent', 'retention'] }, 404, headers);
 }
-
-export default { fetch: handler };

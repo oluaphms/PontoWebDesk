@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "routes": [
     {
+      "src": "^/api/lgpd(?:/(.*))?$",
+      "dest": "/api/operational/lgpd/$1"
+    },
+    {
       "src": "^/api/(.*)",
       "dest": "/api/$1"
     },

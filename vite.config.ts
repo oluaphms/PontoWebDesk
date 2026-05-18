@@ -224,8 +224,8 @@ export default defineConfig(({ mode }) => {
                   return;
                 }
               } else if (pathname.startsWith('/api/lgpd')) {
-                const { default: lgpdMod } = await import('./api/lgpd/[[...slug]].ts');
-                response = await run((r) => lgpdMod.fetch(r), req.url ?? pathname);
+                const { dispatchLgpdRequest } = await import('./api/_shared/lgpdApiHandler.ts');
+                response = await run(dispatchLgpdRequest, req.url ?? pathname);
               } else if (pathname.startsWith('/api/auth')) {
                 const { dispatchAuthRequest } = await import('./api/_shared/authApiDispatch.ts');
                 const requestBody = await readConnectRequestBody(req as IncomingMessage);

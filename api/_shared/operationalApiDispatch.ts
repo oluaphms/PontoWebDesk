@@ -84,6 +84,11 @@ export async function dispatchOperationalRequest(request: Request): Promise<Resp
     return forward('./route-handlers/operationalTasks.js', request, `/api/operational-tasks/${id}/complete${u.search}`, 'tasks-complete');
   }
 
+  if (segs.length >= 1 && segs[0] === 'lgpd') {
+    const { dispatchLgpdRequest } = await import('./lgpdApiHandler.js');
+    return dispatchLgpdRequest(request);
+  }
+
   return noCacheJson(404, { success: false, error: 'NOT_FOUND' });
 }
 
