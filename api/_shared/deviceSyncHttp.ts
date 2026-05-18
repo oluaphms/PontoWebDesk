@@ -206,11 +206,30 @@ async function handleHeartbeat(request: Request, supabase: AnySupabase, deviceId
     const res = authResponse(auth);
     return noCache(new Response(await res.text(), { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } }));
   }
+  let agentVersion: string | null = null;
+  try {
+    const body = (await request.json()) as { agent_version?: string; version?: string };
+    agentVersion = String(body.agent_version || body.version || '').trim() || null;
+  } catch {
+    // body opcional
+  }
   const now = new Date().toISOString();
   const { error } = await supabase.from('rep_devices').update({ last_seen_at: now, status_runtime: 'online', updated_at: now })
     .eq('id', deviceId).eq('company_id', auth.device.company_id);
   if (error) return noCache(Response.json({ error: 'Falha ao registrar heartbeat' }, { status: 500, headers }));
-  return noCache(Response.json({ success: true }, { status: 200, headers }));
+
+  const { error: hbErr } = await supabase.from('rep_device_heartbeats').upsert({
+    device_id: deviceId,
+    company_id: auth.device.company_id,
+    last_seen_at: now,
+    agent_version: agentVersion,
+    updated_at: now,
+  });
+  if (hbErr) {
+    console.warn('[rep/heartbeat] rep_device_heartbeats upsert:', hbErr.message);
+  }
+
+  return noCache(Response.json({ success: true, last_seen_at: now, agent_version: agentVersion }, { status: 200, headers }));
 }
 
 async function handleSyncStatus(request: Request, supabase: AnySupabase, deviceId: string, headers: Record<string, string>) {

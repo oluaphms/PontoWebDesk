@@ -328,9 +328,8 @@ async function handleStatus(request: Request): Promise<Response> {
         {
           ok: false,
           message:
-            'Este teste roda no servidor da Vercel, que não alcança IPs da sua rede local (192.168.x.x). ' +
-            'Use o agente `clock-sync-agent` na empresa ou teste o relógio a partir de um PC na mesma LAN. ' +
-            'A sincronização de dados continua possível via agente → Supabase.',
+            'Este relógio está na rede interna da empresa. Instale o Agente PontoWebDesk no computador da empresa e mantenha-o em execução. ' +
+            'O teste direto pela internet não é possível; use «Sincronizar agora» após o agente estar ativo.',
           httpStatus: 0,
           body: null,
         },
@@ -632,6 +631,10 @@ export async function handleRepSlug(request: Request, slug: string): Promise<Res
       return handleExchange(request);
     case 'agent-config':
       return (await import('../../api/_shared/repAgentConfigHttp.js')).handleRepAgentConfig(request);
+    case 'commands':
+      return (await import('../../api/_shared/repDeviceCommandsHttp.js')).handleRepCommands(request);
+    case 'command-result':
+      return (await import('../../api/_shared/repDeviceCommandsHttp.js')).handleRepCommandResult(request);
     default:
       return repJson({ error: 'Rota REP desconhecida' }, { status: 404, headers: { 'Content-Type': 'application/json' } });
   }

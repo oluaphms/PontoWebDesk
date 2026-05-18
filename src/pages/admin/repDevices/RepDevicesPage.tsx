@@ -77,7 +77,9 @@ import {
   buildLocalClockForRep,
   isEmployeeEligibleForRepPush,
   buildLocalRepAgentGuidance,
+  buildLocalRepAgentUserMessage,
   enrichRepConnectionTestMessage,
+  isAgentRecentlySeen,
   isCloudDeployedRepClient,
   isLocalAgentRepDevice,
   isTimesheetPeriodClosedError,
@@ -85,6 +87,8 @@ import {
   parseRepRpcUserRow,
   readLsBool,
   repMaskTailDigits,
+  sanitizeRepConnectionErrorForUi,
+  shouldBlockCloudRepConnectionTest,
   withUiTimeout,
 } from './utils';
 import { appendRepConsolidationOutcomeDiagnostics, appendRepPendingQueueDiagnostics } from './diagnostics';
@@ -94,6 +98,12 @@ import { RepDeploymentNote } from './RepDeploymentNote';
 import { RepDeviceDeleteModal } from './RepDeviceDeleteModal';
 import { RepDevicesListSection } from './RepDevicesListSection';
 import { RepSetupGuide } from './RepSetupGuide';
+import {
+  createRepTestConnectionCommand,
+  pollRepTestConnectionResult,
+  type PollTestConnectionOutcome,
+  type PollTestProgressPhase,
+} from '../../../services/repDeviceCommands.service';
 import {
   countDeviceHistoryRecords,
   deactivateRepDevice,
@@ -116,6 +126,12 @@ const AdminRepDevices: React.FC = () => {
   const [pageSyncBusy, setPageSyncBusy] = useState(false);
   const setupGuideRef = useRef<HTMLElement>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [agentTestPhase, setAgentTestPhase] = useState<
+    Record<string, 'idle' | 'running' | 'waiting' | 'slow'>
+  >({});
+  const lastAgentTestRef = useRef<
+    Record<string, (PollTestConnectionOutcome & { cachedAt: number }) | undefined>
+  >({});
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -278,10 +294,22 @@ const AdminRepDevices: React.FC = () => {
       if (!res.ok || body.success === false) {
         throw new Error(body.error || `Falha ao forçar sincronização (HTTP ${res.status})`);
       }
-      setMessage({ type: 'success', text: 'Sincronização forçada. Itens voltaram para pendente.' });
+      const device = devices.find((x) => x.id === deviceId);
+      const localHint =
+        device && shouldBlockCloudRepConnectionTest(device)
+          ? ' O agente na empresa processará na próxima execução.'
+          : '';
+      setMessage({
+        type: 'success',
+        text: `Sincronização solicitada.${localHint}`,
+      });
       await loadDevices();
     } catch (e) {
-      setMessage({ type: 'error', text: (e as Error).message });
+      const device = devices.find((x) => x.id === deviceId);
+      setMessage({
+        type: 'error',
+        text: sanitizeRepConnectionErrorForUi(device ?? null, e),
+      });
     } finally {
       setForcingSyncId(null);
     }
@@ -493,8 +521,12 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: 'Cadastre um dispositivo de rede antes de sincronizar.' });
       return;
     }
-    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
-      setMessage({ type: 'error', text: buildLocalRepAgentGuidance(d) });
+    if (shouldBlockCloudRepConnectionTest(d)) {
+      setMessage({
+        type: 'success',
+        text:
+          'Sincronização solicitada. Com o agente em execução na empresa, as batidas serão enviadas automaticamente.',
+      });
       scrollToRepCommunication();
       return;
     }
@@ -546,9 +578,131 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
+  const resolveAgentTestProgressMessage = useCallback((phase: PollTestProgressPhase): string | null => {
+    if (phase === 'waiting_agent') return 'Aguardando resposta do agente...';
+    if (phase === 'agent_slow') {
+      return 'O agente pode estar offline ou demorando para responder.';
+    }
+    return null;
+  }, []);
+
+  const getAgentTestButtonLabel = useCallback(
+    (deviceId: string): string => {
+      if (testingId !== deviceId) return 'Testar conexão (via agente)';
+      const phase = agentTestPhase[deviceId] ?? 'running';
+      if (phase === 'waiting') return 'Aguardando agente…';
+      if (phase === 'slow') return 'Agente demorando…';
+      return 'Testando via agente…';
+    },
+    [agentTestPhase, testingId],
+  );
+
+  const handleTestViaAgent = useCallback(
+    async (id: string) => {
+      if (!getSupabaseClient()) return;
+
+      const cached = lastAgentTestRef.current[id];
+      if (cached && Date.now() - cached.cachedAt < 120_000) {
+        const ageSec = Math.round((Date.now() - cached.cachedAt) / 1000);
+        if (cached.ok) {
+          const ms =
+            'responseTimeMs' in cached && cached.responseTimeMs != null
+              ? ` (${Math.round(cached.responseTimeMs)}ms)`
+              : '';
+          setMessage({
+            type: 'success',
+            text: `Último teste (${ageSec}s atrás): conectado via agente${ms}. Executando novo teste…`,
+          });
+        } else {
+          setMessage({
+            type: 'error',
+            text: `Último teste (${ageSec}s atrás): ${cached.message}. Executando novo teste…`,
+          });
+        }
+      } else {
+        setMessage(null);
+      }
+
+      setTestingId(id);
+      setAgentTestPhase((prev) => ({ ...prev, [id]: 'running' }));
+      const t0 = performance.now();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
+          return;
+        }
+        const created = await createRepTestConnectionCommand(id, session.access_token);
+        const outcome = await pollRepTestConnectionResult(id, created.command_id, session.access_token, {
+          onProgress: (phase) => {
+            const hint = resolveAgentTestProgressMessage(phase);
+            if (hint) setMessage({ type: 'error', text: hint });
+            if (phase === 'waiting_agent') {
+              setAgentTestPhase((prev) => ({ ...prev, [id]: 'waiting' }));
+            } else if (phase === 'agent_slow') {
+              setAgentTestPhase((prev) => ({ ...prev, [id]: 'slow' }));
+            }
+          },
+        });
+
+        const latencyMs = Math.round(performance.now() - t0);
+        console.info('[REP TEST]', {
+          device_id: id,
+          success: outcome.ok,
+          latency_ms: latencyMs,
+          response_time_ms: outcome.ok ? outcome.responseTimeMs : undefined,
+        });
+
+        lastAgentTestRef.current[id] = { ...outcome, cachedAt: Date.now() };
+
+        if (outcome.ok) {
+          const ms =
+            outcome.responseTimeMs != null ? ` (${Math.round(outcome.responseTimeMs)}ms)` : '';
+          setMessage({
+            type: 'success',
+            text: `Conectado via agente${ms}`,
+          });
+          await db.update('rep_devices', id, {
+            status: 'ativo',
+            updated_at: new Date().toISOString(),
+          });
+          await loadDevices();
+        } else {
+          setMessage({
+            type: 'error',
+            text: outcome.timedOut && outcome.slowAgent
+              ? `Não foi possível conectar ao dispositivo. ${outcome.message}`
+              : outcome.message,
+          });
+          if (outcome.timedOut) scrollToRepCommunication();
+        }
+      } catch (e) {
+        const device = devices.find((d) => d.id === id) ?? null;
+        setMessage({
+          type: 'error',
+          text: sanitizeRepConnectionErrorForUi(device, e),
+        });
+      } finally {
+        setTestingId(null);
+        setAgentTestPhase((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    [devices, loadDevices, resolveAgentTestProgressMessage, scrollToRepCommunication, supabase],
+  );
+
   const handleTestConnection = async (id: string) => {
     if (!getSupabaseClient()) return;
     const device = devices.find((d) => d.id === id) ?? null;
+    if (device && shouldBlockCloudRepConnectionTest(device)) {
+      await handleTestViaAgent(id);
+      return;
+    }
     setTestingId(id);
     setMessage(null);
     try {
@@ -560,7 +714,7 @@ const AdminRepDevices: React.FC = () => {
         });
         await loadDevices();
       }
-      const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha ao testar o relógio.');
+      const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Não foi possível conectar ao dispositivo.');
       const text = device ? enrichRepConnectionTestMessage(device, r.ok, base) : base;
       setMessage({
         type: r.ok ? 'success' : 'error',
@@ -570,12 +724,11 @@ const AdminRepDevices: React.FC = () => {
         scrollToRepCommunication();
       }
     } catch (e) {
-      const err = (e as Error).message;
-      const text =
-        device && isLocalAgentRepDevice(device)
-          ? enrichRepConnectionTestMessage(device, false, err)
-          : err;
-      setMessage({ type: 'error', text });
+      if (device && shouldBlockCloudRepConnectionTest(device)) {
+        void handleTestViaAgent(id);
+        return;
+      }
+      setMessage({ type: 'error', text: sanitizeRepConnectionErrorForUi(device, e) });
     } finally {
       setTestingId(null);
     }
@@ -685,9 +838,9 @@ const AdminRepDevices: React.FC = () => {
       return;
     }
     if (!getSupabaseClient()) return;
-    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
-      const guide = buildLocalRepAgentGuidance(d);
-      appendSrLog(guide);
+    if (shouldBlockCloudRepConnectionTest(d)) {
+      const guide = buildLocalRepAgentUserMessage();
+      appendSrLog(buildLocalRepAgentGuidance(d));
       setMessage({ type: 'error', text: guide });
       scrollToRepCommunication();
       return;
@@ -1906,9 +2059,9 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog('Selecione um equipamento de rede.');
       return;
     }
-    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
-      const guide = buildLocalRepAgentGuidance(d);
-      appendSrLog(guide);
+    if (shouldBlockCloudRepConnectionTest(d)) {
+      const guide = buildLocalRepAgentUserMessage();
+      appendSrLog(buildLocalRepAgentGuidance(d));
       setMessage({ type: 'error', text: guide });
       scrollToRepCommunication();
       return;
@@ -1931,8 +2084,9 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
       if (!r.ok && isLocalAgentRepDevice(d)) scrollToRepCommunication();
     } catch (e) {
-      appendSrLog(`Erro: ${(e as Error).message}`);
-      setMessage({ type: 'error', text: (e as Error).message });
+      const uiText = sanitizeRepConnectionErrorForUi(d, e);
+      appendSrLog(`Erro: ${uiText}`);
+      setMessage({ type: 'error', text: uiText });
     } finally {
       setTestingId(null);
     }
@@ -2282,6 +2436,8 @@ const AdminRepDevices: React.FC = () => {
         onRetryLoad={() => void loadDevices()}
         onOpenCreate={openCreate}
         onTestConnection={handleTestConnection}
+        onTestViaAgent={handleTestViaAgent}
+        getAgentTestButtonLabel={getAgentTestButtonLabel}
         onOpenEdit={openEdit}
         onDelete={handleDeleteRequest}
         onForceSync={handleForceSyncDevice}
@@ -2744,7 +2900,9 @@ const AdminRepDevices: React.FC = () => {
                   Status e conexão
                 </p>
                 <p className={repUiClasses.sectionText}>
-                  Testa o caminho até o aparelho (equivalente a testar conexão no cadastro).
+                  {srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)
+                    ? 'Relógios na rede interna são verificados pelo agente instalado na empresa.'
+                    : 'Testa o caminho até o aparelho (equivalente a testar conexão no cadastro).'}
                 </p>
                 <Button
                   type="button"
@@ -2753,11 +2911,17 @@ const AdminRepDevices: React.FC = () => {
                   disabled={srActionsLocked || !srSelectedDevice || testingId === srSelectedDevice?.id}
                   onClick={() => {
                     setSrSendDialogOpen(false);
+                    if (srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)) {
+                      void handleTestViaAgent(srSelectedDevice.id);
+                      return;
+                    }
                     void srRunStatusInModal();
                   }}
                 >
                   <Activity size={16} className={repPageUi.c019} />
-                  Testar status / conexão
+                  {srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)
+                    ? getAgentTestButtonLabel(srSelectedDevice.id)
+                    : 'Testar status / conexão'}
                 </Button>
               </div>
 

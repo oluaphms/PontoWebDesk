@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { isEmployeeEligibleForRepPush } from './utils';
+import { isAgentRecentlySeen, isEmployeeEligibleForRepPush } from './utils';
 import type {
   AgentHealthStatus,
   AgentSnapshot,
@@ -52,23 +52,34 @@ export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
 
   const agentSnapshot = useMemo<AgentSnapshot>(() => {
     const now = Date.now();
-    const latestSyncMs = devices
-      .map((d) => (d.ultima_sincronizacao ? Date.parse(d.ultima_sincronizacao) : Number.NaN))
-      .filter((v) => Number.isFinite(v))
-      .sort((a, b) => b - a)[0];
-    const hasRecentSync = Number.isFinite(latestSyncMs) && now - latestSyncMs <= 15 * 60 * 1000;
-    const hasOldSync = Number.isFinite(latestSyncMs) && now - latestSyncMs <= 2 * 60 * 60 * 1000;
-    const hasError = devices.some((d) => (d.status || '').toLowerCase() === 'erro');
+    const activityMs = devices
+      .map((d) => {
+        const candidates = [d.last_seen_at, d.ultima_sincronizacao].filter(Boolean) as string[];
+        return candidates
+          .map((iso) => Date.parse(iso))
+          .filter((v) => Number.isFinite(v))
+          .sort((a, b) => b - a)[0];
+      })
+      .filter((v): v is number => Number.isFinite(v))
+      .sort((a, b) => b - a);
+    const latestActivityMs = activityMs[0];
+    const hasRecentHeartbeat = devices.some((d) => isAgentRecentlySeen(d.last_seen_at));
+    const hasRecentSync =
+      Number.isFinite(latestActivityMs) && now - latestActivityMs <= 15 * 60 * 1000;
+    const hasOldSync = Number.isFinite(latestActivityMs) && now - latestActivityMs <= 2 * 60 * 60 * 1000;
+    const hasError = devices.some(
+      (d) => (d.status || '').toLowerCase() === 'erro' && !isAgentRecentlySeen(d.last_seen_at),
+    );
 
     let status: AgentHealthStatus = 'OFFLINE';
-    if (hasRecentSync && !hasError) status = 'ONLINE';
-    else if (hasRecentSync || hasOldSync || hasError) status = 'DEGRADED';
+    if ((hasRecentSync || hasRecentHeartbeat) && !hasError) status = 'ONLINE';
+    else if (hasRecentSync || hasOldSync || hasRecentHeartbeat) status = 'DEGRADED';
 
-    const mode = hasRecentSync ? 'Tempo real' : 'Batch';
+    const mode = hasRecentHeartbeat ? 'Agente local' : hasRecentSync ? 'Tempo real' : 'Batch';
     return {
       status,
       mode,
-      lastSync: Number.isFinite(latestSyncMs) ? new Date(latestSyncMs).toISOString() : null,
+      lastSync: Number.isFinite(latestActivityMs) ? new Date(latestActivityMs).toISOString() : null,
     };
   }, [devices]);
 

@@ -163,6 +163,21 @@ const REP_AGENT_INTERVAL_MS = Math.max(
   5000,
   parseInt(process.env.REP_AGENT_INTERVAL_MS || '60000', 10) || 60000
 );
+/** Poll leve de comandos SaaS (test_connection) — separado do ciclo pesado AFD/sync. */
+const REP_COMMAND_POLL_INTERVAL_MS = Math.max(
+  2000,
+  parseInt(process.env.REP_COMMAND_POLL_INTERVAL_MS || '5000', 10) || 5000
+);
+/** Timeout máximo por execução de comando (evita agente travado). */
+const REP_COMMAND_EXEC_TIMEOUT_MS = Math.max(
+  3000,
+  parseInt(process.env.REP_COMMAND_EXEC_TIMEOUT_MS || '10000', 10) || 10000
+);
+const REP_AGENT_VERSION = (process.env.REP_AGENT_VERSION || 'rep-agent.mjs').trim();
+let repCommandPollBusy = false;
+let repCommandPollTimer = null;
+/** Instância de execução atual (claim) — descarta POST de resultado velho. */
+let currentExecutionId = null;
 const CLI_ONCE = process.argv.slice(2).some((a) => a === '--once');
 const CLI_SYNC_USERS = process.argv.slice(2).some((a) => a === 'sync-users');
 const REP_SYNC_TIMEOUT_MS = Math.max(1000, parseInt(process.env.REP_SYNC_TIMEOUT_MS || '12000', 10) || 12000);
@@ -250,7 +265,9 @@ function logStartupConfig() {
     `| escopo=${agentPolicy.scope}`,
     agentPolicy.fromDateStr ? `| desde=${agentPolicy.fromDateStr}` : '',
     agentPolicy.autoMode ? '| go-live=auto' : '',
-    repForceMode ? '| force_mode=on' : ''
+    repForceMode ? '| force_mode=on' : '',
+    `| cmd_poll=${REP_COMMAND_POLL_INTERVAL_MS}ms`,
+    `| sync_loop=${REP_AGENT_INTERVAL_MS}ms`
   );
   if (scheme === 'http' && (port === '443' || port === '442')) {
     console.warn(
@@ -1284,6 +1301,251 @@ async function ackUserSync(syncId, ok, payload = {}) {
   }
 }
 
+/**
+ * Teste de conexão local (LAN) — usado pelo comando SaaS test_connection.
+ */
+async function runLocalDeviceConnectionTest() {
+  if (!ip) {
+    return {
+      success: false,
+      message: 'Configure REP_DEVICE_IP no agente (mesma rede do relógio).',
+      response_time_ms: 0,
+    };
+  }
+  const base = `${scheme}://${ip}:${port}`;
+  const t0 = Date.now();
+  try {
+    const password = (process.env.REP_DEVICE_PASSWORD || '').trim();
+    if (password) {
+      const session = await loginControlId(base);
+      const ms = Date.now() - t0;
+      if (session) {
+        return {
+          success: true,
+          message: 'Relógio respondeu corretamente.',
+          response_time_ms: ms,
+        };
+      }
+      return {
+        success: false,
+        message: 'Não foi possível autenticar no relógio. Verifique usuário e senha.',
+        response_time_ms: ms,
+      };
+    }
+    const res = await clockGet(base, { timeoutMs: 12_000, maxBytes: 8192 });
+    const ms = Date.now() - t0;
+    if (res.status >= 200 && res.status < 500) {
+      return {
+        success: true,
+        message: 'Relógio respondeu na rede local.',
+        response_time_ms: ms,
+      };
+    }
+    return {
+      success: false,
+      message: `Relógio retornou HTTP ${res.status}.`,
+      response_time_ms: ms,
+    };
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const lower = msg.toLowerCase();
+    const friendly =
+      lower.includes('timeout') || lower.includes('etimedout') || lower.includes('econnrefused')
+        ? 'Timeout ao conectar. Verifique IP, porta e se o relógio está ligado.'
+        : msg;
+    return {
+      success: false,
+      message: friendly,
+      response_time_ms: Date.now() - t0,
+    };
+  }
+}
+
+function maskDeviceIpForResult(raw) {
+  const s = String(raw || '').trim();
+  const parts = s.split('.');
+  if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
+    return `${parts[0]}.${parts[1]}.*.*`;
+  }
+  return 'masked';
+}
+
+function buildCommandTestResult(testResult, attempt = 1) {
+  return {
+    success: testResult.success,
+    message: testResult.message,
+    response_time_ms: testResult.response_time_ms,
+    latency_ms: testResult.response_time_ms,
+    attempt,
+    agent_version: REP_AGENT_VERSION,
+    device_ip: maskDeviceIpForResult(ip),
+  };
+}
+
+async function runLocalDeviceConnectionTestWithTimeout() {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), REP_COMMAND_EXEC_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([runLocalDeviceConnectionTest(), timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function postRepCommandResult(commandId, executionId, status, result) {
+  if (!executionId) return;
+  if (currentExecutionId && currentExecutionId !== executionId) {
+    syncLog('[REP COMMANDS] resultado ignorado (execution_id obsoleto)', {
+      detail: { command_id: commandId },
+    });
+    return;
+  }
+  const res = await fetchJsonWithTimeout(
+    `${saas}/api/rep/command-result`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        command_id: commandId,
+        execution_id: executionId,
+        status,
+        result,
+      }),
+    },
+    REP_SYNC_TIMEOUT_MS,
+  );
+  if (!res.ok) {
+    throw new Error(`command-result HTTP ${res.status}`);
+  }
+  if (res.data?.ignored) {
+    syncLog('[REP COMMANDS] servidor ignorou resultado', { detail: res.data });
+  }
+}
+
+async function executeRepCommand(cmd) {
+  const id = String(cmd.id || '').trim();
+  const name = String(cmd.command || '').trim();
+  const executionId = String(cmd.execution_id || '').trim();
+  const cmdStatus = String(cmd.status || '').trim().toLowerCase();
+
+  if (!id || name !== 'test_connection') return;
+  if (!executionId) {
+    syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
+    return;
+  }
+  if (cmdStatus === 'done' || cmdStatus === 'error' || cmdStatus === 'cancelled') {
+    return;
+  }
+
+  currentExecutionId = executionId;
+  syncLog('[REP COMMANDS] executando', {
+    detail: { command_id: id, command: name, execution_id: executionId },
+  });
+
+  let testResult;
+  try {
+    testResult = await runLocalDeviceConnectionTestWithTimeout();
+  } catch (e) {
+    const isTimeout = (e?.message || String(e)) === 'timeout';
+    testResult = {
+      success: false,
+      message: isTimeout
+        ? 'Timeout ao conectar ao relógio (limite de 10s).'
+        : e?.message || String(e),
+      response_time_ms: REP_COMMAND_EXEC_TIMEOUT_MS,
+    };
+  }
+
+  const payload = buildCommandTestResult(testResult, 1);
+  const finalStatus = testResult.success ? 'done' : 'error';
+
+  try {
+    if (currentExecutionId === executionId) {
+      await postRepCommandResult(id, executionId, finalStatus, payload);
+    }
+    console.info('[REP TEST]', {
+      device_id: deviceId || cmd.device_id,
+      command_id: id,
+      execution_id: executionId,
+      success: testResult.success,
+      latency_ms: testResult.response_time_ms,
+    });
+    syncLog('[REP COMMANDS] concluído', {
+      detail: {
+        command_id: id,
+        execution_id: executionId,
+        success: testResult.success,
+        ms: testResult.response_time_ms,
+      },
+    });
+  } finally {
+    if (currentExecutionId === executionId) {
+      currentExecutionId = null;
+    }
+  }
+}
+
+async function pollAndExecuteRepCommands() {
+  if (!companyId || !apiKey || !saas) return;
+  try {
+    const qs = new URLSearchParams({ company_id: companyId });
+    if (deviceId) qs.set('device_id', deviceId);
+    const res = await fetchJsonWithTimeout(
+      `${saas}/api/rep/commands?${qs}`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      },
+      REP_SYNC_TIMEOUT_MS,
+    );
+    if (!res.ok) {
+      syncLog('[REP COMMANDS] poll falhou', { detail: { status: res.status } });
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const commands = Array.isArray(data.commands) ? data.commands : [];
+    if (commands.length === 0) return;
+
+    for (const cmd of commands) {
+      await executeRepCommand(cmd);
+    }
+  } catch (e) {
+    console.warn('[REP COMMANDS]', e?.message || e);
+  }
+}
+
+async function runCommandPollOnce() {
+  if (repCommandPollBusy) return;
+  repCommandPollBusy = true;
+  try {
+    await pollAndExecuteRepCommands();
+  } finally {
+    repCommandPollBusy = false;
+  }
+}
+
+function startRepCommandPollLoop() {
+  if (!companyId || !apiKey || !saas) return;
+  void runCommandPollOnce();
+  if (repCommandPollTimer) return;
+  repCommandPollTimer = setInterval(() => {
+    void runCommandPollOnce();
+  }, REP_COMMAND_POLL_INTERVAL_MS);
+  console.log(`[REP COMMAND POLL] ativo a cada ${REP_COMMAND_POLL_INTERVAL_MS}ms`);
+}
+
+function stopRepCommandPollLoop() {
+  if (repCommandPollTimer) {
+    clearInterval(repCommandPollTimer);
+    repCommandPollTimer = null;
+  }
+}
+
 async function sendHeartbeat() {
   if (!deviceId) throw new Error('REP_DEVICE_ID é obrigatório para heartbeat');
   const t0 = Date.now();
@@ -1293,7 +1555,11 @@ async function sendHeartbeat() {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        agent_version: process.env.REP_AGENT_VERSION || 'rep-agent.mjs',
+      }),
     },
     REP_SYNC_TIMEOUT_MS
   );
@@ -1302,6 +1568,7 @@ async function sendHeartbeat() {
   if (!res.ok) {
     throw new Error(`Heartbeat falhou com HTTP ${res.status}`);
   }
+  await runCommandPollOnce();
 }
 
 async function runSyncUsersCommand() {
@@ -1311,6 +1578,7 @@ async function runSyncUsersCommand() {
 
   syncLog('[SYNC START]', { detail: { command: 'sync-users' } });
   await sendHeartbeat();
+  await pollAndExecuteRepCommands();
 
   const pendingStart = Date.now();
   const pendingRes = await fetchJsonWithTimeout(
@@ -1854,6 +2122,13 @@ async function ingestViaApiDirect() {
 
 async function runCycleWithBoot() {
   try {
+    if (deviceId) {
+      try {
+        await sendHeartbeat();
+      } catch (e) {
+        console.warn('[rep-agent] heartbeat:', e?.message || e);
+      }
+    }
     const r = await runCycle();
     await handlePostCycleBoot(r);
     return r;
@@ -1909,8 +2184,11 @@ async function main() {
 
   const loopEnabled = REP_AGENT_LOOP && !CLI_ONCE;
 
+  startRepCommandPollLoop();
+
   if (!loopEnabled) {
     await runCycleWithBoot();
+    stopRepCommandPollLoop();
     return;
   }
 
@@ -1918,6 +2196,7 @@ async function main() {
   const stopOn = (sig) => {
     if (stopping) return;
     stopping = true;
+    stopRepCommandPollLoop();
     console.log(`[REP AGENT LOOP] sinal ${sig} recebido, encerrando após o ciclo atual.`);
   };
   process.on('SIGINT', () => stopOn('SIGINT'));

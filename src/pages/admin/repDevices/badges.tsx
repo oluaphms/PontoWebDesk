@@ -2,8 +2,41 @@
 // Não utilizar classes visuais hardcoded (padding, radius, font, shadow).
 // Sempre utilizar uiTokens ou helpers centralizados.
 import React from 'react';
+import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
+import {
+  formatLastCommunicationTime,
+  getLocalRepDeviceDisplayState,
+  isLocalAgentRepDevice,
+} from './utils';
 import { repBadgesUi } from '../../../styles/repBadgesUi';
 import { cx } from '../../../styles/cx';
+
+/** Status principal na lista — prioriza agente local quando IP é LAN. */
+export function repDeviceConnectionStatusBadge(
+  device: RepDeviceRow,
+  syncSnapshot?: DeviceSyncStatusSnapshot,
+) {
+  if (isLocalAgentRepDevice(device)) {
+    const state = getLocalRepDeviceDisplayState(device, syncSnapshot?.last_seen_at);
+    const lastAt = formatLastCommunicationTime(
+      syncSnapshot?.last_seen_at ?? device.last_seen_at ?? device.ultima_sincronizacao,
+    );
+    if (state === 'connected_via_agent') {
+      return (
+        <span className={cx(repBadgesUi.base, repBadgesUi.ok)} title={lastAt ? `Última comunicação: ${lastAt}` : undefined}>
+          Conectado via agente
+          {lastAt ? <span className="ml-1 font-normal opacity-90">· {lastAt}</span> : null}
+        </span>
+      );
+    }
+    return (
+      <span className={cx(repBadgesUi.base, repBadgesUi.off)} title="Instale e mantenha o agente no PC da empresa">
+        Aguardando agente local
+      </span>
+    );
+  }
+  return repDeviceRowStatusBadge(device.status);
+}
 
 export function repDeviceRowStatusBadge(status: string | null) {
   const s = (status || '').toLowerCase();

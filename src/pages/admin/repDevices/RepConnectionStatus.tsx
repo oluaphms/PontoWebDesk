@@ -67,9 +67,9 @@ export const RepConnectionStatus: React.FC<RepConnectionStatusProps> = ({
             <PlugZap size={18} />
           </span>
           <div className={repConnUi.c002}>
-            <p className={repConnUi.c005}>Agente local não detectado</p>
+            <p className={repConnUi.c005}>Aguardando agente na empresa</p>
             <p className={cx('mt-1 leading-relaxed', uiTokens.typography.subtitle)}>
-              A coleta de batidas depende do agente instalado na rede da empresa
+              Instale o Agente PontoWebDesk no computador da empresa e mantenha-o em execução para sincronizar relógios na rede interna.
             </p>
             <div className={repConnUi.c003}>
               <Button

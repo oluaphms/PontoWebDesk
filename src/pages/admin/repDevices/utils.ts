@@ -106,22 +106,95 @@ export function isCloudDeployedRepClient(): boolean {
   return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local');
 }
 
+/** Janela em que consideramos o agente “ativo” (alinhado ao backend markOfflineDevices). */
+export const REP_AGENT_RECENT_MS = 5 * 60 * 1000;
+
+export function isAgentRecentlySeen(iso: string | null | undefined, windowMs = REP_AGENT_RECENT_MS): boolean {
+  if (!iso) return false;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && Date.now() - t <= windowMs;
+}
+
+export function shouldBlockCloudRepConnectionTest(
+  d: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao'>,
+): boolean {
+  return isLocalAgentRepDevice(d) && isCloudDeployedRepClient();
+}
+
+export function formatLastCommunicationTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+export type LocalRepDeviceDisplayState = 'awaiting_agent' | 'connected_via_agent';
+
+export function getLocalRepDeviceDisplayState(
+  d: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao' | 'ultima_sincronizacao' | 'last_seen_at'>,
+  syncLastSeen?: string | null,
+): LocalRepDeviceDisplayState {
+  const seen = syncLastSeen ?? d.last_seen_at ?? d.ultima_sincronizacao;
+  return isAgentRecentlySeen(seen) ? 'connected_via_agent' : 'awaiting_agent';
+}
+
+/** Mensagem curta para toast / alerta (sem jargão técnico). */
+export function buildLocalRepAgentUserMessage(): string {
+  return [
+    'Este relógio está dentro da rede da empresa.',
+    '',
+    'Para conectar:',
+    '1. Instale o Agente PontoWebDesk no computador da empresa',
+    '2. Deixe ele em execução',
+    '3. O sistema sincroniza automaticamente',
+    '',
+    'O botão "Testar conexão" não funciona para redes internas quando você acessa pela internet.',
+  ].join('\n');
+}
+
 export function buildLocalRepAgentGuidance(
   d: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo'>,
 ): string {
-  const port = d.porta ?? 80;
+  const port = d.porta ?? 443;
   const ip = (d.ip || '').trim() || '192.168.x.x';
   return [
-    'Relógio em rede local: o servidor na nuvem não acessa o IP diretamente.',
+    buildLocalRepAgentUserMessage(),
     '',
-    'No PC da empresa (mesma rede do relógio):',
-    `1. Configure REP_DEVICE_IP=${ip} e REP_DEVICE_PORT=${port} (e REP_DEVICE_ID=${d.id} se quiser).`,
-    '2. Defina REP_SAAS_URL, REP_COMPANY_ID e API_KEY (ver scripts/rep-agent.env.example).',
-    '3. Execute: npm run rep:agent',
+    'Configuração no PC da empresa (mesma rede do relógio):',
+    `• REP_DEVICE_IP=${ip}`,
+    `• REP_DEVICE_PORT=${port}`,
+    `• REP_DEVICE_ID=${d.id}`,
+    '• REP_SAAS_URL, REP_COMPANY_ID e API_KEY (ver scripts/rep-agent.env.example)',
+    '• Execute: npm run rep:agent',
     '',
-    'Depois use «Sincronizar agora» no painel — as batidas chegam via agente → Supabase.',
-    'Em desenvolvimento local (npm run dev) neste PC na LAN, «Testar» pode validar o relógio direto.',
+    'Depois use «Sincronizar agora» no painel.',
   ].join('\n');
+}
+
+/** Erro de API genérico para o usuário (sem stack nem HTTP cru). */
+export function sanitizeRepConnectionErrorForUi(
+  device: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao'> | null,
+  err: unknown,
+): string {
+  if (device && shouldBlockCloudRepConnectionTest(device)) {
+    return buildLocalRepAgentUserMessage();
+  }
+  const raw = err instanceof Error ? err.message : String(err || '');
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('network') ||
+    lower.includes('500') ||
+    lower.includes('internal') ||
+    lower.includes('vercel') ||
+    lower.includes('192.168')
+  ) {
+    return 'Não foi possível conectar ao dispositivo. Verifique IP, porta e se o relógio está ligado na rede.';
+  }
+  if (raw.length > 180) {
+    return 'Não foi possível conectar ao dispositivo.';
+  }
+  return raw || 'Não foi possível conectar ao dispositivo.';
 }
 
 export function enrichRepConnectionTestMessage(

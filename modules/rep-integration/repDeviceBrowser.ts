@@ -139,7 +139,10 @@ export async function testConnectionViaApi(deviceId: string, accessToken: string
   const data = await readJsonOrText(res);
   const errText = normalizeApiError(data, res.status);
   if (!res.ok) {
-    return { ok: false, message: errText };
+    if (res.status >= 500) {
+      return { ok: false, message: 'Não foi possível conectar ao dispositivo.' };
+    }
+    return { ok: false, message: errText || 'Não foi possível conectar ao dispositivo.' };
   }
   if (data.ok === false) {
     return {

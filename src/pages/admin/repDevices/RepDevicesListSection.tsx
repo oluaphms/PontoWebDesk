@@ -4,9 +4,9 @@
 import React from 'react';
 import { Button } from '../../../../components/UI';
 import { Clock, Loader2, Network, Pencil, Plus, Trash2 } from 'lucide-react';
-import { repDeviceRowStatusBadge, repDeviceRuntimeBadge } from './badges';
+import { repDeviceConnectionStatusBadge, repDeviceRuntimeBadge } from './badges';
 import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
-import { repConnectionCellText } from './utils';
+import { isLocalAgentRepDevice, repConnectionCellText, shouldBlockCloudRepConnectionTest } from './utils';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { uiTokens } from '../../../styles/tokens';
 import { repListUi } from '../../../styles/repDevicesListUi';
@@ -35,6 +35,8 @@ export type RepDevicesListSectionProps = {
   onRetryLoad: () => void;
   onOpenCreate: () => void;
   onTestConnection: (deviceId: string) => void;
+  onTestViaAgent: (deviceId: string) => void;
+  getAgentTestButtonLabel: (deviceId: string) => string;
   onOpenEdit: (device: RepDeviceRow) => void;
   onDelete: (deviceId: string, deviceName: string) => void;
   onForceSync: (deviceId: string) => void;
@@ -57,6 +59,8 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
   onRetryLoad,
   onOpenCreate,
   onTestConnection,
+  onTestViaAgent,
+  getAgentTestButtonLabel,
   onOpenEdit,
   onDelete,
   onForceSync,
@@ -172,7 +176,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     {[d.fabricante, d.modelo].filter(Boolean).join(' / ') || '—'}
                   </div>
                 </div>
-                <div className={repListUi.c009}>{repDeviceRowStatusBadge(d.status)}</div>
+                <div className={repListUi.c009}>{repDeviceConnectionStatusBadge(d, syncStatusByDeviceId[d.id])}</div>
               </div>
 
               <div className={repListUi.c010}>
@@ -223,7 +227,18 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 >
                   Sincronizar agora
                 </Button>
-                {d.tipo_conexao === 'rede' && (
+                {d.tipo_conexao === 'rede' && shouldBlockCloudRepConnectionTest(d) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                    disabled={testingId === d.id}
+                    onClick={() => onTestViaAgent(d.id)}
+                  >
+                    {getAgentTestButtonLabel(d.id)}
+                  </Button>
+                )}
+                {d.tipo_conexao === 'rede' && !shouldBlockCloudRepConnectionTest(d) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -231,7 +246,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     disabled={testingId === d.id}
                     onClick={() => onTestConnection(d.id)}
                   >
-                    Testar
+                    Testar conexão
                   </Button>
                 )}
                 <Button
@@ -317,7 +332,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                       </span>
                     </td>
                     <td className={repListUi.c027}>{identifierTypeLabel(d.identifier_type)}</td>
-                    <td className={repListUi.c029}>{repDeviceRowStatusBadge(d.status)}</td>
+                    <td className={repListUi.c029}>{repDeviceConnectionStatusBadge(d, syncStatusByDeviceId[d.id])}</td>
                     <td className={repListUi.c029}>
                       {repDeviceRuntimeBadge(syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime)}
                     </td>
@@ -348,7 +363,25 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                         >
                           Sincronizar
                         </Button>
-                        {d.tipo_conexao === 'rede' && (
+                        {d.tipo_conexao === 'rede' && shouldBlockCloudRepConnectionTest(d) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={cx(
+                              buttonStyles.base,
+                              buttonStyles.ghost,
+                              uiTokens.radius.button,
+                              uiTokens.transition.default,
+                              'text-xs whitespace-nowrap px-2.5',
+                            )}
+                            disabled={testingId === d.id}
+                            onClick={() => onTestViaAgent(d.id)}
+                            title="Testar conexão via agente local"
+                          >
+                            {getAgentTestButtonLabel(d.id)}
+                          </Button>
+                        )}
+                        {d.tipo_conexao === 'rede' && !shouldBlockCloudRepConnectionTest(d) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -361,6 +394,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                             )}
                             disabled={testingId === d.id}
                             onClick={() => onTestConnection(d.id)}
+                            title="Testar conexão"
                           >
                             Testar
                           </Button>
