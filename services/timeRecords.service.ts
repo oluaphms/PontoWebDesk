@@ -38,8 +38,9 @@ function isInsertTimeRecordRpcUnavailable(error: { code?: string; message?: stri
   if (!error) return false;
   const code = String(error.code ?? '');
   const msg = String(error.message ?? '').toLowerCase();
-  if (code === '42883' || code === 'PGRST202' || code === 'PGRST204') return true;
+  if (code === '42883' || code === 'PGRST202' || code === 'PGRST203' || code === 'PGRST204') return true;
   if (msg.includes('could not find the function') || msg.includes('does not exist')) return true;
+  if (msg.includes('could not choose the best candidate')) return true;
   if (msg.includes('operator does not exist') && msg.includes('uuid')) return true;
   return false;
 }

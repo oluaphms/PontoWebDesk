@@ -430,58 +430,8 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.insert_time_record_for_user(
-  p_user_id text,
-  p_company_id text,
-  p_type text,
-  p_method text DEFAULT 'admin',
-  p_location jsonb DEFAULT NULL,
-  p_photo_url text DEFAULT NULL,
-  p_source text DEFAULT 'admin',
-  p_timestamp text DEFAULT NULL,
-  p_latitude numeric DEFAULT NULL,
-  p_longitude numeric DEFAULT NULL,
-  p_accuracy numeric DEFAULT NULL,
-  p_device_id text DEFAULT NULL,
-  p_device_type text DEFAULT NULL,
-  p_ip_address text DEFAULT NULL,
-  p_fraud_score numeric DEFAULT 0,
-  p_fraud_flags jsonb DEFAULT '[]',
-  p_manual_reason text DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT public.insert_time_record_for_user(
-    NULLIF(btrim(p_user_id), '')::uuid,
-    NULLIF(btrim(p_company_id), '')::uuid,
-    p_type,
-    p_method,
-    p_location,
-    p_photo_url,
-    p_source,
-    p_timestamp,
-    p_latitude,
-    p_longitude,
-    p_accuracy,
-    p_device_id,
-    p_device_type,
-    p_ip_address,
-    p_fraud_score,
-    p_fraud_flags,
-    p_manual_reason
-  );
-$$;
-
 GRANT EXECUTE ON FUNCTION public.insert_time_record_for_user(
   uuid, uuid, text, text, jsonb, text, text, text,
-  numeric, numeric, numeric, text, text, text, numeric, jsonb, text
-) TO authenticated, service_role;
-
-GRANT EXECUTE ON FUNCTION public.insert_time_record_for_user(
-  text, text, text, text, jsonb, text, text, text,
   numeric, numeric, numeric, text, text, text, numeric, jsonb, text
 ) TO authenticated, service_role;
 
