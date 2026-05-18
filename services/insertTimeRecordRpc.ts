@@ -3,7 +3,7 @@
  * Envia todos os parâmetros na RPC para evitar PGRST203 (ambiguidade PostgREST).
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,6 +45,30 @@ export function shouldFallbackToDirectTimeRecordInsert(
 
 /** @deprecated Use shouldFallbackToDirectTimeRecordInsert */
 export const isInsertTimeRecordRpcUnavailable = shouldFallbackToDirectTimeRecordInsert;
+
+function wrapPostgrestError(context: string, error: PostgrestError): Error {
+  const code = String(error.code ?? '');
+  const status = Number((error as PostgrestError & { status?: number }).status ?? 0);
+  const msg = String(error.message ?? 'erro desconhecido');
+  const details = error.details ? ` Detalhe: ${error.details}` : '';
+  const hint = error.hint ? ` ${error.hint}` : '';
+  const schemaCacheMiss =
+    code === 'PGRST202' ||
+    code === 'PGRST205' ||
+    code === '42883' ||
+    status === 404 ||
+    /could not find the function/i.test(msg) ||
+    (/not found/i.test(msg) && /function|relation|schema cache/i.test(msg));
+
+  if (schemaCacheMiss) {
+    return new Error(
+      `${context}: API REST não encontrou a função ou a tabela (cache PostgREST desatualizado). ` +
+        `Supabase Dashboard → Settings → API → Reload schema. ` +
+        `Confirme também a migration 20260520330000_postgrest_expose_manual_punch.sql.${details}${hint}`,
+    );
+  }
+  return new Error(`${context}: ${msg}${details}${hint}`);
+}
 
 export type InsertTimeRecordRpcParams = {
   userId: string;
@@ -207,10 +231,11 @@ export async function insertTimeRecordForUserWithFallback(
   });
   const recordId = String(row.id);
 
+  // Sem .select() — evita 404 quando RLS de SELECT bloqueia leitura da linha inserida
   const { error: insertError } = await client.from('time_records').insert(row);
   if (insertError) {
     console.error('[TIME RECORD ERROR]', insertError);
-    throw insertError;
+    throw wrapPostgrestError('time_records.insert', insertError);
   }
 
   return { id: recordId, timestamp: timestampIso, via: 'insert' };
