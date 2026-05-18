@@ -249,6 +249,9 @@ export default defineConfig(({ mode }) => {
                 const extra = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
                 const bridgePath = `/api/rep/diagnostic-supabase${extra ? `?${extra}` : ''}`;
                 response = await run((r) => bridgeMod.fetch(r), bridgePath);
+              } else if (pathname === '/api/mirror-insert-time-record') {
+                const { default: mod } = await import('./api/mirror-insert-time-record.ts');
+                response = await run((r) => mod.fetch(r), req.url ?? pathname);
               } else {
                 next();
                 return;

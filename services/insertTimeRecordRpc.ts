@@ -93,7 +93,7 @@ export type InsertTimeRecordRpcParams = {
 export type InsertTimeRecordRpcResult = {
   id: string;
   timestamp: string;
-  via: 'rpc' | 'insert';
+  via: 'rpc' | 'insert' | 'api';
 };
 
 export function parseInsertTimeRecordRpcResult(
@@ -177,6 +177,64 @@ export function buildInsertTimeRecordRpcArgs(params: {
   };
 }
 
+async function insertViaMirrorApi(
+  client: SupabaseClient,
+  params: InsertTimeRecordRpcParams & {
+    userId: string;
+    companyId: string;
+    type: string;
+    timestampIso: string;
+  },
+): Promise<InsertTimeRecordRpcResult | null> {
+  try {
+    const { data: sessionData } = await client.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return null;
+
+    const res = await fetch('/api/mirror-insert-time-record', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        userId: params.userId,
+        companyId: params.companyId,
+        timestampIso: params.timestampIso,
+        type: params.type,
+        method: params.method,
+        source: params.source,
+        manualReason: params.manualReason,
+        latitude: params.latitude,
+        longitude: params.longitude,
+        fraudScore: params.fraudScore,
+        fraudFlags: params.fraudFlags,
+      }),
+    });
+
+    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      console.warn('[API MIRROR INSERT FAILED]', res.status, payload);
+      return null;
+    }
+
+    const parsed = parseInsertTimeRecordRpcResult(payload);
+    if (!parsed) return null;
+
+    return {
+      id: parsed.id,
+      timestamp: resolveTimestampFromRpc(
+        params.timestampIso,
+        parsed.timestamp ?? (payload.timestamp as string | undefined),
+      ),
+      via: 'api',
+    };
+  } catch (e) {
+    console.warn('[API MIRROR INSERT ERROR]', e);
+    return null;
+  }
+}
+
 export async function insertTimeRecordForUserWithFallback(
   client: SupabaseClient,
   params: InsertTimeRecordRpcParams,
@@ -222,6 +280,15 @@ export async function insertTimeRecordForUserWithFallback(
     console.warn('[RPC FAILED]', rpcError);
   }
 
+  const apiResult = await insertViaMirrorApi(client, {
+    ...params,
+    userId,
+    companyId,
+    type,
+    timestampIso,
+  });
+  if (apiResult) return apiResult;
+
   const row = buildTimeRecordInsertRow({
     ...params,
     userId,
@@ -235,7 +302,10 @@ export async function insertTimeRecordForUserWithFallback(
   const { error: insertError } = await client.from('time_records').insert(row);
   if (insertError) {
     console.error('[TIME RECORD ERROR]', insertError);
-    throw wrapPostgrestError('time_records.insert', insertError);
+    const wrapped = wrapPostgrestError('time_records.insert', insertError);
+    throw new Error(
+      `${wrapped.message} Se o erro persistir, confira SUPABASE_SERVICE_ROLE_KEY no servidor (rota /api/mirror-insert-time-record).`,
+    );
   }
 
   return { id: recordId, timestamp: timestampIso, via: 'insert' };
