@@ -75,9 +75,8 @@ import {
 } from './constants';
 import {
   buildLocalClockForRep,
-  canonicalRepDeviceName,
   isEmployeeEligibleForRepPush,
-  isAgentLocalDevice,
+  isLocalAgentRepDevice,
   isTimesheetPeriodClosedError,
   mergeEmployeeFromRepRpcRow,
   parseRepRpcUserRow,
@@ -89,8 +88,15 @@ import { appendRepConsolidationOutcomeDiagnostics, appendRepPendingQueueDiagnost
 import { fetchRepMatchUsersForBlob } from './fetchMatchUsers';
 import { RepConnectionStatus } from './RepConnectionStatus';
 import { RepDeploymentNote } from './RepDeploymentNote';
+import { RepDeviceDeleteModal } from './RepDeviceDeleteModal';
 import { RepDevicesListSection } from './RepDevicesListSection';
 import { RepSetupGuide } from './RepSetupGuide';
+import {
+  countDeviceHistoryRecords,
+  deactivateRepDevice,
+  deleteRepDevice,
+  type RepDeviceDeleteOutcome,
+} from '../../../services/repDevices.service';
 import { useRepDevicesDerived } from './useRepDevicesDerived';
 import { repUiPatterns, uiTokens } from '../../../styles/tokens';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
@@ -110,6 +116,11 @@ const AdminRepDevices: React.FC = () => {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{
+    deviceId: string;
+    deviceName: string;
+    historyCount: number;
+  } | null>(null);
   const [forcingSyncId, setForcingSyncId] = useState<string | null>(null);
   const [syncStatusByDeviceId, setSyncStatusByDeviceId] = useState<Record<string, DeviceSyncStatusSnapshot | undefined>>({});
   const [pushingId, setPushingId] = useState<string | null>(null);
@@ -529,6 +540,15 @@ const AdminRepDevices: React.FC = () => {
 
   const handleTestConnection = async (id: string) => {
     if (!getSupabaseClient()) return;
+    const device = devices.find((d) => d.id === id);
+    if (device && isLocalAgentRepDevice(device)) {
+      setMessage({
+        type: 'error',
+        text:
+          'Este relógio usa IP de rede local (ex.: 192.168.x.x). O servidor na nuvem não acessa a LAN diretamente — use o agente local na empresa para testar e sincronizar.',
+      });
+      return;
+    }
     setTestingId(id);
     setMessage(null);
     try {
@@ -551,151 +571,98 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string, nome: string) => {
-    if (!window.confirm(`Excluir o relógio "${nome}"? Esta ação não pode ser desfeita.`)) return;
-    setDeletingId(id);
+  const applyRepDeviceMutation = useCallback(
+    (deviceId: string, action: RepDeviceDeleteOutcome) => {
+      if (action === 'deleted') {
+        setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+        setSyncStatusByDeviceId((prev) => {
+          const next = { ...prev };
+          delete next[deviceId];
+          return next;
+        });
+      } else {
+        setDevices((prev) =>
+          prev.map((d) => (d.id === deviceId ? { ...d, ativo: false, status: 'inativo' } : d)),
+        );
+      }
+      if (user?.companyId) {
+        invalidateCompanyListCaches(user.companyId);
+        invalidateRepPendingQueries(user.companyId);
+      }
+    },
+    [user?.companyId],
+  );
+
+  const runRepDeviceDeleteFlow = useCallback(
+    async (deviceId: string, options: { forceDelete?: boolean }) => {
+      if (deletingId === deviceId) return;
+      setDeletingId(deviceId);
+      setMessage(null);
+      try {
+        const result = await deleteRepDevice(deviceId, {
+          forceDelete: options.forceDelete,
+          companyId: user?.companyId,
+        });
+        if (result.success && result.action !== 'none') {
+          applyRepDeviceMutation(deviceId, result.action);
+          setMessage({ type: 'success', text: result.message });
+        } else {
+          setMessage({
+            type: 'error',
+            text: result.error ? `${result.message} (${result.error})` : result.message,
+          });
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[rep_devices] Erro ao excluir dispositivo:', e);
+        setMessage({ type: 'error', text: msg });
+      } finally {
+        setDeletingId(null);
+        setDeleteModal(null);
+      }
+    },
+    [applyRepDeviceMutation, deletingId, user?.companyId],
+  );
+
+  const handleDeleteRequest = async (id: string, nome: string) => {
+    if (deletingId === id) return;
+    if (!user?.companyId) return;
     setMessage(null);
     try {
-      const current = devices.find((d) => d.id === id) ?? null;
-      const others = devices.filter((d) => d.id !== id);
-      const normalizedCurrent = canonicalRepDeviceName(current?.nome_dispositivo || nome);
-      const sameLogical = others.filter(
-        (d) => canonicalRepDeviceName(d.nome_dispositivo) === normalizedCurrent
-      );
-      const rankedTargets = [...(sameLogical.length ? sameLogical : others)].sort((a, b) => {
-        const aAgent = isAgentLocalDevice(a.nome_dispositivo) ? 1 : 0;
-        const bAgent = isAgentLocalDevice(b.nome_dispositivo) ? 1 : 0;
-        if (aAgent !== bAgent) return bAgent - aAgent;
-        const aActive = a.ativo ? 1 : 0;
-        const bActive = b.ativo ? 1 : 0;
-        if (aActive !== bActive) return bActive - aActive;
-        return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
-      });
-      const target = rankedTargets[0] ?? null;
-
-      const client = getSupabaseClient();
-      let movedCount = 0;
-      let dedupedCount = 0;
-      if (client && user?.companyId) {
-        const { count, error: countErr } = await client
-          .from('rep_punch_logs')
-          .select('id', { count: 'exact', head: true })
-          .eq('company_id', user.companyId)
-          .eq('rep_device_id', id);
-        if (countErr) {
-          throw new Error(`Erro ao verificar histórico do relógio: ${countErr.message}`);
-        }
-        const logsCount = Number(count || 0);
-        if (logsCount > 0) {
-          if (!target) {
-            await db.update('rep_devices', id, { ativo: false, status: 'inativo' });
-            setMessage({
-              type: 'success',
-              text: `Dispositivo desativado (não removido), pois possui ${logsCount} batida(s) no histórico sem destino seguro para migração.`,
-            });
-            await loadDevices();
-            return;
-          }
-
-          const { data: sourceRows, error: sourceErr } = await client
-            .from('rep_punch_logs')
-            .select('id, nsr, time_record_id, data_hora')
-            .eq('company_id', user.companyId)
-            .eq('rep_device_id', id);
-          if (sourceErr) {
-            throw new Error(`Erro ao ler histórico do dispositivo origem: ${sourceErr.message}`);
-          }
-
-          const nsrList = Array.from(
-            new Set(
-              (sourceRows || [])
-                .map((r) => (r.nsr == null ? null : Number(r.nsr)))
-                .filter((n): n is number => Number.isFinite(n))
-            )
-          );
-
-          const targetByNsr = new Map<number, { id: string; nsr: number | null; time_record_id: string | null }>();
-          if (nsrList.length > 0) {
-            const { data: targetRows, error: targetErr } = await client
-              .from('rep_punch_logs')
-              .select('id, nsr, time_record_id')
-              .eq('company_id', user.companyId)
-              .eq('rep_device_id', target.id)
-              .in('nsr', nsrList);
-            if (targetErr) {
-              throw new Error(`Erro ao ler histórico do dispositivo destino: ${targetErr.message}`);
-            }
-            for (const row of targetRows || []) {
-              if (row.nsr != null && !targetByNsr.has(Number(row.nsr))) {
-                targetByNsr.set(Number(row.nsr), row);
-              }
-            }
-          }
-
-          const conflictSourceIds: string[] = [];
-          for (const s of sourceRows || []) {
-            if (s.nsr == null) continue;
-            const targetRow = targetByNsr.get(Number(s.nsr));
-            if (!targetRow) continue;
-            // Se o destino ainda não tem vínculo com time_record e a origem tem, preserva o vínculo.
-            if (!targetRow.time_record_id && s.time_record_id) {
-              const { error: upErr } = await client
-                .from('rep_punch_logs')
-                .update({ time_record_id: s.time_record_id })
-                .eq('id', targetRow.id);
-              if (upErr) {
-                throw new Error(`Erro ao consolidar duplicidade de NSR ${s.nsr}: ${upErr.message}`);
-              }
-            }
-            conflictSourceIds.push(s.id);
-          }
-
-          if (conflictSourceIds.length > 0) {
-            const { error: delDupErr } = await client
-              .from('rep_punch_logs')
-              .delete()
-              .in('id', conflictSourceIds);
-            if (delDupErr) {
-              throw new Error(`Erro ao remover duplicidades de histórico: ${delDupErr.message}`);
-            }
-            dedupedCount = conflictSourceIds.length;
-          }
-
-          const { data: movedRows, error: moveErr } = await client
-            .from('rep_punch_logs')
-            .update({ rep_device_id: target.id })
-            .eq('company_id', user.companyId)
-            .eq('rep_device_id', id)
-            .select('id');
-
-          if (moveErr) {
-            await db.update('rep_devices', id, { ativo: false, status: 'inativo' });
-            setMessage({
-              type: 'error',
-              text: `Não foi possível migrar o histórico para "${target.nome_dispositivo}" (${moveErr.message}). O relógio foi apenas desativado para evitar perda/duplicidade.`,
-            });
-            await loadDevices();
-            return;
-          }
-          movedCount = movedRows?.length ?? 0;
-        }
+      const historyCount = await countDeviceHistoryRecords(id, user.companyId);
+      if (historyCount === 0) {
+        if (!window.confirm(`Excluir o relógio "${nome}"? Esta ação não pode ser desfeita.`)) return;
+        await runRepDeviceDeleteFlow(id, { forceDelete: false });
+        return;
       }
-
-      await db.delete('rep_devices', id);
-      setMessage({
-        type: 'success',
-        text:
-          movedCount > 0
-            ? `Dispositivo removido. ${movedCount} batida(s) históricas migradas para "${target?.nome_dispositivo}"${
-                dedupedCount > 0 ? ` e ${dedupedCount} duplicidade(s) por NSR consolidadas` : ''
-              }.`
-            : dedupedCount > 0
-              ? `Dispositivo removido. ${dedupedCount} duplicidade(s) por NSR consolidadas em "${target?.nome_dispositivo}".`
-              : 'Dispositivo removido.',
-      });
-      await loadDevices();
+      setDeleteModal({ deviceId: id, deviceName: nome, historyCount });
     } catch (e) {
-      setMessage({ type: 'error', text: (e as Error).message });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[rep_devices] Erro ao preparar exclusão:', e);
+      setMessage({ type: 'error', text: msg });
+    }
+  };
+
+  const handleDeleteModalDeactivate = async () => {
+    if (!deleteModal || deletingId === deleteModal.deviceId) return;
+    setDeletingId(deleteModal.deviceId);
+    setMessage(null);
+    try {
+      const result = await deactivateRepDevice(deleteModal.deviceId, { companyId: user?.companyId });
+      if (result.success && result.action === 'deactivated') {
+        applyRepDeviceMutation(deleteModal.deviceId, 'deactivated');
+        setMessage({ type: 'success', text: result.message });
+        setDeleteModal(null);
+      } else {
+        setMessage({
+          type: 'error',
+          text: result.error ? `${result.message} (${result.error})` : result.message,
+        });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[rep_devices] Erro ao desativar dispositivo:', e);
+      setMessage({ type: 'error', text: msg });
     } finally {
       setDeletingId(null);
     }
@@ -1922,6 +1889,13 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog('Selecione um equipamento de rede.');
       return;
     }
+    if (isLocalAgentRepDevice(d)) {
+      const msg =
+        'IP de rede local: o servidor na nuvem não testa 192.168.x.x diretamente. Use o agente local na empresa.';
+      appendSrLog(msg);
+      setMessage({ type: 'error', text: msg });
+      return;
+    }
     setTestingId(d.id);
     setMessage(null);
     try {
@@ -2286,11 +2260,27 @@ const AdminRepDevices: React.FC = () => {
         onOpenCreate={openCreate}
         onTestConnection={handleTestConnection}
         onOpenEdit={openEdit}
-        onDelete={handleDelete}
+        onDelete={handleDeleteRequest}
         onForceSync={handleForceSyncDevice}
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
+
+      <RepDeviceDeleteModal
+        open={deleteModal != null}
+        deviceName={deleteModal?.deviceName ?? ''}
+        historyCount={deleteModal?.historyCount ?? 0}
+        busy={Boolean(deleteModal && deletingId === deleteModal.deviceId)}
+        onCancel={() => {
+          if (deletingId) return;
+          setDeleteModal(null);
+        }}
+        onDeactivate={() => void handleDeleteModalDeactivate()}
+        onForceDelete={() => {
+          if (!deleteModal) return;
+          void runRepDeviceDeleteFlow(deleteModal.deviceId, { forceDelete: true });
+        }}
+      />
 
       {sendReceiveOpen && (
         <div

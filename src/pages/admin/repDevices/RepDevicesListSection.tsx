@@ -3,7 +3,7 @@
 // Sempre utilizar uiTokens ou helpers centralizados.
 import React from 'react';
 import { Button } from '../../../../components/UI';
-import { Clock, Network, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Clock, Loader2, Network, Pencil, Plus, Trash2 } from 'lucide-react';
 import { repDeviceRowStatusBadge, repDeviceRuntimeBadge } from './badges';
 import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
 import { repConnectionCellText } from './utils';
@@ -248,8 +248,13 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                   className={cx(buttonStyles.base, repListUi.c039, uiTokens.radius.button, uiTokens.transition.default)}
                   disabled={deletingId === d.id}
                   onClick={() => onDelete(d.id, d.nome_dispositivo)}
+                  aria-busy={deletingId === d.id}
                 >
-                  <Trash2 size={14} />
+                  {deletingId === d.id ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden />
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
                 </Button>
               </div>
             </div>
@@ -355,8 +360,13 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                           className={cx(buttonStyles.base, repListUi.c039, uiTokens.radius.button, uiTokens.transition.default)}
                           disabled={deletingId === d.id}
                           onClick={() => onDelete(d.id, d.nome_dispositivo)}
+                          aria-busy={deletingId === d.id}
                         >
-                          <Trash2 size={14} />
+                          {deletingId === d.id ? (
+                            <Loader2 size={14} className="animate-spin" aria-hidden />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </Button>
                       </div>
                     </td>

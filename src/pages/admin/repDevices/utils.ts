@@ -70,8 +70,32 @@ export function isAgentLocalDevice(name: string | null | undefined): boolean {
   return /\(agente local\)/i.test(String(name || ''));
 }
 
+/** RFC1918 / loopback — servidor na nuvem não alcança (sem agente/VPN). */
+export function isPrivateOrLocalIPv4(ip: string | null | undefined): boolean {
+  const raw = String(ip || '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 4) return false;
+  const n = parts.map((p) => parseInt(p, 10));
+  if (n.some((x) => Number.isNaN(x) || x < 0 || x > 255)) return false;
+  const [a, b] = n;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+export function isLocalAgentRepDevice(d: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao'>): boolean {
+  if (isAgentLocalDevice(d.nome_dispositivo)) return true;
+  return d.tipo_conexao === 'rede' && isPrivateOrLocalIPv4(d.ip);
+}
+
 export function repConnectionCellText(d: RepDeviceRow): string {
-  if (d.tipo_conexao === 'rede' && d.ip) return `${d.ip}:${d.porta ?? 80}`;
+  if (d.tipo_conexao === 'rede' && d.ip) {
+    const base = `${d.ip}:${d.porta ?? 80}`;
+    return isLocalAgentRepDevice(d) ? `${base} (agente local)` : base;
+  }
   return TIPOS_CONEXAO.find((t) => t.value === d.tipo_conexao)?.label ?? d.tipo_conexao;
 }
 
