@@ -1,6 +1,6 @@
 /**
- * RPC `insert_time_record_for_user` (4 params) + fallback insert em `time_records`.
- * Anti-42883: UUID validado no TS; RPC com assinatura única; fallback com payload mínimo.
+ * RPC `insert_time_record_for_user` — assinatura canônica (6 params) + fallback REST.
+ * Envia todos os parâmetros na RPC para evitar PGRST203 (ambiguidade PostgREST).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -34,7 +34,7 @@ export function isInsertTimeRecordRpcUnavailable(
     return true;
   }
   if (msg.includes('could not find the function') || msg.includes('does not exist')) return true;
-  if (msg.includes('could not choose the best candidate')) return true;
+  if (msg.includes('could not choose the best candidate') || msg.includes('best candidate')) return true;
   if (msg.includes('not found') && msg.includes('function')) return true;
   if (msg.includes('operator does not exist') && msg.includes('uuid')) return true;
   return false;
@@ -56,8 +56,8 @@ export type InsertTimeRecordRpcParams = {
   deviceId?: string | null;
   deviceType?: string | null;
   ipAddress?: string | null;
-  fraudScore?: number;
-  fraudFlags?: unknown;
+  fraudScore?: number | null;
+  fraudFlags?: unknown | null;
 };
 
 export type InsertTimeRecordRpcResult = {
@@ -90,28 +90,28 @@ function resolveTimestampFromRpc(
   return fallbackIso;
 }
 
-/** Payload REST alinhado ao schema (user_id text, company_id uuid, method NOT NULL). */
+/** Payload REST mínimo (fallback) — method NOT NULL no schema. */
 export function buildTimeRecordInsertRow(
   params: InsertTimeRecordRpcParams & { userId: string; companyId: string },
 ): Record<string, unknown> {
-  const userId = params.userId;
-  const companyId = params.companyId;
-  const type = String(params.type ?? '').trim();
   const timestampIso = String(params.timestampIso ?? '').trim();
   const recordId = crypto.randomUUID();
 
   const row: Record<string, unknown> = {
     id: recordId,
-    user_id: userId,
-    company_id: companyId,
+    user_id: params.userId,
+    company_id: params.companyId,
     timestamp: timestampIso,
-    type,
+    type: String(params.type ?? '').trim(),
     source: params.source ?? 'manual',
     method: params.method ?? 'admin',
     created_at: timestampIso,
     updated_at: timestampIso,
     is_manual: true,
   };
+
+  if (params.fraudScore != null) row.fraud_score = params.fraudScore;
+  if (params.fraudFlags != null) row.fraud_flags = params.fraudFlags;
 
   if (params.manualReason != null && String(params.manualReason).trim()) {
     row.manual_reason = String(params.manualReason).trim();
@@ -124,10 +124,27 @@ export function buildTimeRecordInsertRow(
   if (params.deviceId != null) row.device_id = params.deviceId;
   if (params.deviceType != null) row.device_type = params.deviceType;
   if (params.ipAddress != null) row.ip_address = params.ipAddress;
-  if (params.fraudScore != null) row.fraud_score = params.fraudScore;
-  if (params.fraudFlags != null) row.fraud_flags = params.fraudFlags;
 
   return row;
+}
+
+/** Parâmetros RPC canônicos — sempre os 6 campos (evita ambiguidade PostgREST). */
+export function buildInsertTimeRecordRpcArgs(params: {
+  userId: string;
+  companyId: string;
+  timestampIso: string;
+  type: string;
+  fraudScore?: number | null;
+  fraudFlags?: unknown | null;
+}): Record<string, unknown> {
+  return {
+    p_user_id: params.userId,
+    p_company_id: params.companyId,
+    p_timestamp: params.timestampIso,
+    p_type: params.type,
+    p_fraud_score: params.fraudScore ?? null,
+    p_fraud_flags: params.fraudFlags ?? null,
+  };
 }
 
 export async function insertTimeRecordForUserWithFallback(
@@ -142,16 +159,18 @@ export async function insertTimeRecordForUserWithFallback(
     throw new Error('type e timestamp são obrigatórios.');
   }
 
-  const rpcPayload = {
-    p_user_id: userId,
-    p_company_id: companyId,
-    p_timestamp: timestampIso,
-    p_type: type,
-  };
+  const rpcArgs = buildInsertTimeRecordRpcArgs({
+    userId,
+    companyId,
+    timestampIso,
+    type,
+    fraudScore: params.fraudScore,
+    fraudFlags: params.fraudFlags,
+  });
 
   const { data: rpcData, error: rpcError } = await client.rpc(
     'insert_time_record_for_user',
-    rpcPayload,
+    rpcArgs,
   );
 
   if (!rpcError) {
