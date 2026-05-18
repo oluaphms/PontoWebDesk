@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { insertTimeRecordForUserWithFallback } from '../../services/insertTimeRecordRpc';
+import { insertTimeRecordForUser } from '../../services/insertTimeRecordRpc';
 
 export async function registerApprovedAdjustmentPunch(
   client: SupabaseClient,
@@ -12,7 +12,7 @@ export async function registerApprovedAdjustmentPunch(
     reason: string;
   },
 ): Promise<void> {
-  await insertTimeRecordForUserWithFallback(client, {
+  await insertTimeRecordForUser(client, {
     userId: params.userId,
     companyId: params.companyId,
     type: params.dbType,

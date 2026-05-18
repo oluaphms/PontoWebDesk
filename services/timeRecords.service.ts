@@ -15,10 +15,7 @@ import {
 import { extractLocalCalendarDateFromIso } from '../src/utils/calendarUtils';
 import { runRepGovernanceAfterManualMirrorAdjustment } from '../src/services/repOperationalIntegrity.service';
 import { assertNoFutureOperationalPunch } from '../src/services/monitoring/monitoringGeoHardLock.service';
-import {
-  assertValidUuid,
-  insertTimeRecordForUserWithFallback,
-} from './insertTimeRecordRpc';
+import { assertValidUuid, insertTimeRecordForUser } from './insertTimeRecordRpc';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -322,10 +319,7 @@ function logAdminMirrorOperationalTimeline(input: {
   });
 }
 
-/**
- * Inclusão de batida pelo espelho admin: tenta RPC `insert_time_record_for_user`;
- * se não retornar `record_id`, faz insert direto (mesma lógica que `Timesheet.tsx`).
- */
+/** Inclusão de batida pelo espelho admin via RPC `insert_time_record_for_user`. */
 export async function insertAdminMirrorTimeRecord(
   data: Record<string, unknown>,
   companyId: string,
@@ -350,7 +344,7 @@ export async function insertAdminMirrorTimeRecord(
   });
 
   const sb = getSupabaseClientOrThrow();
-  const inserted = await insertTimeRecordForUserWithFallback(sb, {
+  const inserted = await insertTimeRecordForUser(sb, {
     userId,
     companyId: companyUuid,
     type,

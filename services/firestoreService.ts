@@ -6,7 +6,7 @@
  */
 
 import { db, storage, supabase, isSupabaseConfigured } from './supabaseClient';
-import { insertTimeRecordForUserWithFallback } from './insertTimeRecordRpc';
+import { insertTimeRecordForUser } from './insertTimeRecordRpc';
 import { getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
 import { TimeRecord, Company, User, EmployeeSummary, CompanyKPIs } from '../types';
 
@@ -171,7 +171,7 @@ class SupabaseService {
           ? record.createdAt.toISOString()
           : String(record.createdAt ?? new Date().toISOString());
 
-      await insertTimeRecordForUserWithFallback(getSupabaseClientOrThrow(), {
+      await insertTimeRecordForUser(getSupabaseClientOrThrow(), {
         userId: record.userId,
         companyId: record.companyId,
         type: record.type,

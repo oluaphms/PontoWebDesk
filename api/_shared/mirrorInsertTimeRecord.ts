@@ -1,6 +1,6 @@
 /**
  * POST /api/mirror-insert-time-record
- * Batida manual admin/HR via service role (contorna 404 PostgREST no browser).
+ * Batida manual admin/HR via RPC (JWT do caller — auth.uid() na função SECURITY DEFINER).
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -8,6 +8,11 @@ import { getSupabaseConfig, getSupabaseUrlForServer } from './getSupabaseConfig.
 import { getCallerContext, isAdminOrHr } from './callerContext.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
+import {
+  buildInsertTimeRecordRpcArgs,
+  parseInsertTimeRecordRpcResult,
+} from '../../services/insertTimeRecordRpc.js';
+
 export type MirrorInsertBody = {
   userId: string;
   companyId: string;
@@ -32,31 +37,6 @@ function json(body: unknown, status: number, headers: Record<string, string>): R
       headers: { ...headers, 'Content-Type': 'application/json' },
     }),
   );
-}
-
-function buildRow(body: MirrorInsertBody): Record<string, unknown> {
-  const timestampIso = String(body.timestampIso ?? '').trim();
-  const recordId = crypto.randomUUID();
-  const row: Record<string, unknown> = {
-    id: recordId,
-    user_id: body.userId,
-    company_id: body.companyId,
-    timestamp: timestampIso,
-    type: String(body.type ?? '').trim(),
-    source: body.source ?? 'manual',
-    method: body.method ?? 'admin',
-    created_at: timestampIso,
-    updated_at: timestampIso,
-    is_manual: true,
-  };
-  if (body.fraudScore != null) row.fraud_score = body.fraudScore;
-  if (body.fraudFlags != null) row.fraud_flags = body.fraudFlags;
-  if (body.manualReason != null && String(body.manualReason).trim()) {
-    row.manual_reason = String(body.manualReason).trim();
-  }
-  if (body.latitude != null) row.latitude = body.latitude;
-  if (body.longitude != null) row.longitude = body.longitude;
-  return row;
 }
 
 export async function handleMirrorInsertTimeRecord(request: Request): Promise<Response> {
@@ -138,31 +118,56 @@ export async function handleMirrorInsertTimeRecord(request: Request): Promise<Re
     return json({ error: 'Funcionário não pertence à empresa' }, 403, corsHeaders);
   }
 
-  const row = buildRow({ ...body, userId, companyId, type, timestampIso });
-  const recordId = String(row.id);
+  const userClient = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
 
-  const { error: insertError } = await serviceClient.from('time_records').insert(row);
-  if (insertError) {
-    console.error('[mirror-insert-time-record] insert', insertError);
+  const rpcArgs = buildInsertTimeRecordRpcArgs({
+    userId,
+    companyId,
+    timestampIso,
+    type,
+    fraudScore: body.fraudScore ?? null,
+    fraudFlags: body.fraudFlags ?? null,
+  });
+
+  const { data: rpcData, error: rpcError } = await userClient.rpc(
+    'insert_time_record_for_user',
+    rpcArgs,
+  );
+
+  if (rpcError) {
+    console.error('[mirror-insert-time-record] rpc', rpcError);
     return json(
       {
-        error: insertError.message,
-        code: insertError.code,
-        details: insertError.details,
-        hint: insertError.hint,
+        error: rpcError.message,
+        code: rpcError.code,
+        details: rpcError.details,
+        hint: rpcError.hint,
       },
-      insertError.code === 'PGRST205' || insertError.code === 'PGRST202' ? 503 : 500,
+      rpcError.code === 'PGRST205' || rpcError.code === 'PGRST202' || rpcError.code === 'PGRST203'
+        ? 503
+        : 500,
       corsHeaders,
     );
+  }
+
+  const parsed = parseInsertTimeRecordRpcResult(rpcData);
+  if (!parsed) {
+    return json({ error: 'RPC sem id na resposta', rpcData }, 500, corsHeaders);
   }
 
   return json(
     {
       success: true,
-      id: recordId,
-      record_id: recordId,
-      timestamp: timestampIso,
-      via: 'api',
+      id: parsed.id,
+      record_id: parsed.id,
+      timestamp:
+        typeof parsed.timestamp === 'string' && parsed.timestamp.trim()
+          ? parsed.timestamp
+          : timestampIso,
+      via: 'rpc',
     },
     200,
     corsHeaders,

@@ -1,6 +1,6 @@
 /**
- * RPC `insert_time_record_for_user` — assinatura canônica (6 params) + fallback REST.
- * Envia todos os parâmetros na RPC para evitar PGRST203 (ambiguidade PostgREST).
+ * RPC `insert_time_record_for_user` — assinatura canônica única (6 params).
+ * Sem fallback REST em time_records (evita 404 / PGRST203 / uuid=text).
  */
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
@@ -16,57 +16,37 @@ export function assertValidUuid(id: string, label: string): string {
   return trimmed;
 }
 
-/** Erros em que faz sentido tentar INSERT direto em time_records (RLS admin/HR). */
-export function shouldFallbackToDirectTimeRecordInsert(
-  error: { code?: string; message?: string; status?: number } | null,
-): boolean {
-  if (!error) return false;
-  const code = String(error.code ?? '');
-  const msg = String(error.message ?? '').toLowerCase();
-  const status = Number(error.status ?? 0);
-  if (
-    code === '42883' ||
-    code === '42804' ||
-    code === '22P02' ||
-    code === 'PGRST202' ||
-    code === 'PGRST203' ||
-    code === 'PGRST204' ||
-    code === '404' ||
-    status === 404
-  ) {
-    return true;
-  }
-  if (msg.includes('could not find the function') || msg.includes('does not exist')) return true;
-  if (msg.includes('could not choose the best candidate') || msg.includes('best candidate')) return true;
-  if (msg.includes('not found') && msg.includes('function')) return true;
-  if (msg.includes('operator does not exist') && msg.includes('uuid')) return true;
-  return false;
-}
-
-/** @deprecated Use shouldFallbackToDirectTimeRecordInsert */
-export const isInsertTimeRecordRpcUnavailable = shouldFallbackToDirectTimeRecordInsert;
-
 function wrapPostgrestError(context: string, error: PostgrestError): Error {
   const code = String(error.code ?? '');
   const status = Number((error as PostgrestError & { status?: number }).status ?? 0);
   const msg = String(error.message ?? 'erro desconhecido');
   const details = error.details ? ` Detalhe: ${error.details}` : '';
   const hint = error.hint ? ` ${error.hint}` : '';
+
   const schemaCacheMiss =
     code === 'PGRST202' ||
+    code === 'PGRST203' ||
     code === 'PGRST205' ||
     code === '42883' ||
     status === 404 ||
     /could not find the function/i.test(msg) ||
+    /could not choose the best candidate/i.test(msg) ||
     (/not found/i.test(msg) && /function|relation|schema cache/i.test(msg));
 
   if (schemaCacheMiss) {
     return new Error(
-      `${context}: API REST não encontrou a função ou a tabela (cache PostgREST desatualizado). ` +
+      `${context}: RPC não encontrada ou ambígua (cache PostgREST). ` +
         `Supabase Dashboard → Settings → API → Reload schema. ` +
-        `Confirme também a migration 20260520330000_postgrest_expose_manual_punch.sql.${details}${hint}`,
+        `Confirme a migration 20260520340000_manual_punch_insert_rpc_final.sql.${details}${hint}`,
     );
   }
+
+  if (code === '42804' || code === '22P02' || /operator does not exist.*uuid/i.test(msg)) {
+    return new Error(
+      `${context}: incompatibilidade de tipo UUID (aplique migrations recentes de time_records).${details}${hint}`,
+    );
+  }
+
   return new Error(`${context}: ${msg}${details}${hint}`);
 }
 
@@ -93,7 +73,6 @@ export type InsertTimeRecordRpcParams = {
 export type InsertTimeRecordRpcResult = {
   id: string;
   timestamp: string;
-  via: 'rpc' | 'insert' | 'api';
 };
 
 export function parseInsertTimeRecordRpcResult(
@@ -101,6 +80,7 @@ export function parseInsertTimeRecordRpcResult(
 ): { id: string; timestamp?: string | number | null } | null {
   if (!rpcData || typeof rpcData !== 'object') return null;
   const row = rpcData as Record<string, unknown>;
+  if (row.success === false) return null;
   const rawId = row.record_id ?? row.id;
   if (rawId == null || String(rawId).trim() === '') return null;
   return {
@@ -120,45 +100,7 @@ function resolveTimestampFromRpc(
   return fallbackIso;
 }
 
-/** Payload REST mínimo (fallback) — method NOT NULL no schema. */
-export function buildTimeRecordInsertRow(
-  params: InsertTimeRecordRpcParams & { userId: string; companyId: string },
-): Record<string, unknown> {
-  const timestampIso = String(params.timestampIso ?? '').trim();
-  const recordId = crypto.randomUUID();
-
-  const row: Record<string, unknown> = {
-    id: recordId,
-    user_id: params.userId,
-    company_id: params.companyId,
-    timestamp: timestampIso,
-    type: String(params.type ?? '').trim(),
-    source: params.source ?? 'manual',
-    method: params.method ?? 'admin',
-    created_at: timestampIso,
-    updated_at: timestampIso,
-    is_manual: true,
-  };
-
-  if (params.fraudScore != null) row.fraud_score = params.fraudScore;
-  if (params.fraudFlags != null) row.fraud_flags = params.fraudFlags;
-
-  if (params.manualReason != null && String(params.manualReason).trim()) {
-    row.manual_reason = String(params.manualReason).trim();
-  }
-  if (params.location != null) row.location = params.location;
-  if (params.photoUrl != null) row.photo_url = params.photoUrl;
-  if (params.latitude != null) row.latitude = params.latitude;
-  if (params.longitude != null) row.longitude = params.longitude;
-  if (params.accuracy != null) row.accuracy = params.accuracy;
-  if (params.deviceId != null) row.device_id = params.deviceId;
-  if (params.deviceType != null) row.device_type = params.deviceType;
-  if (params.ipAddress != null) row.ip_address = params.ipAddress;
-
-  return row;
-}
-
-/** Parâmetros RPC canônicos — sempre os 6 campos (evita ambiguidade PostgREST). */
+/** Parâmetros RPC — UUIDs como string canônica; PostgREST envia como uuid. */
 export function buildInsertTimeRecordRpcArgs(params: {
   userId: string;
   companyId: string;
@@ -177,75 +119,15 @@ export function buildInsertTimeRecordRpcArgs(params: {
   };
 }
 
-async function insertViaMirrorApi(
-  client: SupabaseClient,
-  params: InsertTimeRecordRpcParams & {
-    userId: string;
-    companyId: string;
-    type: string;
-    timestampIso: string;
-  },
-): Promise<InsertTimeRecordRpcResult | null> {
-  try {
-    const { data: sessionData } = await client.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) return null;
-
-    const res = await fetch('/api/mirror-insert-time-record', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        userId: params.userId,
-        companyId: params.companyId,
-        timestampIso: params.timestampIso,
-        type: params.type,
-        method: params.method,
-        source: params.source,
-        manualReason: params.manualReason,
-        latitude: params.latitude,
-        longitude: params.longitude,
-        fraudScore: params.fraudScore,
-        fraudFlags: params.fraudFlags,
-      }),
-    });
-
-    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) {
-      console.warn('[API MIRROR INSERT FAILED]', res.status, payload);
-      return null;
-    }
-
-    const parsed = parseInsertTimeRecordRpcResult(payload);
-    if (!parsed) return null;
-
-    return {
-      id: parsed.id,
-      timestamp: resolveTimestampFromRpc(
-        params.timestampIso,
-        parsed.timestamp ?? (payload.timestamp as string | undefined),
-      ),
-      via: 'api',
-    };
-  } catch (e) {
-    console.warn('[API MIRROR INSERT ERROR]', e);
-    return null;
-  }
-}
-
-export async function insertTimeRecordForUserWithFallback(
+/**
+ * Insere batida manual via RPC (único caminho suportado).
+ */
+export async function insertTimeRecordForUser(
   client: SupabaseClient,
   params: InsertTimeRecordRpcParams,
 ): Promise<InsertTimeRecordRpcResult> {
-  const userIdRaw = String(params.userId ?? '').trim();
-  const companyIdRaw = String(params.companyId ?? '').trim();
-  if (!userIdRaw || !companyIdRaw) {
-    throw new Error('IDs inválidos');
-  }
-  const userId = assertValidUuid(userIdRaw, 'user_id');
-  const companyId = assertValidUuid(companyIdRaw, 'company_id');
+  const userId = assertValidUuid(String(params.userId ?? '').trim(), 'user_id');
+  const companyId = assertValidUuid(String(params.companyId ?? '').trim(), 'company_id');
   const type = String(params.type ?? '').trim();
   const timestampIso = String(params.timestampIso ?? '').trim();
   if (!type || !timestampIso) {
@@ -266,47 +148,22 @@ export async function insertTimeRecordForUserWithFallback(
     rpcArgs,
   );
 
-  if (!rpcError) {
-    const parsed = parseInsertTimeRecordRpcResult(rpcData);
-    if (parsed) {
-      return {
-        id: parsed.id,
-        timestamp: resolveTimestampFromRpc(timestampIso, parsed.timestamp),
-        via: 'rpc',
-      };
-    }
-    console.warn('[RPC FAILED] resposta sem id — tentando insert direto', rpcData);
-  } else {
-    console.warn('[RPC FAILED]', rpcError);
+  if (rpcError) {
+    throw wrapPostgrestError('insert_time_record_for_user', rpcError);
   }
 
-  const apiResult = await insertViaMirrorApi(client, {
-    ...params,
-    userId,
-    companyId,
-    type,
-    timestampIso,
-  });
-  if (apiResult) return apiResult;
-
-  const row = buildTimeRecordInsertRow({
-    ...params,
-    userId,
-    companyId,
-    type,
-    timestampIso,
-  });
-  const recordId = String(row.id);
-
-  // Sem .select() — evita 404 quando RLS de SELECT bloqueia leitura da linha inserida
-  const { error: insertError } = await client.from('time_records').insert(row);
-  if (insertError) {
-    console.error('[TIME RECORD ERROR]', insertError);
-    const wrapped = wrapPostgrestError('time_records.insert', insertError);
+  const parsed = parseInsertTimeRecordRpcResult(rpcData);
+  if (!parsed) {
     throw new Error(
-      `${wrapped.message} Se o erro persistir, confira SUPABASE_SERVICE_ROLE_KEY no servidor (rota /api/mirror-insert-time-record).`,
+      'insert_time_record_for_user: resposta sem id/success. Verifique permissões e schema da RPC.',
     );
   }
 
-  return { id: recordId, timestamp: timestampIso, via: 'insert' };
+  return {
+    id: parsed.id,
+    timestamp: resolveTimestampFromRpc(timestampIso, parsed.timestamp),
+  };
 }
+
+/** @deprecated Use insertTimeRecordForUser */
+export const insertTimeRecordForUserWithFallback = insertTimeRecordForUser;
