@@ -744,8 +744,9 @@ const AdminTimesheet: React.FC = () => {
       }
       invalidateAfterPunch(data.user_id, cid);
     } catch (err) {
-      console.error(err);
-      toast.addToast('error', 'Erro ao adicionar batida.');
+      console.error('[TIME RECORD ERROR]', err);
+      const msg = err instanceof Error ? err.message : 'Erro ao adicionar batida.';
+      toast.addToast('error', msg.length > 180 ? `${msg.slice(0, 177)}…` : msg);
     }
   };
 

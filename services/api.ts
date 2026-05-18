@@ -104,6 +104,13 @@ export async function buscarDepartamentos(companyId: string): Promise<AdminTimes
   return (rows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') }));
 }
 
+/** Colunas mínimas + limite — evita timeout em `db.select(users)` no espelho. */
+const ESPELHO_USERS_SELECT_OPTS = {
+  columns: 'id,nome,email,department_id,role',
+  limit: 500,
+  orderBy: { column: 'nome', ascending: true },
+} as const;
+
 /** Junta `users` + `employees` (legacy) como na tela Colaboradores — sem excluir admin. */
 function mergeEmployeesForEspelho(usersRows: DbRow[], legacyRows: DbRow[]): AdminTimesheetEmployee[] {
   const byEmail = new Map(
@@ -153,7 +160,9 @@ export async function buscarFiltrosEspelhoAdmin(companyId: string): Promise<{
 }> {
   const cid = String(companyId).trim();
   const [usersRows, departmentsRows, legacyRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS) as Promise<
+      DbRow[]
+    >,
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
     db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
   ]);
@@ -194,7 +203,9 @@ export async function buscarEspelhoAdmin(
   const cid = String(companyId).trim();
 
   const [usersRows, recordsRows, departmentsRows, legacyEmployeesRows, shiftsRows, holidaysRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS) as Promise<
+      DbRow[]
+    >,
     fetchTimeRecordsForMirrorWindow(
       [{ column: 'company_id', operator: 'eq', value: cid }],
       periodStart,

@@ -6,6 +6,8 @@
  */
 
 import { db, storage, supabase, isSupabaseConfigured } from './supabaseClient';
+import { insertTimeRecordForUserWithFallback } from './insertTimeRecordRpc';
+import { getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
 import { TimeRecord, Company, User, EmployeeSummary, CompanyKPIs } from '../types';
 
 /** Uma busca por companyId por vez evita N× db.select(companies) em paralelo (timeout 28s). */
@@ -164,60 +166,29 @@ class SupabaseService {
 
     try {
       const supabaseData = timeRecordToSupabase(record);
-      
-      // Tentar usar RPC se disponível (para admin/HR criando registros para outros usuários)
-      try {
-        const { data, error } = await supabase.rpc('insert_time_record_for_user', {
-          p_user_id: record.userId,
-          p_company_id: record.companyId,
-          p_type: record.type,
-          p_method: record.method || 'admin',
-          p_location: supabaseData.location,
-          p_photo_url: supabaseData.photo_url,
-          p_source: supabaseData.source || 'admin',
-          p_timestamp: supabaseData.created_at,
-          p_latitude: supabaseData.latitude,
-          p_longitude: supabaseData.longitude,
-          p_accuracy: supabaseData.accuracy,
-          p_device_id: supabaseData.device_id,
-          p_device_type: supabaseData.device_type,
-          p_ip_address: supabaseData.ip_address,
-          p_fraud_score: supabaseData.fraud_score || 0,
-          p_fraud_flags: supabaseData.fraud_flags || [],
-        });
+      const timestampIso =
+        record.createdAt instanceof Date
+          ? record.createdAt.toISOString()
+          : String(record.createdAt ?? new Date().toISOString());
 
-        if (error) {
-          const msg = String(error.message ?? '').toLowerCase();
-          const rpcMissing =
-            error.code === '42883' ||
-            error.code === 'PGRST202' ||
-            msg.includes('does not exist') ||
-            msg.includes('could not find the function') ||
-            (msg.includes('operator does not exist') && msg.includes('uuid'));
-          if (rpcMissing) {
-            supabaseData.method = supabaseData.method || 'admin';
-            supabaseData.is_manual = true;
-            await db.insert('time_records', supabaseData);
-          } else {
-            throw error;
-          }
-        }
-      } catch (rpcError: any) {
-        const msg = String(rpcError?.message ?? '').toLowerCase();
-        const rpcMissing =
-          rpcError?.code === '42883' ||
-          rpcError?.code === 'PGRST202' ||
-          msg.includes('does not exist') ||
-          msg.includes('could not find the function') ||
-          (msg.includes('operator does not exist') && msg.includes('uuid'));
-        if (rpcMissing) {
-          supabaseData.method = supabaseData.method || 'admin';
-          supabaseData.is_manual = true;
-          await db.insert('time_records', supabaseData);
-        } else {
-          throw rpcError;
-        }
-      }
+      await insertTimeRecordForUserWithFallback(getSupabaseClientOrThrow(), {
+        userId: record.userId,
+        companyId: record.companyId,
+        type: record.type,
+        timestampIso,
+        method: record.method || 'admin',
+        source: supabaseData.source || 'manual',
+        location: supabaseData.location,
+        photoUrl: supabaseData.photo_url,
+        latitude: supabaseData.latitude,
+        longitude: supabaseData.longitude,
+        accuracy: supabaseData.accuracy,
+        deviceId: supabaseData.device_id,
+        deviceType: supabaseData.device_type,
+        ipAddress: supabaseData.ip_address,
+        fraudScore: supabaseData.fraud_score || 0,
+        fraudFlags: supabaseData.fraud_flags || [],
+      });
     } catch (error) {
       console.error('Erro ao salvar registro no Supabase:', error);
       // Tentar atualizar se já existir
