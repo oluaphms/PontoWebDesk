@@ -24,9 +24,6 @@ import { opLog } from '../../utils/operationalLogger';
 import { explainDashboardMetric, type DashboardMetricId } from '../../help/helpExplainMetrics';
 
 const DashboardLastRecordsGeoPanel = lazy(() => import('./DashboardLastRecordsGeoPanel'));
-const OnboardingGuide = lazy(() =>
-  import('../../components/help/OnboardingGuide').then((m) => ({ default: m.OnboardingGuide })),
-);
 interface CardData {
   totalEmployees: number;
   activeEmployees: number;
@@ -208,10 +205,6 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader title={i18n.t('dashboard.adminTitle')} />
-
-      <Suspense fallback={null}>
-        <OnboardingGuide totalEmployees={cards.totalEmployees} />
-      </Suspense>
 
       {showFullSkeleton ? (
         <DashboardSkeleton />

@@ -2,10 +2,7 @@ import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CircleHelp, Loader2 } from 'lucide-react';
-import { useAutoHelp } from '../help/useAutoHelp';
-import { openHelp } from '../help/openHelp';
-import { trackHelpAnalytics } from '../help/helpAnalytics';
+import { Loader2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { i18n } from '../../lib/i18n';
 import { useSmartNavigationSelector } from './useSmartNavigation';
@@ -31,8 +28,6 @@ const SmartDock: React.FC = () => {
   const tenantId = resolveTenantId(user);
   const auditNavEnabled = user?.role === 'admin' || user?.role === 'hr';
   const { signal: auditMenuSignal } = useTimeAttendanceAuditMenuSignal(tenantId || null, auditNavEnabled);
-  const { docSlug, isHelpRoute } = useAutoHelp();
-  const showContextualHelp = auditNavEnabled && !isHelpRoute;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [cardStyle, setCardStyle] = useState<{ left: number; bottom: number; width: number } | null>(null);
@@ -271,27 +266,6 @@ const SmartDock: React.FC = () => {
               <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2 pb-2 border-b border-slate-100 dark:border-slate-800 mb-2">
                 {i18n.t(openGroup.labelKey)}
               </p>
-              {showContextualHelp && dockFloatingGroupKey === 'smart' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      trackHelpAnalytics('auto_help_opened', { doc: docSlug });
-                      openHelp(docSlug, navigate, { resolveSection: true });
-                      openDockGroup(null);
-                    }}
-                    disabled={logoutBusy}
-                    className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed mb-2"
-                    role="menuitem"
-                  >
-                    <CircleHelp size={18} className="shrink-0" aria-hidden />
-                    <span className="flex-1 min-w-0">
-                      <span className="block truncate">{i18n.t('menu.precisaAjuda')}</span>
-                      <span className="block text-[11px] font-normal text-indigo-100 truncate">
-                        {i18n.t('menu.precisaAjudaHint')}
-                      </span>
-                    </span>
-                  </button>
-                )}
               <div className={`flex flex-col gap-0.5 max-h-[min(60vh,320px)] overflow-y-auto ${logoutBusy ? 'pointer-events-none opacity-60' : ''}`}>
                 {openGroup.items.map((item) => {
                   const isActive = location.pathname === item.path;
