@@ -106,11 +106,71 @@ Ao concluir, o setup:
   - intervalo entre ciclos (ex.: `60000`)
 - `REP_DEVICE_TIMEZONE_OFFSET`
   - ex.: `-03:00`
+- `REP_FORCE_MODE` (opcional)
+  - `1` — desliga go-live automatico; obedece o `.env` literalmente.
+- `REP_RECEIVE_SCOPE` (opcional; so com `REP_FORCE_MODE=1`)
+  - `incremental` — envia apenas batidas com NSR maior que o ultimo ja processado (`last-nsr.json` em `data/rep-agent/`). Recomendado apos o go-live.
+  - `today_only` — envia somente batidas do **dia civil local** do computador onde o agente roda (mesma ideia do painel web em Relogios REP).
+- `REP_INGEST_FROM_DATE` (opcional)
+  - data minima de envio, formato `YYYY-MM-DD` (ex.: `2026-05-18`). Batidas anteriores sao ignoradas mesmo que existam no AFD.
+  - util na **primeira instalacao** para nao importar anos anteriores do relogio.
 
 Campos de inventario:
 
 - `REP_DEVICE_BRAND`
 - `REP_DEVICE_MODEL`
+
+---
+
+## 5.1) Go-live automatico (sem configurar escopo na mao)
+
+O agente **auto-configura** na primeira execucao. Nao e obrigatorio definir `REP_RECEIVE_SCOPE` nem `REP_INGEST_FROM_DATE` no `.env`.
+
+| Arquivo | Funcao |
+|---------|--------|
+| `state/agent-meta.json` | `firstRunCompleted: false` na 1ª vez; vira `true` apos 1ª sync OK |
+| `data/rep-agent/last-nsr.json` | Controle incremental por NSR (apos go-live) |
+| `data/rep-agent/processed-nsr.json` | Cache local de NSRs ja enviados |
+
+**Fluxo automatico:**
+
+1. **1ª execucao** — logs `[BOOT] Primeira execucao detectada` e `[BOOT] Aplicando modo seguro: today_only`. Ignora escopo do `.env`. So envia batidas de **hoje**.
+2. **Airbag** — se o AFD tiver mais de 5000 linhas na 1ª vez, corta para hoje automaticamente.
+3. **Apos 1ª sync sem erro de envio** — grava `agent-meta.json` e passa a `incremental` (`[MODE] Mudando para incremental apos inicializacao`).
+4. Se a 1ª sync falhar (rede/API), **permanece** em modo seguro ate funcionar.
+
+**Override para tecnicos** (`REP_FORCE_MODE=1` no `.env`):
+
+- Usa exatamente `REP_RECEIVE_SCOPE` e `REP_INGEST_FROM_DATE` do arquivo.
+- Desliga a logica automatica.
+- Data futura em `REP_INGEST_FROM_DATE` → erro ao iniciar.
+- Data com mais de 1 ano → aviso no log.
+
+**API do servidor (opcional):** `GET /api/rep/agent-config?company_id=UUID` (Bearer `API_KEY`) devolve `recommendedScope` e `goLiveDate`.
+
+No **instalador**, a tela **Modo de importacao inicial** so afeta quem escolhe importacao forcada (data especifica ou completo). O padrao recomendado e **automatico** (sem `REP_FORCE_MODE`).
+
+No **painel web** (sync pelo navegador), a opcao **apenas hoje** continua disponivel na tela Relogios REP.
+
+## 5.2) Idempotencia (reenvio sem duplicar)
+
+Cada batida leva um `punch_hash` (SHA-256 de relogio + PIS + data/hora UTC + NSR).
+
+- Pode reenviar o mesmo lote apos falha de rede — o servidor ignora duplicatas.
+- `last-nsr.json` e `processed-nsr.json` sao **otimizacao local**, nao garantia de consistencia.
+- Aplicar migracao `20260520200000_rep_punch_idempotency_hash.sql` no Supabase antes do go-live.
+
+Resposta tipica do `POST /api/rep/punch`:
+
+```json
+{ "success": true, "received": 1, "inserted": 1, "duplicates": 0 }
+```
+
+Duplicata:
+
+```json
+{ "success": true, "received": 1, "inserted": 0, "duplicates": 1, "duplicate": true }
+```
 
 ---
 

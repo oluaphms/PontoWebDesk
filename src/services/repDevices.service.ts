@@ -107,6 +107,25 @@ async function writeRepDeviceAuditLog(input: {
   if (error) {
     console.error('[rep_devices] Falha ao gravar auditoria:', error);
   }
+
+  const globalAction = input.action === 'DELETE' ? 'DELETE_DEVICE' : 'DEACTIVATE_DEVICE';
+  const now = new Date().toISOString();
+  const { error: auditErr } = await client.from('audit_logs').insert({
+    id: crypto.randomUUID(),
+    user_id: input.performedBy,
+    company_id: input.companyId,
+    action: globalAction,
+    entity: 'rep_device',
+    entity_id: input.deviceId,
+    severity: 'SECURITY',
+    details: input.metadata ?? {},
+    metadata: input.metadata ?? {},
+    created_at: now,
+    timestamp: now,
+  });
+  if (auditErr) {
+    console.error('[rep_devices] Falha ao gravar audit_logs global:', auditErr);
+  }
 }
 
 export async function deactivateRepDevice(

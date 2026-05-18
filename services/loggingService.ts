@@ -27,7 +27,12 @@ export const LoggingService = {
     return () => listeners.delete(listener);
   },
 
-  async log(entry: Omit<AuditLog, 'id' | 'timestamp' | 'ipAddress' | 'userAgent'>) {
+  async log(
+    entry: Omit<AuditLog, 'id' | 'timestamp' | 'ipAddress' | 'userAgent'> & {
+      entity?: string | null;
+      entityId?: string | null;
+    },
+  ) {
     const logEntry: AuditLog = {
       ...entry,
       id: crypto.randomUUID(),
@@ -49,7 +54,10 @@ export const LoggingService = {
           user_id: logEntry.userId ?? null,
           user_name: logEntry.userName ?? null,
           company_id: logEntry.companyId,
+          entity: entry.entity ?? null,
+          entity_id: entry.entityId ?? null,
           details: logEntry.details ?? {},
+          metadata: logEntry.details ?? {},
           ip_address: logEntry.ipAddress,
           user_agent: logEntry.userAgent,
         });

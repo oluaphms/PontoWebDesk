@@ -4,8 +4,11 @@
  * Query: company_id (opcional), type=afd|aej se usar só /api/export
  */
 
+import { createClient } from '@supabase/supabase-js';
 import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
-import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
+import { getSupabaseConfig, getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
+import { getCallerContext } from '../_shared/callerContext.js';
+import { logExport, logViewSensitiveData } from '../_shared/lgpdGovernance.js';
 import { getSecureCorsHeaders } from '../_shared/security.js';
 import { noCache } from '../_shared/cache.js';
 
@@ -86,6 +89,31 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
       { error: 'Empresa não identificada' },
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     ));
+  }
+
+  try {
+    const { url: svcUrl, serviceKey } = getSupabaseConfig();
+    const serviceClient = createClient(svcUrl, serviceKey, { auth: { persistSession: false } });
+    const caller = await getCallerContext(supabaseUrl, anonKey, serviceClient, token);
+    if (caller) {
+      await logViewSensitiveData(
+        serviceClient,
+        caller,
+        'time_records',
+        null,
+        { exportKind: kind, companyId: targetCompanyId },
+        request,
+      );
+      await logExport(
+        serviceClient,
+        caller,
+        kind === 'afd' ? 'export_afd' : 'export_aej',
+        { companyId: targetCompanyId, kind },
+        request,
+      );
+    }
+  } catch (e) {
+    console.warn('[api/export] auditoria LGPD ignorada:', e);
   }
 
   const { data: records } = await sup

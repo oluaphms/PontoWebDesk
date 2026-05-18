@@ -99,6 +99,42 @@ export function repConnectionCellText(d: RepDeviceRow): string {
   return TIPOS_CONEXAO.find((t) => t.value === d.tipo_conexao)?.label ?? d.tipo_conexao;
 }
 
+/** App publicado (Vercel etc.) — o browser não fala com a LAN; só o agente na empresa. */
+export function isCloudDeployedRepClient(): boolean {
+  if (typeof window === 'undefined') return true;
+  const host = window.location.hostname.toLowerCase();
+  return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local');
+}
+
+export function buildLocalRepAgentGuidance(
+  d: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo'>,
+): string {
+  const port = d.porta ?? 80;
+  const ip = (d.ip || '').trim() || '192.168.x.x';
+  return [
+    'Relógio em rede local: o servidor na nuvem não acessa o IP diretamente.',
+    '',
+    'No PC da empresa (mesma rede do relógio):',
+    `1. Configure REP_DEVICE_IP=${ip} e REP_DEVICE_PORT=${port} (e REP_DEVICE_ID=${d.id} se quiser).`,
+    '2. Defina REP_SAAS_URL, REP_COMPANY_ID e API_KEY (ver scripts/rep-agent.env.example).',
+    '3. Execute: npm run rep:agent',
+    '',
+    'Depois use «Sincronizar agora» no painel — as batidas chegam via agente → Supabase.',
+    'Em desenvolvimento local (npm run dev) neste PC na LAN, «Testar» pode validar o relógio direto.',
+  ].join('\n');
+}
+
+export function enrichRepConnectionTestMessage(
+  device: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'tipo_conexao'>,
+  ok: boolean,
+  baseMessage: string,
+): string {
+  if (ok || !isLocalAgentRepDevice(device)) return baseMessage;
+  const lower = baseMessage.toLowerCase();
+  if (lower.includes('agente') && lower.includes('192.168')) return baseMessage;
+  return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device)}`;
+}
+
 export function readLsBool(key: string, defaultVal: boolean): boolean {
   if (typeof window === 'undefined') return defaultVal;
   let v: string | null = null;

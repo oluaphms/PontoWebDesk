@@ -29,6 +29,10 @@
  *   REP_DEVICE_PASSWORD   Palavra-passe do relógio (login.fcgi + get_afd.fcgi). Nunca logada.
  *   REP_DEVICE_CONTROLID_FCGI  "1" — tenta primeiro AFD por .fcgi mesmo sem palavra-passe (requer REP_DEVICE_SESSION).
  *   REP_AFD_PORTARIA_671    "1" — pede AFD no formato Portaria 671 (query mode=671 em get_afd.fcgi).
+ *   REP_RECEIVE_SCOPE       incremental | today_only — só com REP_FORCE_MODE=1 (senão auto go-live).
+ *   REP_INGEST_FROM_DATE    YYYY-MM-DD — só com REP_FORCE_MODE=1 ou após 1ª execução (go-live).
+ *   REP_FORCE_MODE          "1" — desliga auto-configuração; usa exatamente o .env.
+ *   REP_AGENT_META_FILE     state/agent-meta.json — controle de primeira execução (auto).
  *
  *   --- modo AFD ---
  *   REP_MODE                    Quando "AFD", força ingestão por arquivo AFD sem tentar a API direta.
@@ -54,6 +58,14 @@ import { readFileSync, existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
+import {
+  VOLUME_AIRBAG_THRESHOLD,
+  resolveAgentReceivePolicy,
+  logSyncCounts,
+  isFirstRunPromotionEligible,
+  promoteAgentAfterFirstSuccess,
+} from './rep-agent-go-live.mjs';
+import { computeRepPunchHash } from './rep-punch-hash.mjs';
 
 /** Preenche process.env a partir de `.env` e `.env.local` na cwd (não sobrescreve variáveis já definidas no shell). */
 function loadEnvFilesFromProjectRoot() {
@@ -95,7 +107,12 @@ function trimBaseUrl(s) {
 const saas = trimBaseUrl(process.env.REP_SAAS_URL) || trimBaseUrl(process.env.VITE_APP_URL) || '';
 const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
 const ip = (process.env.REP_DEVICE_IP || '').trim();
-const scheme = (process.env.REP_DEVICE_SCHEME || 'http').trim().toLowerCase() === 'https' ? 'https' : 'http';
+function normalizeDeviceScheme(raw) {
+  const s = String(raw || 'http').trim().toLowerCase();
+  if (s === 'https' || s.startsWith('https://')) return 'https';
+  return 'http';
+}
+const scheme = normalizeDeviceScheme(process.env.REP_DEVICE_SCHEME);
 /** Porta padrão coerente com o esquema (evita https + 80 por engano quando REP_DEVICE_PORT não está no .env). */
 const defaultDevicePort = scheme === 'https' ? '443' : '80';
 const port = (process.env.REP_DEVICE_PORT || defaultDevicePort).trim();
@@ -125,6 +142,22 @@ const REP_LAST_NSR_FILE = path.resolve(
   process.env.REP_LAST_NSR_FILE || 'data/rep-agent/last-nsr.json'
 );
 const REP_DEVICE_TIMEZONE_OFFSET = (process.env.REP_DEVICE_TIMEZONE_OFFSET || '-03:00').trim();
+const repReceiveScopeEnv = (process.env.REP_RECEIVE_SCOPE || '').trim().toLowerCase();
+const repIngestFromDateEnv = (process.env.REP_INGEST_FROM_DATE || '').trim();
+const repForceMode = /^(1|true|yes)$/i.test((process.env.REP_FORCE_MODE || '').trim());
+const REP_AGENT_META_FILE = path.resolve(
+  process.env.REP_AGENT_META_FILE || 'state/agent-meta.json'
+);
+/** Escopo efetivo (auto go-live ou REP_FORCE_MODE); mutável após promoção pós-1ª sync. */
+const agentPolicy = {
+  scope: 'incremental',
+  fromDateMs: NaN,
+  fromDateStr: '',
+  isFirstRun: false,
+  meta: null,
+  autoMode: false,
+  forceMode: false,
+};
 const REP_AGENT_LOOP = !/^(0|false|no|off)$/i.test((process.env.REP_AGENT_LOOP || '1').trim());
 const REP_AGENT_INTERVAL_MS = Math.max(
   5000,
@@ -141,6 +174,16 @@ if (!TZ_OFFSET_RE.test(REP_DEVICE_TIMEZONE_OFFSET)) {
     `[rep-agent] REP_DEVICE_TIMEZONE_OFFSET inválido: "${REP_DEVICE_TIMEZONE_OFFSET}" (esperado +HH:MM ou -HH:MM)`
   );
   process.exit(1);
+}
+
+if (
+  repReceiveScopeEnv &&
+  repReceiveScopeEnv !== 'incremental' &&
+  repReceiveScopeEnv !== 'today_only'
+) {
+  console.warn(
+    `[rep-agent] REP_RECEIVE_SCOPE="${repReceiveScopeEnv}" desconhecido — incremental será usado se REP_FORCE_MODE=1.`
+  );
 }
 
 if (scheme === 'https' && insecureTls) {
@@ -170,7 +213,26 @@ if (!companyId && !CLI_SYNC_USERS) {
   );
 }
 
-{
+async function initializeAgentPolicy() {
+  const policy = await resolveAgentReceivePolicy({
+    metaPath: REP_AGENT_META_FILE,
+    forceMode: repForceMode,
+    envScopeRaw: repReceiveScopeEnv,
+    envIngestFromDate: repIngestFromDateEnv,
+    saas,
+    apiKey,
+    companyId,
+  });
+  agentPolicy.scope = policy.scope;
+  agentPolicy.fromDateMs = policy.fromDateMs;
+  agentPolicy.fromDateStr = policy.fromDateStr;
+  agentPolicy.isFirstRun = policy.isFirstRun;
+  agentPolicy.meta = policy.meta;
+  agentPolicy.autoMode = policy.autoMode;
+  agentPolicy.forceMode = policy.forceMode;
+}
+
+function logStartupConfig() {
   const keyHint =
     apiKey.length > 10 ? `${apiKey.slice(0, 4)}…${apiKey.slice(-3)}` : apiKey.length > 0 ? '(definida)' : '';
   console.log(
@@ -184,8 +246,38 @@ if (!companyId && !CLI_SYNC_USERS) {
       ? `| relógio API=${repDeviceSession ? 'sessão' : 'login.fcgi'}`
       : repDeviceControlIdFcgi
         ? '| relógio API=controlid_fcgi (falta sessão ou REP_DEVICE_PASSWORD)'
-        : ''
+        : '',
+    `| escopo=${agentPolicy.scope}`,
+    agentPolicy.fromDateStr ? `| desde=${agentPolicy.fromDateStr}` : '',
+    agentPolicy.autoMode ? '| go-live=auto' : '',
+    repForceMode ? '| force_mode=on' : ''
   );
+  if (scheme === 'http' && (port === '443' || port === '442')) {
+    console.warn(
+      '[rep-agent] AVISO: porta ' +
+        port +
+        ' com HTTP — use REP_DEVICE_SCHEME=https (não confunda com REP_SAAS_URL).'
+    );
+  }
+  if (companyId.includes('....') || companyId.length < 32) {
+    console.warn(
+      '[rep-agent] AVISO: REP_COMPANY_ID parece placeholder ("a145b0cd-...."). Use o UUID completo de public.companies.'
+    );
+  }
+  const isLoopback =
+    ip === '127.0.0.1' || ip === '::1' || ip.toLowerCase() === 'localhost';
+  if (isLoopback) {
+    console.warn(
+      '[rep-agent] AVISO: alvo é loopback (mock). Para relógio na LAN, ajuste .env.local ou use PowerShell:\n' +
+        '  $env:REP_AGENT_SKIP_DOTENV="1"\n' +
+        '  $env:REP_DEVICE_IP="192.168.1.19"\n' +
+        '  $env:REP_DEVICE_PORT="443"\n' +
+        '  $env:REP_DEVICE_SCHEME="https"\n' +
+        '  $env:REP_INSECURE_TLS="1"\n' +
+        '  (e REP_SAAS_URL, REP_COMPANY_ID, API_KEY, REP_DEVICE_PASSWORD)\n' +
+        'Mock local: noutro terminal → node scripts/rep-agent-mock.mjs'
+    );
+  }
 }
 
 function normalizeTipo(t) {
@@ -606,10 +698,14 @@ async function fetchPunchesFromClock() {
   if (attempts > 0 && invalidCommandHits === 0 && connectionRefusedHits === attempts) {
     const mockHint =
       ip === '127.0.0.1' || ip === '::1' || ip === 'localhost'
-        ? ' Noutro terminal na raiz do projeto: node scripts\\rep-agent-mock.mjs (porta ' +
+        ? ' Está em 127.0.0.1 — provável mock no .env.local. Relógio real: $env:REP_DEVICE_IP="192.168.x.x"; $env:REP_DEVICE_PORT="443"; $env:REP_DEVICE_SCHEME="https". Mock: node scripts\\rep-agent-mock.mjs (porta ' +
           port +
-          '; ou ajuste REP_DEVICE_IP / REP_DEVICE_PORT se o mock usar outra).'
-        : ' Verifique se o relógio está ligado, na mesma rede, e se IP/porta estão corretos.';
+          ').'
+        : ` Verifique se o relógio está ligado, na mesma rede, e se IP/porta/HTTPS estão corretos.${
+            port === '442'
+              ? ' Control iD HTTPS costuma usar porta 443 (442 recusada neste IP — teste $env:REP_DEVICE_PORT="443").'
+              : ''
+          }`;
     const err = new Error(`ECONNREFUSED — ninguém responde em ${base} (${attempts} tentativas).${mockHint}`);
     err.attempts = attempts;
     err.invalidCommandHits = 0;
@@ -747,23 +843,42 @@ async function loginControlId(base) {
 /**
  * POST /get_afd.fcgi?session=… — conteúdo AFD bruto (text/plain ou application/octet-stream).
  */
-async function fetchAfdWithSession(base, session) {
+function parseLastNsrNumber(s) {
+  const t = String(s ?? '').trim();
+  if (!/^\d+$/.test(t)) return 0;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+async function fetchAfdWithSession(base, session, { lastNsr = 0 } = {}) {
   const sid = encodeURIComponent(session);
-  const urls = repAfdPortaria671
-    ? [`${base}/get_afd.fcgi?session=${sid}&mode=671`, `${base}/get_afd.fcgi?session=${sid}`]
-    : [`${base}/get_afd.fcgi?session=${sid}`, `${base}/get_afd.fcgi?session=${sid}&mode=671`];
-  for (const url of urls) {
-    try {
-      const res = await clockPostAfdBinary(url, {});
-      if (res.status < 200 || res.status >= 300) {
-        console.log('[REP AFD SESSION]', url.split('?')[0], '→ HTTP', res.status, afdHttpSnippet(res.text));
-        continue;
+  const modeAttempts = repAfdPortaria671 ? [true, false] : [false, true];
+  const bodies = lastNsr > 0 ? [{ initial_nsr: lastNsr }, {}] : [{}];
+
+  for (const use671 of modeAttempts) {
+    const q671 = use671 ? '&mode=671' : '';
+    const url = `${base}/get_afd.fcgi?session=${sid}${q671}`;
+    for (const body of bodies) {
+      try {
+        const res = await clockPostAfdBinary(url, body);
+        if (res.status < 200 || res.status >= 300) {
+          console.log(
+            '[REP AFD SESSION]',
+            url.split('?')[0],
+            use671 ? '(mode=671)' : '',
+            Object.keys(body).length ? `body=${JSON.stringify(body)}` : '',
+            '→ HTTP',
+            res.status,
+            afdHttpSnippet(res.text)
+          );
+          continue;
+        }
+        const text = extractAfdFileText(res.text || '');
+        if (isPlausibleAfdText(text)) return text;
+        console.log('[REP AFD SESSION] corpo não reconhecido como AFD:', afdHttpSnippet(text));
+      } catch (e) {
+        console.error('[REP AFD SESSION]', e?.message || String(e));
       }
-      const text = res.text || '';
-      if (isPlausibleAfdText(text)) return text;
-      console.log('[REP AFD SESSION] corpo não reconhecido como AFD:', afdHttpSnippet(text));
-    } catch (e) {
-      console.error('[REP AFD SESSION]', e?.message || String(e));
     }
   }
   return null;
@@ -773,7 +888,7 @@ async function fetchAfdWithSession(base, session) {
  * ANTES do download AFD por GET: Control iD idClass (sessão + get_afd.fcgi).
  * Se login falhar ou não houver meio de obter sessão, devolve null (mantém fluxo atual).
  */
-async function tryAfdControlIdSessionDownload(base) {
+async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   let postExpected = false;
   try {
     postExpected = await probeDeviceWantsPostForApi(base);
@@ -789,7 +904,7 @@ async function tryAfdControlIdSessionDownload(base) {
     if (!session) return null;
   }
 
-  const raw = await fetchAfdWithSession(base, session);
+  const raw = await fetchAfdWithSession(base, session, { lastNsr });
   if (!raw || !isPlausibleAfdText(raw)) return null;
 
   console.log('[REP AFD DOWNLOAD SESSION MODE]');
@@ -800,10 +915,10 @@ async function tryAfdControlIdSessionDownload(base) {
  * Baixa o AFD do dispositivo testando rotas conhecidas (priorizando REP_AFD_PATH).
  * Retorna { url, content } no primeiro sucesso. Aplica timeout e retry por rota.
  */
-async function downloadAFD() {
+async function downloadAFD({ lastNsr = 0 } = {}) {
   const base = `${scheme}://${ip}:${port}`;
 
-  const sessionMode = await tryAfdControlIdSessionDownload(base);
+  const sessionMode = await tryAfdControlIdSessionDownload(base, { lastNsr });
   if (sessionMode) return sessionMode;
 
   const candidates = [];
@@ -874,43 +989,100 @@ async function downloadAFD() {
   throw new Error(`[REP AFD ERROR] ${msg}`);
 }
 
+/** Corpo do get_afd pode ser texto AFD puro ou JSON com campo de conteúdo (Control iD). */
+function extractAfdFileText(text) {
+  const t = String(text ?? '').trim();
+  if (!t.startsWith('{')) return text;
+  try {
+    const j = JSON.parse(t);
+    if (j && typeof j === 'object' && !Array.isArray(j)) {
+      for (const k of ['afd', 'AFD', 'data', 'file', 'content', 'nfo', 'records', 'text', 'body', 'file_afd']) {
+        const v = j[k];
+        if (typeof v === 'string' && v.trim().length > 16) return v;
+      }
+    }
+  } catch {
+    /* texto bruto */
+  }
+  return text;
+}
+
+function afdNormalizeDate(ddmmaaaa) {
+  if (!/^\d{8}$/.test(ddmmaaaa)) return null;
+  const d = ddmmaaaa.slice(0, 2);
+  const m = ddmmaaaa.slice(2, 4);
+  const a = ddmmaaaa.slice(4, 8);
+  const day = parseInt(d, 10);
+  const month = parseInt(m, 10);
+  const year = parseInt(a, 10);
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1990 || year > 2100) return null;
+  return `${a}-${m}-${d}`;
+}
+
+function afdNormalizeTime(hhmmss) {
+  if (hhmmss.length < 4) return null;
+  const h = hhmmss.slice(0, 2);
+  const mi = hhmmss.length >= 4 ? hhmmss.slice(2, 4) : '00';
+  const s = hhmmss.length >= 6 ? hhmmss.slice(4, 6) : '00';
+  const hh = parseInt(h, 10);
+  const mm = parseInt(mi, 10);
+  const ss = parseInt(s, 10);
+  if (hh > 23 || mm > 59 || ss > 59) return null;
+  return `${h.padStart(2, '0')}:${mi.padStart(2, '0')}:${s.padStart(2, '0')}`;
+}
+
+function afdCanonical11Digits(blob) {
+  const d = String(blob || '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length <= 11) return d.padStart(11, '0');
+  return d.slice(-11);
+}
+
+/** Portaria 1510/671 — tipo 3 ou 7: NSR(9) + tipo + DDMMAAAA + HHMMSS + identificador. */
+function parseAfdPortariaLine(line) {
+  const trimmed = line.trim();
+  const loose = /^(\d{9})\s*([37])\s*(\d{8})\s*(\d{6})\s*(\d{10,32})(?:\s*([A-Za-z]))?/;
+  const tight = /^(\d{9})([37])(\d{8})(\d{6})(\d{10,32})([A-Za-z])?/;
+  const m = trimmed.match(loose) || trimmed.match(tight);
+  if (!m) return null;
+  const date = afdNormalizeDate(m[3]);
+  const time = afdNormalizeTime(m[4]);
+  const pis = afdCanonical11Digits(m[5]);
+  if (!date || !time || !pis) return null;
+  return { nsr: m[1], date, time, pis };
+}
+
 /**
- * Parser de AFD (formato simplificado): cada linha contém
- *   NSR (12) + DATA (8: YYYYMMDD) + HORA (4: HHMM) + PIS (11)
- * Total: 35 caracteres por registro.
- *
- * Também tolera o formato oficial Portaria 1510 — Tipo 3:
- *   NSR (9) + "3" + DATA (8) + HORA (4) + PIS (12) = 34 chars
- * Quando detectado, extrai os mesmos campos (date/time/pis/nsr).
+ * Parser AFD: formatos simplificado (35 chars), Portaria 1510 tipo 3 (34 chars)
+ * e linhas 37+ dígitos (DDMMAAAA + HHMMSS) usadas pelo Control iD / Portaria 671.
  */
 function parseAFD(content) {
-  if (!content || typeof content !== 'string') return [];
-  const lines = content.split(/\r?\n/);
+  const text = extractAfdFileText(content);
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split(/\r?\n/);
   const records = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
-    if (!/^\d+$/.test(line)) continue; // só dígitos
+    if (!/^\d+$/.test(line)) continue;
 
     let parsed = null;
 
-    // Formato simplificado solicitado: 35 chars (NSR12 + DATA8 + HORA4 + PIS11)
     if (line.length === 35) {
       const nsr = line.slice(0, 12);
       const dateRaw = line.slice(12, 20);
       const timeRaw = line.slice(20, 24);
       const pis = line.slice(24, 35);
-      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis });
-    }
-    // Formato oficial Portaria 1510 — Tipo 3 (34 chars):
-    //   NSR(9) + "3" + DATA(8) + HORA(4) + PIS(12)
-    else if (line.length === 34 && line[9] === '3') {
+      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm: true });
+    } else if (line.length === 34 && line[9] === '3') {
       const nsr = line.slice(0, 9);
       const dateRaw = line.slice(10, 18);
       const timeRaw = line.slice(18, 22);
       const pis = line.slice(22, 34);
-      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis });
+      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm: true });
+    } else {
+      parsed = parseAfdPortariaLine(line);
     }
 
     if (parsed) records.push(parsed);
@@ -919,39 +1091,49 @@ function parseAFD(content) {
   return records;
 }
 
-function buildAfdRecord({ nsr, dateRaw, timeRaw, pis }) {
-  if (!/^\d{8}$/.test(dateRaw)) return null;
-  if (!/^\d{4}$/.test(timeRaw)) return null;
-
-  const year = Number(dateRaw.slice(0, 4));
-  const month = Number(dateRaw.slice(4, 6));
-  const day = Number(dateRaw.slice(6, 8));
-  const hour = Number(timeRaw.slice(0, 2));
-  const minute = Number(timeRaw.slice(2, 4));
-
-  if (year < 1970 || year > 2999) return null;
-  if (month < 1 || month > 12) return null;
-  if (day < 1 || day > 31) return null;
-  if (hour > 23 || minute > 59) return null;
-
-  const date = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
-  const time = `${timeRaw.slice(0, 2)}:${timeRaw.slice(2, 4)}`;
-
-  return { nsr, date, time, pis };
+function buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm = false }) {
+  let date;
+  let time;
+  if (timeIsHhmm && /^\d{8}$/.test(dateRaw) && /^\d{4}$/.test(timeRaw)) {
+    const year = Number(dateRaw.slice(0, 4));
+    const month = Number(dateRaw.slice(4, 6));
+    const day = Number(dateRaw.slice(6, 8));
+    const hour = Number(timeRaw.slice(0, 2));
+    const minute = Number(timeRaw.slice(2, 4));
+    if (year < 1970 || year > 2999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    if (hour > 23 || minute > 59) return null;
+    date = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
+    time = `${timeRaw.slice(0, 2)}:${timeRaw.slice(2, 4)}:00`;
+  } else {
+    date = afdNormalizeDate(dateRaw);
+    time = afdNormalizeTime(timeRaw);
+    if (!date || !time) return null;
+  }
+  const pisNorm = afdCanonical11Digits(pis) || String(pis || '').replace(/\D/g, '').slice(-11);
+  if (!pisNorm || pisNorm.length !== 11) return null;
+  return { nsr, date, time, pis: pisNorm };
 }
 
 /** Converte registro AFD para o payload aceito por /api/rep/punch (sem alterar o contrato). */
 function normalizeAfdPunch(rec) {
+  const timePart = String(rec.time || '').includes(':') && rec.time.split(':').length >= 3 ? rec.time : `${rec.time}:00`;
+  const data_hora = `${rec.date}T${timePart}${REP_DEVICE_TIMEZONE_OFFSET}`;
+  const punch_hash = computeRepPunchHash({
+    deviceId: deviceId || '',
+    pis: rec.pis,
+    data_hora,
+    nsr: rec.nsr,
+  });
   return {
     company_id: companyId,
     device_id: deviceId,
     employee_identifier: rec.pis,
     pis: rec.pis,
-    // AFD vem em horário local do relógio; anexamos o offset configurado para o backend
-    // interpretar corretamente (evita bug clássico de "batida adiantada/atrasada").
-    data_hora: `${rec.date}T${rec.time}:00${REP_DEVICE_TIMEZONE_OFFSET}`,
+    data_hora,
     origem: 'REP',
     nsr: rec.nsr,
+    hash: punch_hash,
+    punch_hash,
   };
 }
 
@@ -1256,6 +1438,94 @@ async function saveProcessedNsrCache(set) {
 }
 
 // ----------------------------------------------------------------------------
+// Escopo de ingestão (histórico vs dia atual) — alinhado ao painel (receiveScope)
+// ----------------------------------------------------------------------------
+
+function getLocalCalendarDayBounds() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  return {
+    start: new Date(y, m, d, 0, 0, 0, 0),
+    end: new Date(y, m, d, 23, 59, 59, 999),
+  };
+}
+
+function afdRecordToLocalDate(rec) {
+  const [y, mo, day] = String(rec.date || '').split('-').map((n) => parseInt(n, 10));
+  const parts = String(rec.time || '00:00:00').split(':');
+  const hh = parseInt(parts[0] || '0', 10);
+  const mm = parseInt(parts[1] || '0', 10);
+  const ss = parseInt(parts[2] || '0', 10);
+  if ([y, mo, day, hh, mm, ss].some((n) => Number.isNaN(n))) return new Date(NaN);
+  return new Date(y, mo - 1, day, hh, mm, ss, 0);
+}
+
+function isWithinReceiveScope(localDate) {
+  if (Number.isNaN(localDate.getTime())) return false;
+  if (agentPolicy.scope === 'today_only') {
+    const { start, end } = getLocalCalendarDayBounds();
+    if (localDate < start || localDate > end) return false;
+  }
+  if (Number.isFinite(agentPolicy.fromDateMs) && localDate.getTime() < agentPolicy.fromDateMs) return false;
+  return true;
+}
+
+function filterAfdRecordsTodayOnly(records) {
+  const { start, end } = getLocalCalendarDayBounds();
+  return records.filter((rec) => {
+    const t = afdRecordToLocalDate(rec);
+    return !Number.isNaN(t.getTime()) && t >= start && t <= end;
+  });
+}
+
+function filterAfdRecordsByScope(records) {
+  if (agentPolicy.scope === 'incremental' && !Number.isFinite(agentPolicy.fromDateMs)) return records;
+  const out = records.filter((rec) => isWithinReceiveScope(afdRecordToLocalDate(rec)));
+  const skipped = records.length - out.length;
+  if (skipped > 0) {
+    const hints = [];
+    if (agentPolicy.scope === 'today_only') hints.push('today_only');
+    if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
+    console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
+  }
+  return out;
+}
+
+function filterApiPunchesByScope(list) {
+  if (agentPolicy.scope === 'incremental' && !Number.isFinite(agentPolicy.fromDateMs)) return list;
+  const out = [];
+  let skipped = 0;
+  for (const p of list) {
+    const iso = pickDataHora(p);
+    if (!iso) {
+      skipped += 1;
+      continue;
+    }
+    if (isWithinReceiveScope(new Date(iso))) out.push(p);
+    else skipped += 1;
+  }
+  if (skipped > 0) {
+    const hints = [];
+    if (agentPolicy.scope === 'today_only') hints.push('today_only');
+    if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
+    console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
+  }
+  return out;
+}
+
+function applyVolumeAirbagAfd(parsedAll) {
+  if (parsedAll.length <= VOLUME_AIRBAG_THRESHOLD || !agentPolicy.isFirstRun) {
+    return filterAfdRecordsByScope(parsedAll);
+  }
+  console.warn('[BOOT] Volume alto detectado — aplicando corte automático');
+  const cut = filterAfdRecordsTodayOnly(parsedAll);
+  logSyncCounts(parsedAll.length, cut.length);
+  return cut;
+}
+
+// ----------------------------------------------------------------------------
 // Controle de último NSR processado por dispositivo (data/rep-agent/last-nsr.json)
 // Estrutura plana: { "device_xxx": "000000123456" }
 // Regra: antes de enviar → se nsr <= lastNSR, skip.
@@ -1296,9 +1566,13 @@ async function saveLastNsrMap(map) {
 async function ingestViaAFD() {
   console.log('[REP MODE] AFD ativado');
 
+  const lastNsrMap = await loadLastNsrMap();
+  const devKey = deviceKey();
+  const lastNsrForDownload = parseLastNsrNumber(lastNsrMap[devKey] || '');
+
   let downloaded;
   try {
-    downloaded = await downloadAFD();
+    downloaded = await downloadAFD({ lastNsr: lastNsrForDownload });
   } catch (e) {
     // Fallback final: relógio NÃO expõe AFD via HTTP (modelos que só exportam por USB
     // ou software do fabricante). Não derrubamos o agente — sinalizamos modo manual
@@ -1312,25 +1586,45 @@ async function ingestViaAFD() {
       duplicate: 0,
       preSkipped: 0,
       total: 0,
+      sendErrors: 0,
+      fatal: false,
     };
   }
 
   const { url, content } = downloaded;
-  const records = parseAFD(content);
-  console.log('[REP AFD PARSED]', `${records.length} registros`, '|', url);
+  const rawText = extractAfdFileText(content);
+  const parsedAll = parseAFD(rawText);
+  const records = applyVolumeAirbagAfd(parsedAll);
+  logSyncCounts(parsedAll.length, records.length);
+  console.log(
+    '[REP AFD PARSED]',
+    `${records.length} registros no escopo`,
+    parsedAll.length !== records.length ? `(de ${parsedAll.length} no arquivo)` : '',
+    '|',
+    url
+  );
 
   if (records.length === 0) {
-    console.log('[rep-agent] AFD sem registros válidos para enviar.');
-    return { mode: 'AFD', ok: 0, skip: 0, duplicate: 0, preSkipped: 0, total: 0 };
+    const lineCount = rawText.split(/\r?\n/).filter((l) => l.trim()).length;
+    console.log(
+      `[rep-agent] AFD sem marcações reconhecidas (${rawText.length} bytes, ${lineCount} linhas).`
+    );
+    if (lineCount > 0) {
+      const sample = rawText.split(/\r?\n/).find((l) => l.trim()) || rawText;
+      console.log('[rep-agent] Amostra de linha:', afdHttpSnippet(sample, 120));
+    }
+    console.log(
+      '[rep-agent] Dicas: registe uma batida de teste no relógio; tente $env:REP_AFD_PORTARIA_671="1"; confira se o relógio não está com AFD vazio (menu/exportação Control iD).'
+    );
+    return { mode: 'AFD', ok: 0, skip: 0, duplicate: 0, preSkipped: 0, total: 0, sendErrors: 0, fatal: false };
   }
 
   const processed = await loadProcessedNsrCache();
-  const lastNsrMap = await loadLastNsrMap();
-  const devKey = deviceKey();
   let lastNsr = lastNsrMap[devKey] || '';
 
   let ok = 0;
   let skip = 0;
+  let sendErrors = 0;
   let preSkipped = 0;
   let dupLocal = 0;
   let dupServer = 0;
@@ -1356,7 +1650,7 @@ async function ingestViaAFD() {
     const body = normalizeAfdPunch(rec);
     try {
       const r = await postPunch(body);
-      const wasDuplicate = !!(r && r.success === false && r.duplicate);
+      const wasDuplicate = !!(r && r.duplicate);
 
       processed.add(nsrKey);
       if (wasDuplicate) {
@@ -1376,6 +1670,7 @@ async function ingestViaAFD() {
       }
     } catch (e) {
       skip += 1;
+      sendErrors += 1;
       console.error(`[REP PUNCH ERROR] nsr=${nsrKey}: ${e?.message || e}`);
     }
   }
@@ -1407,7 +1702,23 @@ async function ingestViaAFD() {
     console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
 
-  return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length };
+  return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length, sendErrors, fatal: false };
+}
+
+async function handlePostCycleBoot(cycleResult) {
+  if (!agentPolicy.autoMode || repForceMode) return;
+  if (!agentPolicy.isFirstRun) return;
+  if (!isFirstRunPromotionEligible(cycleResult)) {
+    console.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
+    return;
+  }
+  const nextMeta = await promoteAgentAfterFirstSuccess(REP_AGENT_META_FILE, agentPolicy.meta, () => {
+    agentPolicy.isFirstRun = false;
+    agentPolicy.scope = 'incremental';
+    agentPolicy.fromDateMs = NaN;
+    agentPolicy.fromDateStr = '';
+  });
+  agentPolicy.meta = nextMeta;
 }
 
 // ----------------------------------------------------------------------------
@@ -1416,6 +1727,22 @@ async function ingestViaAFD() {
 
 function shouldForceAfdMode() {
   return repModeEnv === 'AFD';
+}
+
+/** Control iD: evita varrer 40+ rotas /api quando há credenciais .fcgi (REP_AGENT_PROBE_API=1 força varredura). */
+function shouldUseControlIdAfdFastPath() {
+  if (/^(1|true|yes)$/i.test((process.env.REP_AGENT_PROBE_API || '').trim())) return false;
+  return !!(repDevicePassword || repDeviceSession || repDeviceControlIdFcgi);
+}
+
+function logAfdCycleResult(r) {
+  if (r.mode === 'MANUAL_IMPORT_REQUIRED') {
+    console.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
+    return;
+  }
+  console.log(
+    `[rep-agent] AFD concluído. Enviados OK: ${r.ok} | duplicados: ${r.duplicate} | erros: ${r.skip} | filtrados (lastNSR): ${r.preSkipped} | total parseado: ${r.total}`
+  );
 }
 
 /** Heurística: dispositivo respondeu de forma consistente "Invalid command: none". */
@@ -1437,8 +1764,26 @@ async function ingestViaApiDirect() {
     `${scheme}://${ip}:${port}`,
     `| ${DEVICE_ENDPOINT_PATHS.length} rotas × ${buildCommandPayloads().length} payloads`
   );
-  const { list, url } = await fetchPunchesFromClock();
-  console.log('[rep-agent] Endpoint OK:', url, '| registros:', list.length);
+  const { list: rawList, url } = await fetchPunchesFromClock();
+  let list = filterApiPunchesByScope(rawList);
+  if (rawList.length > VOLUME_AIRBAG_THRESHOLD && agentPolicy.isFirstRun) {
+    console.warn('[BOOT] Volume alto detectado — aplicando corte automático');
+    const { start, end } = getLocalCalendarDayBounds();
+    list = rawList.filter((p) => {
+      const iso = pickDataHora(p);
+      if (!iso) return false;
+      const t = new Date(iso);
+      return !Number.isNaN(t.getTime()) && t >= start && t <= end;
+    });
+  }
+  logSyncCounts(rawList.length, list.length);
+  console.log(
+    '[rep-agent] Endpoint OK:',
+    url,
+    '| registros:',
+    list.length,
+    rawList.length !== list.length ? `(de ${rawList.length} no dispositivo)` : ''
+  );
 
   const lastNsrMap = await loadLastNsrMap();
   const devKey = deviceKey();
@@ -1446,6 +1791,7 @@ async function ingestViaApiDirect() {
 
   let ok = 0;
   let skip = 0;
+  let sendErrors = 0;
   let preSkipped = 0;
   for (const p of list) {
     const data_hora = pickDataHora(p);
@@ -1461,6 +1807,12 @@ async function ingestViaApiDirect() {
       continue;
     }
 
+    const punch_hash = computeRepPunchHash({
+      deviceId: deviceId || '',
+      pis: p.pis ?? p.pisPasep ?? undefined,
+      data_hora,
+      nsr: rawNsr != null && rawNsr !== '' ? rawNsr : undefined,
+    });
     const body = {
       company_id: companyId,
       device_id: deviceId,
@@ -1470,11 +1822,17 @@ async function ingestViaApiDirect() {
       cpf: p.cpf ?? undefined,
       matricula: p.matricula ?? p.badge ?? undefined,
       nsr: typeof rawNsr === 'number' ? rawNsr : undefined,
+      hash: punch_hash,
+      punch_hash,
     };
     try {
       const r = await postPunch(body);
-      if (r.success === false && r.duplicate) skip += 1;
-      else ok += 1;
+      if (r.duplicate || (r.success !== false && r.inserted === false)) {
+        skip += 1;
+        if (r.duplicate) {
+          console.log(`[REP IDEMPOTENT] nsr=${rawNsr ?? '?'} hash=${body.punch_hash?.slice(0, 12)}…`);
+        }
+      } else ok += 1;
 
       if (hasNsr && (!lastNsr || compareNsr(rawNsr, lastNsr) > 0)) {
         lastNsr = String(rawNsr);
@@ -1482,6 +1840,8 @@ async function ingestViaApiDirect() {
         await saveLastNsrMap(lastNsrMap);
       }
     } catch (e) {
+      skip += 1;
+      sendErrors += 1;
       console.error('[rep-agent] Erro ao enviar marcação:', e.message, body);
     }
   }
@@ -1489,20 +1849,36 @@ async function ingestViaApiDirect() {
     console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
   console.log('[rep-agent] Concluído. Enviados OK:', ok, '| ignorados/duplicados:', skip);
-  return { ok, skip, preSkipped };
+  return { ok, skip, preSkipped, sendErrors, fatal: false, mode: 'API' };
+}
+
+async function runCycleWithBoot() {
+  try {
+    const r = await runCycle();
+    await handlePostCycleBoot(r);
+    return r;
+  } catch (e) {
+    if (agentPolicy.isFirstRun && agentPolicy.autoMode && !repForceMode) {
+      console.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
+    }
+    throw e;
+  }
 }
 
 async function runCycle() {
   if (shouldForceAfdMode()) {
     console.log('[REP MODE] AFD ativado (REP_MODE=AFD)');
     const r = await ingestViaAFD();
-    if (r.mode === 'MANUAL_IMPORT_REQUIRED') {
-      console.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
-    } else {
-      console.log(
-        `[rep-agent] AFD concluído. Enviados OK: ${r.ok} | duplicados: ${r.duplicate} | erros: ${r.skip} | filtrados (lastNSR): ${r.preSkipped} | total parseado: ${r.total}`
-      );
-    }
+    logAfdCycleResult(r);
+    return r;
+  }
+
+  if (shouldUseControlIdAfdFastPath()) {
+    console.log(
+      '[rep-agent] Control iD (.fcgi) — ingestão AFD direta (sem varrer /api; REP_AGENT_PROBE_API=1 para forçar varredura).'
+    );
+    const r = await ingestViaAFD();
+    logAfdCycleResult(r);
     return r;
   }
 
@@ -1512,13 +1888,7 @@ async function runCycle() {
     if (shouldFallbackToAfd(e)) {
       console.log('[REP MODE] AFD ativado (fallback: dispositivo retornou "Invalid command: none")');
       const r = await ingestViaAFD();
-      if (r.mode === 'MANUAL_IMPORT_REQUIRED') {
-        console.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
-      } else {
-        console.log(
-          `[rep-agent] AFD concluído. Enviados OK: ${r.ok} | duplicados: ${r.duplicate} | erros: ${r.skip} | filtrados (lastNSR): ${r.preSkipped} | total parseado: ${r.total}`
-        );
-      }
+      logAfdCycleResult(r);
       return r;
     }
     throw e;
@@ -1532,10 +1902,15 @@ async function main() {
     return;
   }
 
+  if (!CLI_SYNC_USERS && companyId) {
+    await initializeAgentPolicy();
+  }
+  logStartupConfig();
+
   const loopEnabled = REP_AGENT_LOOP && !CLI_ONCE;
 
   if (!loopEnabled) {
-    await runCycle();
+    await runCycleWithBoot();
     return;
   }
 
@@ -1555,7 +1930,7 @@ async function main() {
   while (!stopping) {
     const t0 = Date.now();
     try {
-      await runCycle();
+      await runCycleWithBoot();
     } catch (e) {
       // Loop é resiliente: nenhum erro pontual derruba o serviço.
       console.error('[REP AGENT LOOP] ciclo falhou:', e?.message || e);

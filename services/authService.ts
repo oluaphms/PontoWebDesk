@@ -1155,6 +1155,23 @@ class AuthService {
    */
   async signOut(): Promise<void> {
     const startedAt = Date.now();
+    try {
+      const current = await this.getCurrentUser().catch(() => null);
+      if (current?.companyId) {
+        void LoggingService.log({
+          severity: LogSeverity.INFO,
+          action: 'LOGOUT',
+          userId: current.id,
+          userName: current.nome,
+          companyId: current.companyId,
+          entity: 'users',
+          entityId: current.id,
+          details: {},
+        });
+      }
+    } catch {
+      // auditoria de logout não deve bloquear encerramento de sessão
+    }
     // Sinaliza para o listener onAuthStateChanged ignorar eventos de sessão nula durante o logout.
     this._isSigningOut = true;
     this._manualLoginPipelineId = null;

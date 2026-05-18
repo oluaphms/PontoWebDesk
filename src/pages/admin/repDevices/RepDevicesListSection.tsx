@@ -262,7 +262,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
         ) : null}
       </div>
 
-      <div className={cx('hidden md:block', uiTokens.radius.card, 'border border-slate-200/80 dark:border-slate-700 overflow-hidden', uiTokens.shadow.card, uiTokens.transition.default)}>
+      <div className={cx('hidden lg:block', uiTokens.radius.card, 'border border-slate-200/80 dark:border-slate-700 overflow-hidden', uiTokens.shadow.card, uiTokens.transition.default)}>
         <div className={repListUi.c017}>
           <table className={repListUi.c018}>
             <thead className={repListUi.c019}>
@@ -299,15 +299,21 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 </tr>
               ) : !hasLoadError ? (
                 visibleDevices.map((d) => (
-                  <tr key={d.id} className={repListUi.c025}>
-                    <td className={repListUi.c026}>{d.nome_dispositivo}</td>
-                    <td className={repListUi.c027}>
-                      {[d.fabricante, d.modelo].filter(Boolean).join(' / ') || '—'}
+                  <tr key={d.id} className={cx(repListUi.c025, 'group')}>
+                    <td className={repListUi.c026}>
+                      <span className="block truncate" title={d.nome_dispositivo}>
+                        {d.nome_dispositivo}
+                      </span>
+                    </td>
+                    <td className={cx(repListUi.c027, 'max-w-[9rem] lg:max-w-[11rem]')}>
+                      <span className="block truncate" title={[d.fabricante, d.modelo].filter(Boolean).join(' / ') || '—'}>
+                        {[d.fabricante, d.modelo].filter(Boolean).join(' / ') || '—'}
+                      </span>
                     </td>
                     <td className={repListUi.c027}>
-                      <span className={repListUi.c028}>
+                      <span className={repListUi.c028} title={repConnectionCellText(d)}>
                         <Network size={14} className={repListUi.c014} aria-hidden />
-                        <span>{repConnectionCellText(d)}</span>
+                        <span className={repListUi.c040}>{repConnectionCellText(d)}</span>
                       </span>
                     </td>
                     <td className={repListUi.c027}>{identifierTypeLabel(d.identifier_type)}</td>
@@ -324,22 +330,35 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     <td className={repListUi.c030}>
                       P {syncStatusByDeviceId[d.id]?.pending ?? 0} / E {syncStatusByDeviceId[d.id]?.error ?? 0}
                     </td>
-                    <td className={repListUi.c029}>
+                    <td className={repListUi.c041}>
                       <div className={repListUi.c031}>
                         <Button
                           size="sm"
                           variant="outline"
-                          className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                          className={cx(
+                            buttonStyles.base,
+                            buttonStyles.ghost,
+                            uiTokens.radius.button,
+                            uiTokens.transition.default,
+                            'text-xs whitespace-nowrap px-2.5',
+                          )}
                           disabled={forcingSyncId === d.id}
                           onClick={() => onForceSync(d.id)}
+                          title="Sincronizar agora"
                         >
-                          Sincronizar agora
+                          Sincronizar
                         </Button>
                         {d.tipo_conexao === 'rede' && (
                           <Button
                             size="sm"
                             variant="outline"
-                            className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                            className={cx(
+                              buttonStyles.base,
+                              buttonStyles.ghost,
+                              uiTokens.radius.button,
+                              uiTokens.transition.default,
+                              'text-xs whitespace-nowrap px-2.5',
+                            )}
                             disabled={testingId === d.id}
                             onClick={() => onTestConnection(d.id)}
                           >
@@ -351,6 +370,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                           variant="outline"
                           className={cx(buttonStyles.base, repListUi.c038, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
                           onClick={() => onOpenEdit(d)}
+                          title="Editar"
                         >
                           <Pencil size={14} />
                         </Button>
@@ -361,6 +381,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                           disabled={deletingId === d.id}
                           onClick={() => onDelete(d.id, d.nome_dispositivo)}
                           aria-busy={deletingId === d.id}
+                          title="Excluir"
                         >
                           {deletingId === d.id ? (
                             <Loader2 size={14} className="animate-spin" aria-hidden />

@@ -76,6 +76,9 @@ import {
 import {
   buildLocalClockForRep,
   isEmployeeEligibleForRepPush,
+  buildLocalRepAgentGuidance,
+  enrichRepConnectionTestMessage,
+  isCloudDeployedRepClient,
   isLocalAgentRepDevice,
   isTimesheetPeriodClosedError,
   mergeEmployeeFromRepRpcRow,
@@ -490,6 +493,11 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: 'Cadastre um dispositivo de rede antes de sincronizar.' });
       return;
     }
+    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
+      setMessage({ type: 'error', text: buildLocalRepAgentGuidance(d) });
+      scrollToRepCommunication();
+      return;
+    }
     setPageSyncBusy(true);
     setSrDeviceId(d.id);
     appendSrLog('[REP SYNC STARTED] Sincronização manual acionada pelo painel principal.');
@@ -540,15 +548,7 @@ const AdminRepDevices: React.FC = () => {
 
   const handleTestConnection = async (id: string) => {
     if (!getSupabaseClient()) return;
-    const device = devices.find((d) => d.id === id);
-    if (device && isLocalAgentRepDevice(device)) {
-      setMessage({
-        type: 'error',
-        text:
-          'Este relógio usa IP de rede local (ex.: 192.168.x.x). O servidor na nuvem não acessa a LAN diretamente — use o agente local na empresa para testar e sincronizar.',
-      });
-      return;
-    }
+    const device = devices.find((d) => d.id === id) ?? null;
     setTestingId(id);
     setMessage(null);
     try {
@@ -560,12 +560,22 @@ const AdminRepDevices: React.FC = () => {
         });
         await loadDevices();
       }
+      const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha ao testar o relógio.');
+      const text = device ? enrichRepConnectionTestMessage(device, r.ok, base) : base;
       setMessage({
         type: r.ok ? 'success' : 'error',
-        text: toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha ao testar o relógio.'),
+        text,
       });
+      if (!r.ok && device && isLocalAgentRepDevice(device)) {
+        scrollToRepCommunication();
+      }
     } catch (e) {
-      setMessage({ type: 'error', text: (e as Error).message });
+      const err = (e as Error).message;
+      const text =
+        device && isLocalAgentRepDevice(device)
+          ? enrichRepConnectionTestMessage(device, false, err)
+          : err;
+      setMessage({ type: 'error', text });
     } finally {
       setTestingId(null);
     }
@@ -675,6 +685,13 @@ const AdminRepDevices: React.FC = () => {
       return;
     }
     if (!getSupabaseClient()) return;
+    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
+      const guide = buildLocalRepAgentGuidance(d);
+      appendSrLog(guide);
+      setMessage({ type: 'error', text: guide });
+      scrollToRepCommunication();
+      return;
+    }
     appendSrLog(`[REP SYNC STARTED] Recebendo marcações de "${d.nome_dispositivo}"…`);
     if (receiveScope === 'today_only') {
       appendSrLog('Escopo: apenas marcações com data/hora no dia de hoje (calendário deste computador).');
@@ -1889,18 +1906,19 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog('Selecione um equipamento de rede.');
       return;
     }
-    if (isLocalAgentRepDevice(d)) {
-      const msg =
-        'IP de rede local: o servidor na nuvem não testa 192.168.x.x diretamente. Use o agente local na empresa.';
-      appendSrLog(msg);
-      setMessage({ type: 'error', text: msg });
+    if (isLocalAgentRepDevice(d) && isCloudDeployedRepClient()) {
+      const guide = buildLocalRepAgentGuidance(d);
+      appendSrLog(guide);
+      setMessage({ type: 'error', text: guide });
+      scrollToRepCommunication();
       return;
     }
     setTestingId(d.id);
     setMessage(null);
     try {
       const r = await testRepDeviceConnection(supabase, d.id);
-      const msg = toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha no teste.');
+      const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha no teste.');
+      const msg = enrichRepConnectionTestMessage(d, r.ok, base);
       appendSrLog(r.ok ? `Status / conexão: ${msg}` : `Falha: ${msg}`);
       if (r.ok) {
         appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
@@ -1911,6 +1929,7 @@ const AdminRepDevices: React.FC = () => {
         await loadDevices();
       }
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
+      if (!r.ok && isLocalAgentRepDevice(d)) scrollToRepCommunication();
     } catch (e) {
       appendSrLog(`Erro: ${(e as Error).message}`);
       setMessage({ type: 'error', text: (e as Error).message });
@@ -2180,17 +2199,17 @@ const AdminRepDevices: React.FC = () => {
   if (!user) return <Navigate to="/" replace />;
 
   const repSendReceiveOverlayClass = cx(
-    'fixed inset-0 z-[128] flex items-center justify-center bg-black/50 p-3 sm:p-4'
+    'fixed inset-0 z-[128] flex items-end sm:items-center justify-center bg-black/50 p-3 sm:p-4 overflow-y-auto',
   );
   const repSendReceiveModalClass = cx(
     repUiPatterns.modal,
-    'bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[92vh] md:max-h-[86vh] overflow-y-auto flex flex-col'
+    'bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[min(92vh,100dvh)] md:max-h-[min(86vh,100dvh)] overflow-y-auto overflow-x-hidden flex flex-col min-w-0',
   );
   const repSendReceiveHeaderClass = repPageUi.c126;
   const repSendReceiveBodyClass = repPageUi.c127;
 
   return (
-    <div className={cx('p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full flex flex-col', uiTokens.spacing.sectionGap)}>
+    <div className={cx('p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full min-w-0 flex flex-col', uiTokens.spacing.sectionGap)}>
       <PageHeader
         title="Relógios REP"
         subtitle="Gerenciamento e coleta de marcações via agente local"
@@ -2223,7 +2242,11 @@ const AdminRepDevices: React.FC = () => {
 
       {message && (
         <div
-          className={cx(repPageUi.c130, message.type === 'success' ? repPageUi.c131 : repPageUi.c132)}
+          className={cx(
+            repPageUi.c130,
+            message.type === 'success' ? repPageUi.c131 : repPageUi.c132,
+            'whitespace-pre-line',
+          )}
           role="status"
         >
           {toUiString(message.text, 'Erro')}

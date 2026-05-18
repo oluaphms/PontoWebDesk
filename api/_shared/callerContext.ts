@@ -30,3 +30,5 @@ export async function getCallerContext(
 export function isAdminOrHr(role: string): boolean {
   return role === 'admin' || role === 'hr';
 }
+
+export { canViewSensitive, canManageLgpd, canAccessUserData } from './lgpdGovernance.js';

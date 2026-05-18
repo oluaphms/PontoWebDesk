@@ -8,6 +8,7 @@ import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js'
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
+import { computeRepPunchHash } from './repPunchHash.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
 type RepPunchBody = {
@@ -23,6 +24,8 @@ type RepPunchBody = {
   raw_data?: unknown;
   tipo_marcacao?: string;
   test?: unknown;
+  hash?: string;
+  punch_hash?: string;
 };
 
 const REP_DEVICE_UUID_RE =
@@ -57,10 +60,16 @@ function jsonResponse(
 
 type RpcRepIngestResult = {
   success?: boolean;
+  inserted?: boolean;
   time_record_id?: string;
   user_not_found?: boolean;
   error?: string;
   duplicate?: boolean;
+  idempotent?: boolean;
+  duplicate_reason?: string;
+  semantic_duplicate?: boolean;
+  punch_hash?: string;
+  rep_log_id?: string;
 };
 
 type RepIdentifierType = 'pis' | 'cpf' | 'both';
@@ -637,6 +646,8 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       matricula,
       raw_data,
       tipo_marcacao,
+      hash: bodyHash,
+      punch_hash: bodyPunchHash,
     } = body;
     const resolvedEmployeeId = normalizeEmployeeId(employee_id) ?? normalizeEmployeeId(user_id);
     repLog('info', 'request_received', {
@@ -730,6 +741,16 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     }
 
     const repDeviceId = normalizeRepDeviceIdForRpc(device_id);
+    const tsIso = ts.toISOString();
+    const punchHash =
+      (typeof bodyPunchHash === 'string' && bodyPunchHash.trim()) ||
+      (typeof bodyHash === 'string' && bodyHash.trim()) ||
+      computeRepPunchHash({
+        deviceId: repDeviceId,
+        pis: pis ?? cpf ?? null,
+        dataHoraIso: data_hora,
+        nsr: nsrNumber,
+      });
     const identifierType = await fetchRepDeviceIdentifierType(supabase, company_id, repDeviceId);
     const pisDigits = normalizeDigits(pis);
     const cpfDigits = normalizeDigits(cpf);
@@ -767,7 +788,6 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       resolved_user_id: resolvedByIdentifier,
     });
 
-    const tsIso = ts.toISOString();
     const dedupeKey = `${resolvedByIdentifier ?? 'unknown'}|${tsIso}|${repDeviceId ?? 'no-device'}`;
     const incomingRawData =
       raw_data && typeof raw_data === 'object' && !Array.isArray(raw_data)
@@ -830,6 +850,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       p_apply_schedule: false,
       p_force_user_id: resolvedByIdentifier,
       p_trust_client_identity: true,
+      p_punch_hash: punchHash,
     };
 
     const { data, error } = await supabase.rpc('rep_ingest_punch', rpcPayload);
@@ -858,11 +879,31 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
         employee_id: resolvedByIdentifier,
         device_id: repDeviceId,
         timestamp_utc: tsIso,
+        duplicate_reason: result.duplicate_reason ?? null,
+        semantic_duplicate: result.semantic_duplicate === true,
+        punch_hash: result.punch_hash ?? punchHash,
       });
+      if (result.semantic_duplicate) {
+        repLog('warn', 'semantic_duplicate_clock', {
+          company_id,
+          device_id: repDeviceId,
+          timestamp_utc: tsIso,
+          pis: pis ?? cpf ?? null,
+        });
+      }
       return jsonResponse(headersJson, 200, {
         success: true,
+        received: 1,
+        inserted: 0,
+        duplicates: 1,
         duplicate: true,
-        error: 'NSR já importado',
+        inserted_flag: false,
+        idempotent: result.idempotent !== false,
+        duplicate_reason: result.duplicate_reason ?? 'hash',
+        semantic_duplicate: result.semantic_duplicate === true,
+        punch_hash: result.punch_hash ?? punchHash,
+        rep_log_id: result.rep_log_id ?? null,
+        error: result.error ?? 'Batida já registrada (idempotente)',
       });
     }
     if (!result.success && result.error) {
@@ -889,6 +930,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       company_id,
       employee_id: resolvedByIdentifier,
       time_record_id: result.time_record_id ?? null,
+      punch_hash: punchHash,
       elapsed_ms: Date.now() - startedAt,
     });
 
@@ -916,8 +958,15 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
 
     return jsonResponse(headersJson, 200, {
       success: true,
+      received: 1,
+      inserted: result.inserted !== false ? 1 : 0,
+      duplicates: 0,
+      inserted_flag: result.inserted !== false,
+      duplicate: false,
+      punch_hash: punchHash,
       time_record_id: result.time_record_id,
       user_not_found: result.user_not_found,
+      rep_log_id: result.rep_log_id ?? null,
     });
   } catch (err: unknown) {
     const message =

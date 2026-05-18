@@ -16,7 +16,9 @@ export interface AdminLayoutProps {
 const AdminLayout: React.FC<AdminLayoutProps> = ({ children, operationalChromeReady, onLogout }) => {
   const location = useLocation();
   const path = location.pathname.replace(/\/+$/, '') || '/';
-  const showBehaviorSuggestionBanner = path !== '/admin/dashboard';
+  /** Páginas sem banner de atalho comportamental (dashboard, ajuda, relógios REP). */
+  const showBehaviorSuggestionBanner =
+    path !== '/admin/dashboard' && path !== '/admin/ajuda' && path !== '/admin/rep-devices';
 
   useEffect(() => {
     void preloadCriticalHelpDocs();

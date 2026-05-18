@@ -43,8 +43,12 @@ Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -Fil
 [Code]
 var
   ConfigPage: TWizardPage;
-  ModePage: TWizardPage;
+  ImportModePage: TWizardPage;
   SummaryPage: TWizardPage;
+  RadioImportToday: TRadioButton;
+  RadioImportFromDate: TRadioButton;
+  RadioImportFull: TRadioButton;
+  InputImportFromDate: TNewEdit;
   RadioKeepCurrent: TRadioButton;
   RadioReconfigure: TRadioButton;
   ExistingEnvAtModePage: Boolean;
@@ -304,8 +308,50 @@ begin
   InputTlsInsecure.Caption := 'Aceitar certificado TLS self-signed do relógio (uso em rede interna)';
   ToggleSecretsVisibility(nil);
 
-  SummaryPage := CreateCustomPage(
+  ImportModePage := CreateCustomPage(
     ConfigPage.ID,
+    'Modo de importação inicial',
+    'Na primeira execução o agente usa modo seguro automaticamente. Esta escolha vale se você forçar importação manual (REP_FORCE_MODE).'
+  );
+
+  LabelCtrl := TNewStaticText.Create(ImportModePage.Surface);
+  LabelCtrl.Parent := ImportModePage.Surface;
+  LabelCtrl.Left := ScaleX(0);
+  LabelCtrl.Top := ScaleY(0);
+  LabelCtrl.Width := ScaleX(540);
+  LabelCtrl.Caption := 'Recomendado para go-live: deixar o agente auto-configurar (apenas hoje na 1ª sync).';
+
+  RadioImportToday := TRadioButton.Create(ImportModePage.Surface);
+  RadioImportToday.Parent := ImportModePage.Surface;
+  RadioImportToday.Left := ScaleX(0);
+  RadioImportToday.Top := ScaleY(40);
+  RadioImportToday.Width := ScaleX(540);
+  RadioImportToday.Caption := 'Apenas registros de hoje na 1ª execução (recomendado — automático)';
+  RadioImportToday.Checked := True;
+
+  RadioImportFromDate := TRadioButton.Create(ImportModePage.Surface);
+  RadioImportFromDate.Parent := ImportModePage.Surface;
+  RadioImportFromDate.Left := ScaleX(0);
+  RadioImportFromDate.Top := ScaleY(66);
+  RadioImportFromDate.Width := ScaleX(540);
+  RadioImportFromDate.Caption := 'A partir de uma data específica (avançado — REP_FORCE_MODE)';
+
+  InputImportFromDate := TNewEdit.Create(ImportModePage.Surface);
+  InputImportFromDate.Parent := ImportModePage.Surface;
+  InputImportFromDate.Left := ScaleX(24);
+  InputImportFromDate.Top := ScaleY(92);
+  InputImportFromDate.Width := ScaleX(160);
+  InputImportFromDate.Text := '2026-05-18';
+
+  RadioImportFull := TRadioButton.Create(ImportModePage.Surface);
+  RadioImportFull.Parent := ImportModePage.Surface;
+  RadioImportFull.Left := ScaleX(0);
+  RadioImportFull.Top := ScaleY(124);
+  RadioImportFull.Width := ScaleX(540);
+  RadioImportFull.Caption := 'Completo / incremental sem corte (não recomendado — pode importar histórico)';
+
+  SummaryPage := CreateCustomPage(
+    ImportModePage.ID,
     'Resumo final',
     'Confira os dados antes de instalar.'
   );
@@ -380,7 +426,7 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if PageID = ConfigPage.ID then
+  if (PageID = ConfigPage.ID) or (PageID = ImportModePage.ID) then
     Result := not ShouldReconfigure();
 end;
 
@@ -422,6 +468,18 @@ begin
   SaveStringToFile(EnvPath, '# Campos de inventário (não usados na lógica de coleta):' + #13#10, True);
   SaveStringToFile(EnvPath, 'REP_DEVICE_BRAND=' + Trim(InputBrand.Text) + #13#10, True);
   SaveStringToFile(EnvPath, 'REP_DEVICE_MODEL=' + Trim(InputModel.Text) + #13#10, True);
+
+  if RadioImportFromDate.Checked then
+  begin
+    SaveStringToFile(EnvPath, 'REP_FORCE_MODE=1' + #13#10, True);
+    SaveStringToFile(EnvPath, 'REP_RECEIVE_SCOPE=incremental' + #13#10, True);
+    SaveStringToFile(EnvPath, 'REP_INGEST_FROM_DATE=' + Trim(InputImportFromDate.Text) + #13#10, True);
+  end
+  else if RadioImportFull.Checked then
+  begin
+    SaveStringToFile(EnvPath, 'REP_FORCE_MODE=1' + #13#10, True);
+    SaveStringToFile(EnvPath, 'REP_RECEIVE_SCOPE=incremental' + #13#10, True);
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

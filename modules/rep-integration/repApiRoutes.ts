@@ -630,6 +630,8 @@ export async function handleRepSlug(request: Request, slug: string): Promise<Res
       return handlePushEmployee(request);
     case 'exchange':
       return handleExchange(request);
+    case 'agent-config':
+      return (await import('../../api/_shared/repAgentConfigHttp.js')).handleRepAgentConfig(request);
     default:
       return repJson({ error: 'Rota REP desconhecida' }, { status: 404, headers: { 'Content-Type': 'application/json' } });
   }
