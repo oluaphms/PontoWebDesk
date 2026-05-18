@@ -1,6 +1,6 @@
 /**
- * RPC `insert_time_record_for_user` + fallback insert direto em `time_records`.
- * Centraliza detecção de RPC indisponível (404 / overload / uuid=text).
+ * RPC `insert_time_record_for_user` (4 params) + fallback insert em `time_records`.
+ * Anti-42883: UUID validado no TS; RPC com assinatura única; fallback com payload mínimo.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -10,7 +10,7 @@ const UUID_RE =
 
 export function assertValidUuid(id: string, label: string): string {
   const trimmed = String(id ?? '').trim();
-  if (!UUID_RE.test(trimmed)) {
+  if (!trimmed || !UUID_RE.test(trimmed)) {
     throw new Error(`${label} inválido (UUID esperado).`);
   }
   return trimmed;
@@ -90,6 +90,46 @@ function resolveTimestampFromRpc(
   return fallbackIso;
 }
 
+/** Payload REST alinhado ao schema (user_id text, company_id uuid, method NOT NULL). */
+export function buildTimeRecordInsertRow(
+  params: InsertTimeRecordRpcParams & { userId: string; companyId: string },
+): Record<string, unknown> {
+  const userId = params.userId;
+  const companyId = params.companyId;
+  const type = String(params.type ?? '').trim();
+  const timestampIso = String(params.timestampIso ?? '').trim();
+  const recordId = crypto.randomUUID();
+
+  const row: Record<string, unknown> = {
+    id: recordId,
+    user_id: userId,
+    company_id: companyId,
+    timestamp: timestampIso,
+    type,
+    source: params.source ?? 'manual',
+    method: params.method ?? 'admin',
+    created_at: timestampIso,
+    updated_at: timestampIso,
+    is_manual: true,
+  };
+
+  if (params.manualReason != null && String(params.manualReason).trim()) {
+    row.manual_reason = String(params.manualReason).trim();
+  }
+  if (params.location != null) row.location = params.location;
+  if (params.photoUrl != null) row.photo_url = params.photoUrl;
+  if (params.latitude != null) row.latitude = params.latitude;
+  if (params.longitude != null) row.longitude = params.longitude;
+  if (params.accuracy != null) row.accuracy = params.accuracy;
+  if (params.deviceId != null) row.device_id = params.deviceId;
+  if (params.deviceType != null) row.device_type = params.deviceType;
+  if (params.ipAddress != null) row.ip_address = params.ipAddress;
+  if (params.fraudScore != null) row.fraud_score = params.fraudScore;
+  if (params.fraudFlags != null) row.fraud_flags = params.fraudFlags;
+
+  return row;
+}
+
 export async function insertTimeRecordForUserWithFallback(
   client: SupabaseClient,
   params: InsertTimeRecordRpcParams,
@@ -102,25 +142,17 @@ export async function insertTimeRecordForUserWithFallback(
     throw new Error('type e timestamp são obrigatórios.');
   }
 
-  const { data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user', {
+  const rpcPayload = {
     p_user_id: userId,
     p_company_id: companyId,
-    p_type: type,
-    p_method: params.method ?? 'admin',
-    p_location: params.location ?? null,
-    p_photo_url: params.photoUrl ?? null,
-    p_source: params.source ?? 'manual',
     p_timestamp: timestampIso,
-    p_latitude: params.latitude ?? null,
-    p_longitude: params.longitude ?? null,
-    p_accuracy: params.accuracy ?? null,
-    p_device_id: params.deviceId ?? null,
-    p_device_type: params.deviceType ?? null,
-    p_ip_address: params.ipAddress ?? null,
-    p_fraud_score: params.fraudScore ?? 0,
-    p_fraud_flags: params.fraudFlags ?? [],
-    p_manual_reason: params.manualReason ?? null,
-  });
+    p_type: type,
+  };
+
+  const { data: rpcData, error: rpcError } = await client.rpc(
+    'insert_time_record_for_user',
+    rpcPayload,
+  );
 
   if (!rpcError) {
     const parsed = parseInsertTimeRecordRpcResult(rpcData);
@@ -138,35 +170,17 @@ export async function insertTimeRecordForUserWithFallback(
     if (!isInsertTimeRecordRpcUnavailable(rpcError)) {
       throw new Error(`insert_time_record_for_user: ${rpcError.message}`);
     }
-    if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-      console.warn('[insertTimeRecordRpc] fallback insert:', rpcError);
-    }
+    console.warn('[RPC FAILED] tentando insert direto', rpcError);
   }
 
-  const mergeId = crypto.randomUUID();
-  const row = {
-    id: mergeId,
-    user_id: userId,
-    company_id: companyId,
+  const row = buildTimeRecordInsertRow({
+    ...params,
+    userId,
+    companyId,
     type,
-    method: params.method ?? 'admin',
-    source: params.source ?? 'manual',
-    timestamp: timestampIso,
-    created_at: timestampIso,
-    updated_at: timestampIso,
-    is_manual: true,
-    manual_reason: params.manualReason ?? null,
-    location: params.location ?? null,
-    photo_url: params.photoUrl ?? null,
-    latitude: params.latitude ?? null,
-    longitude: params.longitude ?? null,
-    accuracy: params.accuracy ?? null,
-    device_id: params.deviceId ?? null,
-    device_type: params.deviceType ?? null,
-    ip_address: params.ipAddress ?? null,
-    fraud_score: params.fraudScore ?? 0,
-    fraud_flags: params.fraudFlags ?? [],
-  };
+    timestampIso,
+  });
+  const recordId = String(row.id);
 
   const { error: insertError } = await client.from('time_records').insert(row);
   if (insertError) {
@@ -174,5 +188,5 @@ export async function insertTimeRecordForUserWithFallback(
     throw new Error(`time_records.insert: ${insertError.message}`);
   }
 
-  return { id: mergeId, timestamp: timestampIso, via: 'insert' };
+  return { id: recordId, timestamp: timestampIso, via: 'insert' };
 }
