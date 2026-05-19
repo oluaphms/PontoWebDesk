@@ -22,12 +22,17 @@ function wrapPostgrestError(context: string, error: PostgrestError): Error {
   const msg = String(error.message ?? 'erro desconhecido');
   const details = error.details ? ` Detalhe: ${error.details}` : '';
   const hint = error.hint ? ` ${error.hint}` : '';
+  const isTypeMismatch =
+    code === '42804' ||
+    code === '22P02' ||
+    /operator does not exist.*uuid/i.test(msg) ||
+    /operator does not exist.*text\s*=\s*uuid/i.test(msg);
 
   const schemaCacheMiss =
     code === 'PGRST202' ||
     code === 'PGRST203' ||
     code === 'PGRST205' ||
-    code === '42883' ||
+    (code === '42883' && !isTypeMismatch) ||
     status === 404 ||
     /could not find the function/i.test(msg) ||
     /could not choose the best candidate/i.test(msg) ||
@@ -41,7 +46,7 @@ function wrapPostgrestError(context: string, error: PostgrestError): Error {
     );
   }
 
-  if (code === '42804' || code === '22P02' || /operator does not exist.*uuid/i.test(msg)) {
+  if (isTypeMismatch) {
     return new Error(
       `${context}: incompatibilidade de tipo UUID (aplique migrations recentes de time_records).${details}${hint}`,
     );
@@ -183,6 +188,11 @@ export async function insertTimeRecordForUser(
     },
   });
 
+  const { data: sessionData } = await client.auth.getSession();
+  if (!sessionData?.session?.user?.id) {
+    throw new Error('Sessão inválida — abortando RPC');
+  }
+
   let rpcData: unknown;
   let rpcError: PostgrestError | null = null;
   ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user_v2', rpcArgs));
@@ -202,7 +212,15 @@ export async function insertTimeRecordForUser(
     ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user_v2', fallbackArgs));
   }
 
-  if (rpcError) throw wrapPostgrestError('insert_time_record_for_user_v2', rpcError);
+  if (rpcError) {
+    console.error('[RPC ERROR FULL]', {
+      code: rpcError.code,
+      message: rpcError.message,
+      details: rpcError.details,
+      hint: rpcError.hint,
+    });
+    throw wrapPostgrestError('insert_time_record_for_user_v2', rpcError);
+  }
 
   const parsed = parseInsertTimeRecordRpcResult(rpcData);
   if (!parsed) {

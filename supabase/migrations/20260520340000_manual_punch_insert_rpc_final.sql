@@ -328,13 +328,14 @@ BEGIN
 
   UPDATE public.current_operational_state s
   SET last_event_at = COALESCE(v_effective_last_event_at, s.last_event_at)
-  WHERE s.company_id = p_company_id
-    AND s.employee_id = p_user_id;
+  WHERE s.company_id::text = p_company_id::text
+    AND s.employee_id::text = p_user_id::text;
 
   INSERT INTO public.audit_logs (
     id,
     company_id,
     user_id,
+    severity,
     action,
     entity,
     entity_id,
@@ -345,6 +346,12 @@ BEGIN
     gen_random_uuid(),
     p_company_id,
     auth.uid(),
+    CASE
+      WHEN v_source_norm = 'manual' AND p_allow_out_of_order THEN 'warning'
+      WHEN v_source_norm = 'manual' THEN 'info'
+      WHEN v_source_norm = 'admin' THEN 'warning'
+      ELSE 'error'
+    END,
     CASE WHEN v_is_retroactive
       THEN 'MANUAL_TIME_RECORD_RETROACTIVE'
       ELSE 'MANUAL_TIME_RECORD_INSERT'
@@ -377,12 +384,78 @@ GRANT EXECUTE ON FUNCTION public.insert_time_record_for_user(
   uuid, uuid, timestamptz, text, text, jsonb, boolean
 ) TO anon, authenticated, service_role;
 
+CREATE OR REPLACE FUNCTION public.insert_time_record_for_user_v2(
+  p_user_id uuid,
+  p_company_id uuid,
+  p_timestamp timestamptz,
+  p_type text,
+  p_source text DEFAULT 'manual',
+  p_metadata jsonb DEFAULT '{}'::jsonb,
+  p_allow_out_of_order boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Wrapper canônico para evitar ambiguidade/cache antigo do PostgREST.
+  -- Cast explícito garante alinhamento de tipos UUID no caminho inteiro.
+  RETURN public.insert_time_record_for_user(
+    p_user_id::uuid,
+    p_company_id::uuid,
+    p_timestamp::timestamptz,
+    p_type::text,
+    p_source::text,
+    COALESCE(p_metadata, '{}'::jsonb),
+    p_allow_out_of_order
+  );
+END;
+$$;
+
+COMMENT ON FUNCTION public.insert_time_record_for_user_v2(
+  uuid, uuid, timestamptz, text, text, jsonb, boolean
+) IS 'Wrapper estável da RPC canônica para inserção manual sem ambiguidade de schema cache.';
+
+GRANT EXECUTE ON FUNCTION public.insert_time_record_for_user_v2(
+  uuid, uuid, timestamptz, text, text, jsonb, boolean
+) TO anon, authenticated, service_role;
+
 DROP POLICY IF EXISTS "audit_insert" ON public.audit_logs;
 CREATE POLICY "audit_insert"
   ON public.audit_logs
   FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() IS NOT NULL);
+
+ALTER TABLE public.audit_logs
+ALTER COLUMN severity SET DEFAULT 'info';
+
+-- Higieniza legado para permitir constraint sem falha.
+UPDATE public.audit_logs
+SET severity = CASE
+  WHEN severity IS NULL OR btrim(severity) = '' THEN 'info'
+  WHEN lower(btrim(severity)) IN ('info', 'warning', 'error') THEN lower(btrim(severity))
+  ELSE 'info'
+END
+WHERE severity IS NULL
+   OR btrim(severity) = ''
+   OR lower(btrim(severity)) NOT IN ('info', 'warning', 'error');
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'audit_logs_severity_check'
+      AND conrelid = 'public.audit_logs'::regclass
+  ) THEN
+    ALTER TABLE public.audit_logs
+      ADD CONSTRAINT audit_logs_severity_check
+      CHECK (severity IN ('info', 'warning', 'error'));
+  END IF;
+END;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 5) Compat UUID/TEXT para refresh_current_operational_state

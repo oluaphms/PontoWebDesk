@@ -7,8 +7,26 @@ const listeners = new Set<AlertListener>();
 const STORAGE_KEY = 'smartponto_audit_logs';
 const MAX_LOCAL = 1000;
 
+function toAuditDbSeverity(severity: LogSeverity): 'info' | 'warning' | 'error' {
+  if (severity === LogSeverity.ERROR) return 'error';
+  if (severity === LogSeverity.WARN || severity === LogSeverity.SECURITY) return 'warning';
+  return 'info';
+}
+
+function fromAuditDbSeverity(raw: unknown): LogSeverity {
+  const normalized = String(raw ?? '').trim().toLowerCase();
+  if (normalized === 'error') return LogSeverity.ERROR;
+  if (normalized === 'warning' || normalized === 'warn') return LogSeverity.WARN;
+  if (normalized === 'security') return LogSeverity.SECURITY;
+  return LogSeverity.INFO;
+}
+
 /** SECURITY na auditoria, mas sem alerta em tempo real nem `CRITICAL ALERT` no console (ruído em dev). */
-const SECURITY_AUDIT_WITHOUT_RUNTIME_ALERT = new Set<string>(['TIMESHEET_CLOSE', 'TIMESHEET_REOPEN']);
+const SECURITY_AUDIT_WITHOUT_RUNTIME_ALERT = new Set<string>([
+  'TIMESHEET_CLOSE',
+  'TIMESHEET_REOPEN',
+  'ADMIN_ADD_TIME_RECORD',
+]);
 
 /** UUID em formato lexical (PostgreSQL uuid); não valida checksum de variant. */
 const UUID_REGEX =
@@ -49,7 +67,7 @@ export const LoggingService = {
           id: logEntry.id,
           timestamp: tsIso,
           created_at: tsIso,
-          severity: logEntry.severity,
+          severity: toAuditDbSeverity(logEntry.severity),
           action: logEntry.action,
           user_id: logEntry.userId ?? null,
           user_name: logEntry.userName ?? null,
@@ -116,7 +134,7 @@ export const LoggingService = {
         return (rows ?? []).map((r: any) => ({
           id: r.id,
           timestamp: new Date(r.timestamp),
-          severity: r.severity,
+          severity: fromAuditDbSeverity(r.severity),
           action: r.action,
           userId: r.user_id,
           userName: r.user_name,
