@@ -185,7 +185,7 @@ export async function insertTimeRecordForUser(
 
   let rpcData: unknown;
   let rpcError: PostgrestError | null = null;
-  ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user', rpcArgs));
+  ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user_v2', rpcArgs));
 
   // Retry seguro: só força manual quando a origem não é manual.
   if (
@@ -199,15 +199,15 @@ export async function insertTimeRecordForUser(
       p_source: 'manual',
       p_allow_out_of_order: true,
     };
-    ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user', fallbackArgs));
+    ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user_v2', fallbackArgs));
   }
 
-  if (rpcError) throw wrapPostgrestError('insert_time_record_for_user', rpcError);
+  if (rpcError) throw wrapPostgrestError('insert_time_record_for_user_v2', rpcError);
 
   const parsed = parseInsertTimeRecordRpcResult(rpcData);
   if (!parsed) {
     throw new Error(
-      'insert_time_record_for_user: resposta sem id/success. Verifique permissões e schema da RPC.',
+      'insert_time_record_for_user_v2: resposta sem id/success. Verifique permissões e schema da RPC.',
     );
   }
 
