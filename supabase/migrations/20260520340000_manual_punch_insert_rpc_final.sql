@@ -69,6 +69,8 @@ ALTER TABLE public.time_records
 
 ALTER TABLE public.time_records
   ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.time_records
+  ADD COLUMN IF NOT EXISTS is_out_of_order boolean DEFAULT false;
 
 DO $$
 BEGIN
@@ -240,7 +242,9 @@ AS $$
 DECLARE
   v_id uuid;
   v_last_event_at timestamptz;
+  v_effective_last_event_at timestamptz;
   v_is_retroactive boolean := false;
+  v_is_out_of_order boolean := false;
   v_actor_role text;
   v_source_norm text := lower(btrim(COALESCE(p_source, 'manual')));
 BEGIN
@@ -256,9 +260,13 @@ BEGIN
   LIMIT 1;
 
   v_is_retroactive := v_last_event_at IS NOT NULL AND p_timestamp < v_last_event_at;
-  IF v_is_retroactive AND NOT p_allow_out_of_order THEN
-    RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
-      p_company_id, p_user_id;
+  IF v_is_retroactive THEN
+    IF COALESCE(lower(btrim(p_source)), '') IN ('manual', 'admin') OR p_allow_out_of_order THEN
+      v_is_out_of_order := true;
+    ELSE
+      RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
+        p_company_id, p_user_id;
+    END IF;
   END IF;
 
   IF v_is_retroactive THEN
@@ -282,6 +290,7 @@ BEGIN
     type,
     method,
     source,
+    is_out_of_order,
     metadata,
     created_at,
     updated_at
@@ -293,7 +302,11 @@ BEGIN
     p_timestamp,
     p_type,
     'manual',
-    'manual',
+    CASE
+      WHEN v_source_norm IN ('manual', 'admin') THEN v_source_norm
+      ELSE 'manual'
+    END,
+    v_is_out_of_order,
     jsonb_set(
       COALESCE(p_metadata, '{}'::jsonb),
       '{retroactive}',
@@ -304,6 +317,19 @@ BEGIN
     now()
   )
   RETURNING id INTO v_id;
+
+  -- Evita regressao de last_event_at no snapshot operacional:
+  -- para batida retroativa, usa sempre o maior instante ja existente.
+  SELECT MAX(tr.timestamp)
+    INTO v_effective_last_event_at
+  FROM public.time_records tr
+  WHERE tr.user_id = p_user_id
+    AND tr.company_id = p_company_id;
+
+  UPDATE public.current_operational_state s
+  SET last_event_at = COALESCE(v_effective_last_event_at, s.last_event_at)
+  WHERE s.company_id = p_company_id
+    AND s.employee_id = p_user_id;
 
   INSERT INTO public.audit_logs (
     id,
@@ -327,6 +353,7 @@ BEGIN
     v_id,
     jsonb_build_object(
       'retroactive', v_is_retroactive,
+      'is_out_of_order', v_is_out_of_order,
       'original_last_event_at', v_last_event_at,
       'inserted_timestamp', p_timestamp
     ),
@@ -379,6 +406,7 @@ DECLARE
   v_employee_txt text := btrim(COALESCE(p_employee_id, ''));
   v_company_uuid uuid;
   v_employee_uuid uuid;
+  v_effective_event_at timestamptz;
   v_last public.time_records%ROWTYPE;
   v_status text := 'NO_SHIFT';
 BEGIN
@@ -405,6 +433,14 @@ BEGIN
     v_status := public._operational_status_from_punch_type(v_last.type);
   END IF;
 
+  SELECT MAX(tr.timestamp)
+    INTO v_effective_event_at
+  FROM public.time_records tr
+  WHERE tr.company_id::text = v_company_txt
+    AND tr.user_id::text = v_employee_txt;
+
+  v_effective_event_at := COALESCE(v_effective_event_at, p_event_at, now());
+
   INSERT INTO public.current_operational_state AS s (
     company_id,
     employee_id,
@@ -430,7 +466,7 @@ BEGIN
     1,
     1,
     COALESCE(NULLIF(btrim(p_source), ''), 'time_record_insert'),
-    COALESCE(p_event_at, now())
+    v_effective_event_at
   )
   ON CONFLICT (company_id, employee_id) DO UPDATE SET
     operational_status = EXCLUDED.operational_status,
@@ -442,12 +478,87 @@ BEGIN
     state_version = s.state_version + 1,
     last_event_sequence = COALESCE(s.last_event_sequence, 0) + 1,
     state_source = EXCLUDED.state_source,
-    last_event_at = EXCLUDED.last_event_at;
+    last_event_at = GREATEST(
+      COALESCE(EXCLUDED.last_event_at, s.last_event_at),
+      COALESCE(s.last_event_at, EXCLUDED.last_event_at)
+    );
 END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 6) PostgREST schema reload
+-- 7) Performance e retenção operacional
+-- ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_users_company_id
+  ON public.users(company_id);
+
+CREATE INDEX IF NOT EXISTS idx_time_records_employee_date
+  ON public.time_records(user_id, timestamp DESC);
+
+CREATE OR REPLACE FUNCTION public.cleanup_old_logs_batch()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_limit integer := 1000;
+BEGIN
+  DELETE FROM public.rep_punch_logs
+  WHERE id IN (
+    SELECT id
+    FROM public.rep_punch_logs
+    WHERE created_at < NOW() - INTERVAL '30 days'
+    ORDER BY created_at ASC
+    LIMIT v_limit
+  );
+
+  DELETE FROM public.clock_event_logs
+  WHERE id IN (
+    SELECT id
+    FROM public.clock_event_logs
+    WHERE created_at < NOW() - INTERVAL '30 days'
+    ORDER BY created_at ASC
+    LIMIT v_limit
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.cleanup_old_logs()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  PERFORM public.cleanup_old_logs_batch();
+END;
+$$;
+
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_cron;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup-logs-batch') THEN
+      PERFORM cron.unschedule('cleanup-logs-batch');
+    END IF;
+    PERFORM cron.schedule(
+      'cleanup-logs-batch',
+      '*/10 * * * *',
+      $cron$SELECT public.cleanup_old_logs_batch();$cron$
+    );
+  END IF;
+EXCEPTION
+  WHEN undefined_table THEN
+    NULL;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 8) PostgREST schema reload
 -- ---------------------------------------------------------------------------
 NOTIFY pgrst, 'reload schema';
 NOTIFY pgrst, 'reload config';

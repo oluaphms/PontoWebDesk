@@ -112,15 +112,7 @@ export function buildInsertTimeRecordRpcArgs(params: {
   allowOutOfOrder?: boolean;
 }): Record<string, unknown> {
   const sourceRaw = String(params.source ?? '').trim().toLowerCase();
-  const source =
-    sourceRaw === 'manual' ||
-    sourceRaw.startsWith('manual_') ||
-    sourceRaw === 'admin' ||
-    sourceRaw.startsWith('admin_') ||
-    sourceRaw === 'request' ||
-    sourceRaw === 'rep_reconciled_manual'
-      ? 'manual'
-      : 'manual';
+  const source = sourceRaw === 'admin' || sourceRaw.startsWith('admin_') ? 'admin' : 'manual';
   const allowOutOfOrder =
     params.allowOutOfOrder ?? source === 'manual';
   return {
@@ -134,6 +126,24 @@ export function buildInsertTimeRecordRpcArgs(params: {
   };
 }
 
+function normalizeTimestampIsoNotFuture(rawIso: string): string {
+  const parsed = new Date(rawIso);
+  if (Number.isNaN(parsed.getTime())) return rawIso;
+  const now = new Date();
+  if (parsed.getTime() <= now.getTime()) return parsed.toISOString();
+  return now.toISOString();
+}
+
+function isMonotonicRegressionError(error: unknown): boolean {
+  const msg =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : JSON.stringify(error);
+  return /MONOTONIC|last_event_at regression/i.test(msg);
+}
+
 /**
  * Insere batida manual via RPC (único caminho suportado).
  */
@@ -144,10 +154,11 @@ export async function insertTimeRecordForUser(
   const userId = assertValidUuid(String(params.userId ?? '').trim(), 'user_id');
   const companyId = assertValidUuid(String(params.companyId ?? '').trim(), 'company_id');
   const type = String(params.type ?? '').trim();
-  const timestampIso = String(params.timestampIso ?? '').trim();
-  if (!type || !timestampIso) {
+  const timestampIsoRaw = String(params.timestampIso ?? '').trim();
+  if (!type || !timestampIsoRaw) {
     throw new Error('type e timestamp são obrigatórios.');
   }
+  const timestampIso = normalizeTimestampIsoNotFuture(timestampIsoRaw);
 
   const rpcArgs = buildInsertTimeRecordRpcArgs({
     userId,
@@ -172,14 +183,26 @@ export async function insertTimeRecordForUser(
     },
   });
 
-  const { data: rpcData, error: rpcError } = await client.rpc(
-    'insert_time_record_for_user',
-    rpcArgs,
-  );
+  let rpcData: unknown;
+  let rpcError: PostgrestError | null = null;
+  ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user', rpcArgs));
 
-  if (rpcError) {
-    throw wrapPostgrestError('insert_time_record_for_user', rpcError);
+  // Retry seguro: só força manual quando a origem não é manual.
+  if (
+    rpcError &&
+    isMonotonicRegressionError(rpcError) &&
+    String(rpcArgs.p_source ?? '').toLowerCase() !== 'manual'
+  ) {
+    console.warn('FORCED MANUAL INSERT', rpcArgs);
+    const fallbackArgs = {
+      ...rpcArgs,
+      p_source: 'manual',
+      p_allow_out_of_order: true,
+    };
+    ({ data: rpcData, error: rpcError } = await client.rpc('insert_time_record_for_user', fallbackArgs));
   }
+
+  if (rpcError) throw wrapPostgrestError('insert_time_record_for_user', rpcError);
 
   const parsed = parseInsertTimeRecordRpcResult(rpcData);
   if (!parsed) {
