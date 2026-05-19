@@ -298,7 +298,7 @@ function logAdminMirrorOperationalTimeline(input: {
     sourceReferenceId: input.recordId,
     payload: {
       type: input.type,
-      rpc_source: input.rpcSource ?? 'admin',
+      rpc_source: input.rpcSource ?? 'manual',
     },
     supabaseClient: input.client,
   });
@@ -313,7 +313,7 @@ function logAdminMirrorOperationalTimeline(input: {
     payload: {
       action: 'mirror_manual_punch',
       type: input.type,
-      rpc_source: input.rpcSource ?? 'admin',
+      rpc_source: input.rpcSource ?? 'manual',
     },
     supabaseClient: input.client,
   });
@@ -350,7 +350,7 @@ export async function insertAdminMirrorTimeRecord(
     type,
     timestampIso: createdAt,
     method: 'admin',
-    source: opts?.rpcSource ?? 'admin',
+    source: opts?.rpcSource ?? 'manual',
     manualReason: (data.manual_reason as string | null | undefined) ?? null,
     latitude: (data.latitude as number | null | undefined) ?? null,
     longitude: (data.longitude as number | null | undefined) ?? null,

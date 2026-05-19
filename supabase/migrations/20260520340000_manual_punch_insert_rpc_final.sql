@@ -238,7 +238,41 @@ SET search_path = public
 AS $$
 DECLARE
   v_id uuid;
+  v_last_event_at timestamptz;
+  v_is_retroactive boolean := false;
+  v_actor_role text;
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT s.last_event_at
+    INTO v_last_event_at
+  FROM public.current_operational_state s
+  WHERE s.company_id::text = p_company_id::text
+    AND s.employee_id::text = p_user_id::text
+  LIMIT 1;
+
+  v_is_retroactive := v_last_event_at IS NOT NULL AND p_timestamp < v_last_event_at;
+
+  IF v_is_retroactive THEN
+    IF COALESCE(lower(btrim(p_source)), '') <> 'manual' THEN
+      RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
+        p_company_id, p_user_id;
+    END IF;
+
+    SELECT lower(COALESCE(u.role::text, ''))
+      INTO v_actor_role
+    FROM public.users u
+    WHERE u.id::text = auth.uid()::text
+      AND u.company_id::text = p_company_id::text
+    LIMIT 1;
+
+    IF COALESCE(v_actor_role, '') NOT IN ('admin', 'hr', 'manager') THEN
+      RAISE EXCEPTION 'Sem permissão para inserir batida retroativa' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   INSERT INTO public.time_records (
     id,
     user_id,
@@ -259,11 +293,41 @@ BEGIN
     p_type,
     'manual',
     p_source,
-    COALESCE(p_metadata, '{}'::jsonb),
+    jsonb_set(
+      COALESCE(p_metadata, '{}'::jsonb),
+      '{retroactive}',
+      to_jsonb(v_is_retroactive),
+      true
+    ),
     now(),
     now()
   )
   RETURNING id INTO v_id;
+
+  INSERT INTO public.audit_logs (
+    id,
+    company_id,
+    user_id,
+    action,
+    entity,
+    entity_id,
+    metadata,
+    created_at
+  )
+  VALUES (
+    gen_random_uuid(),
+    p_company_id,
+    auth.uid(),
+    'MANUAL_TIME_RECORD_INSERT',
+    'time_record',
+    v_id,
+    jsonb_build_object(
+      'retroactive', v_is_retroactive,
+      'original_last_event_at', v_last_event_at,
+      'inserted_timestamp', p_timestamp
+    ),
+    now()
+  );
 
   RETURN jsonb_build_object(
     'success', true,
