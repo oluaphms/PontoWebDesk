@@ -162,7 +162,7 @@ async function handleCreateCommand(
     return json({ error: 'Acesso negado' }, 403, headers);
   }
 
-  let body: { device_id?: string; command?: string };
+  let body: { device_id?: string; command?: string; payload?: Record<string, unknown> };
   try {
     body = await request.json();
   } catch {
@@ -172,7 +172,8 @@ async function handleCreateCommand(
   const deviceId = String(body.device_id || '').trim();
   const command = String(body.command || 'test_connection').trim();
   if (!deviceId) return json({ error: 'device_id obrigatório' }, 400, headers);
-  if (command !== 'test_connection') {
+  const allowed = new Set(['test_connection', 'collect_punches']);
+  if (!allowed.has(command)) {
     return json({ error: 'Comando não suportado' }, 400, headers);
   }
 
@@ -185,7 +186,7 @@ async function handleCreateCommand(
     .from('rep_device_commands')
     .select('id, status, execution_id')
     .eq('device_id', deviceId)
-    .eq('command', 'test_connection')
+    .eq('command', command)
     .in('status', ['pending', 'processing'])
     .limit(1)
     .maybeSingle();
@@ -204,9 +205,16 @@ async function handleCreateCommand(
     );
   }
 
-  await cancelActiveTestCommands(supabase, deviceId);
+  if (command === 'test_connection') {
+    await cancelActiveTestCommands(supabase, deviceId);
+  }
 
   const now = new Date().toISOString();
+  const insertPayload =
+    body.payload && typeof body.payload === 'object'
+      ? { ...body.payload, requested_by: caller.userId }
+      : { requested_by: caller.userId };
+
   const { data: row, error } = await supabase
     .from('rep_device_commands')
     .insert({
@@ -215,7 +223,7 @@ async function handleCreateCommand(
       command,
       status: 'pending',
       execution_id: null,
-      payload: { requested_by: caller.userId },
+      payload: insertPayload,
       created_at: now,
       updated_at: now,
     })

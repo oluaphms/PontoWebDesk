@@ -1,13 +1,13 @@
 import { noCache } from '../_shared/cache.js';
 
+/** Extrai tudo após /api/rep/ (suporta devices/{id}/heartbeat). */
 function extractRepSlug(request: Request): string {
   const url = new URL(request.url, 'https://local.invalid');
   const path = url.pathname.replace(/\/+$/, '');
-  const parts = path.split('/').filter(Boolean);
-  if (parts.length >= 3 && parts[0] === 'api' && parts[1] === 'rep') {
-    return decodeURIComponent(parts.slice(2).join('/'));
-  }
-  return '';
+  const prefix = '/api/rep/';
+  if (!path.startsWith(prefix)) return '';
+  const tail = path.slice(prefix.length);
+  return tail ? decodeURIComponent(tail) : '';
 }
 
 async function handler(request: Request): Promise<Response> {
@@ -20,7 +20,15 @@ async function handler(request: Request): Promise<Response> {
       ),
     );
   }
-  if (slug === 'punch') {
+  if (slug === 'heartbeat') {
+    const { handleRepHeartbeat } = await import('../_shared/repHeartbeatHttp.js');
+    return handleRepHeartbeat(request);
+  }
+  if (slug === 'collect') {
+    const { handleRepCollect } = await import('../_shared/repCollectHttp.js');
+    return handleRepCollect(request);
+  }
+  if (slug === 'punch' || (slug === 'punches' && request.method === 'POST')) {
     try {
       const { handleRepPunchRpcLite } = await import('../_shared/repPunchRpcLite.js');
       return handleRepPunchRpcLite(request);

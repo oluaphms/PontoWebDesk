@@ -27,6 +27,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { testRepDeviceConnection, syncRepDevice } from '../../../../modules/rep-integration/repSyncJob';
+import { enqueueRepCollect } from '../../../services/repCollect.service';
 import type { RepIngestBatchProgress } from '../../../../modules/rep-integration/repService';
 import { getLocalCalendarDayBoundsIso } from '../../../../modules/rep-integration/repLocalDay';
 import { promotePendingRepPunchLogs } from '../../../../modules/rep-integration/repService';
@@ -124,6 +125,15 @@ const AdminRepDevices: React.FC = () => {
   /** Falha ao listar `rep_devices` (ex.: timeout) — mensagem amigável + detalhe só em modo debug. */
   const [devicesQueryError, setDevicesQueryError] = useState<{ technical: string } | null>(null);
   const [pageSyncBusy, setPageSyncBusy] = useState(false);
+  const [collectOpen, setCollectOpen] = useState(false);
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collectDeviceId, setCollectDeviceId] = useState('');
+  const [collectStartDate, setCollectStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [collectEndDate, setCollectEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const setupGuideRef = useRef<HTMLElement>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [agentTestPhase, setAgentTestPhase] = useState<
@@ -514,6 +524,62 @@ const AdminRepDevices: React.FC = () => {
   const scrollToRepCommunication = useCallback(() => {
     setupGuideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
+
+  const openCollectDialog = () => {
+    const d = redeDevices.find((x) => x.ativo) ?? redeDevices[0] ?? null;
+    if (!d) {
+      setMessage({ type: 'error', text: 'Cadastre um relógio de rede antes de coletar.' });
+      return;
+    }
+    setCollectDeviceId(d.id);
+    setCollectEndDate(new Date().toISOString().slice(0, 10));
+    setCollectOpen(true);
+  };
+
+  const runCollectNow = async () => {
+    if (!collectDeviceId || !collectStartDate || !collectEndDate) {
+      setMessage({ type: 'error', text: 'Selecione o relógio e o intervalo de datas.' });
+      return;
+    }
+    if (collectStartDate > collectEndDate) {
+      setMessage({ type: 'error', text: 'Data inicial não pode ser posterior à data final.' });
+      return;
+    }
+    setCollectBusy(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token || !user?.companyId) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+      const r = await enqueueRepCollect(session.access_token, {
+        device_id: collectDeviceId,
+        company_id: user.companyId,
+        start_date: collectStartDate,
+        end_date: collectEndDate,
+        receive_scope: 'date_range',
+      });
+      if (!r.success) {
+        throw new Error(r.error || 'Falha ao enfileirar coleta');
+      }
+      setCollectOpen(false);
+      setMessage({
+        type: 'success',
+        text:
+          r.message ||
+          'Coleta enfileirada. Com o agente local ativo, as batidas serão importadas em até 1 minuto.',
+      });
+      appendSrLog(
+        `[REP COLLECT] ${collectStartDate} → ${collectEndDate} (comando ${r.command_id || '—'})`,
+      );
+      if (user.companyId) invalidateRepPendingQueries(user.companyId);
+    } catch (e) {
+      setMessage({ type: 'error', text: (e as Error).message });
+    } finally {
+      setCollectBusy(false);
+    }
+  };
 
   const runSyncNowFromPage = async () => {
     const d = redeDevices[0] ?? null;
@@ -2384,6 +2450,15 @@ const AdminRepDevices: React.FC = () => {
             <Button
               type="button"
               variant="outline"
+              onClick={openCollectDialog}
+              className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, uiTokens.transition.default)}
+            >
+              <Upload size={18} className={repPageUi.c001} />
+              Coletar agora
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={openCreate}
               className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, repPageUi.c129, uiTokens.transition.default)}
             >
@@ -2444,6 +2519,72 @@ const AdminRepDevices: React.FC = () => {
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
+
+      {collectOpen && (
+        <div
+          className={repSendReceiveOverlayClass}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rep-collect-title"
+        >
+          <div className={repSendReceiveModalClass} onClick={(e) => e.stopPropagation()}>
+            <header className={repSendReceiveHeaderClass}>
+              <h2 id="rep-collect-title" className={repPageUi.c005}>
+                Coleta manual por período
+              </h2>
+              <p className={repPageUi.c006}>
+                Enfileira coleta no agente local (rede do relógio). Exige{' '}
+                <code className="text-xs">npm run rep:agent</code> com{' '}
+                <code className="text-xs">REP_SAAS_URL</code> apontando para este ambiente.
+              </p>
+            </header>
+            <div className={repSendReceiveBodyClass}>
+              <label className={repPageUi.c022}>
+                Relógio
+                <select
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  value={collectDeviceId}
+                  onChange={(e) => setCollectDeviceId(e.target.value)}
+                >
+                  {redeDevices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nome_dispositivo} ({d.ip})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                <label className={repPageUi.c022}>
+                  Data inicial
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                    value={collectStartDate}
+                    onChange={(e) => setCollectStartDate(e.target.value)}
+                  />
+                </label>
+                <label className={repPageUi.c022}>
+                  Data final
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                    value={collectEndDate}
+                    onChange={(e) => setCollectEndDate(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-4 justify-end">
+                <Button type="button" variant="secondary" onClick={() => setCollectOpen(false)} disabled={collectBusy}>
+                  Cancelar
+                </Button>
+                <Button type="button" variant="primary" loading={collectBusy} onClick={() => void runCollectNow()}>
+                  Iniciar coleta
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <RepDeviceDeleteModal
         open={deleteModal != null}

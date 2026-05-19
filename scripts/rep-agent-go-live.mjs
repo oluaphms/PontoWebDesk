@@ -20,6 +20,13 @@ export function parseYmdToMs(ymd) {
   return new Date(`${ymd}T00:00:00`).getTime();
 }
 
+/** Fim do dia civil local (23:59:59.999) para filtro date_range. */
+export function parseYmdEndMs(ymd) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return NaN;
+  const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+  return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+}
+
 export function validateIngestFromDateEnv(ymd, { allowFutureThrow = true } = {}) {
   if (!ymd) return { ms: NaN, ymd: '' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
@@ -110,6 +117,7 @@ export async function resolveAgentReceivePolicy(ctx) {
     forceMode,
     envScopeRaw,
     envIngestFromDate,
+    envIngestEndDate,
     saas,
     apiKey,
     companyId,
@@ -118,11 +126,30 @@ export async function resolveAgentReceivePolicy(ctx) {
   const meta = await loadAgentMeta(metaPath);
   const isFirstRun = !meta.firstRunCompleted;
 
+  const envIngestEndDate = String(ctx.envIngestEndDate || '').trim();
+
   if (forceMode) {
-    const scope = envScopeRaw === 'today_only' ? 'today_only' : 'incremental';
+    let scope =
+      envScopeRaw === 'today_only'
+        ? 'today_only'
+        : envScopeRaw === 'date_range'
+          ? 'date_range'
+          : 'incremental';
     let fromDateMs = NaN;
     let fromDateStr = '';
+    let toDateMs = NaN;
+    let toDateStr = '';
     if (envIngestFromDate) {
+      const v = validateIngestFromDateEnv(envIngestFromDate);
+      fromDateMs = v.ms;
+      fromDateStr = v.ymd;
+    }
+    if (envIngestEndDate) {
+      const v = validateIngestFromDateEnv(envIngestEndDate, { allowFutureThrow: false });
+      toDateMs = parseYmdEndMs(v.ymd);
+      toDateStr = v.ymd;
+    }
+    if (scope === 'date_range' && !fromDateStr && envIngestFromDate) {
       const v = validateIngestFromDateEnv(envIngestFromDate);
       fromDateMs = v.ms;
       fromDateStr = v.ymd;
@@ -132,6 +159,8 @@ export async function resolveAgentReceivePolicy(ctx) {
       scope,
       fromDateMs,
       fromDateStr,
+      toDateMs,
+      toDateStr,
       isFirstRun,
       meta,
       autoMode: false,
@@ -148,14 +177,36 @@ export async function resolveAgentReceivePolicy(ctx) {
     );
   }
 
+  const productionMode =
+    serverCfg?.firstRunPolicy === 'incremental_from_today' ||
+    process.env.REP_PRODUCTION_MODE === '1' ||
+    /^(1|true|yes)$/i.test(String(process.env.REP_PRODUCTION_MODE ?? '1').trim());
+
   if (isFirstRun) {
     console.log('[BOOT] Primeira execução detectada');
-    console.log('[BOOT] Aplicando modo seguro: today_only');
     const today = localTodayYmd();
+    if (productionMode) {
+      console.log('[BOOT] Modo produção: incremental desde hoje (sem importar histórico inteiro)');
+      return {
+        scope: 'incremental',
+        fromDateMs: parseYmdToMs(today),
+        fromDateStr: today,
+        toDateMs: NaN,
+        toDateStr: '',
+        isFirstRun: true,
+        meta,
+        autoMode: true,
+        forceMode: false,
+        serverCfg,
+      };
+    }
+    console.log('[BOOT] Modo legado: today_only (defina REP_PRODUCTION_MODE=1 para incremental)');
     return {
       scope: 'today_only',
       fromDateMs: parseYmdToMs(today),
       fromDateStr: today,
+      toDateMs: NaN,
+      toDateStr: '',
       isFirstRun: true,
       meta,
       autoMode: true,
@@ -167,28 +218,34 @@ export async function resolveAgentReceivePolicy(ctx) {
   let scope = 'incremental';
   let fromDateMs = NaN;
   let fromDateStr = '';
+  let toDateMs = NaN;
+  let toDateStr = '';
 
-  if (envScopeRaw === 'today_only') {
+  if (envScopeRaw === 'today_only' && !productionMode) {
     scope = 'today_only';
+  } else if (envScopeRaw === 'date_range') {
+    scope = 'date_range';
   }
 
-  const serverGoLive =
-    typeof serverCfg?.goLiveDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(serverCfg.goLiveDate.trim())
-      ? serverCfg.goLiveDate.trim()
-      : '';
-  const dateCandidate = envIngestFromDate || serverGoLive;
-  if (dateCandidate) {
+  /** Só filtra por data se o operador definiu explicitamente (não usar goLiveDate do servidor). */
+  if (envIngestFromDate) {
     try {
-      const v = validateIngestFromDateEnv(dateCandidate, { allowFutureThrow: true });
+      const v = validateIngestFromDateEnv(envIngestFromDate, { allowFutureThrow: true });
       fromDateMs = v.ms;
       fromDateStr = v.ymd;
     } catch (e) {
       throw e;
     }
   }
-
-  if (serverCfg?.recommendedScope === 'today_only' && !envScopeRaw) {
-    scope = 'today_only';
+  if (envIngestEndDate) {
+    try {
+      const v = validateIngestFromDateEnv(envIngestEndDate, { allowFutureThrow: false });
+      toDateMs = parseYmdEndMs(v.ymd);
+      toDateStr = v.ymd;
+      if (scope === 'incremental') scope = 'date_range';
+    } catch (e) {
+      throw e;
+    }
   }
 
   console.log('[MODE] Operando em modo incremental (primeira execução já concluída).');
@@ -196,6 +253,8 @@ export async function resolveAgentReceivePolicy(ctx) {
     scope,
     fromDateMs,
     fromDateStr,
+    toDateMs,
+    toDateStr,
     isFirstRun: false,
     meta,
     autoMode: true,

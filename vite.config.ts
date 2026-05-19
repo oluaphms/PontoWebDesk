@@ -149,7 +149,7 @@ export default defineConfig(({ mode }) => {
               return;
             }
             try {
-              const { default: mod } = await import('./api/rep/[slug].ts');
+              const { default: mod } = await import('./api/rep/[...slug].ts');
               const host = (req.headers.host as string) || 'localhost:3010';
               const fullUrl = `http://${host}${req.url ?? ''}`;
               const repRequestBody = await readConnectRequestBody(req as IncomingMessage);
@@ -244,7 +244,7 @@ export default defineConfig(({ mode }) => {
                   return;
                 }
               } else if (pathname === '/api/test-supabase') {
-                const { default: bridgeMod } = await import('./api/rep/[slug].ts');
+                const { default: bridgeMod } = await import('./api/rep/[...slug].ts');
                 const raw = req.url ?? pathname;
                 const extra = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
                 const bridgePath = `/api/rep/diagnostic-supabase${extra ? `?${extra}` : ''}`;

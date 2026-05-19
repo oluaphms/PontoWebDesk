@@ -64,6 +64,8 @@ import {
   logSyncCounts,
   isFirstRunPromotionEligible,
   promoteAgentAfterFirstSuccess,
+  parseYmdToMs,
+  parseYmdEndMs,
 } from './rep-agent-go-live.mjs';
 import { computeRepPunchHash } from './rep-punch-hash.mjs';
 
@@ -144,6 +146,7 @@ const REP_LAST_NSR_FILE = path.resolve(
 const REP_DEVICE_TIMEZONE_OFFSET = (process.env.REP_DEVICE_TIMEZONE_OFFSET || '-03:00').trim();
 const repReceiveScopeEnv = (process.env.REP_RECEIVE_SCOPE || '').trim().toLowerCase();
 const repIngestFromDateEnv = (process.env.REP_INGEST_FROM_DATE || '').trim();
+const repIngestEndDateEnv = (process.env.REP_INGEST_END_DATE || process.env.REP_COLLECT_END_DATE || '').trim();
 const repForceMode = /^(1|true|yes)$/i.test((process.env.REP_FORCE_MODE || '').trim());
 const REP_AGENT_META_FILE = path.resolve(
   process.env.REP_AGENT_META_FILE || 'state/agent-meta.json'
@@ -153,6 +156,9 @@ const agentPolicy = {
   scope: 'incremental',
   fromDateMs: NaN,
   fromDateStr: '',
+  toDateMs: NaN,
+  toDateStr: '',
+  bypassNsrFilter: false,
   isFirstRun: false,
   meta: null,
   autoMode: false,
@@ -194,7 +200,8 @@ if (!TZ_OFFSET_RE.test(REP_DEVICE_TIMEZONE_OFFSET)) {
 if (
   repReceiveScopeEnv &&
   repReceiveScopeEnv !== 'incremental' &&
-  repReceiveScopeEnv !== 'today_only'
+  repReceiveScopeEnv !== 'today_only' &&
+  repReceiveScopeEnv !== 'date_range'
 ) {
   console.warn(
     `[rep-agent] REP_RECEIVE_SCOPE="${repReceiveScopeEnv}" desconhecido — incremental será usado se REP_FORCE_MODE=1.`
@@ -234,6 +241,7 @@ async function initializeAgentPolicy() {
     forceMode: repForceMode,
     envScopeRaw: repReceiveScopeEnv,
     envIngestFromDate: repIngestFromDateEnv,
+    envIngestEndDate: repIngestEndDateEnv,
     saas,
     apiKey,
     companyId,
@@ -241,6 +249,8 @@ async function initializeAgentPolicy() {
   agentPolicy.scope = policy.scope;
   agentPolicy.fromDateMs = policy.fromDateMs;
   agentPolicy.fromDateStr = policy.fromDateStr;
+  agentPolicy.toDateMs = policy.toDateMs ?? NaN;
+  agentPolicy.toDateStr = policy.toDateStr ?? '';
   agentPolicy.isFirstRun = policy.isFirstRun;
   agentPolicy.meta = policy.meta;
   agentPolicy.autoMode = policy.autoMode;
@@ -264,6 +274,7 @@ function logStartupConfig() {
         : '',
     `| escopo=${agentPolicy.scope}`,
     agentPolicy.fromDateStr ? `| desde=${agentPolicy.fromDateStr}` : '',
+    agentPolicy.toDateStr ? `| até=${agentPolicy.toDateStr}` : '',
     agentPolicy.autoMode ? '| go-live=auto' : '',
     repForceMode ? '| force_mode=on' : '',
     `| cmd_poll=${REP_COMMAND_POLL_INTERVAL_MS}ms`,
@@ -1427,13 +1438,66 @@ async function postRepCommandResult(commandId, executionId, status, result) {
   }
 }
 
+function applyDateRangePolicy(startYmd, endYmd, { bypassNsr = true } = {}) {
+  const saved = {
+    scope: agentPolicy.scope,
+    fromDateMs: agentPolicy.fromDateMs,
+    fromDateStr: agentPolicy.fromDateStr,
+    toDateMs: agentPolicy.toDateMs,
+    toDateStr: agentPolicy.toDateStr,
+    bypassNsrFilter: agentPolicy.bypassNsrFilter,
+  };
+  agentPolicy.scope = 'date_range';
+  agentPolicy.fromDateStr = String(startYmd || '').trim();
+  agentPolicy.toDateStr = String(endYmd || '').trim();
+  agentPolicy.fromDateMs = parseYmdToMs(agentPolicy.fromDateStr);
+  agentPolicy.toDateMs = parseYmdEndMs(agentPolicy.toDateStr);
+  agentPolicy.bypassNsrFilter = bypassNsr;
+  return saved;
+}
+
+function restoreAgentPolicy(saved) {
+  agentPolicy.scope = saved.scope;
+  agentPolicy.fromDateMs = saved.fromDateMs;
+  agentPolicy.fromDateStr = saved.fromDateStr;
+  agentPolicy.toDateMs = saved.toDateMs;
+  agentPolicy.toDateStr = saved.toDateStr;
+  agentPolicy.bypassNsrFilter = saved.bypassNsrFilter;
+}
+
+async function executeCollectPunchesCommand(cmd) {
+  const payload = cmd.payload && typeof cmd.payload === 'object' ? cmd.payload : {};
+  const startDate = String(payload.start_date || '').trim();
+  const endDate = String(payload.end_date || '').trim();
+  if (!startDate || !endDate) {
+    throw new Error('collect_punches: start_date e end_date são obrigatórios');
+  }
+  console.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
+  const saved = applyDateRangePolicy(startDate, endDate);
+  try {
+    const cycle = await runCycle();
+    return {
+      success: true,
+      message: `Coleta concluída (${startDate} a ${endDate}).`,
+      start_date: startDate,
+      end_date: endDate,
+      sent_ok: cycle?.ok ?? 0,
+      duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
+      errors: cycle?.sendErrors ?? 0,
+      parsed: cycle?.total ?? 0,
+    };
+  } finally {
+    restoreAgentPolicy(saved);
+  }
+}
+
 async function executeRepCommand(cmd) {
   const id = String(cmd.id || '').trim();
   const name = String(cmd.command || '').trim();
   const executionId = String(cmd.execution_id || '').trim();
   const cmdStatus = String(cmd.status || '').trim().toLowerCase();
 
-  if (!id || name !== 'test_connection') return;
+  if (!id || (name !== 'test_connection' && name !== 'collect_punches')) return;
   if (!executionId) {
     syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
     return;
@@ -1447,40 +1511,48 @@ async function executeRepCommand(cmd) {
     detail: { command_id: id, command: name, execution_id: executionId },
   });
 
-  let testResult;
-  try {
-    testResult = await runLocalDeviceConnectionTestWithTimeout();
-  } catch (e) {
-    const isTimeout = (e?.message || String(e)) === 'timeout';
-    testResult = {
-      success: false,
-      message: isTimeout
-        ? 'Timeout ao conectar ao relógio (limite de 10s).'
-        : e?.message || String(e),
-      response_time_ms: REP_COMMAND_EXEC_TIMEOUT_MS,
-    };
-  }
+  let resultPayload;
+  let finalStatus = 'error';
 
-  const payload = buildCommandTestResult(testResult, 1);
-  const finalStatus = testResult.success ? 'done' : 'error';
+  try {
+    if (name === 'test_connection') {
+      let testResult;
+      try {
+        testResult = await runLocalDeviceConnectionTestWithTimeout();
+      } catch (e) {
+        const isTimeout = (e?.message || String(e)) === 'timeout';
+        testResult = {
+          success: false,
+          message: isTimeout
+            ? 'Timeout ao conectar ao relógio (limite de 10s).'
+            : e?.message || String(e),
+          response_time_ms: REP_COMMAND_EXEC_TIMEOUT_MS,
+        };
+      }
+      resultPayload = buildCommandTestResult(testResult, 1);
+      finalStatus = testResult.success ? 'done' : 'error';
+    } else if (name === 'collect_punches') {
+      resultPayload = await executeCollectPunchesCommand(cmd);
+      finalStatus = resultPayload.success ? 'done' : 'error';
+    }
+  } catch (e) {
+    resultPayload = {
+      success: false,
+      message: e?.message || String(e),
+    };
+    finalStatus = 'error';
+  }
 
   try {
     if (currentExecutionId === executionId) {
-      await postRepCommandResult(id, executionId, finalStatus, payload);
+      await postRepCommandResult(id, executionId, finalStatus, resultPayload);
     }
-    console.info('[REP TEST]', {
-      device_id: deviceId || cmd.device_id,
-      command_id: id,
-      execution_id: executionId,
-      success: testResult.success,
-      latency_ms: testResult.response_time_ms,
-    });
     syncLog('[REP COMMANDS] concluído', {
       detail: {
         command_id: id,
+        command: name,
         execution_id: executionId,
-        success: testResult.success,
-        ms: testResult.response_time_ms,
+        success: finalStatus === 'done',
       },
     });
   } finally {
@@ -1507,7 +1579,8 @@ async function pollAndExecuteRepCommands() {
       syncLog('[REP COMMANDS] poll falhou', { detail: { status: res.status } });
       return;
     }
-    const data = await res.json().catch(() => ({}));
+    const data =
+      res.data && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : {};
     const commands = Array.isArray(data.commands) ? data.commands : [];
     if (commands.length === 0) return;
 
@@ -1549,20 +1622,37 @@ function stopRepCommandPollLoop() {
 async function sendHeartbeat() {
   if (!deviceId) throw new Error('REP_DEVICE_ID é obrigatório para heartbeat');
   const t0 = Date.now();
-  const res = await fetchJsonWithTimeout(
-    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/heartbeat`,
+  const hbBody = {
+    device_id: deviceId,
+    company_id: companyId,
+    agent_version: process.env.REP_AGENT_VERSION || 'rep-agent.mjs',
+  };
+  let res = await fetchJsonWithTimeout(
+    `${saas}/api/rep/heartbeat`,
     {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        agent_version: process.env.REP_AGENT_VERSION || 'rep-agent.mjs',
-      }),
+      body: JSON.stringify(hbBody),
     },
-    REP_SYNC_TIMEOUT_MS
+    REP_SYNC_TIMEOUT_MS,
   );
+  if (!res.ok && res.status === 404) {
+    res = await fetchJsonWithTimeout(
+      `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/heartbeat`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ agent_version: hbBody.agent_version }),
+      },
+      REP_SYNC_TIMEOUT_MS,
+    );
+  }
   const latency = Date.now() - t0;
   syncLog('[HEARTBEAT]', { latency_ms: latency, detail: { status: res.status, ok: res.ok } });
   if (!res.ok) {
@@ -1736,7 +1826,13 @@ function isWithinReceiveScope(localDate) {
     const { start, end } = getLocalCalendarDayBounds();
     if (localDate < start || localDate > end) return false;
   }
+  if (agentPolicy.scope === 'date_range') {
+    if (Number.isFinite(agentPolicy.fromDateMs) && localDate.getTime() < agentPolicy.fromDateMs) return false;
+    if (Number.isFinite(agentPolicy.toDateMs) && localDate.getTime() > agentPolicy.toDateMs) return false;
+    return true;
+  }
   if (Number.isFinite(agentPolicy.fromDateMs) && localDate.getTime() < agentPolicy.fromDateMs) return false;
+  if (Number.isFinite(agentPolicy.toDateMs) && localDate.getTime() > agentPolicy.toDateMs) return false;
   return true;
 }
 
@@ -1749,20 +1845,34 @@ function filterAfdRecordsTodayOnly(records) {
 }
 
 function filterAfdRecordsByScope(records) {
-  if (agentPolicy.scope === 'incremental' && !Number.isFinite(agentPolicy.fromDateMs)) return records;
+  if (
+    agentPolicy.scope === 'incremental' &&
+    !Number.isFinite(agentPolicy.fromDateMs) &&
+    !Number.isFinite(agentPolicy.toDateMs)
+  ) {
+    return records;
+  }
   const out = records.filter((rec) => isWithinReceiveScope(afdRecordToLocalDate(rec)));
   const skipped = records.length - out.length;
   if (skipped > 0) {
     const hints = [];
     if (agentPolicy.scope === 'today_only') hints.push('today_only');
+    if (agentPolicy.scope === 'date_range') hints.push('date_range');
     if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
+    if (Number.isFinite(agentPolicy.toDateMs)) hints.push(`até ${agentPolicy.toDateStr}`);
     console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
   }
   return out;
 }
 
 function filterApiPunchesByScope(list) {
-  if (agentPolicy.scope === 'incremental' && !Number.isFinite(agentPolicy.fromDateMs)) return list;
+  if (
+    agentPolicy.scope === 'incremental' &&
+    !Number.isFinite(agentPolicy.fromDateMs) &&
+    !Number.isFinite(agentPolicy.toDateMs)
+  ) {
+    return list;
+  }
   const out = [];
   let skipped = 0;
   for (const p of list) {
@@ -1777,7 +1887,9 @@ function filterApiPunchesByScope(list) {
   if (skipped > 0) {
     const hints = [];
     if (agentPolicy.scope === 'today_only') hints.push('today_only');
+    if (agentPolicy.scope === 'date_range') hints.push('date_range');
     if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
+    if (Number.isFinite(agentPolicy.toDateMs)) hints.push(`até ${agentPolicy.toDateStr}`);
     console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
   }
   return out;
@@ -1874,15 +1986,26 @@ async function ingestViaAFD() {
 
   if (records.length === 0) {
     const lineCount = rawText.split(/\r?\n/).filter((l) => l.trim()).length;
-    console.log(
-      `[rep-agent] AFD sem marcações reconhecidas (${rawText.length} bytes, ${lineCount} linhas).`
-    );
+    if (parsedAll.length > 0) {
+      console.log(
+        `[rep-agent] AFD: ${parsedAll.length} marcação(ões) no arquivo, 0 no escopo atual (${agentPolicy.scope}` +
+          `${agentPolicy.fromDateStr ? `, desde ${agentPolicy.fromDateStr}` : ''}` +
+          `${agentPolicy.toDateStr ? `, até ${agentPolicy.toDateStr}` : ''}).`
+      );
+      console.log(
+        '[rep-agent] Use Coletar agora no painel (intervalo de datas), REP_INGEST_FROM_DATE/END_DATE, ou apague state/agent-meta.json se ficou preso em today_only.'
+      );
+    } else {
+      console.log(
+        `[rep-agent] AFD sem marcações parseadas (${rawText.length} bytes, ${lineCount} linhas brutas).`
+      );
+    }
     if (lineCount > 0) {
       const sample = rawText.split(/\r?\n/).find((l) => l.trim()) || rawText;
       console.log('[rep-agent] Amostra de linha:', afdHttpSnippet(sample, 120));
     }
     console.log(
-      '[rep-agent] Dicas: registe uma batida de teste no relógio; tente $env:REP_AFD_PORTARIA_671="1"; confira se o relógio não está com AFD vazio (menu/exportação Control iD).'
+      '[rep-agent] Dicas: batida de teste no relógio; $env:REP_AFD_PORTARIA_671="1"; coleta manual 2026-05-19..2026-05-19 no painel.'
     );
     return { mode: 'AFD', ok: 0, skip: 0, duplicate: 0, preSkipped: 0, total: 0, sendErrors: 0, fatal: false };
   }
@@ -1903,8 +2026,8 @@ async function ingestViaAFD() {
   for (const rec of records) {
     const nsrKey = String(rec.nsr);
 
-    // Filtro incremental por último NSR processado (regra obrigatória do enunciado).
-    if (lastNsr && compareNsr(nsrKey, lastNsr) <= 0) {
+    // Filtro incremental por último NSR (desligado em coleta manual por intervalo).
+    if (!agentPolicy.bypassNsrFilter && lastNsr && compareNsr(nsrKey, lastNsr) <= 0) {
       preSkipped += 1;
       continue;
     }

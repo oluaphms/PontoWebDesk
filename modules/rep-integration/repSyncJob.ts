@@ -29,6 +29,28 @@ function filterPunchesToLocalToday(punches: PunchFromDevice[]): PunchFromDevice[
   });
 }
 
+function parseYmdLocal(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').trim());
+  if (!m) return null;
+  const dt = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 0, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function filterPunchesByDateRange(
+  punches: PunchFromDevice[],
+  startYmd: string,
+  endYmd: string,
+): PunchFromDevice[] {
+  const start = parseYmdLocal(startYmd);
+  const end = parseYmdLocal(endYmd);
+  if (!start || !end) return punches;
+  const endInclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+  return punches.filter((p) => {
+    const t = new Date(p.data_hora);
+    return !Number.isNaN(t.getTime()) && t >= start && t <= endInclusive;
+  });
+}
+
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
 /** Recuo em `since` para não perder batidas por desvio de relógio ou ordem de atualização da última sync. */
@@ -137,6 +159,18 @@ export async function syncRepDevice(
 
     if (ingestOptions?.receiveScope === 'today_only') {
       punches = filterPunchesToLocalToday(punches);
+    } else if (
+      ingestOptions?.receiveScope === 'date_range' &&
+      ingestOptions.collectStartDate &&
+      ingestOptions.collectEndDate
+    ) {
+      const before = punches.length;
+      punches = filterPunchesByDateRange(punches, ingestOptions.collectStartDate, ingestOptions.collectEndDate);
+      if (before !== punches.length) {
+        console.log(
+          `[REP SYNC] Filtro date_range ${ingestOptions.collectStartDate}..${ingestOptions.collectEndDate}: ${before} → ${punches.length}`
+        );
+      }
     }
 
     const ingestMs = ingestStepTimeoutMs(punches.length);

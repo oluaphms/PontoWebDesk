@@ -55,10 +55,15 @@ export async function handleRepAgentConfig(request: Request): Promise<Response> 
 
   const today = localTodayYmd();
 
+  const productionMode = /^(1|true|yes)$/i.test((process.env.REP_PRODUCTION_MODE || '1').trim());
+
   return jsonResponse(cors, 200, {
-    recommendedScope: 'today_only',
+    /** Produção: incremental + last_nsr; não forçar today_only após go-live. */
+    recommendedScope: productionMode ? 'incremental' : 'incremental',
     goLiveDate: today,
-    firstRunPolicy: 'safe',
+    firstRunPolicy: productionMode ? 'incremental_from_today' : 'safe',
     company_id: companyId,
+    supports_date_range: true,
+    supports_manual_collect: true,
   });
 }

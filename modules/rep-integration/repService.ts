@@ -181,7 +181,11 @@ export type IngestPunchesFromDeviceOptions = {
    * Usado em `syncRepDevice` após baixar as batidas: restringe à data local de hoje.
    * `incremental` = sem filtro extra (comportamento padrão).
    */
-  receiveScope?: 'incremental' | 'today_only';
+  receiveScope?: 'incremental' | 'today_only' | 'date_range';
+  /** YYYY-MM-DD — com receiveScope date_range */
+  collectStartDate?: string;
+  /** YYYY-MM-DD — com receiveScope date_range */
+  collectEndDate?: string;
   /**
    * Chamado ao concluir cada lote de ingestão (amostrado em importações muito grandes
    * para não gerar milhares de linhas — no máximo ~50 eventos).

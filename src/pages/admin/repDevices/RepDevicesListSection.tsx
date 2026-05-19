@@ -101,16 +101,6 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
         <div className={repListUi.c003}>
           <Button
             type="button"
-            variant="primary"
-            size="sm"
-            className={cx(buttonStyles.base, buttonStyles.primary, uiTokens.radius.button, uiTokens.transition.default)}
-            onClick={onOpenCreate}
-          >
-            <Plus size={16} className={repListUi.c004} />
-            Cadastrar relógio
-          </Button>
-          <Button
-            type="button"
             variant="outline"
             size="sm"
             className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
