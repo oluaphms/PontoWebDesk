@@ -241,6 +241,8 @@ DECLARE
   v_last_event_at timestamptz;
   v_is_retroactive boolean := false;
   v_actor_role text;
+  v_source_norm text := lower(btrim(COALESCE(p_source, 'manual')));
+  v_is_manual_source boolean := false;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Usuário não autenticado' USING ERRCODE = '42501';
@@ -254,9 +256,16 @@ BEGIN
   LIMIT 1;
 
   v_is_retroactive := v_last_event_at IS NOT NULL AND p_timestamp < v_last_event_at;
+  v_is_manual_source := (
+    v_source_norm = 'manual'
+    OR v_source_norm LIKE 'manual_%'
+    OR v_source_norm = 'admin'
+    OR v_source_norm LIKE 'admin_%'
+    OR v_source_norm IN ('request', 'rep_reconciled_manual')
+  );
 
   IF v_is_retroactive THEN
-    IF COALESCE(lower(btrim(p_source)), '') <> 'manual' THEN
+    IF NOT v_is_manual_source THEN
       RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
         p_company_id, p_user_id;
     END IF;
@@ -292,7 +301,7 @@ BEGIN
     p_timestamp,
     p_type,
     'manual',
-    p_source,
+    CASE WHEN v_is_manual_source THEN 'manual' ELSE COALESCE(NULLIF(p_source, ''), 'manual') END,
     jsonb_set(
       COALESCE(p_metadata, '{}'::jsonb),
       '{retroactive}',

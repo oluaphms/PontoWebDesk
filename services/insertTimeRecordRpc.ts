@@ -109,12 +109,22 @@ export function buildInsertTimeRecordRpcArgs(params: {
   source?: string | null;
   metadata?: Record<string, unknown> | null;
 }): Record<string, unknown> {
+  const sourceRaw = String(params.source ?? '').trim().toLowerCase();
+  const source =
+    sourceRaw === 'manual' ||
+    sourceRaw.startsWith('manual_') ||
+    sourceRaw === 'admin' ||
+    sourceRaw.startsWith('admin_') ||
+    sourceRaw === 'request' ||
+    sourceRaw === 'rep_reconciled_manual'
+      ? 'manual'
+      : 'manual';
   return {
     p_user_id: params.userId,
     p_company_id: params.companyId,
     p_timestamp: params.timestampIso,
     p_type: params.type,
-    p_source: params.source ?? 'manual',
+    p_source: source,
     p_metadata: params.metadata ?? {},
   };
 }
