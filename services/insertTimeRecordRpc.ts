@@ -121,6 +121,8 @@ export function buildInsertTimeRecordRpcArgs(params: {
     sourceRaw === 'rep_reconciled_manual'
       ? 'manual'
       : 'manual';
+  const allowOutOfOrder =
+    params.allowOutOfOrder ?? source === 'manual';
   return {
     p_user_id: params.userId,
     p_company_id: params.companyId,
@@ -128,7 +130,7 @@ export function buildInsertTimeRecordRpcArgs(params: {
     p_type: params.type,
     p_source: source,
     p_metadata: params.metadata ?? {},
-    p_allow_out_of_order: Boolean(params.allowOutOfOrder),
+    p_allow_out_of_order: Boolean(allowOutOfOrder),
   };
 }
 
