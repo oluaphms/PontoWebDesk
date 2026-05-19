@@ -229,7 +229,8 @@ CREATE OR REPLACE FUNCTION public.insert_time_record_for_user(
   p_timestamp timestamptz,
   p_type text,
   p_source text DEFAULT 'manual',
-  p_metadata jsonb DEFAULT '{}'::jsonb
+  p_metadata jsonb DEFAULT '{}'::jsonb,
+  p_allow_out_of_order boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -242,7 +243,6 @@ DECLARE
   v_is_retroactive boolean := false;
   v_actor_role text;
   v_source_norm text := lower(btrim(COALESCE(p_source, 'manual')));
-  v_is_manual_source boolean := false;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Usuário não autenticado' USING ERRCODE = '42501';
@@ -256,20 +256,12 @@ BEGIN
   LIMIT 1;
 
   v_is_retroactive := v_last_event_at IS NOT NULL AND p_timestamp < v_last_event_at;
-  v_is_manual_source := (
-    v_source_norm = 'manual'
-    OR v_source_norm LIKE 'manual_%'
-    OR v_source_norm = 'admin'
-    OR v_source_norm LIKE 'admin_%'
-    OR v_source_norm IN ('request', 'rep_reconciled_manual')
-  );
+  IF v_is_retroactive AND NOT p_allow_out_of_order THEN
+    RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
+      p_company_id, p_user_id;
+  END IF;
 
   IF v_is_retroactive THEN
-    IF NOT v_is_manual_source THEN
-      RAISE EXCEPTION '[SQL MONOTONIC BLOCK] last_event_at regression company=% employee=%',
-        p_company_id, p_user_id;
-    END IF;
-
     SELECT lower(COALESCE(u.role::text, ''))
       INTO v_actor_role
     FROM public.users u
@@ -301,7 +293,7 @@ BEGIN
     p_timestamp,
     p_type,
     'manual',
-    CASE WHEN v_is_manual_source THEN 'manual' ELSE COALESCE(NULLIF(p_source, ''), 'manual') END,
+    'manual',
     jsonb_set(
       COALESCE(p_metadata, '{}'::jsonb),
       '{retroactive}',
@@ -349,13 +341,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.insert_time_record_for_user(
-  uuid, uuid, timestamptz, text, text, jsonb
-) IS 'RPC única para batida manual (sem overload).';
+  uuid, uuid, timestamptz, text, text, jsonb, boolean
+) IS 'RPC única para batida manual (sem overload) com suporte a out-of-order controlado.';
 
 GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION public.insert_time_record_for_user(
-  uuid, uuid, timestamptz, text, text, jsonb
+  uuid, uuid, timestamptz, text, text, jsonb, boolean
 ) TO anon, authenticated, service_role;
 
 DROP POLICY IF EXISTS "audit_insert" ON public.audit_logs;

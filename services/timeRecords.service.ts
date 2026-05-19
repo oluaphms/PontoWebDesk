@@ -274,6 +274,7 @@ export type RepGovernanceAfterManualAdjustmentOpts = {
 
 export type InsertAdminMirrorTimeRecordOpts = {
   rpcSource?: string;
+  allowOutOfOrder?: boolean;
   /** Se a batida manual foi motivada por batidas REP pendentes, roda governança pós-ajuste. */
   repGovernance?: RepGovernanceAfterManualAdjustmentOpts;
 };
@@ -352,6 +353,7 @@ export async function insertAdminMirrorTimeRecord(
     method: 'admin',
     // Para regra de monotonicidade SQL: retroativo só é permitido com source=manual.
     source: 'manual',
+    allowOutOfOrder: opts?.allowOutOfOrder ?? false,
     manualReason: (data.manual_reason as string | null | undefined) ?? null,
     latitude: (data.latitude as number | null | undefined) ?? null,
     longitude: (data.longitude as number | null | undefined) ?? null,

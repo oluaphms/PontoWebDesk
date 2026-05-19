@@ -68,6 +68,7 @@ export type InsertTimeRecordRpcParams = {
   ipAddress?: string | null;
   fraudScore?: number | null;
   fraudFlags?: unknown | null;
+  allowOutOfOrder?: boolean;
 };
 
 export type InsertTimeRecordRpcResult = {
@@ -108,6 +109,7 @@ export function buildInsertTimeRecordRpcArgs(params: {
   type: string;
   source?: string | null;
   metadata?: Record<string, unknown> | null;
+  allowOutOfOrder?: boolean;
 }): Record<string, unknown> {
   const sourceRaw = String(params.source ?? '').trim().toLowerCase();
   const source =
@@ -126,6 +128,7 @@ export function buildInsertTimeRecordRpcArgs(params: {
     p_type: params.type,
     p_source: source,
     p_metadata: params.metadata ?? {},
+    p_allow_out_of_order: Boolean(params.allowOutOfOrder),
   };
 }
 
@@ -150,6 +153,7 @@ export async function insertTimeRecordForUser(
     timestampIso,
     type,
     source: params.source ?? 'manual',
+    allowOutOfOrder: params.allowOutOfOrder ?? false,
     metadata: {
       method: params.method ?? null,
       manual_reason: params.manualReason ?? null,

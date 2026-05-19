@@ -710,6 +710,9 @@ const AdminTimesheet: React.FC = () => {
       is_manual: true,
     });
 
+    const isMonotonicBlockError = (msg: string): boolean =>
+      msg.includes('SQL MONOTONIC BLOCK') || msg.includes('last_event_at regression');
+
     try {
       const { id: mergeId, createdAt: mergeCreated } = await insertAdminMirrorTimeRecord(
         { ...data },
@@ -746,6 +749,39 @@ const AdminTimesheet: React.FC = () => {
     } catch (err) {
       console.error('[TIME RECORD ERROR]', err);
       const msg = err instanceof Error ? err.message : 'Erro ao adicionar batida.';
+      if (isMonotonicBlockError(msg)) {
+        const confirmed = window.confirm(
+          'Esta batida e anterior a ultima registrada. Deseja inserir mesmo assim?',
+        );
+        if (confirmed) {
+          try {
+            const { id: mergeId, createdAt: mergeCreated } = await insertAdminMirrorTimeRecord(
+              { ...data },
+              cid,
+              { allowOutOfOrder: true, rpcSource: 'manual_out_of_order' },
+            );
+            const mergeRow = buildMergeRow(mergeId, mergeCreated);
+            toast.addToast('success', 'Batida retroativa adicionada com sucesso.');
+            setShowAddModal(false);
+            await loadEspelho();
+            if (mergeRow && mergeId) {
+              setRecords((prev) => {
+                if (prev.some((r) => r.id === mergeId)) return prev;
+                return [...prev, mergeRow!].sort(
+                  (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                );
+              });
+            }
+            invalidateAfterPunch(data.user_id, cid);
+            return;
+          } catch (retryErr) {
+            const retryMsg =
+              retryErr instanceof Error ? retryErr.message : 'Erro ao inserir batida retroativa.';
+            toast.addToast('error', retryMsg.length > 180 ? `${retryMsg.slice(0, 177)}…` : retryMsg);
+            return;
+          }
+        }
+      }
       toast.addToast('error', msg.length > 180 ? `${msg.slice(0, 177)}…` : msg);
     }
   };
