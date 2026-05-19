@@ -24,11 +24,15 @@ function getBridgeToken(): string {
   return (process.env.REP_BRIDGE_TOKEN || process.env.REP_AGENT_TOKEN || process.env.API_KEY || '').trim();
 }
 
+type HeartbeatAuthResult =
+  | { ok: true; device: { id: string; company_id: string } }
+  | { ok: false; response: Response };
+
 async function authenticateAgent(
   request: Request,
   deviceId: string,
   supabase: SupabaseClient,
-): Promise<{ ok: true; device: { id: string; company_id: string } } | { ok: false; response: Response }> {
+): Promise<HeartbeatAuthResult> {
   const headers = cors(request);
   const token = extractBearerToken(request);
   if (!token) {
@@ -97,7 +101,9 @@ export async function handleRepHeartbeat(request: Request): Promise<Response> {
   }
 
   const auth = await authenticateAgent(request, deviceId, supabase);
-  if (!auth.ok) return auth.response;
+  if (auth.ok === false) {
+    return auth.response;
+  }
 
   const companyId = String(body.company_id || auth.device.company_id || '').trim();
   if (companyId && companyId !== String(auth.device.company_id)) {
