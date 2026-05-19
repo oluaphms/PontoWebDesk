@@ -239,7 +239,9 @@ const AdminRepDevices: React.FC = () => {
       ])) as RepDeviceRow[];
       setDevices(list || []);
       if (Array.isArray(list) && list.length > 0) {
-        void loadSyncStatusesForDevices(list.map((d) => d.id));
+        void loadSyncStatusesForDevices(
+          list.filter((d) => d.ativo !== false).map((d) => d.id),
+        );
       } else {
         setSyncStatusByDeviceId({});
       }

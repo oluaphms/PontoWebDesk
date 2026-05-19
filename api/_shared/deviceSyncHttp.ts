@@ -27,6 +27,12 @@ function getBridgeToken(): string {
   return (process.env.REP_BRIDGE_TOKEN || process.env.REP_AGENT_TOKEN || process.env.API_KEY || '').trim();
 }
 
+function normalizeTenantId(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+}
+
 async function authenticateDevice(
   supabase: AnySupabase,
   request: Request,
@@ -55,7 +61,7 @@ async function authenticateDevice(
     .eq('api_key', token)
     .maybeSingle();
   if (keyErr || !keyOwner) return { ok: false, response: noCache(Response.json({ error: 'Unauthorized' }, { status: 401 })) };
-  if (keyOwner.company_id !== device.company_id) {
+  if (normalizeTenantId(keyOwner.company_id) !== normalizeTenantId(device.company_id)) {
     return { ok: false, response: noCache(Response.json({ error: 'Acesso negado para este dispositivo' }, { status: 403 })) };
   }
   return { ok: true, device };
@@ -70,7 +76,7 @@ async function authenticateAdminJwtForDevice(supabase: AnySupabase, token: strin
     .eq('id', authData.user.id)
     .maybeSingle();
   if (profileErr || !profile) return false;
-  if (String(profile.company_id || '') !== String(device.company_id || '')) return false;
+  if (normalizeTenantId(profile.company_id) !== normalizeTenantId(device.company_id)) return false;
   const role = String(profile.role || '').toLowerCase();
   return role === 'admin' || role === 'hr';
 }
@@ -95,7 +101,10 @@ async function authenticateDeviceOrAdmin(
 }
 
 function authResponse(auth: DeviceAuthResult): Response {
-  return (auth as { ok: false; response: Response }).response;
+  if (auth.ok) {
+    throw new Error('authResponse called with ok:true');
+  }
+  return auth.response;
 }
 
 function normalizeSyncError(raw: unknown): StructuredSyncError {

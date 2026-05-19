@@ -12,6 +12,10 @@
       "dest": "/api/operational/mirror-insert-time-record"
     },
     {
+      "src": "^/api/rep(?:/(.*))?$",
+      "dest": "/api/rep"
+    },
+    {
       "src": "^/api/(.*)",
       "dest": "/api/$1"
     },

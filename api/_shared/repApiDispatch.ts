@@ -1,36 +1,46 @@
-import { noCache } from '../_shared/cache.js';
+/**
+ * Despacho único para /api/rep/* (plano Hobby Vercel — uma Serverless Function).
+ */
 
-/** Extrai tudo após /api/rep/ (suporta devices/{id}/heartbeat). */
+import { noCache } from './cache.js';
+
 function extractRepSlug(request: Request): string {
-  const url = new URL(request.url, 'https://local.invalid');
-  const path = url.pathname.replace(/\/+$/, '');
-  const prefix = '/api/rep/';
-  if (!path.startsWith(prefix)) return '';
-  const tail = path.slice(prefix.length);
+  const u = new URL(request.url);
+  const raw = u.pathname.replace(/\/+$/, '') || '';
+  const m = raw.match(/^\/api\/rep(?:\/(.*))?$/);
+  if (!m) return '';
+  const tail = (m[1] ?? '').trim();
   return tail ? decodeURIComponent(tail) : '';
 }
 
-async function handler(request: Request): Promise<Response> {
+/** Devolve resposta ou null se o caminho não for /api/rep. */
+export async function dispatchRepRequest(request: Request): Promise<Response | null> {
+  const u = new URL(request.url);
+  const raw = u.pathname.replace(/\/+$/, '') || '';
+  if (!/^\/api\/rep(?:\/|$)/.test(raw)) return null;
+
   const slug = extractRepSlug(request);
+
   if (!slug) {
     return noCache(
       Response.json(
-        { error: 'Rota REP inválida' },
+        { error: 'Rota REP inválida. Use /api/rep/punch, /api/rep/heartbeat, /api/rep/devices/{id}/sync-status, etc.' },
         { status: 404, headers: { 'Content-Type': 'application/json' } },
       ),
     );
   }
+
   if (slug === 'heartbeat') {
-    const { handleRepHeartbeat } = await import('../_shared/repHeartbeatHttp.js');
+    const { handleRepHeartbeat } = await import('./repHeartbeatHttp.js');
     return handleRepHeartbeat(request);
   }
   if (slug === 'collect') {
-    const { handleRepCollect } = await import('../_shared/repCollectHttp.js');
+    const { handleRepCollect } = await import('./repCollectHttp.js');
     return handleRepCollect(request);
   }
   if (slug === 'punch' || (slug === 'punches' && request.method === 'POST')) {
     try {
-      const { handleRepPunchRpcLite } = await import('../_shared/repPunchRpcLite.js');
+      const { handleRepPunchRpcLite } = await import('./repPunchRpcLite.js');
       return handleRepPunchRpcLite(request);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -43,11 +53,10 @@ async function handler(request: Request): Promise<Response> {
     }
   }
   if (slug.startsWith('devices/')) {
-    const { handleDeviceSyncRoute } = await import('../_shared/deviceSyncHttp.js');
+    const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
     return handleDeviceSyncRoute(request, slug);
   }
+
   const { handleRepSlug } = await import('../../modules/rep-integration/repApiRoutes.js');
   return handleRepSlug(request, slug);
 }
-
-export default { fetch: handler };
