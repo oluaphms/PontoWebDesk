@@ -128,8 +128,15 @@ export async function handleMirrorInsertTimeRecord(request: Request): Promise<Re
     companyId,
     timestampIso,
     type,
-    fraudScore: body.fraudScore ?? null,
-    fraudFlags: body.fraudFlags ?? null,
+    source: body.source ?? 'manual',
+    metadata: {
+      method: body.method ?? null,
+      manual_reason: body.manualReason ?? null,
+      latitude: body.latitude ?? null,
+      longitude: body.longitude ?? null,
+      fraud_score: body.fraudScore ?? null,
+      fraud_flags: body.fraudFlags ?? null,
+    },
   });
 
   const { data: rpcData, error: rpcError } = await userClient.rpc(

@@ -106,16 +106,16 @@ export function buildInsertTimeRecordRpcArgs(params: {
   companyId: string;
   timestampIso: string;
   type: string;
-  fraudScore?: number | null;
-  fraudFlags?: unknown | null;
+  source?: string | null;
+  metadata?: Record<string, unknown> | null;
 }): Record<string, unknown> {
   return {
     p_user_id: params.userId,
     p_company_id: params.companyId,
     p_timestamp: params.timestampIso,
     p_type: params.type,
-    p_fraud_score: params.fraudScore ?? null,
-    p_fraud_flags: params.fraudFlags ?? null,
+    p_source: params.source ?? 'manual',
+    p_metadata: params.metadata ?? {},
   };
 }
 
@@ -139,8 +139,21 @@ export async function insertTimeRecordForUser(
     companyId,
     timestampIso,
     type,
-    fraudScore: params.fraudScore,
-    fraudFlags: params.fraudFlags,
+    source: params.source ?? 'manual',
+    metadata: {
+      method: params.method ?? null,
+      manual_reason: params.manualReason ?? null,
+      latitude: params.latitude ?? null,
+      longitude: params.longitude ?? null,
+      accuracy: params.accuracy ?? null,
+      device_id: params.deviceId ?? null,
+      device_type: params.deviceType ?? null,
+      ip_address: params.ipAddress ?? null,
+      location: params.location ?? null,
+      photo_url: params.photoUrl ?? null,
+      fraud_score: params.fraudScore ?? null,
+      fraud_flags: params.fraudFlags ?? null,
+    },
   });
 
   const { data: rpcData, error: rpcError } = await client.rpc(
