@@ -125,8 +125,7 @@ export async function resolveAgentReceivePolicy(ctx) {
 
   const meta = await loadAgentMeta(metaPath);
   const isFirstRun = !meta.firstRunCompleted;
-
-  const envIngestEndDate = String(ctx.envIngestEndDate || '').trim();
+  const ingestEndDate = String(envIngestEndDate || '').trim();
 
   if (forceMode) {
     let scope =

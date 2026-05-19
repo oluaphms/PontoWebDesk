@@ -1,64 +1,68 @@
-[![GitHub Workflow](https://github.com/fawno/nssm.cc/actions/workflows/msbuild.yml/badge.svg)](https://github.com/fawno/nssm.cc/actions/workflows/msbuild.yml)
-[![GitHub license](https://img.shields.io/github/license/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/blob/master/LICENSE)
-[![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/tags)
-[![GitHub release](https://img.shields.io/github/release/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/releases)
-[![GitHub issues](https://img.shields.io/github/issues/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/issues)
-[![GitHub forks](https://img.shields.io/github/forks/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/network)
-[![GitHub stars](https://img.shields.io/github/stars/fawno/nssm.cc)](https://github.com/fawno/nssm.cc/stargazers)
-
-# NSSM: The Non-Sucking Service Manager
+NSSM: The Non-Sucking Service Manager
 Version 2.24, 2014-08-31
 
-NSSM is a service helper program similar to srvany and cygrunsrv.  It can start any application as an NT service and will restart the service if it fails for any reason.
+NSSM is a service helper program similar to srvany and cygrunsrv.  It can 
+start any application as an NT service and will restart the service if it 
+fails for any reason.
 
 NSSM also has a graphical service installer and remover.
 
-Full documentation can be found online at http://nssm.cc/
+Full documentation can be found online at
 
-## About this repository
+                              http://nssm.cc/
 
-The `/src` directory contains a clone of the original code, available at https://git.nssm.cc/nssm/nssm. No modifications will be made to that directory.
-
-This repository provides 32- and 64-bit binaries built using GitHub Actions.
-
-## Versions
-
-Since version 2.0, the GUI can be bypassed by entering all appropriate options on the command line.
+Since version 2.0, the GUI can be bypassed by entering all appropriate 
+options on the command line.
 
 Since version 2.1, NSSM can be compiled for x64 platforms.
 Thanks Benjamin Mayrargue.
 
-Since version 2.2, NSSM can be configured to take different actions based on the exit code of the managed application.
+Since version 2.2, NSSM can be configured to take different actions
+based on the exit code of the managed application.
 
 Since version 2.3, NSSM logs to the Windows event log more elegantly.
 
 Since version 2.5, NSSM respects environment variables in its parameters.
 
-Since version 2.8, NSSM tries harder to shut down the managed application gracefully and throttles restart attempts if the application doesn't run for a minimum amount of time.
+Since version 2.8, NSSM tries harder to shut down the managed application
+gracefully and throttles restart attempts if the application doesn't run
+for a minimum amount of time.
 
 Since version 2.11, NSSM respects srvany's AppEnvironment parameter.
 
-Since version 2.13, NSSM is translated into French. Thanks François-Régis Tardy.
+Since version 2.13, NSSM is translated into French.
+Thanks François-Régis Tardy.
 
-Since version 2.15, NSSM is translated into Italian. Thanks Riccardo Gusmeroli.
+Since version 2.15, NSSM is translated into Italian.
+Thanks Riccardo Gusmeroli.
 
-Since version 2.17, NSSM can try to shut down console applications by simulating a Control-C keypress.  If they have installed a handler routine they can clean up and shut down gracefully on receipt of the event.
+Since version 2.17, NSSM can try to shut down console applications by
+simulating a Control-C keypress.  If they have installed a handler routine
+they can clean up and shut down gracefully on receipt of the event.
 
-Since version 2.17, NSSM can redirect the managed application's I/O streams to an arbitrary path.
+Since version 2.17, NSSM can redirect the managed application's I/O streams
+to an arbitrary path.
 
-Since version 2.18, NSSM can be configured to wait a user-specified amount of time for the application to exit when shutting down.
+Since version 2.18, NSSM can be configured to wait a user-specified amount
+of time for the application to exit when shutting down.
 
-Since version 2.19, many more service options can be configured with the GUI installer as well as via the registry.
+Since version 2.19, many more service options can be configured with the
+GUI installer as well as via the registry.
 
-Since version 2.19, NSSM can add to the service's environment by setting AppEnvironmentExtra in place of or in addition to the srvany-compatible AppEnvironment.
+Since version 2.19, NSSM can add to the service's environment by setting
+AppEnvironmentExtra in place of or in addition to the srvany-compatible
+AppEnvironment.
 
-Since version 2.22, NSSM can set the managed application's process priority and CPU affinity.
+Since version 2.22, NSSM can set the managed application's process priority
+and CPU affinity.
 
-Since version 2.22, NSSM can apply an unconditional delay before restarting an application which has exited.
+Since version 2.22, NSSM can apply an unconditional delay before restarting
+an application which has exited.
 
 Since version 2.22, NSSM can rotate existing output files when redirecting I/O.
 
-Since version 2.22, NSSM can set service display name, description, startup type, log on details and dependencies.
+Since version 2.22, NSSM can set service display name, description, startup
+type, log on details and dependencies.
 
 Since version 2.22, NSSM can manage existing services.
 
@@ -71,8 +75,8 @@ Since version 2.25, NSSM can dump the configuration of services it manages.
 Since version 2.25, NSSM can show the processes managed by a service.
 
 
-## Usage
-
+Usage
+-----
 In the usage notes below, arguments to the program may be written in angle
 brackets and/or square brackets.  <string> means you must insert the
 appropriate string and [<string>] means the string is optional.  See the
@@ -82,27 +86,27 @@ Note that everywhere <servicename> appears you may substitute the
 service's display name.
 
 
-### Installation using the GUI
-
+Installation using the GUI
+--------------------------
 To install a service, run
 
     nssm install <servicename>
 
-You will be prompted to enter the full path to the application you wish
+You will be prompted to enter the full path to the application you wish 
 to run and any command line options to pass to that application.
 
-Use the system service manager (services.msc) to control advanced service
-properties such as startup method and desktop interaction.  NSSM may
+Use the system service manager (services.msc) to control advanced service 
+properties such as startup method and desktop interaction.  NSSM may 
 support these options at a later time...
 
 
-### Installation using the command line
-
+Installation using the command line
+-----------------------------------
 To install a service, run
 
     nssm install <servicename> <application> [<options>]
 
-NSSM will then attempt to install a service which runs the named application
+NSSM will then attempt to install a service which runs the named application 
 with the given options (if you specified any).
 
 Don't forget to enclose paths in "quotes" if they contain spaces!
@@ -111,11 +115,11 @@ If you want to include quotes in the options you will need to """quote""" the
 quotes.
 
 
-### Managing the service
-
-NSSM will launch the application listed in the registry when you send it a
-start signal and will terminate it when you send a stop signal.  So far, so
-much like srvany.  But NSSM is the Non-Sucking service manager and can take
+Managing the service
+--------------------
+NSSM will launch the application listed in the registry when you send it a 
+start signal and will terminate it when you send a stop signal.  So far, so 
+much like srvany.  But NSSM is the Non-Sucking service manager and can take 
 action if/when the application dies.
 
 With no configuration from you, NSSM will try to restart itself if it notices
@@ -181,8 +185,8 @@ request to suicide if you explicitly configure a registry key for exit code 0.
 If only the default action is set to Suicide NSSM will instead exit gracefully.
 
 
-### Application priority
-
+Application priority
+--------------------
 NSSM can set the priority class of the managed application.  NSSM will look in
 the registry under HKLM\SYSTEM\CurrentControlSet\Services\<service>\Parameters
 for the REG_DWORD entry AppPriority.  Valid values correspond to arguments to
@@ -190,8 +194,8 @@ SetPriorityClass().  If AppPriority() is missing or invalid the
 application will be launched with normal priority.
 
 
-### Processor affinity
-
+Processor affinity
+------------------
 NSSM can set the CPU affinity of the managed application.  NSSM will look in
 the registry under HKLM\SYSTEM\CurrentControlSet\Services\<service>\Parameters
 for the REG_SZ entry AppAffinity.   It should specify a comma-separated listed
@@ -209,8 +213,8 @@ way and that the 32-bit version can configure a maxium of 32 CPUs even when
 running on 64-bit Windows.
 
 
-### Stopping the service
-
+Stopping the service
+--------------------
 When stopping a service NSSM will attempt several different methods of killing
 the monitored application, each of which can be disabled if necessary.
 
@@ -271,8 +275,8 @@ HKLM\SYSTEM\CurrentControlSet\Services\<service>\Parameters\AppKillProcessTree
 registry value, which should be of type REG_DWORD, to 0.
 
 
-### Console window
-
+Console window
+--------------
 By default, NSSM will create a console window so that applications which
 are capable of reading user input can do so - subject to the service being
 allowed to interact with the desktop.
@@ -282,8 +286,8 @@ HKLM\SYSTEM\CurrentControlSet\Services\<service>\Parameters\AppNoConsole
 registry value to 1.
 
 
-### I/O redirection
-
+I/O redirection
+---------------
 NSSM can redirect the managed application's I/O to any path capable of being
 opened by CreateFile().  This enables, for example, capturing the log output
 of an application which would otherwise only write to the console or accepting
@@ -309,8 +313,8 @@ work.  Remember, however, that the path must be accessible to the user
 running the service.
 
 
-### File rotation
-
+File rotation
+-------------
 When using I/O redirection, NSSM can rotate existing output files prior to
 opening stdout and/or stderr.  An existing file will be renamed with a
 suffix based on the file's last write time, to millisecond precision.  For
@@ -367,8 +371,8 @@ error-prone than simply redirecting the I/O streams before launching the
 application.  Therefore online rotation is not enabled by default.
 
 
-### Timestamping output
-
+Timestamping output
+-------------------
 When redirecting output, NSSM can prefix each line of output with a
 millisecond-precision timestamp, for example:
 
@@ -382,8 +386,8 @@ does.  If log rotation and timestamp prefixing are both enabled, the
 rotation will be online.
 
 
-### Environment variables
-
+Environment variables
+---------------------
 NSSM can replace or append to the managed application's environment.  Two
 multi-valued string (REG_MULTI_SZ) registry values are recognised under
 HKLM\SYSTEM\CurrentControlSet\Services\<service>\Parameters.
@@ -429,8 +433,8 @@ possible to refer to custom environment variables in Application,
 AppDirectory and other parameters.
 
 
-### Merged service environment
-
+Merged service environment
+--------------------------
 All Windows services can be passed additional environment variables by
 creating a multi-valued string (REG_MULTI_SZ) registry value named
 HLKM\SYSTEM\CurrentControlSet\Services\<service>\Environment.
@@ -454,8 +458,8 @@ It is worth reiterating that the Environment block is available to all
 Windows services, not just NSSM services.
 
 
-### Service startup environment
-
+Service startup environment
+---------------------------
 The environment NSSM passes to the application depends on how various
 registry values are configured.  The following flow describes how the
 environment is modified.
@@ -477,8 +481,8 @@ merged Environment block.  Note also that AppEnvironmentExtra is
 guaranteed to be appended to the startup environment if it is defined.
 
 
-### Event hooks
-
+Event hooks
+-----------
 NSSM can run user-configurable commands in response to application events.
 These commands are referred to as "hooks" below.
 
@@ -599,8 +603,8 @@ that functionality.  A hook can of course redirect its own I/O independently
 of NSSM.
 
 
-### Managing services using the GUI
-
+Managing services using the GUI
+-------------------------------
 NSSM can edit the settings of existing services with the same GUI that is
 used to install them.  Run
 
@@ -614,8 +618,8 @@ the App* registry settings described above, the GUI will allow editing only
 system settings such as the service display name and description.
 
 
-### Managing services using the command line
-
+Managing services using the command line
+----------------------------------------
 NSSM can retrieve or set individual service parameters from the command line.
 In general the syntax is as follows, though see below for exceptions.
 
@@ -655,8 +659,8 @@ would have the same effect.
     nssm set <servicename> Description NSSM managed service
 
 
-### Non-standard parameters
-
+Non-standard parameters
+-----------------------
 The AppEnvironment, AppEnvironmentExtra and Environment parameters
 recognise an additional argument when querying the environment.  The
 following syntax will print all extra environment variables configured
@@ -836,8 +840,8 @@ is in two stages as follows.
     nssm set <servicename> Type SERVICE_INTERACTIVE_PROCESS
 
 
-### Controlling services using the command line
-
+Controlling services using the command line
+-------------------------------------------
 NSSM offers rudimentary service control features.
 
     nssm start <servicename>
@@ -863,18 +867,18 @@ valid service state code.  If the exit code is zero there was
 an error.
 
 
-### Removing services using the GUI
-
+Removing services using the GUI
+-------------------------------
 NSSM can also remove services.  Run
 
     nssm remove <servicename>
 
-to remove a service.  You will prompted for confirmation before the service
+to remove a service.  You will prompted for confirmation before the service 
 is removed.  Try not to remove essential system services...
 
 
-### Removing service using the command line
-
+Removing service using the command line
+---------------------------------------
 To remove a service without confirmation from the GUI, run
 
     nssm remove <servicename> confirm
@@ -882,8 +886,8 @@ To remove a service without confirmation from the GUI, run
 Try not to remove essential system services...
 
 
-### Logging
-
+Logging
+-------
 NSSM logs to the Windows event log.  It registers itself as an event log source
 and uses unique event IDs for each type of message it logs.  New versions may
 add event types but existing event IDs will never be changed.
@@ -894,8 +898,8 @@ running multiple instances of NSSM from different locations may be confusing if
 they are not all the same version.
 
 
-### Listing managed services
-
+Listing managed services
+------------------------
 The following command will print the names of all services managed by NSSM:
 
     nssm list
@@ -905,8 +909,8 @@ To see all services on the system, not just NSSM's, use list all:
     nssm list all
 
 
-### Showing processes started by a service
-
+Showing processes started by a service
+--------------------------------------
 The following command will print the process ID and executable path of
 processes started by a given service:
 
@@ -916,8 +920,8 @@ Note that if 32-bit NSSM is run on a 64-bit system running an older version of
 Windows than Vista it will not be able to query the paths of 64-bit processes.
 
 
-### Exporting service configuration
-
+Exporting service configuration
+-------------------------------
 NSSM can dump commands which would recreate the configuration of a service.
 The output can be pasted into a batch script to back up the service or
 transfer to another computer.
@@ -938,8 +942,8 @@ Lines in the dump will reference the <newname> service while showing the
 configuration of <servicename>.
 
 
-## Example usage
-
+Example usage
+-------------
 To install an Unreal Tournament server:
 
     nssm install UT2004 c:\games\ut2004\system\ucc.exe server
@@ -965,8 +969,8 @@ To find out the service name of a service with a display name:
     nssm get "Background Intelligent Transfer Service" Name
 
 
-## Building NSSM from source
-
+Building NSSM from source
+-------------------------
 NSSM is known to compile with Visual Studio 2008 and later.  Older Visual
 Studio releases may or may not work if you install an appropriate SDK and
 edit the nssm.vcproj and nssm.sln files to set a lower version number.
@@ -979,38 +983,53 @@ Toolset to v90 in the General section of the project's Configuration
 Properties.
 
 
-## Credits
-
+Credits
+-------
 Thanks to Bernard Loh for finding a bug with service recovery.
-Thanks to [Benjamin Mayrargue](http://www.softlion.com/blogs/post/2009/12/28/NSSM-a-free-e2809cmoderne2809d-alternative-to-srvany2binstsrv.aspx) for adding 64-bit support.
+Thanks to Benjamin Mayrargue (www.softlion.com) for adding 64-bit support.
 Thanks to Joel Reingold for spotting a command line truncation bug.
-Thanks to Arve Knudsen for spotting that child processes of the monitored application could be left running on service shutdown, and that a missing registry value for AppDirectory confused NSSM.
-Thanks to Peter Wagemans and Laszlo Keresztfalvi for suggesting throttling restarts.
-Thanks to Eugene Lifshitz for finding an edge case in CreateProcess() and for advising how to build messages.mc correctly in paths containing spaces.
-Thanks to Rob Sharp for pointing out that NSSM did not respect the AppEnvironment registry value used by srvany.
+Thanks to Arve Knudsen for spotting that child processes of the monitored
+application could be left running on service shutdown, and that a missing
+registry value for AppDirectory confused NSSM.
+Thanks to Peter Wagemans and Laszlo Keresztfalvi for suggesting throttling
+restarts.
+Thanks to Eugene Lifshitz for finding an edge case in CreateProcess() and for
+advising how to build messages.mc correctly in paths containing spaces.
+Thanks to Rob Sharp for pointing out that NSSM did not respect the
+AppEnvironment registry value used by srvany.
 Thanks to Szymon Nowak for help with Windows 2000 compatibility.
 Thanks to François-Régis Tardy and Gildas le Nadan for French translation.
-Thanks to Emilio Frini for spotting that French was inadvertently set as the default language when the user's display language was not translated.
+Thanks to Emilio Frini for spotting that French was inadvertently set as
+the default language when the user's display language was not translated.
 Thanks to Riccardo Gusmeroli and Marco Certelli for Italian translation.
-Thanks to Eric Cheldelin for the inspiration to generate a Control-C event on shutdown.
-Thanks to Brian Baxter for suggesting how to escape quotes from the command prompt.
+Thanks to Eric Cheldelin for the inspiration to generate a Control-C event
+on shutdown.
+Thanks to Brian Baxter for suggesting how to escape quotes from the command
+prompt.
 Thanks to Russ Holmann for suggesting that the shutdown timeout be configurable.
 Thanks to Paul Spause for spotting a bug with default registry entries.
 Thanks to BUGHUNTER for spotting more GUI bugs.
 Thanks to Doug Watson for suggesting file rotation.
 Thanks to Арслан Сайдуганов for suggesting setting process priority.
-Thanks to Robert Middleton for suggestion and draft implementation of process affinity support.
+Thanks to Robert Middleton for suggestion and draft implementation of process
+affinity support.
 Thanks to Andrew RedzMax for suggesting an unconditional restart delay.
-Thanks to Bryan Senseman for noticing that applications with redirected stdout and/or stderr which attempt to read from stdin would fail.
+Thanks to Bryan Senseman for noticing that applications with redirected stdout
+and/or stderr which attempt to read from stdin would fail.
 Thanks to Czenda Czendov for help with Visual Studio 2013 and Server 2012R2.
-Thanks to Alessandro Gherardi for reporting and draft fix of the bug whereby the second restart of the application would have a corrupted environment.
+Thanks to Alessandro Gherardi for reporting and draft fix of the bug whereby
+the second restart of the application would have a corrupted environment.
 Thanks to Hadrien Kohl for suggesting to disable the console window's menu.
-Thanks to Allen Vailliencourt for noticing bugs with configuring the service to run under a local user account.
+Thanks to Allen Vailliencourt for noticing bugs with configuring the service to
+run under a local user account.
 Thanks to Sam Townsend for noticing a regression with TerminateProcess().
-Thanks to Barrett Lewis for suggesting the option to skip terminating the application's child processes.
+Thanks to Barrett Lewis for suggesting the option to skip terminating the
+application's child processes.
 Thanks to Miguel Angel Terrón for suggesting copy/truncate rotation.
-Thanks to Yuriy Lesiuk for suggesting setting the environment before querying the registry for parameters.
-Thanks to Gerald Haider for noticing that installing a service with NSSM in a path containing spaces was technically a security vulnerability.
+Thanks to Yuriy Lesiuk for suggesting setting the environment before querying
+the registry for parameters.
+Thanks to Gerald Haider for noticing that installing a service with NSSM in a
+path containing spaces was technically a security vulnerability.
 Thanks to Scott Ware for reporting a crash saving the environment on XP 32-bit.
 Thanks to Stefan and Michael Scherer for reporting a bug writing the event messages source.
 Thanks to Paul Baxter for help with Visual Studio 2015.
@@ -1021,12 +1040,13 @@ Thanks to Bader Aldurai for suggesting the process tree.
 Thanks to Christian Long for suggesting virtual accounts.
 Thanks to Marcin Lewandowski for spotting a bug appending to large files.
 Thanks to Nicolas Ducrocq for suggesting timestamping redirected output.
-Thanks to Meang Akira Tanaka for suggestion and initial implementation of the statuscode command.
+Thanks to Meang Akira Tanaka for suggestion and initial implementation of
+the statuscode command.
 Thanks to Kirill Kovalenko for reporting a crash with NANO server.
 Thanks to Connor Reynolds for spotting a potential buffer overflow.
 Thanks to foi for spotting a hang with 64 cores.
 
-## Licence
-
-NSSM is public domain.  You may unconditionally use it and/or its source code
+Licence
+-------
+NSSM is public domain.  You may unconditionally use it and/or its source code 
 for any purpose you wish.

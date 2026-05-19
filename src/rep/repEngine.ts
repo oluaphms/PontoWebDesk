@@ -92,6 +92,17 @@ export function normalizePunchRegistrationError(err: unknown): Error {
   if (/Não autorizado a registrar ponto para outro usuário/i.test(msg)) {
     return new Error('Sessão inconsistente: faça logout e entre novamente.');
   }
+  if (
+    code === '42804' ||
+    code === '22P02' ||
+    /column "company_id" is of type uuid but expression is of type text/i.test(msg) ||
+    /column "user_id" is of type uuid but expression is of type text/i.test(msg) ||
+    /operator does not exist.*uuid/i.test(msg)
+  ) {
+    return new Error(
+      'Erro de compatibilidade UUID no servidor. Aplique a migration 20260520360000_fix_rep_register_punch_uuid.sql e recarregue o schema da API no Supabase.',
+    );
+  }
   return err instanceof Error ? err : new Error(msg || 'Erro ao registrar ponto');
 }
 
@@ -115,6 +126,7 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
   } = params;
 
   ensureUuidLike(userId, 'user_id');
+  ensureUuidLike(companyId, 'company_id');
 
   const RPC_TIMEOUT_MS = 15000;
   const { data, error } = await withTimeout(
@@ -176,6 +188,7 @@ export async function registerPunchSecure(params: RegisterPunchSecureParams): Pr
   } = params;
 
   ensureUuidLike(userId, 'user_id');
+  ensureUuidLike(companyId, 'company_id');
 
   const RPC_TIMEOUT_MS = 15000;
   const { data, error } = await withTimeout(

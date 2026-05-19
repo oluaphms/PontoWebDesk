@@ -1,5 +1,5 @@
 {
-  "name": "smartponto",
+  "name": "Pontowebdesk",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -32,7 +32,15 @@
     "scaffold:contract": "node scripts/generate-contract.mjs",
     "scaffold:operational-module": "node scripts/generate-operational-module.mjs",
     "rep:agent": "node scripts/rep-agent.mjs",
+    "build:agent": "node scripts/build-rep-agent-exe.mjs",
     "clock-sync-agent": "tsx agent/index.ts"
+  },
+  "bin": "scripts/rep-agent.mjs",
+  "pkg": {
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
@@ -86,10 +94,12 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "dependency-cruiser": "^16.9.0",
+    "esbuild": "^0.25.0",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
     "jsdom": "^25.0.1",
+    "pkg": "^5.8.1",
     "postcss": "^8.4.47",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",

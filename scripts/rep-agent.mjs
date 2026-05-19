@@ -58,6 +58,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
+import { bootstrapProductionAgent, assertAgentCanStart } from './rep-agent-bootstrap.mjs';
+import { CONFIG_FILE, isPackagedAgent } from './rep-agent-paths.mjs';
 import {
   VOLUME_AIRBAG_THRESHOLD,
   resolveAgentReceivePolicy,
@@ -68,6 +70,11 @@ import {
   parseYmdEndMs,
 } from './rep-agent-go-live.mjs';
 import { computeRepPunchHash } from './rep-punch-hash.mjs';
+
+const bootResult = bootstrapProductionAgent();
+if (!bootResult.ok) {
+  process.exit(1);
+}
 
 /** Preenche process.env a partir de `.env` e `.env.local` na cwd (não sobrescreve variáveis já definidas no shell). */
 function loadEnvFilesFromProjectRoot() {
@@ -90,10 +97,12 @@ function loadEnvFilesFromProjectRoot() {
   }
 }
 
-const repAgentSkipDotenv = /^(1|true|yes)$/i.test((process.env.REP_AGENT_SKIP_DOTENV || '').trim());
+const repAgentSkipDotenv =
+  bootResult.source === 'config.json' ||
+  /^(1|true|yes)$/i.test((process.env.REP_AGENT_SKIP_DOTENV || '').trim());
 if (!repAgentSkipDotenv) {
   loadEnvFilesFromProjectRoot();
-} else {
+} else if (bootResult.source !== 'config.json') {
   console.warn(
     '[rep-agent] REP_AGENT_SKIP_DOTENV=1 — .env e .env.local ignorados (apenas variáveis já no ambiente do processo).'
   );
@@ -105,8 +114,13 @@ function trimBaseUrl(s) {
     .replace(/\/+$/, '');
 }
 
-/** SaaS onde existe POST /api/rep/punch: REP_SAAS_URL, ou VITE_APP_URL (dev com Vite na mesma origem). */
-const saas = trimBaseUrl(process.env.REP_SAAS_URL) || trimBaseUrl(process.env.VITE_APP_URL) || '';
+/** SaaS: config.json (produção) ou REP_SAAS_URL; VITE_APP_URL só em dev sem config.json. */
+const saas =
+  trimBaseUrl(process.env.REP_SAAS_URL) ||
+  (bootResult.source === 'config.json' || isPackagedAgent()
+    ? ''
+    : trimBaseUrl(process.env.VITE_APP_URL)) ||
+  '';
 const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
 const ip = (process.env.REP_DEVICE_IP || '').trim();
 function normalizeDeviceScheme(raw) {
@@ -220,18 +234,30 @@ function fail(msg) {
 
 if (!saas) {
   fail(
-    'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local (carregados automaticamente). Ex.: REP_SAAS_URL=https://seu-app.vercel.app ou VITE_APP_URL=http://localhost:3010 com o Vite a correr. Em PowerShell: $env:REP_SAAS_URL="https://..." Se .env.local apontar para localhost e quiser usar só variáveis do shell: $env:REP_AGENT_SKIP_DOTENV="1"'
+    isPackagedAgent() || bootResult.source === 'config.json'
+      ? `Preencha saas_url em ${CONFIG_FILE} (ex.: https://pontowebdesk.vercel.app).`
+      : 'Defina REP_SAAS_URL ou VITE_APP_URL no .env / .env.local, ou use config.json em C:\\ProgramData\\PontoWebDesk\\config.json.'
   );
 }
-if (!apiKey) fail('Defina API_KEY (ou REP_API_KEY) no .env / .env.local ou no ambiente.');
+if (!apiKey) {
+  fail(
+    isPackagedAgent() || bootResult.source === 'config.json'
+      ? `Preencha api_key em ${CONFIG_FILE}.`
+      : 'Defina API_KEY (ou REP_API_KEY) no .env / .env.local ou em config.json.'
+  );
+}
 if (!ip) {
   fail(
-    'Defina REP_DEVICE_IP no .env / .env.local (ex.: 192.168.x.x do relógio) ou 127.0.0.1 com scripts/rep-agent-mock.mjs (porta 8181). PowerShell: $env:REP_DEVICE_IP="127.0.0.1"'
+    isPackagedAgent() || bootResult.source === 'config.json'
+      ? `Preencha device_ip em ${CONFIG_FILE} (IP do relógio na rede local).`
+      : 'Defina REP_DEVICE_IP no .env / .env.local ou em config.json.'
   );
 }
 if (!companyId && !CLI_SYNC_USERS) {
   fail(
-    'Defina REP_COMPANY_ID no .env / .env.local (UUID em public.companies). PowerShell: $env:REP_COMPANY_ID="..."'
+    isPackagedAgent() || bootResult.source === 'config.json'
+      ? `Preencha company_id em ${CONFIG_FILE}.`
+      : 'Defina REP_COMPANY_ID no .env / .env.local ou em config.json.'
   );
 }
 
@@ -2294,6 +2320,10 @@ async function runCycle() {
 }
 
 async function main() {
+  if (!assertAgentCanStart()) {
+    process.exit(1);
+  }
+
   if (CLI_SYNC_USERS) {
     const result = await runSyncUsersCommand();
     console.log(`[rep-agent] sync-users concluído. sent=${result.sent} errors=${result.errors}`);

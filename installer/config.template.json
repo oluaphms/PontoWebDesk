@@ -1,0 +1,14 @@
+{
+  "saas_url": "",
+  "api_key": "",
+  "device_id": "",
+  "company_id": "",
+  "device_ip": "",
+  "device_port": 443,
+  "device_login": "admin",
+  "device_password": "admin",
+  "timezone": "-03:00",
+  "device_scheme": "https",
+  "insecure_tls": true,
+  "agent_interval_ms": 60000
+}
