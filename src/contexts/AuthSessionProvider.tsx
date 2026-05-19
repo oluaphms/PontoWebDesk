@@ -22,6 +22,7 @@ import {
   readInitialSessionUser,
   readUserFromProfileStore,
   setSessionUserCache,
+  isAuthLogoutGuardActive,
 } from './authSessionInternals';
 
 export type AuthSession = {
@@ -89,6 +90,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const syncFromProfileStore = () => {
+      if (isAuthLogoutGuardActive()) return;
       const stored = readUserFromProfileStore();
       if (stored) setSessionUser(stored);
     };

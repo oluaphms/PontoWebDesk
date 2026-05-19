@@ -77,4 +77,30 @@ describe('assertPlanLimit', () => {
       PlanLimitError,
     );
   });
+
+  it('permite IMPORT_EMPLOYEE com additionalSeats=0 (no-op)', async () => {
+    const client = mockClient({ plan: 'free', activeEmployeeCount: 100 }) as any;
+    await expect(
+      assertPlanLimit(client, {
+        tenantId: 't1',
+        action: { type: 'IMPORT_EMPLOYEE', additionalSeats: 0 },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('permite IMPORT_EMPLOYEE no plano atual (sem limite hard)', async () => {
+    const client = mockClient({ plan: 'pro', activeEmployeeCount: 40 }) as any;
+    await expect(
+      assertPlanLimit(client, {
+        tenantId: 't1',
+        action: { type: 'IMPORT_EMPLOYEE', additionalSeats: 5 },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('isPlanLimitError identifica PlanLimitError', async () => {
+    const { isPlanLimitError } = await import('./planEnforcement');
+    expect(isPlanLimitError(new PlanLimitError())).toBe(true);
+    expect(isPlanLimitError(new Error('x'))).toBe(false);
+  });
 });

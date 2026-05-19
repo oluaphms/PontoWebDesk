@@ -3,6 +3,17 @@ import { getUserProfileStorage } from '../services/supabaseClient';
 
 let sessionUserCache: User | null = null;
 
+/** Bloqueia re-hidratação do perfil a partir do storage durante logout explícito. */
+let authLogoutGuard = false;
+
+export function setAuthLogoutGuard(active: boolean): void {
+  authLogoutGuard = active;
+}
+
+export function isAuthLogoutGuardActive(): boolean {
+  return authLogoutGuard;
+}
+
 export function getSessionUserCache(): User | null {
   return sessionUserCache;
 }
@@ -13,6 +24,7 @@ export function setSessionUserCache(user: User | null): void {
 
 export function readUserFromProfileStore(): User | null {
   if (typeof window === 'undefined') return null;
+  if (authLogoutGuard) return null;
   try {
     const raw = getUserProfileStorage().getItem('current_user');
     if (!raw) return null;

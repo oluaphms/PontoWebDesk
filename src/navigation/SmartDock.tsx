@@ -319,8 +319,10 @@ const SmartDock: React.FC = () => {
                       setLogoutBusy(true);
                       try {
                         await Promise.resolve(onLogout());
+                        openDockGroup(null);
                       } catch (e) {
                         console.error(e);
+                      } finally {
                         setLogoutBusy(false);
                       }
                     }}

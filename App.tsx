@@ -69,6 +69,7 @@ import { i18n } from './lib/i18n';
 import { useSessionTimeout } from './src/hooks/useSessionTimeout';
 import { AuthSessionProvider, readCachedSessionUser } from './src/contexts/AuthSessionProvider';
 import { useAuth } from './src/hooks/useAuth';
+import { setAuthLogoutGuard } from './src/contexts/authSessionInternals';
 import { withTimeout } from './src/utils/withTimeout';
 import {
   authFlowReducer,
@@ -304,6 +305,8 @@ const AppMain: React.FC = () => {
   const activeAuthPipelineRef = useRef<{ pipelineId: number; startedAt: number; eventType: string } | null>(null);
   const authPipelineSeqRef = useRef(0);
   const alreadyAuthenticatedRef = useRef(false);
+  /** Evita RequireAuth + recuperação de sessão enquanto o logout SPA está em curso. */
+  const logoutInProgressRef = useRef(false);
   const authEffectRunCountRef = useRef<Record<string, number>>({});
   const authWatchdogDumpAtRef = useRef<number | null>(null);
 
@@ -557,6 +560,13 @@ const AppMain: React.FC = () => {
       try {
         unsubscribe = authService.onAuthStateChanged((authUser) => {
           if (!isMounted) return;
+          if (logoutInProgressRef.current && authUser) {
+            logAuth('[AUTH PIPELINE IGNORED]', {
+              reason: 'logout_in_progress',
+              incomingUserId: authUser.id,
+            });
+            return;
+          }
           const pipelineId = startAuthPipeline(
             authUser ? 'SIGNED_IN_OR_REFRESHED' : 'INITIAL_SESSION_OR_SIGNED_OUT',
             { reuseIfLoginInFlight: Boolean(authUser && activeLoginAttemptIdRef.current !== null) },
@@ -1612,9 +1622,24 @@ const AppMain: React.FC = () => {
   };
 
   const handleLogout = useCallback(async () => {
-    // Zera o estado React imediatamente — evita qualquer re-render com usuário ainda presente
-    // enquanto o signOut assíncrono ainda está em andamento.
+    if (logoutInProgressRef.current) return;
+    logoutInProgressRef.current = true;
+    setAuthLogoutGuard(true);
+
+    const tenantScope = user ? { companyId: user.companyId, userId: user.id } : undefined;
+
+    // Zera estado React e storage local antes do signOut — evita RequireAuth em /admin/* e re-hidratação.
     clearSession();
+    try {
+      clearCurrentUserFromAllStorages();
+      await clearLocalAuthSession();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('current_user_changed'));
+      }
+    } catch {
+      // segue com signOut global
+    }
+
     setCompany(null);
     setInsights(null);
     insightsAutoFetchDoneRef.current = false;
@@ -1630,18 +1655,19 @@ const AppMain: React.FC = () => {
     dispatchAuthFlow({ type: 'RESET' });
     resetAuthNavigationCoordinator();
 
-    // Limpa caches para não vazar dados entre sessões (memória + React Query)
     queryCache.clear();
-    clearTenantScopedCaches(user ? { companyId: user.companyId, userId: user.id } : undefined);
+    clearTenantScopedCaches(tenantScope);
     try {
       queryClient.clear();
     } catch {
       // ignora
     }
 
+    // Navegação imediata para login — não esperar signOut (corrida com listener/RequireAuth).
+    navigate('/login', { replace: true });
+
     try {
       await authService.signOut();
-      // Em PWA, caches podem manter respostas/artefatos antigos em memória.
       try {
         if (typeof window !== 'undefined' && 'caches' in window) {
           const names = await caches.keys();
@@ -1652,15 +1678,17 @@ const AppMain: React.FC = () => {
           );
         }
       } catch {
-        // ignora falha ao limpar caches
+        // ignora falha ao limpar caches PWA
       }
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
+    } finally {
+      window.setTimeout(() => {
+        logoutInProgressRef.current = false;
+        setAuthLogoutGuard(false);
+      }, 2000);
     }
-
-    // Logout SPA: URL explícita de login (consistente com RequireAuth).
-    navigate('/login', { replace: true });
-  }, [navigate]);
+  }, [navigate, clearSession, user]);
 
   useSessionTimeout(
     globalSettings?.session_timeout_minutes ?? 60,
@@ -1840,6 +1868,9 @@ const AppMain: React.FC = () => {
       p === '/locations' ||
       p === '/devices';
     if (wantsAuthPortal) {
+      if (logoutInProgressRef.current) {
+        return <Navigate to="/login" replace />;
+      }
       return <RequireAuth />;
     }
 
@@ -1997,8 +2028,8 @@ const AppMain: React.FC = () => {
     );
   }
 
-  // Sempre redirecionar raiz ou /login para a dashboard correta por role (evita mostrar layout antigo)
-  if (path === '/' || path === '/login') {
+  // Sessão ativa em /login → dashboard; durante logout manter tela de login (guard acima).
+  if ((path === '/' || path === '/login') && !logoutInProgressRef.current) {
     return <Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />;
   }
 
