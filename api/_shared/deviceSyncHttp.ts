@@ -101,10 +101,10 @@ async function authenticateDeviceOrAdmin(
 }
 
 function authResponse(auth: DeviceAuthResult): Response {
-  if (auth.ok) {
-    throw new Error('authResponse called with ok:true');
+  if (auth.ok === false) {
+    return auth.response;
   }
-  return auth.response;
+  throw new Error('authResponse called with ok:true');
 }
 
 function normalizeSyncError(raw: unknown): StructuredSyncError {
