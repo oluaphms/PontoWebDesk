@@ -6,6 +6,7 @@ const listeners = new Set<AlertListener>();
 
 const STORAGE_KEY = 'smartponto_audit_logs';
 const MAX_LOCAL = 1000;
+const AUDIT_CONSOLE_VERBOSE = Boolean(import.meta.env?.DEV) && String(import.meta.env?.VITE_AUDIT_CONSOLE || '') === 'true';
 
 function toAuditDbSeverity(severity: LogSeverity): 'info' | 'warning' | 'error' {
   if (severity === LogSeverity.ERROR) return 'error';
@@ -93,7 +94,7 @@ export const LoggingService = {
       [LogSeverity.ERROR]: 'color: #ef4444; font-weight: bold',
       [LogSeverity.SECURITY]: 'color: #fff; background: #ef4444; padding: 2px 5px; border-radius: 4px',
     };
-    if (typeof console !== 'undefined' && console.log) {
+    if (AUDIT_CONSOLE_VERBOSE && typeof console !== 'undefined' && console.log) {
       console.log(
         `%c[${logEntry.severity.toUpperCase()}] ${logEntry.action}`,
         colors[logEntry.severity] ?? '',
@@ -158,6 +159,12 @@ export const LoggingService = {
   },
 
   triggerAlert(log: AuditLog) {
+    if (
+      log.severity === LogSeverity.SECURITY &&
+      SECURITY_AUDIT_WITHOUT_RUNTIME_ALERT.has(String(log.action || ''))
+    ) {
+      return;
+    }
     listeners.forEach((l) => l(log));
     if (typeof console !== 'undefined' && console.warn) {
       console.warn(`CRITICAL ALERT: ${log.action}`, log.details);

@@ -7,6 +7,8 @@ type InvalidationRecord = { t: number; kind: string; detail: string };
 
 const WINDOW_MS = 2000;
 const STORM_THRESHOLD = 8;
+const INVALIDATION_AUDIT_VERBOSE =
+  Boolean(import.meta.env?.DEV) && String(import.meta.env?.VITE_QUERY_INVALIDATION_AUDIT || '') === 'true';
 
 const recent: InvalidationRecord[] = [];
 
@@ -20,7 +22,7 @@ function bump(kind: string, detail: string): void {
   const t = Date.now();
   recent.push({ t, kind, detail });
   trim(t);
-  if (recent.length >= STORM_THRESHOLD && typeof console !== 'undefined') {
+  if (INVALIDATION_AUDIT_VERBOSE && recent.length >= STORM_THRESHOLD && typeof console !== 'undefined') {
     console.warn('[QUERY INVALIDATION STORM]', {
       count: recent.length,
       windowMs: WINDOW_MS,
@@ -54,7 +56,7 @@ export function patchQueryClientInvalidationAudit(queryClient: QueryClient): voi
     if (isPostLoginQueryCooldownActive() && !force) {
       const key = filters?.queryKey as readonly unknown[] | undefined;
       if (!isCriticalReactQueryKey(key)) {
-        if (typeof console !== 'undefined') {
+        if (INVALIDATION_AUDIT_VERBOSE && typeof console !== 'undefined') {
           console.info('[QUERY INVALIDATION COOLDOWN SKIP]', {
             queryKey: key !== undefined ? JSON.stringify(key).slice(0, 200) : undefined,
           });
