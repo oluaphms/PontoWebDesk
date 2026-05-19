@@ -350,7 +350,8 @@ export async function insertAdminMirrorTimeRecord(
     type,
     timestampIso: createdAt,
     method: 'admin',
-    source: opts?.rpcSource ?? 'manual',
+    // Para regra de monotonicidade SQL: retroativo só é permitido com source=manual.
+    source: 'manual',
     manualReason: (data.manual_reason as string | null | undefined) ?? null,
     latitude: (data.latitude as number | null | undefined) ?? null,
     longitude: (data.longitude as number | null | undefined) ?? null,

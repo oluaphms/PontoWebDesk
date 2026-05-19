@@ -318,7 +318,10 @@ BEGIN
     gen_random_uuid(),
     p_company_id,
     auth.uid(),
-    'MANUAL_TIME_RECORD_INSERT',
+    CASE WHEN v_is_retroactive
+      THEN 'MANUAL_TIME_RECORD_RETROACTIVE'
+      ELSE 'MANUAL_TIME_RECORD_INSERT'
+    END,
     'time_record',
     v_id,
     jsonb_build_object(
