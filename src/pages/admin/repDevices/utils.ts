@@ -1,5 +1,5 @@
 import type { RepDeviceClockSet } from '../../../../modules/rep-integration/types';
-import type { EmployeeForRep, RepDeviceRow, RepRpcUserRow } from './types';
+import type { EmployeeForRep, RepAgentConnectionState, RepDeviceRow, RepRpcUserRow } from './types';
 import { TIPOS_CONEXAO } from './constants';
 
 /** Última atividade do agente em linguagem natural (pt-BR). */
@@ -123,6 +123,38 @@ export function resolveRepAgentConnection(
   if (ageMs < REP_AGENT_ONLINE_MS) return 'online';
   if (ageMs < REP_AGENT_RECENT_MS) return 'unstable';
   return 'offline';
+}
+
+/** Último heartbeat conhecido (API ok ou linha rep_devices). */
+export function resolveRepLastSeenIso(
+  device: Pick<RepDeviceRow, 'ultima_sincronizacao' | 'last_seen_at'>,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
+): string | null {
+  return (
+    syncSnapshot?.last_heartbeat_at ??
+    syncSnapshot?.last_seen_at ??
+    device.last_seen_at ??
+    device.ultima_sincronizacao ??
+    null
+  );
+}
+
+/**
+ * Conexão para badges: só usa sync-status quando ok:true.
+ * Falha 401/timeout não deve forçar 🔴 se last_seen_at no banco é recente.
+ */
+export function resolveRepConnectionForDevice(
+  device: Pick<RepDeviceRow, 'ultima_sincronizacao' | 'last_seen_at'>,
+  syncSnapshot?: { ok?: boolean; online?: boolean; connection?: RepAgentConnectionState; last_heartbeat_at?: string | null; last_seen_at?: string | null },
+): RepAgentConnectionState {
+  const lastIso = resolveRepLastSeenIso(device, syncSnapshot);
+  if (syncSnapshot?.ok) {
+    return (
+      syncSnapshot.connection ??
+      (syncSnapshot.online === true ? 'online' : resolveRepAgentConnection(lastIso))
+    );
+  }
+  return resolveRepAgentConnection(lastIso);
 }
 
 export function isAgentRecentlySeen(iso: string | null | undefined, windowMs = REP_AGENT_ONLINE_MS): boolean {

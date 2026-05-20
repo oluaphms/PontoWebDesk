@@ -7,7 +7,8 @@ import {
   formatLastCommunicationTime,
   getLocalRepDeviceDisplayState,
   isLocalAgentRepDevice,
-  resolveRepAgentConnection,
+  resolveRepConnectionForDevice,
+  resolveRepLastSeenIso,
 } from './utils';
 import type { RepAgentConnectionState } from './types';
 import { repBadgesUi } from '../../../styles/repBadgesUi';
@@ -31,16 +32,8 @@ export function repDeviceConnectionStatusBadge(
   syncSnapshot?: DeviceSyncStatusSnapshot,
 ) {
   if (isLocalAgentRepDevice(device)) {
-    const lastIso =
-      syncSnapshot?.last_heartbeat_at ??
-      syncSnapshot?.last_seen_at ??
-      device.last_seen_at ??
-      device.ultima_sincronizacao;
-    const connection: RepAgentConnectionState =
-      syncSnapshot?.connection ??
-      (syncSnapshot?.online === true
-        ? 'online'
-        : resolveRepAgentConnection(lastIso));
+    const lastIso = resolveRepLastSeenIso(device, syncSnapshot);
+    const connection = resolveRepConnectionForDevice(device, syncSnapshot);
     const lastAt = formatLastCommunicationTime(lastIso);
     const display = getLocalRepDeviceDisplayState(device, lastIso, connection);
 

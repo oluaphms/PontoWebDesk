@@ -6,7 +6,12 @@ import { Button } from '../../../../components/UI';
 import { Clock, Loader2, Network, Pencil, Plus, Trash2 } from 'lucide-react';
 import { repDeviceConnectionStatusBadge, repDeviceRuntimeBadge } from './badges';
 import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
-import { isLocalAgentRepDevice, repConnectionCellText, shouldBlockCloudRepConnectionTest } from './utils';
+import {
+  isLocalAgentRepDevice,
+  repConnectionCellText,
+  resolveRepConnectionForDevice,
+  shouldBlockCloudRepConnectionTest,
+} from './utils';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { uiTokens } from '../../../styles/tokens';
 import { repListUi } from '../../../styles/repDevicesListUi';
@@ -192,7 +197,9 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                   <span className={repListUi.c015}>
                     {repDeviceRuntimeBadge(
                       syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime,
-                      syncStatusByDeviceId[d.id]?.connection,
+                      isLocalAgentRepDevice(d)
+                        ? resolveRepConnectionForDevice(d, syncStatusByDeviceId[d.id])
+                        : syncStatusByDeviceId[d.id]?.connection,
                     )}
                   </span>
                 </div>
@@ -328,9 +335,11 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     <td className={repListUi.c029}>{repDeviceConnectionStatusBadge(d, syncStatusByDeviceId[d.id])}</td>
                     <td className={repListUi.c029}>
                       {repDeviceRuntimeBadge(
-                      syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime,
-                      syncStatusByDeviceId[d.id]?.connection,
-                    )}
+                        syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime,
+                        isLocalAgentRepDevice(d)
+                          ? resolveRepConnectionForDevice(d, syncStatusByDeviceId[d.id])
+                          : syncStatusByDeviceId[d.id]?.connection,
+                      )}
                     </td>
                     <td className={repListUi.c030}>
                       {formatDate(syncStatusByDeviceId[d.id]?.last_sync_at ?? d.ultima_sincronizacao)}
