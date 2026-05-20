@@ -22,6 +22,7 @@ import {
   ClipboardCheck,
   Clock,
   Download,
+  CheckCircle2,
   Plus,
   Upload,
   UserPlus,
@@ -173,6 +174,8 @@ const AdminRepDevices: React.FC = () => {
   /** Em HTTPS (produção): nota sobre nuvem vs rede local e agente. */
   const [repDeploymentNote, setRepDeploymentNote] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [savingDevice, setSavingDevice] = useState(false);
+  const [saveDeviceSuccessPulse, setSaveDeviceSuccessPulse] = useState(false);
   /** Modal Enviar e Receber (REP rede) */
   const [sendReceiveOpen, setSendReceiveOpen] = useState(false);
   const [srDeviceId, setSrDeviceId] = useState('');
@@ -2235,6 +2238,8 @@ const AdminRepDevices: React.FC = () => {
       provider_type: '',
       identifier_type: 'pis',
     });
+    setSavingDevice(false);
+    setSaveDeviceSuccessPulse(false);
     setModalOpen(true);
   };
 
@@ -2260,7 +2265,25 @@ const AdminRepDevices: React.FC = () => {
       provider_type: (d.provider_type || '').trim(),
       identifier_type: d.identifier_type === 'cpf' || d.identifier_type === 'both' ? d.identifier_type : 'pis',
     });
+    setSavingDevice(false);
+    setSaveDeviceSuccessPulse(false);
     setModalOpen(true);
+  };
+
+  const completeDeviceSaveUi = (): Promise<void> =>
+    new Promise((resolve) => {
+      setSavingDevice(false);
+      setSaveDeviceSuccessPulse(true);
+      window.setTimeout(() => {
+        setSaveDeviceSuccessPulse(false);
+        resolve();
+      }, 520);
+    });
+
+  const closeDeviceModalAfterSave = async () => {
+    await completeDeviceSaveUi();
+    setModalOpen(false);
+    void loadDevices();
   };
 
   const saveDevice = async () => {
@@ -2279,6 +2302,8 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: 'Informe o nome do relógio (campo obrigatório).' });
       return;
     }
+    setSavingDevice(true);
+    setSaveDeviceSuccessPulse(false);
     try {
       const providerSlug = form.provider_type.trim() || null;
       if (editingId) {
@@ -2327,8 +2352,7 @@ const AdminRepDevices: React.FC = () => {
               type: 'success',
               text: `Dispositivo atualizado. Aviso: cadastro hub (timeclock_devices) não sincronizou: ${(mirrorErr as Error).message}`,
             });
-            setModalOpen(false);
-            void loadDevices();
+            await closeDeviceModalAfterSave();
             return;
           }
         }
@@ -2389,8 +2413,7 @@ const AdminRepDevices: React.FC = () => {
               type: 'success',
               text: `Dispositivo cadastrado. Aviso: cadastro hub (timeclock_devices) não sincronizou: ${(mirrorErr as Error).message}`,
             });
-            setModalOpen(false);
-            void loadDevices();
+            await closeDeviceModalAfterSave();
             return;
           }
         }
@@ -2401,10 +2424,11 @@ const AdminRepDevices: React.FC = () => {
             : 'Dispositivo cadastrado como inativo. Use «Mostrar inativos» na lista para vê-lo.',
         });
       }
-      setModalOpen(false);
-      void loadDevices();
+      await closeDeviceModalAfterSave();
     } catch (e) {
       setMessage({ type: 'error', text: (e as Error).message });
+      setSavingDevice(false);
+      setSaveDeviceSuccessPulse(false);
     }
   };
 
@@ -3824,11 +3848,37 @@ const AdminRepDevices: React.FC = () => {
               </div>
             </div>
             <div className={repPageUi.c124}>
-              <Button className={repPageUi.c125} variant="secondary" onClick={() => setModalOpen(false)}>
+              <Button
+                className={repPageUi.c125}
+                variant="secondary"
+                disabled={savingDevice}
+                onClick={() => {
+                  setSavingDevice(false);
+                  setSaveDeviceSuccessPulse(false);
+                  setModalOpen(false);
+                }}
+              >
                 Cancelar
               </Button>
-              <Button type="button" className={repPageUi.c125} onClick={() => void saveDevice()}>
-                Salvar
+              <Button
+                type="button"
+                className={`${repPageUi.c125} transition-all duration-300 ${
+                  saveDeviceSuccessPulse
+                    ? '!bg-emerald-600 hover:!bg-emerald-600 shadow-lg shadow-emerald-600/35 scale-[1.02] ring-4 ring-emerald-400/40'
+                    : ''
+                }`}
+                loading={savingDevice && !saveDeviceSuccessPulse}
+                disabled={savingDevice}
+                onClick={() => void saveDevice()}
+              >
+                {saveDeviceSuccessPulse ? (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 motion-safe:animate-bounce" aria-hidden />
+                    Salvo!
+                  </>
+                ) : (
+                  'Salvar'
+                )}
               </Button>
             </div>
           </div>
