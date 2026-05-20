@@ -8,22 +8,41 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+  [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+if (-not $isAdmin) {
+  throw "Execute o instalador ou este script como Administrador (necessario para registrar o servico Windows)."
+}
+
+function Write-RepAgentLog {
+  param(
+    [string]$Message,
+    [ConsoleColor]$Color = [ConsoleColor]::Cyan
+  )
+  Write-Host ('[rep-agent] ' + $Message) -ForegroundColor $Color
+}
+
 function Resolve-NssmPath {
-  param([string]$ProvidedPath)
+  param(
+    [string]$ProvidedPath,
+    [string]$InstallDir
+  )
   if ($ProvidedPath -and (Test-Path $ProvidedPath)) {
     return (Resolve-Path $ProvidedPath).Path
   }
   $candidates = @(
+    $(if ($InstallDir) { Join-Path $InstallDir "nssm.exe" } else { $null }),
     "C:\tools\nssm\nssm.exe",
     "C:\Program Files\nssm\nssm.exe",
     "C:\Program Files (x86)\nssm\nssm.exe"
-  )
+  ) | Where-Object { $_ -and (Test-Path $_) }
   foreach ($candidate in $candidates) {
-    if (Test-Path $candidate) { return $candidate }
+    return (Resolve-Path $candidate).Path
   }
   $cmd = Get-Command nssm -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
-  throw "NSSM não encontrado. Informe -NssmPath ou instale nssm.exe."
+  throw "NSSM não encontrado. Informe -NssmPath, copie nssm.exe para $InstallDir ou instale NSSM no PATH."
 }
 
 function Resolve-NodePath {
@@ -59,29 +78,49 @@ function Build-EnvBlock {
   return ($pairs -join "`n")
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-if (-not (Test-Path $InstallDir)) {
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = (Resolve-Path (Split-Path -Parent $scriptDir)).Path
+if (-not (Test-Path -LiteralPath $InstallDir)) {
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
+$InstallDir = (Resolve-Path -LiteralPath $InstallDir).Path
 
-Write-Host "[rep-agent] Copiando arquivos para $InstallDir ..." -ForegroundColor Cyan
 $copyList = @(
   "package.json",
-  "package-lock.json",
   "scripts\rep-agent.mjs",
+  "scripts\rep-agent-bootstrap.mjs",
+  "scripts\rep-agent-config.mjs",
+  "scripts\rep-agent-paths.mjs",
+  "scripts\rep-agent-logger.mjs",
+  "scripts\rep-agent-go-live.mjs",
+  "scripts\rep-punch-hash.mjs",
   "scripts\rep-agent.env.example"
 )
-foreach ($item in $copyList) {
-  $src = Join-Path $repoRoot $item
-  if (-not (Test-Path $src)) {
-    throw "Arquivo obrigatório ausente: $src"
+
+if ($repoRoot.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) {
+  Write-RepAgentLog 'Instalacao in-place: arquivos ja estao em ' + $InstallDir + ' (pulando copia).' -Color DarkGray
+} else {
+  Write-RepAgentLog "Copiando arquivos de $repoRoot para $InstallDir ..."
+  foreach ($item in $copyList) {
+    $src = (Resolve-Path -LiteralPath (Join-Path $repoRoot $item)).Path
+    $dst = Join-Path $InstallDir $item
+    $dstDir = Split-Path -Parent $dst
+    if (-not (Test-Path $dstDir)) {
+      New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+    }
+    $dstResolved = $null
+    if (Test-Path -LiteralPath $dst) {
+      $dstResolved = (Resolve-Path -LiteralPath $dst).Path
+    }
+    if ($dstResolved -and ($dstResolved -ieq $src)) {
+      continue
+    }
+    Copy-Item -Path $src -Destination $dst -Force
   }
-  $dst = Join-Path $InstallDir $item
-  $dstDir = Split-Path -Parent $dst
-  if (-not (Test-Path $dstDir)) {
-    New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+  $agentPackageTemplate = Join-Path $repoRoot "installer\agent-package.json"
+  if (Test-Path $agentPackageTemplate) {
+    Copy-Item -Path $agentPackageTemplate -Destination (Join-Path $InstallDir "package.json") -Force
   }
-  Copy-Item -Path $src -Destination $dst -Force
 }
 
 if (-not $EnvFilePath) {
@@ -93,28 +132,50 @@ if (-not $EnvFilePath) {
   }
 }
 if (-not (Test-Path $EnvFilePath)) {
-  throw "Arquivo de ambiente não encontrado: $EnvFilePath"
+  throw @"
+Arquivo de ambiente não encontrado: $EnvFilePath
+Reexecute o instalador e escolha 'Reconfigurar equipamento', ou copie scripts\rep-agent.env.example para scripts\rep-agent.env e preencha os valores.
+"@
 }
 
-$nssm = Resolve-NssmPath -ProvidedPath $NssmPath
+$logsDir = Join-Path $InstallDir "logs"
+if (-not (Test-Path $logsDir)) {
+  New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+}
+
+$nssm = Resolve-NssmPath -ProvidedPath $NssmPath -InstallDir $InstallDir
 $node = Resolve-NodePath
 $agentScript = Join-Path $InstallDir "scripts\rep-agent.mjs"
 
-Write-Host "[rep-agent] Validando dependências npm no destino..." -ForegroundColor Cyan
-Push-Location $InstallDir
-try {
-  npm ci --omit=dev | Out-Host
-}
-finally {
-  Pop-Location
+if (-not (Test-Path (Join-Path $InstallDir "node_modules\dotenv"))) {
+  Write-RepAgentLog 'Instalando dependencia dotenv (primeira vez)...'
+  Push-Location $InstallDir
+  try {
+    if (Test-Path (Join-Path $InstallDir "package-lock.json")) {
+      Remove-Item (Join-Path $InstallDir "package-lock.json") -Force -ErrorAction SilentlyContinue
+    }
+    npm install --omit=dev --no-audit --no-fund 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install falhou com codigo $LASTEXITCODE. Verifique rede e Node.js 20+."
+    }
+  }
+  finally {
+    Pop-Location
+  }
+} else {
+  Write-RepAgentLog 'node_modules ja presente - pulando npm install.' -Color DarkGray
 }
 
 $envMap = Parse-EnvFile -Path $EnvFilePath
 $envBlock = Build-EnvBlock -EnvMap $envMap
 
-Write-Host "[rep-agent] Registrando serviço $ServiceName via NSSM..." -ForegroundColor Cyan
-& $nssm remove $ServiceName confirm | Out-Null
-& $nssm install $ServiceName $node $agentScript | Out-Null
+Write-RepAgentLog "Registrando servico $ServiceName via NSSM..."
+& $nssm stop $ServiceName 2>$null | Out-Null
+& $nssm remove $ServiceName confirm 2>$null | Out-Null
+$installOut = & $nssm install $ServiceName $node $agentScript 2>&1
+if ($LASTEXITCODE -ne 0) {
+  throw "nssm install falhou: $($installOut -join ' ')"
+}
 & $nssm set $ServiceName AppDirectory $InstallDir | Out-Null
 & $nssm set $ServiceName Start SERVICE_AUTO_START | Out-Null
 & $nssm set $ServiceName AppExit Default Restart | Out-Null
@@ -126,9 +187,13 @@ Write-Host "[rep-agent] Registrando serviço $ServiceName via NSSM..." -Foregrou
 & $nssm set $ServiceName AppRotateSeconds 86400 | Out-Null
 & $nssm set $ServiceName AppRotateBytes 10485760 | Out-Null
 
-Write-Host "[rep-agent] Iniciando serviço..." -ForegroundColor Cyan
-Start-Service -Name $ServiceName
-Start-Sleep -Seconds 1
-$svc = Get-Service -Name $ServiceName
-Write-Host "[rep-agent] Serviço instalado com status: $($svc.Status)" -ForegroundColor Green
-Write-Host "[rep-agent] Logs: $(Join-Path $InstallDir "logs")" -ForegroundColor Green
+Write-RepAgentLog 'Iniciando servico...'
+try {
+  Start-Service -Name $ServiceName -ErrorAction Stop
+  Start-Sleep -Seconds 1
+  $svc = Get-Service -Name $ServiceName
+  Write-RepAgentLog "Servico instalado com status: $($svc.Status)" -Color Green
+} catch {
+  throw "Servico registrado, mas nao iniciou: $($_.Exception.Message). Verifique rep-agent.env e logs em $(Join-Path $InstallDir 'logs')."
+}
+Write-RepAgentLog ('Logs: ' + (Join-Path $InstallDir 'logs')) -Color Green

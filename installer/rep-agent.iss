@@ -4,6 +4,10 @@
 #define MyAppURL "https://pontowebdesk.vercel.app"
 #define MyAppExeName "node.exe"
 
+#if !FileExists(AddBackslash(SourcePath) + "nssm.exe")
+  #error "installer\nssm.exe ausente. Execute: powershell -File installer\download-nssm.ps1"
+#endif
+
 [Setup]
 AppId={{B9E4EC97-3E64-4B47-A4FB-C5A54A9BA109}
 AppName={#MyAppName}
@@ -27,21 +31,28 @@ UninstallDisplayIcon={app}\scripts\rep-agent.mjs
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Files]
-Source: "..\package.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\package-lock.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "agent-package.json"; DestDir: "{app}"; DestName: "package.json"; Flags: ignoreversion
+Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\scripts\rep-agent.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-bootstrap.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-config.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-paths.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-logger.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-go-live.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-punch-hash.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\rep-agent.env.example"; DestDir: "{app}\scripts"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\scripts\install-rep-agent-service.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\uninstall-rep-agent-service.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\install-rep-agent-service.ps1"" -InstallDir ""{app}"" -ServiceName ""PontoWebDeskRepAgent"" -EnvFilePath ""{app}\scripts\rep-agent.env"""; Flags: runhidden waituntilterminated postinstall
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\install-rep-agent-service.ps1"" -InstallDir ""{app}"" -ServiceName ""PontoWebDeskRepAgent"" -EnvFilePath ""{app}\scripts\rep-agent.env"" -NssmPath ""{app}\nssm.exe"""; Flags: runhidden waituntilterminated postinstall; StatusMsg: "Instalando serviço Windows PontoWebDeskRepAgent..."
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\uninstall-rep-agent-service.ps1"" -ServiceName ""PontoWebDeskRepAgent"""; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\uninstall-rep-agent-service.ps1"" -ServiceName ""PontoWebDeskRepAgent"" -InstallDir ""{app}"" -NssmPath ""{app}\nssm.exe"""; Flags: runhidden
 
 [Code]
 var
+  ModePage: TWizardPage;
   ConfigPage: TWizardPage;
   ImportModePage: TWizardPage;
   SummaryPage: TWizardPage;
