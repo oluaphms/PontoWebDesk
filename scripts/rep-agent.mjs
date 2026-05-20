@@ -1332,7 +1332,7 @@ async function ackUserSync(syncId, ok, payload = {}) {
   const errorBody = typeof payload === 'object' && payload ? payload.error : payload;
   const t0 = Date.now();
   const res = await fetchJsonWithTimeout(
-    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/ack-sync`,
+    `${saas}/api/rep/ack-sync?device_id=${encodeURIComponent(deviceId)}`,
     {
       method: 'POST',
       headers: {
@@ -1739,7 +1739,7 @@ async function runSyncUsersCommand() {
 
   const pendingStart = Date.now();
   const pendingRes = await fetchJsonWithTimeout(
-    `${saas}/api/rep/devices/${encodeURIComponent(deviceId)}/pending-users`,
+    `${saas}/api/rep/pending-users?device_id=${encodeURIComponent(deviceId)}`,
     {
       method: 'GET',
       headers: {

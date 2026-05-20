@@ -310,7 +310,7 @@ const AdminRepDevices: React.FC = () => {
       if (!session?.access_token) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
-      const res = await fetch(`/api/rep/devices/${encodeURIComponent(deviceId)}/force-sync`, {
+      const res = await fetch(`/api/rep/force-sync?device_id=${encodeURIComponent(deviceId)}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,

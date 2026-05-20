@@ -17,7 +17,7 @@ const offlineSnapshot = (): DeviceSyncStatusSnapshot => ({
   last_heartbeat_at: null,
 });
 
-/** GET /api/rep/devices/:id/sync-status — baseado em heartbeat (agente → nuvem). */
+/** GET /api/rep/sync-status?device_id= — baseado em heartbeat (agente → nuvem). */
 export async function fetchRepDeviceSyncStatus(
   deviceId: string,
   accessToken: string,
@@ -28,7 +28,7 @@ export async function fetchRepDeviceSyncStatus(
   const signal = options?.signal ?? controller.signal;
 
   try {
-    const res = await fetch(`/api/rep/devices/${encodeURIComponent(deviceId)}/sync-status`, {
+    const res = await fetch(`/api/rep/sync-status?device_id=${encodeURIComponent(deviceId)}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,

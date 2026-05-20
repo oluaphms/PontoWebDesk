@@ -24,7 +24,7 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
   if (!slug) {
     return noCache(
       Response.json(
-        { error: 'Rota REP inválida. Use /api/rep/punch, /api/rep/heartbeat, /api/rep/devices/{id}/sync-status, etc.' },
+        { error: 'Rota REP inválida. Use /api/rep/punch, /api/rep/heartbeat, /api/rep/sync-status?device_id=, etc.' },
         { status: 404, headers: { 'Content-Type': 'application/json' } },
       ),
     );
@@ -89,6 +89,35 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
       return noCache(
         Response.json(
           { error: 'REP_COMMAND_RESULT_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
+
+  /** Vercel Hobby: catch-all só entrega 1 segmento; rotas planas com ?device_id= */
+  const flatDeviceActions = new Set(['sync-status', 'ack-sync', 'pending-users', 'force-sync']);
+  if (flatDeviceActions.has(slug)) {
+    const deviceId = new URL(request.url).searchParams.get('device_id')?.trim() ?? '';
+    if (!deviceId) {
+      return noCache(
+        Response.json(
+          { error: 'device_id é obrigatório (query ?device_id=)' },
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+    try {
+      const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
+      return handleDeviceSyncRoute(
+        request,
+        `devices/${encodeURIComponent(deviceId)}/${slug}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { error: 'REP_DEVICE_SYNC_MODULE_LOAD_FAILED', detail },
           { status: 500, headers: { 'Content-Type': 'application/json' } },
         ),
       );
