@@ -36,14 +36,19 @@ function json(body: unknown, status: number, headers: Record<string, string>): R
   return noCache(Response.json(body, { status, headers: { ...headers, 'Content-Type': 'application/json' } }));
 }
 
-function getBridgeToken(): string {
-  return (process.env.REP_BRIDGE_TOKEN || process.env.REP_AGENT_TOKEN || process.env.API_KEY || '').trim();
+function newExecutionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function isAgentRequest(request: Request): boolean {
+async function isAgentRequest(request: Request, supabase: SupabaseClient): Promise<boolean> {
   const token = extractBearerToken(request);
-  const bridge = getBridgeToken();
-  return Boolean(token && bridge && secureCompare(token, bridge));
+  if (!token) return false;
+  const url = new URL(request.url);
+  const deviceId = (url.searchParams.get('device_id') || '').trim();
+  return verifyRepAgentToken(supabase, token, deviceId || null);
 }
 
 async function loadDevice(
