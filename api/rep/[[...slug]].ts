@@ -1,6 +1,7 @@
 /**
- * Função única para /api/rep/* (heartbeat, collect, punch, devices/…/sync-status, …).
- * Padrão igual a api/auth/[[...slug]].ts — confiável no plano Hobby da Vercel.
+ * Única Serverless Function para /api/rep/* (plano Hobby: máx. 12 funções por deploy).
+ * Inclui: heartbeat, collect, commands, devices/{id}/sync-status, punch, etc.
+ * Não criar api/rep/devices/... separado — cada .ts em api/ conta como +1 função.
  */
 
 import { dispatchRepRequest } from '../_shared/repApiDispatch.js';
