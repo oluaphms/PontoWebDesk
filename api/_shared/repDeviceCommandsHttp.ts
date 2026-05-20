@@ -3,12 +3,12 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { randomUUID } from 'node:crypto';
 import { getSupabaseConfig } from './getSupabaseConfig.js';
-import { getSecureCorsHeaders, extractBearerToken, secureCompare } from './security.js';
+import { getSecureCorsHeaders, extractBearerToken } from './security.js';
 import { noCache } from './cache.js';
 import { getCallerContext, isAdminOrHr } from './callerContext.js';
 import { getSupabaseUrlForServer } from './getSupabaseConfig.js';
+import { verifyRepAgentToken } from './repAgentAuth.js';
 
 const TERMINAL = new Set(['done', 'error', 'cancelled']);
 
@@ -124,7 +124,7 @@ async function claimPendingCommands(
   const now = new Date().toISOString();
 
   for (const row of pending) {
-    const executionId = randomUUID();
+    const executionId = newExecutionId();
     const { data: one, error: claimErr } = await supabase
       .from('rep_device_commands')
       .update({
@@ -260,11 +260,18 @@ async function handleGetCommands(
   const companyIdParam = (url.searchParams.get('company_id') || '').trim();
   const statusFilter = (url.searchParams.get('status') || '').trim();
 
-  if (isAgentRequest(request)) {
+  if (await isAgentRequest(request, supabase)) {
     const companyId = companyIdParam;
     if (!companyId) return json({ error: 'company_id obrigatório' }, 400, headers);
 
     const deviceId = deviceIdParam || null;
+
+    if (deviceId) {
+      const device = await loadDevice(supabase, deviceId);
+      if (!device || device.company_id !== companyId) {
+        return json({ error: 'Dispositivo não encontrado ou empresa incorreta' }, 404, headers);
+      }
+    }
 
     await reclaimStuckProcessingCommands(supabase, companyId);
 
@@ -328,10 +335,6 @@ export async function handleRepCommandResult(request: Request): Promise<Response
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405, headers);
   }
-  if (!isAgentRequest(request)) {
-    return json({ error: 'Unauthorized' }, 401, headers);
-  }
-
   let body: {
     command_id?: string;
     execution_id?: string;
@@ -372,6 +375,11 @@ export async function handleRepCommandResult(request: Request): Promise<Response
   }
 
   const row = existing as { id: string; company_id: string; device_id: string; status: string; execution_id: string | null };
+
+  const token = extractBearerToken(request);
+  if (!(await verifyRepAgentToken(supabase, token || '', row.device_id))) {
+    return json({ error: 'Unauthorized' }, 401, headers);
+  }
 
   if (TERMINAL.has(row.status)) {
     return json({ success: true, idempotent: true }, 200, headers);
@@ -433,20 +441,27 @@ export async function handleRepCommands(request: Request): Promise<Response> {
     return noCache(new Response(null, { status: 204, headers }));
   }
 
-  let supabase: SupabaseClient;
   try {
-    const { url, serviceKey } = getSupabaseConfig();
-    supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
-  } catch {
-    return json({ error: 'Supabase não configurado' }, 500, headers);
-  }
+    let supabase: SupabaseClient;
+    try {
+      const { url, serviceKey } = getSupabaseConfig();
+      supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      return json({ error: 'Supabase não configurado', detail }, 500, headers);
+    }
 
-  if (request.method === 'POST') {
-    return handleCreateCommand(request, supabase, headers);
-  }
-  if (request.method === 'GET') {
-    return handleGetCommands(request, supabase, headers);
-  }
+    if (request.method === 'POST') {
+      return handleCreateCommand(request, supabase, headers);
+    }
+    if (request.method === 'GET') {
+      return handleGetCommands(request, supabase, headers);
+    }
 
-  return json({ error: 'Method not allowed' }, 405, headers);
+    return json({ error: 'Method not allowed' }, 405, headers);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error('[rep/commands] unhandled:', detail);
+    return json({ error: 'Erro interno', detail }, 500, headers);
+  }
 }

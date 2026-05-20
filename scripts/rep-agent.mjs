@@ -414,13 +414,20 @@ function clockHttpRequest(urlObj, options) {
 }
 
 /** POST cru ao relógio (uma ida); devolve cabeçalhos para seguir Location em redirects. */
-async function clockRawPost(urlString, bodyUtf8, headerFields) {
+async function clockRawPost(urlString, bodyUtf8, headerFields, { timeoutMs = REP_AFD_TIMEOUT_MS } = {}) {
   const u = new URL(urlString);
   const headers = {
     ...headerFields,
     'Content-Length': Buffer.byteLength(bodyUtf8, 'utf8'),
   };
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(arg);
+    };
     const req = clockHttpRequest(
       u,
       buildClockHttpOptions(u, { method: 'POST', headers }),
@@ -429,11 +436,19 @@ async function clockRawPost(urlString, bodyUtf8, headerFields) {
         res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
-          resolve({ status: res.statusCode || 0, text, headers: res.headers });
+          finish(resolve, { status: res.statusCode || 0, text, headers: res.headers });
         });
       }
     );
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      try {
+        req.destroy();
+      } catch {
+        /* ignora */
+      }
+      finish(reject, new Error(`timeout após ${timeoutMs}ms em ${u.pathname}`));
+    }, timeoutMs);
+    req.on('error', (e) => finish(reject, e));
     req.write(bodyUtf8);
     req.end();
   });
@@ -1604,7 +1619,15 @@ async function pollAndExecuteRepCommands() {
       REP_SYNC_TIMEOUT_MS,
     );
     if (!res.ok) {
-      syncLog('[REP COMMANDS] poll falhou', { detail: { status: res.status } });
+      const errBody =
+        typeof res.data === 'string'
+          ? res.data.slice(0, 200)
+          : res.data && typeof res.data === 'object'
+            ? JSON.stringify(res.data).slice(0, 200)
+            : '';
+      syncLog('[REP COMMANDS] poll falhou', {
+        detail: { status: res.status, body: errBody || undefined },
+      });
       return;
     }
     const data =

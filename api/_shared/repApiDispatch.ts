@@ -56,6 +56,34 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
     const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
     return handleDeviceSyncRoute(request, slug);
   }
+  if (slug === 'commands') {
+    try {
+      const { handleRepCommands } = await import('./repDeviceCommandsHttp.js');
+      return handleRepCommands(request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { error: 'REP_COMMANDS_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
+  if (slug === 'command-result') {
+    try {
+      const { handleRepCommandResult } = await import('./repDeviceCommandsHttp.js');
+      return handleRepCommandResult(request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { error: 'REP_COMMAND_RESULT_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
 
   const { handleRepSlug } = await import('../../modules/rep-integration/repApiRoutes.js');
   return handleRepSlug(request, slug);
