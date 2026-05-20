@@ -1,7 +1,15 @@
 {
-  "ignoreRpcTracing": [
-    "src/services/punchEvidenceService.ts",
-    "src/services/tenantOnboardingService.ts"
-  ],
-  "migrationDocMode": "warn"
+  "saas_url": "https://pontowebdesk.vercel.app",
+  "api_key": "0137fd1c88fbe0e1d7f32a518f045467062e28176331e05bcfb1088df2899e5f
+",
+  "device_id": "f2bf6562-bd66-4800-ba95-a54079a8543b",
+  "company_id": "a145b0cd-76f4-4dc8-b50c-02b0c9bfe24b",
+  "device_ip": "192.168.1.19",
+  "device_port": 443,
+  "device_login": "admin",
+  "device_password": "admin",
+  "timezone": "-03:00",
+  "device_scheme": "https",
+  "insecure_tls": true,
+  "agent_interval_ms": 60000
 }

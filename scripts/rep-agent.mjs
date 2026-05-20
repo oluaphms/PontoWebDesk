@@ -57,6 +57,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
+import https from 'node:https';
 import dotenv from 'dotenv';
 import { bootstrapProductionAgent, assertAgentCanStart } from './rep-agent-bootstrap.mjs';
 import { CONFIG_FILE, isPackagedAgent } from './rep-agent-paths.mjs';
@@ -223,8 +225,7 @@ if (
 }
 
 if (scheme === 'https' && insecureTls) {
-  // Uso restrito a LAN confiável: aceita certificado self-signed do relógio.
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.log('[rep-agent] TLS self-signed habilitado apenas para requisições ao relógio (LAN).');
 }
 
 function fail(msg) {
@@ -391,27 +392,38 @@ function clockNextUrlFromRedirect(currentUrl, locationHeader) {
   }
 }
 
+/** Opções http(s).request — sem `protocol`/`host` duplicados (evita "Invalid host defined options" no Node 18/pkg). */
+function buildClockHttpOptions(urlObj, { method = 'GET', headers = {} } = {}) {
+  const useHttps = urlObj.protocol === 'https:';
+  const opts = {
+    hostname: urlObj.hostname,
+    port: urlObj.port || (useHttps ? 443 : 80),
+    path: `${urlObj.pathname}${urlObj.search}`,
+    method,
+    headers,
+    insecureHTTPParser: true,
+  };
+  if (useHttps) {
+    opts.rejectUnauthorized = clockTlsRejectUnauthorized(urlObj);
+  }
+  return opts;
+}
+
+function clockHttpRequest(urlObj, options) {
+  return urlObj.protocol === 'https:' ? https.request(options) : http.request(options);
+}
+
 /** POST cru ao relógio (uma ida); devolve cabeçalhos para seguir Location em redirects. */
 async function clockRawPost(urlString, bodyUtf8, headerFields) {
   const u = new URL(urlString);
-  const useHttps = u.protocol === 'https:';
-  const { request } = await (useHttps ? import('node:https') : import('node:http'));
   const headers = {
     ...headerFields,
     'Content-Length': Buffer.byteLength(bodyUtf8, 'utf8'),
   };
   return new Promise((resolve, reject) => {
-    const req = request(
-      {
-        protocol: u.protocol,
-        hostname: u.hostname,
-        port: u.port || (useHttps ? 443 : 80),
-        path: `${u.pathname}${u.search}`,
-        method: 'POST',
-        headers,
-        rejectUnauthorized: clockTlsRejectUnauthorized(u),
-        insecureHTTPParser: true,
-      },
+    const req = clockHttpRequest(
+      u,
+      buildClockHttpOptions(u, { method: 'POST', headers }),
       (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
@@ -485,8 +497,6 @@ async function clockGet(url, { timeoutMs = REP_AFD_TIMEOUT_MS, maxBytes = REP_AF
 
   for (let d = 0; d <= CLOCK_HTTP_MAX_REDIRECTS; d += 1) {
     const u = new URL(current);
-    const useHttps = u.protocol === 'https:';
-    const { request } = await (useHttps ? import('node:https') : import('node:http'));
     const headers = {
       Accept: 'text/plain, application/octet-stream, */*',
       ...clockDeviceAuthHeaders(),
@@ -496,17 +506,9 @@ async function clockGet(url, { timeoutMs = REP_AFD_TIMEOUT_MS, maxBytes = REP_AF
       let aborted = false;
       let received = 0;
       const chunks = [];
-      const req = request(
-        {
-          protocol: u.protocol,
-          hostname: u.hostname,
-          port: u.port || (useHttps ? 443 : 80),
-          path: `${u.pathname}${u.search}`,
-          method: 'GET',
-          headers,
-          rejectUnauthorized: clockTlsRejectUnauthorized(u),
-          insecureHTTPParser: true,
-        },
+      const req = clockHttpRequest(
+        u,
+        buildClockHttpOptions(u, { method: 'GET', headers }),
         (res) => {
           res.on('data', (c) => {
             if (aborted) return;

@@ -49,7 +49,9 @@ Estado (NSR, meta): `C:\ProgramData\PontoWebDesk\state` e `...\data\rep-agent`
 2. Abra `installer/setup.iss` no Inno Setup Compiler
 3. Compile (Build → Compile)
 
-Saída: `installer/dist-installer/pontowebdesk-rep-agent-setup.exe`
+Saída: `installer/dist-installer/pontowebdesk-rep-agent-exe-setup.exe`
+
+**Importante:** compile `installer/setup.iss` (produção `.exe`). **Não** use `rep-agent.iss` — ele gera o mesmo nome antigo e instala Node em `C:\PontoWebDeskAgent`.
 
 ## 4. Instalação no PC da empresa
 

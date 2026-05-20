@@ -7,6 +7,13 @@
 #define MyAppURL "https://pontowebdesk.vercel.app"
 #define ProgramDataPontoWeb "C:\ProgramData\PontoWebDesk"
 
+#if !FileExists(AddBackslash(SourcePath) + "nssm.exe")
+  #error "installer\nssm.exe ausente. Execute: powershell -File installer\download-nssm.ps1"
+#endif
+#if !FileExists(AddBackslash(SourcePath) + "..\dist\rep-agent.exe")
+  #error "dist\rep-agent.exe ausente. Execute na raiz: npm run build:agent"
+#endif
+
 [Setup]
 AppId={{F3A8D2E1-9C4B-4F6A-A1E2-8B7C5D4E3F21}
 AppName={#MyAppName}
@@ -20,7 +27,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=dist-installer
-OutputBaseFilename=pontowebdesk-rep-agent-setup
+OutputBaseFilename=pontowebdesk-rep-agent-exe-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -66,10 +73,11 @@ begin
     MsgBox(
       'Instalação concluída.' + #13#10 + #13#10 +
       '1. Edite o arquivo:' + #13#10 +
-      '   C:\ProgramData\PontoWebDesk\config.json' + #13#10 + #13#10 +
+      '   C:\\ProgramData\\PontoWebDesk\\config.json' + #13#10 + #13#10 +
       '2. Preencha saas_url, api_key, device_id, company_id e device_ip.' + #13#10 + #13#10 +
-      '3. O serviço PontoWebDeskAgent iniciará após salvar a configuração válida.' + #13#10 + #13#10 +
-      'Logs: C:\ProgramData\PontoWebDesk\logs\agent.log',
+      '3. Reinicie o serviço após salvar a configuração válida:' + #13#10 +
+      '   nssm restart PontoWebDeskAgent' + #13#10 + #13#10 +
+      'Logs: C:\\ProgramData\\PontoWebDesk\\logs\\agent.log',
       mbInformation,
       MB_OK
     );
@@ -78,16 +86,5 @@ end;
 
 function InitializeSetup(): Boolean;
 begin
-  if not FileExists(ExpandConstant('{src}\nssm.exe')) then
-  begin
-    MsgBox(
-      'Arquivo installer\nssm.exe não encontrado.' + #13#10 +
-      'Baixe NSSM (https://nssm.cc/download) e copie nssm.exe para a pasta installer.',
-      mbCriticalError,
-      MB_OK
-    );
-    Result := False;
-    exit;
-  end;
   Result := True;
 end;
