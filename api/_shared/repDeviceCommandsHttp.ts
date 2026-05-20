@@ -72,7 +72,7 @@ async function reclaimStuckProcessingCommands(
   companyId: string,
 ): Promise<void> {
   const cutoff = new Date(Date.now() - STUCK_PROCESSING_MS).toISOString();
-  await supabase
+  const { error } = await supabase
     .from('rep_device_commands')
     .update({
       status: 'pending',
@@ -84,6 +84,9 @@ async function reclaimStuckProcessingCommands(
     .eq('status', 'processing')
     .not('execution_id', 'is', null)
     .lt('updated_at', cutoff);
+  if (error) {
+    console.error('[REP COMMANDS ERROR] reclaim stuck:', error.message, { company_id: companyId });
+  }
 }
 
 async function cancelActiveTestCommands(
@@ -123,7 +126,14 @@ async function claimPendingCommands(
   if (deviceId) claimQuery = claimQuery.eq('device_id', deviceId);
 
   const { data: pending, error: pendErr } = await claimQuery;
-  if (pendErr || !pending?.length) return [];
+  if (pendErr) {
+    console.error('[REP COMMANDS ERROR] list pending:', pendErr.message, {
+      company_id: companyId,
+      device_id: deviceId,
+    });
+    return [];
+  }
+  if (!pending?.length) return [];
 
   const claimed: CommandRow[] = [];
   const now = new Date().toISOString();
@@ -144,7 +154,14 @@ async function claimPendingCommands(
       )
       .maybeSingle();
 
-    if (claimErr || !one) continue;
+    if (claimErr) {
+      console.error('[REP COMMANDS ERROR] claim:', claimErr.message, {
+        command_id: row.id,
+        company_id: companyId,
+      });
+      continue;
+    }
+    if (!one) continue;
     claimed.push(one as CommandRow);
   }
 
@@ -278,10 +295,15 @@ async function handleGetCommands(
       }
     }
 
-    await reclaimStuckProcessingCommands(supabase, companyId);
-
-    const claimed = await claimPendingCommands(supabase, companyId, deviceId);
-    return json({ success: true, commands: claimed }, 200, headers);
+    try {
+      await reclaimStuckProcessingCommands(supabase, companyId);
+      const claimed = await claimPendingCommands(supabase, companyId, deviceId);
+      return json({ success: true, ok: true, commands: claimed }, 200, headers);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error('[REP COMMANDS FATAL] agent poll:', detail);
+      return json({ error: 'internal_error', detail }, 500, headers);
+    }
   }
 
   const token = extractBearerToken(request);
@@ -466,7 +488,7 @@ export async function handleRepCommands(request: Request): Promise<Response> {
     return json({ error: 'Method not allowed' }, 405, headers);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    console.error('[rep/commands] unhandled:', detail);
-    return json({ error: 'Erro interno', detail }, 500, headers);
+    console.error('[REP COMMANDS FATAL]', detail);
+    return json({ error: 'internal_error', detail }, 500, headers);
   }
 }

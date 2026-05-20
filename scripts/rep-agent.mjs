@@ -1607,39 +1607,55 @@ async function executeRepCommand(cmd) {
 
 async function pollAndExecuteRepCommands() {
   if (!companyId || !apiKey || !saas) return;
-  try {
-    const qs = new URLSearchParams({ company_id: companyId });
-    if (deviceId) qs.set('device_id', deviceId);
-    const res = await fetchJsonWithTimeout(
-      `${saas}/api/rep/commands?${qs}`,
-      {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-      },
-      REP_SYNC_TIMEOUT_MS,
-    );
-    if (!res.ok) {
-      const errBody =
-        typeof res.data === 'string'
-          ? res.data.slice(0, 200)
-          : res.data && typeof res.data === 'object'
-            ? JSON.stringify(res.data).slice(0, 200)
-            : '';
-      syncLog('[REP COMMANDS] poll falhou', {
-        detail: { status: res.status, body: errBody || undefined },
-      });
-      return;
-    }
-    const data =
-      res.data && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : {};
-    const commands = Array.isArray(data.commands) ? data.commands : [];
-    if (commands.length === 0) return;
+  const qs = new URLSearchParams({ company_id: companyId });
+  if (deviceId) qs.set('device_id', deviceId);
+  const url = `${saas}/api/rep/commands?${qs}`;
+  const maxAttempts = 3;
 
-    for (const cmd of commands) {
-      await executeRepCommand(cmd);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetchJsonWithTimeout(
+        url,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+        },
+        REP_SYNC_TIMEOUT_MS,
+      );
+      if (!res.ok) {
+        const errBody =
+          typeof res.data === 'string'
+            ? res.data.slice(0, 200)
+            : res.data && typeof res.data === 'object'
+              ? JSON.stringify(res.data).slice(0, 200)
+              : '';
+        const retryable = res.status >= 500 || res.status === 429;
+        if (retryable && attempt < maxAttempts) {
+          await sleep(800 * attempt);
+          continue;
+        }
+        syncLog('[REP COMMANDS] poll falhou', {
+          detail: { status: res.status, body: errBody || undefined, attempt },
+        });
+        return;
+      }
+      const data =
+        res.data && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : {};
+      const commands = Array.isArray(data.commands) ? data.commands : [];
+      syncLog('[REP COMMANDS] poll ok', {
+        detail: { status: res.status, commands: commands.length, attempt },
+      });
+      for (const cmd of commands) {
+        await executeRepCommand(cmd);
+      }
+      return;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        await sleep(800 * attempt);
+        continue;
+      }
+      console.warn('[REP COMMANDS]', e?.message || e);
     }
-  } catch (e) {
-    console.warn('[REP COMMANDS]', e?.message || e);
   }
 }
 

@@ -1,7 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { cachePrivate, noCache, varyAuthorization } from './cache.js';
 import { getSecureCorsHeaders, extractBearerToken, secureCompare } from './security.js';
-import { getSupabaseConfig } from './getSupabaseConfig.js';
+import { getSupabaseConfig, getSupabaseUrlForServer } from './getSupabaseConfig.js';
+import { getCallerContext, isAdminOrHr } from './callerContext.js';
 
 const ALLOWED_METHODS = 'GET, POST, OPTIONS';
 
@@ -68,17 +69,12 @@ async function authenticateDevice(
 }
 
 async function authenticateAdminJwtForDevice(supabase: AnySupabase, token: string, device: DeviceRow): Promise<boolean> {
-  const { data: authData, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !authData.user?.id) return false;
-  const { data: profile, error: profileErr } = await supabase
-    .from('users')
-    .select('company_id, role')
-    .eq('id', authData.user.id)
-    .maybeSingle();
-  if (profileErr || !profile) return false;
-  if (normalizeTenantId(profile.company_id) !== normalizeTenantId(device.company_id)) return false;
-  const role = String(profile.role || '').toLowerCase();
-  return role === 'admin' || role === 'hr';
+  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  const supabaseUrl = getSupabaseUrlForServer();
+  if (!anonKey || !token) return false;
+  const caller = await getCallerContext(supabaseUrl, anonKey, supabase, token);
+  if (!caller || !isAdminOrHr(caller.role)) return false;
+  return normalizeTenantId(caller.companyId) === normalizeTenantId(device.company_id);
 }
 
 async function authenticateDeviceOrAdmin(
