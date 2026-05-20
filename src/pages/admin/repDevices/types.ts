@@ -20,13 +20,21 @@ export type RepDeviceRow = {
   status_runtime?: 'online' | 'offline' | 'unknown' | null;
 };
 
+export type RepAgentConnectionState = 'online' | 'unstable' | 'offline';
+
 export type DeviceSyncStatusSnapshot = {
+  ok?: boolean;
+  success?: boolean;
+  online?: boolean;
+  connection?: RepAgentConnectionState;
   pending: number;
   sent: number;
   error: number;
   last_sync_at: string | null;
   device_status: 'online' | 'offline' | 'unknown';
   last_seen_at: string | null;
+  /** Alias de last_seen_at (heartbeat do agente). */
+  last_heartbeat_at?: string | null;
 };
 
 export type EmployeeForRep = {

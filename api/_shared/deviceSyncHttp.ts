@@ -116,11 +116,29 @@ function normalizeSyncError(raw: unknown): StructuredSyncError {
   return { code: 'UNKNOWN', message: String(raw || 'Erro não informado pelo agente').trim() };
 }
 
+const HEARTBEAT_ONLINE_MS = 60_000;
+const HEARTBEAT_OFFLINE_MS = 5 * 60_000;
+
+type AgentConnectionState = 'online' | 'unstable' | 'offline';
+
+function resolveAgentConnectionFromLastSeen(lastSeenAt: string | null | undefined): {
+  connection: AgentConnectionState;
+  online: boolean;
+} {
+  if (!lastSeenAt) return { connection: 'offline', online: false };
+  const t = Date.parse(lastSeenAt);
+  if (!Number.isFinite(t)) return { connection: 'offline', online: false };
+  const ageMs = Date.now() - t;
+  if (ageMs < HEARTBEAT_ONLINE_MS) return { connection: 'online', online: true };
+  if (ageMs < HEARTBEAT_OFFLINE_MS) return { connection: 'unstable', online: false };
+  return { connection: 'offline', online: false };
+}
+
 async function markOfflineDevices(supabase: AnySupabase, companyId?: string): Promise<void> {
   let query = supabase
     .from('rep_devices')
     .update({ status_runtime: 'offline', updated_at: new Date().toISOString() })
-    .lt('last_seen_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+    .lt('last_seen_at', new Date(Date.now() - HEARTBEAT_OFFLINE_MS).toISOString())
     .neq('status_runtime', 'offline');
   if (companyId) query = query.eq('company_id', companyId);
   await query;
@@ -255,16 +273,39 @@ async function handleSyncStatus(request: Request, supabase: AnySupabase, deviceI
   const sent = (rows || []).filter((r) => r.sync_status === 'sent').length;
   const errorCount = (rows || []).filter((r) => r.sync_status === 'error').length;
   const lastSyncAt = (rows || []).map((r) => r.last_sync_at).filter(Boolean).sort().at(-1) || null;
-  const { data: deviceNow } = await supabase.from('rep_devices').select('status_runtime, last_seen_at').eq('id', deviceId).maybeSingle();
+  const { data: deviceNow, error: deviceErr } = await supabase
+    .from('rep_devices')
+    .select('status_runtime, last_seen_at')
+    .eq('id', deviceId)
+    .maybeSingle();
+  if (deviceErr || !deviceNow) {
+    return noCache(
+      Response.json({ ok: false, success: false, error: 'device_not_found' }, { status: 404, headers }),
+    );
+  }
+
+  const lastSeenAt = deviceNow.last_seen_at || null;
+  const { connection, online } = resolveAgentConnectionFromLastSeen(lastSeenAt);
+  const deviceStatus: 'online' | 'offline' | 'unknown' =
+    connection === 'online' || connection === 'unstable'
+      ? 'online'
+      : deviceNow.status_runtime === 'offline'
+        ? 'offline'
+        : 'unknown';
+
   const syncRes = Response.json(
     {
+      ok: true,
       success: true,
+      online,
+      connection,
       pending,
       sent,
       error: errorCount,
       last_sync_at: lastSyncAt,
-      device_status: (deviceNow?.status_runtime || 'unknown') as 'online' | 'offline' | 'unknown',
-      last_seen_at: deviceNow?.last_seen_at || null,
+      device_status: deviceStatus,
+      last_seen_at: lastSeenAt,
+      last_heartbeat_at: lastSeenAt,
     },
     { status: 200, headers },
   );

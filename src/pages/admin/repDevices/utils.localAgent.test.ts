@@ -34,8 +34,8 @@ describe('local agent device UX', () => {
     expect(isLocalAgentRepDevice(baseDevice)).toBe(true);
   });
 
-  it('status conectado quando heartbeat recente', () => {
-    const recent = new Date(Date.now() - 60_000).toISOString();
+  it('status conectado quando heartbeat recente (< 60s)', () => {
+    const recent = new Date(Date.now() - 30_000).toISOString();
     expect(getLocalRepDeviceDisplayState(baseDevice, recent)).toBe('connected_via_agent');
   });
 

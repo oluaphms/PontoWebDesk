@@ -67,6 +67,10 @@ import {
 import { isDevVerboseLogsEnabled } from '../../../utils/devVerboseLogs';
 import type { DeviceSyncStatusSnapshot, EmployeeForRep, PendingPunchDiag, RepDeviceRow } from './types';
 import {
+  fetchRepDeviceSyncStatus,
+  REP_SYNC_STATUS_CACHE_MS,
+} from '../../../services/repDeviceSyncStatus.service';
+import {
   HUB_PROVIDER_OPTIONS,
   LS_REP_ALLOCATE,
   LS_REP_SKIP_BLOCKED,
@@ -261,7 +265,21 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
+  const syncStatusCacheRef = useRef<{ at: number; key: string }>({ at: 0, key: '' });
+
   const loadSyncStatusesForDevices = async (deviceIds: string[]) => {
+    if (deviceIds.length === 0) {
+      setSyncStatusByDeviceId({});
+      return;
+    }
+    const cacheKey = deviceIds.slice().sort().join(',');
+    const now = Date.now();
+    if (
+      syncStatusCacheRef.current.key === cacheKey &&
+      now - syncStatusCacheRef.current.at < REP_SYNC_STATUS_CACHE_MS
+    ) {
+      return;
+    }
     try {
       const {
         data: { session },
@@ -269,21 +287,14 @@ const AdminRepDevices: React.FC = () => {
       if (!session?.access_token) return;
       const entries = await Promise.all(
         deviceIds.map(async (id) => {
-          const res = await fetch(`/api/rep/devices/${encodeURIComponent(id)}/sync-status`, {
-            method: 'GET',
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          });
-          if (!res.ok) return [id, undefined] as const;
-          const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
-          if (!body) return [id, undefined] as const;
-          return [id, body] as const;
+          const snap = await fetchRepDeviceSyncStatus(id, session.access_token);
+          return [id, snap] as const;
         }),
       );
       const next: Record<string, DeviceSyncStatusSnapshot | undefined> = {};
       for (const [id, snap] of entries) next[id] = snap;
       setSyncStatusByDeviceId(next);
+      syncStatusCacheRef.current = { at: now, key: cacheKey };
     } catch {
       // Não bloquear a tela principal por falhas de observabilidade.
     }
@@ -334,6 +345,17 @@ const AdminRepDevices: React.FC = () => {
     if (!user?.companyId) return;
     void loadDevices();
   }, [user?.companyId]);
+
+  useEffect(() => {
+    if (!user?.companyId || devices.length === 0) return;
+    const activeIds = devices.filter((d) => d.ativo !== false).map((d) => d.id);
+    if (activeIds.length === 0) return;
+    const timer = window.setInterval(() => {
+      syncStatusCacheRef.current = { at: 0, key: '' };
+      void loadSyncStatusesForDevices(activeIds);
+    }, 45_000);
+    return () => window.clearInterval(timer);
+  }, [user?.companyId, devices]);
 
   useEffect(() => {
     if (!message || message.type !== 'success') return;

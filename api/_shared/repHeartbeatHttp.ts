@@ -136,9 +136,11 @@ export async function handleRepHeartbeat(request: Request): Promise<Response> {
   return json(
     {
       ok: true,
+      success: true,
       device_id: deviceId,
       company_id: auth.device.company_id,
       last_seen_at: now,
+      last_heartbeat_at: now,
     },
     200,
     headers,

@@ -106,10 +106,26 @@ export function isCloudDeployedRepClient(): boolean {
   return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local');
 }
 
-/** Janela em que consideramos o agente “ativo” (alinhado ao backend markOfflineDevices). */
+/** Heartbeat recente (< 60s) — agente online. */
+export const REP_AGENT_ONLINE_MS = 60 * 1000;
+/** Acima disso consideramos offline no runtime (alinhado ao backend). */
 export const REP_AGENT_RECENT_MS = 5 * 60 * 1000;
 
-export function isAgentRecentlySeen(iso: string | null | undefined, windowMs = REP_AGENT_RECENT_MS): boolean {
+export type RepAgentConnectionState = 'online' | 'unstable' | 'offline';
+
+export function resolveRepAgentConnection(
+  iso: string | null | undefined,
+): RepAgentConnectionState {
+  if (!iso) return 'offline';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return 'offline';
+  const ageMs = Date.now() - t;
+  if (ageMs < REP_AGENT_ONLINE_MS) return 'online';
+  if (ageMs < REP_AGENT_RECENT_MS) return 'unstable';
+  return 'offline';
+}
+
+export function isAgentRecentlySeen(iso: string | null | undefined, windowMs = REP_AGENT_ONLINE_MS): boolean {
   if (!iso) return false;
   const t = Date.parse(iso);
   return Number.isFinite(t) && Date.now() - t <= windowMs;
@@ -133,9 +149,11 @@ export type LocalRepDeviceDisplayState = 'awaiting_agent' | 'connected_via_agent
 export function getLocalRepDeviceDisplayState(
   d: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao' | 'ultima_sincronizacao' | 'last_seen_at'>,
   syncLastSeen?: string | null,
+  syncConnection?: RepAgentConnectionState | null,
 ): LocalRepDeviceDisplayState {
   const seen = syncLastSeen ?? d.last_seen_at ?? d.ultima_sincronizacao;
-  return isAgentRecentlySeen(seen) ? 'connected_via_agent' : 'awaiting_agent';
+  const connection = syncConnection ?? resolveRepAgentConnection(seen);
+  return connection === 'online' || connection === 'unstable' ? 'connected_via_agent' : 'awaiting_agent';
 }
 
 /** Mensagem curta para toast / alerta (sem jargão técnico). */

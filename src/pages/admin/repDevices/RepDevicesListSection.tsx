@@ -190,7 +190,10 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 <div className={repListUi.c011}>
                   <span className={repListUi.c012}>Runtime</span>
                   <span className={repListUi.c015}>
-                    {repDeviceRuntimeBadge(syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime)}
+                    {repDeviceRuntimeBadge(
+                      syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime,
+                      syncStatusByDeviceId[d.id]?.connection,
+                    )}
                   </span>
                 </div>
                 <div className={repListUi.c011}>
@@ -324,7 +327,10 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     <td className={repListUi.c027}>{identifierTypeLabel(d.identifier_type)}</td>
                     <td className={repListUi.c029}>{repDeviceConnectionStatusBadge(d, syncStatusByDeviceId[d.id])}</td>
                     <td className={repListUi.c029}>
-                      {repDeviceRuntimeBadge(syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime)}
+                      {repDeviceRuntimeBadge(
+                      syncStatusByDeviceId[d.id]?.device_status ?? d.status_runtime,
+                      syncStatusByDeviceId[d.id]?.connection,
+                    )}
                     </td>
                     <td className={repListUi.c030}>
                       {formatDate(syncStatusByDeviceId[d.id]?.last_sync_at ?? d.ultima_sincronizacao)}

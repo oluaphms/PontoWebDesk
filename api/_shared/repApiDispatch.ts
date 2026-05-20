@@ -53,8 +53,18 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
     }
   }
   if (slug.startsWith('devices/')) {
-    const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
-    return handleDeviceSyncRoute(request, slug);
+    try {
+      const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
+      return handleDeviceSyncRoute(request, slug);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { error: 'REP_DEVICE_SYNC_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
   }
   if (slug === 'commands') {
     try {
