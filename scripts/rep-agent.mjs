@@ -392,19 +392,30 @@ function clockNextUrlFromRedirect(currentUrl, locationHeader) {
   }
 }
 
-/** Opções http(s).request — sem `protocol`/`host` duplicados (evita "Invalid host defined options" no Node 18/pkg). */
+function isIpv4LiteralHost(hostname) {
+  const h = String(hostname || '').trim();
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
+}
+
+/** Opções http(s).request — sem `host`/`protocol` duplicados (evita "Invalid host defined options" no Node 18/pkg). */
 function buildClockHttpOptions(urlObj, { method = 'GET', headers = {} } = {}) {
   const useHttps = urlObj.protocol === 'https:';
+  const portNum = urlObj.port ? Number(urlObj.port) : useHttps ? 443 : 80;
   const opts = {
     hostname: urlObj.hostname,
-    port: urlObj.port || (useHttps ? 443 : 80),
+    port: portNum,
     path: `${urlObj.pathname}${urlObj.search}`,
     method,
     headers,
-    insecureHTTPParser: true,
   };
   if (useHttps) {
     opts.rejectUnauthorized = clockTlsRejectUnauthorized(urlObj);
+    // SNI com IP literal quebra https.request em alguns builds (pkg) → "Invalid host defined options"
+    if (!isIpv4LiteralHost(urlObj.hostname)) {
+      opts.servername = urlObj.hostname;
+    }
+  } else {
+    opts.insecureHTTPParser = true;
   }
   return opts;
 }
