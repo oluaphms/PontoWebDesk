@@ -6,6 +6,10 @@
     {
       "source": "/api/rep/devices/:id/sync-status",
       "destination": "/api/rep/sync-status?device_id=:id&lite=1"
+    },
+    {
+      "source": "/api/web-punches",
+      "destination": "/api/punch"
     }
   ],
   "routes": [
@@ -20,6 +24,10 @@
     {
       "src": "^/api/rep/devices/([^/]+)/sync-status/?$",
       "dest": "/api/rep/sync-status?device_id=$1&lite=1"
+    },
+    {
+      "src": "^/api/web-punches/?$",
+      "dest": "/api/punch"
     },
     {
       "src": "^/api/(?!rep(?:/|$))(.*)$",

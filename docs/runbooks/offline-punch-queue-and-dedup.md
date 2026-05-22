@@ -22,5 +22,5 @@
 
 ## API
 
-- Web batch: `POST /api/web-punches` (`api/_shared/webPunchesBatchHttp.ts`)
+- Web batch: `POST /api/web-punches` → roteado para `api/punch.ts` (limite 12 funções Vercel Hobby); handler em `api/_shared/webPunchesBatchHttp.ts`
 - Agente batch: `POST /api/rep/punches`
