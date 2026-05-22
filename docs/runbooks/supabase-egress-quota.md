@@ -50,7 +50,7 @@ Authorization: apikey ANON_KEY
 
 Esperado: **200** (não 402).
 
-Depois: login no app + `[REP PUNCH SENT]` no agente.
+Depois: no navegador, limpar o flag local (F12 → Application → Session Storage → remover `pontoweb:supabase_egress_blocked`) ou abrir aba anônima; login no app + `[REP PUNCH SENT]` no agente.
 
 ## Prevenção
 

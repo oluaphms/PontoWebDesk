@@ -16,6 +16,7 @@ export function setSupabaseServiceRoleOverride(client: SupabaseClient | null): v
 }
 import type { LockFunc } from '@supabase/auth-js';
 import { isDnsError, markSupabaseAsDown } from '../services/supabaseCircuitBreaker';
+import { isEgressQuotaHttpStatus, markSupabaseEgressBlocked } from '../services/supabaseEgressGuard';
 import { getSupabaseInfraFatal } from './supabaseInfraGuard';
 import { assertEnv } from './assertEnv';
 import { opLog } from '../utils/operationalLogger';
@@ -107,7 +108,11 @@ export function getSupabaseClient(): SupabaseClient | null {
             console.warn('[SUPABASE] modo degradado ativo — navigator.onLine=false; tentando mesmo assim...');
           }
           try {
-            return await fetch(input, requestInit);
+            const response = await fetch(input, requestInit);
+            if (isEgressQuotaHttpStatus(response.status)) {
+              markSupabaseEgressBlocked();
+            }
+            return response;
           } catch (error) {
             if (isDnsError(error)) {
               console.warn('[SUPABASE] modo degradado ativo — falha de DNS:', (error as Error).message);

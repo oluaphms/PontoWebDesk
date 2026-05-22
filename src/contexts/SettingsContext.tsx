@@ -1,5 +1,6 @@
 import { createContext, useSyncExternalStore, type ReactNode } from 'react';
 import { getSettings } from '../services/settingsService';
+import { isSupabaseEgressBlocked } from '../services/supabaseEgressGuard';
 import type { GlobalSettings } from '../types/settings';
 
 export interface SettingsContextValue {
@@ -22,6 +23,11 @@ const listeners = new Set<() => void>();
 let initialized = false;
 
 async function loadSettings() {
+  if (isSupabaseEgressBlocked()) {
+    currentState = { settings: null, loading: false };
+    listeners.forEach((l) => l());
+    return;
+  }
   currentState = { ...currentState, loading: true };
   listeners.forEach((l) => l());
   try {

@@ -1,5 +1,11 @@
-import { supabase, checkSupabaseConfigured, isSupabaseConfigured } from '../../services/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { canRetrySupabase, isDnsError, markSupabaseAsDown } from './supabaseCircuitBreaker';
+import {
+  isSupabaseEgressBlocked,
+  isEgressQuotaErrorPayload,
+  markSupabaseEgressBlocked,
+  SUPABASE_EGRESS_QUOTA_MESSAGE,
+} from './supabaseEgressGuard';
 
 export type SupabaseConnectionStatus =
   | 'ok'
@@ -38,18 +44,7 @@ function getErrorText(error: unknown): string {
 }
 
 function isEgressQuotaBlocked(error: unknown): boolean {
-  const e = error as { code?: string; status?: number; message?: string };
-  const code = String(e?.code ?? '').toLowerCase();
-  const status = Number(e?.status ?? 0);
-  const text = getErrorText(error);
-  return (
-    status === 402 ||
-    code === '402' ||
-    text.includes('exceed_egress_quota') ||
-    text.includes('egress_quota') ||
-    text.includes('payment required') ||
-    text.includes('service for this project is restricted')
-  );
+  return isEgressQuotaErrorPayload(error) || getErrorText(error).includes('exceed_egress_quota');
 }
 
 function classifyFailure(error: unknown): SupabaseConnectionCheckResult {
@@ -57,11 +52,11 @@ function classifyFailure(error: unknown): SupabaseConnectionCheckResult {
   const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
   if (isEgressQuotaBlocked(error)) {
+    markSupabaseEgressBlocked();
     return {
       ok: false,
       status: 'egress_quota',
-      message:
-        'Projeto Supabase bloqueado por cota de egress (402). Libere no painel Supabase ou contate suporte — o app não consegue autenticar nem gravar dados até resolver.',
+      message: SUPABASE_EGRESS_QUOTA_MESSAGE,
     };
   }
 
@@ -87,6 +82,9 @@ function classifyFailure(error: unknown): SupabaseConnectionCheckResult {
 export async function checkSupabaseConnection(): Promise<SupabaseConnectionCheckResult> {
   if (!isSupabaseConfigured()) {
     return { ok: false, status: 'not_configured', message: 'Supabase não configurado.' };
+  }
+  if (isSupabaseEgressBlocked()) {
+    return { ok: false, status: 'egress_quota', message: SUPABASE_EGRESS_QUOTA_MESSAGE };
   }
   if (!canRetrySupabase()) {
     return {

@@ -16,6 +16,7 @@ import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/time
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { devVerboseInfo, isDevVerboseLogsEnabled } from '@/utils/devVerboseLogs';
+import { SupabaseEgressBanner } from './SupabaseEgressBanner';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -253,5 +254,10 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <SupabaseEgressBanner />
+      {children}
+    </>
+  );
 };
