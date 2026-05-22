@@ -8,7 +8,137 @@ O app em modo `LOCAL_API` usa:
 
 O Supabase deixa de ser a fonte de dados; o Postgres na VPS/painel Hostinger passa a ser o banco oficial.
 
-## Arquitetura na VPS
+## Sua VPS (referência)
+
+| Item | Valor |
+|------|--------|
+| SO | Ubuntu 24.04 + **Docker** + **Traefik** |
+| Hostname | `srv1694106.hstgr.cloud` |
+| IP | `177.7.51.209` |
+| Postgres | projeto Docker **`postgresql-ccqe`** |
+
+O Traefik já trata HTTPS e encaminha tráfego para contentores com labels `traefik.*`. A API e o frontend entram como rotas (subdomínios ou paths).
+
+## Arquitetura recomendada nesta VPS
+
+```text
+Internet
+   │
+   ▼
+[Traefik :443]  ← certificado Let's Encrypt automático
+   ├─ api.srv1694106.hstgr.cloud  → contentor API Node (:3000)
+   └─ srv1694106.hstgr.cloud      → ficheiros estáticos (dist/) ou outro contentor
+
+[Docker postgresql-ccqe]  → Postgres (rede interna ou 127.0.0.1:5432 no host)
+```
+
+**Importante:** o ficheiro `backend/.env` no seu PC com `localhost:5432` **não** liga ao Postgres da VPS. `localhost` no PC é o seu computador. Na VPS use `127.0.0.1` (API no host) ou o nome do serviço Docker (API em contentor na mesma rede).
+
+## Passo a passo na VPS (SSH)
+
+```bash
+ssh root@177.7.51.209
+# ou: ssh root@srv1694106.hstgr.cloud
+```
+
+### A) Credenciais do Postgres (`postgresql-ccqe`)
+
+No hPanel → Docker → **postgresql-ccqe** → Compose / variáveis, copie user, password e database.
+
+Na VPS, teste:
+
+```bash
+docker ps
+docker exec -it $(docker ps -q -f name=postgres | head -1) psql -U SEU_USER -d SEU_DB -c "select 1"
+```
+
+### B) `backend/.env` **na VPS** (não no Windows, para produção)
+
+```env
+PORT=3000
+DATABASE_URL=postgresql://SEU_USER:SUA_SENHA@127.0.0.1:5432/SEU_DB
+JWT_SECRET=<gere com: openssl rand -hex 32>
+CORS_ORIGINS=https://srv1694106.hstgr.cloud,https://api.srv1694106.hstgr.cloud
+```
+
+Use a porta publicada no Compose se não for `5432`.
+
+### C) Schema + admin + API
+
+```bash
+cd /caminho/PontoWebDesk/backend
+npm install
+npm run build
+npm run db:apply-schema
+npm run db:seed
+npm run start
+# ou: pm2 start dist/server.js --name pontoweb-api
+curl http://127.0.0.1:3000/api/health
+```
+
+### D) DNS (hPanel → Domínios / DNS)
+
+Crie registos **A** apontando para `177.7.51.209`:
+
+| Nome | Tipo | Valor |
+|------|------|--------|
+| `@` ou `srv1694106` | A | 177.7.51.209 |
+| `api` | A | 177.7.51.209 |
+
+Assim funcionam `srv1694106.hstgr.cloud` e `api.srv1694106.hstgr.cloud`.
+
+### E) Traefik — expor a API
+
+Opção 1 — **PM2 no host** (mais simples para começar): Traefik precisa de um ficheiro dinâmico ou router que aponte para `http://host.docker.internal:3000` / IP do host — depende do template Hostinger.
+
+Opção 2 — **API em Docker** com labels (ver `deploy/docker-compose.api.example.yml`):
+
+```bash
+# Na VPS, depois de build do backend:
+cd deploy
+# Ajuste o compose (rede traefik, Host(), DATABASE_URL)
+docker compose -f docker-compose.api.example.yml up -d
+```
+
+Confirme no painel Traefik ou com:
+
+```bash
+curl https://api.srv1694106.hstgr.cloud/api/health
+```
+
+### F) Frontend
+
+Build local ou na VPS:
+
+```bash
+npm run build
+```
+
+Defina antes do build (`.env.production` ou `.env.local`):
+
+```env
+VITE_LOCAL_API_BASE_URL=https://api.srv1694106.hstgr.cloud
+```
+
+Publique a pasta `dist/` (Traefik/Nginx/contentor estático) em `https://srv1694106.hstgr.cloud`.
+
+## Desenvolvimento no PC (Windows) a usar o Postgres da VPS
+
+Não deixe o Postgres exposto na internet sem firewall. Use túnel SSH:
+
+```powershell
+ssh -L 5432:127.0.0.1:5432 root@177.7.51.209
+```
+
+Com o túnel aberto, no PC:
+
+```env
+DATABASE_URL=postgresql://SEU_USER:SUA_SENHA@127.0.0.1:5432/SEU_DB
+```
+
+E `npm run dev` no `backend/`.
+
+## Arquitetura alternativa (só Nginx, sem Traefik no app)
 
 ```text
 [Nginx] app.seudominio.com  → arquivos estáticos (dist/)

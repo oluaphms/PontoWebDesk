@@ -1,74 +1,33 @@
 /**
- * ETAPA 2 & 3 - Configuração centralizada do Supabase
- * Padronização e validação segura de variáveis de ambiente
+ * Configuração Supabase — apenas import.meta.env (Vite).
  */
 
-import { SYSTEM_CONFIG } from './system';
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? '').trim().replace(/\/+$/, '');
+const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 
-// ETAPA 1.2 - Verificar valores das variáveis
-const getSupabaseUrl = (): string => {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return '';
-  // Tentar múltiplas fontes em ordem de prioridade
-  const url =
-    // 1. Variável de ambiente em tempo de build (Vite)
-    (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
-    // 2. Variável injetada em tempo de execução (env-config.js)
-    (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_URL) ||
-    '';
+export const SUPABASE_URL = supabaseUrl;
+export const SUPABASE_ANON_KEY = supabaseAnonKey;
 
-  return (url as string).trim();
-};
-
-const getSupabaseAnonKey = (): string => {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return '';
-  // Tentar múltiplas fontes em ordem de prioridade
-  const key =
-    // 1. Variável de ambiente em tempo de build (Vite)
-    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
-    // 2. Variável injetada em tempo de execução (env-config.js)
-    (typeof window !== 'undefined' && (window as any).__VITE_SUPABASE_ANON_KEY) ||
-    '';
-
-  return (key as string).trim();
-};
-
-export const SUPABASE_URL = getSupabaseUrl();
-export const SUPABASE_ANON_KEY = getSupabaseAnonKey();
-
-// ETAPA 3 - Validação segura
 export const validateSupabaseConfig = (): void => {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
-    console.warn('[SAFE MODE] Supabase config ignorada em LOCAL_API');
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn(
+      '[Supabase] VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY ausentes — defina no .env e reinicie o Vite.',
+    );
     return;
   }
-  if (!SUPABASE_URL) {
-    const msg = '❌ CRÍTICO: SUPABASE_URL não definida. Configure VITE_SUPABASE_URL nas variáveis de ambiente.';
-    console.error(msg);
-    throw new Error(msg);
+
+  if (!supabaseUrl.startsWith('https://') || !supabaseUrl.includes('.supabase.co')) {
+    console.warn(`[Supabase] VITE_SUPABASE_URL parece inválida: ${supabaseUrl}`);
   }
 
-  if (!SUPABASE_ANON_KEY) {
-    const msg = '❌ CRÍTICO: SUPABASE_ANON_KEY não definida. Configure VITE_SUPABASE_ANON_KEY nas variáveis de ambiente.';
-    console.error(msg);
-    throw new Error(msg);
-  }
-
-  if (!SUPABASE_URL.startsWith('https://') || !SUPABASE_URL.includes('.supabase.co')) {
-    const msg = `⚠️ AVISO: SUPABASE_URL parece inválida: ${SUPABASE_URL}`;
-    console.warn(msg);
-  }
-
-  // Log de sucesso
-  console.log('✅ [Supabase] Configuração validada com sucesso');
-  console.log(`   URL: ${SUPABASE_URL.slice(0, 40)}...`);
-  console.log(`   Key: ${SUPABASE_ANON_KEY.slice(0, 20)}...`);
+  console.log('✅ [Supabase] Configuração validada');
+  console.log(`   URL: ${supabaseUrl.slice(0, 40)}...`);
 };
 
-// Validar imediatamente ao carregar o módulo
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && supabaseUrl && supabaseAnonKey) {
   try {
     validateSupabaseConfig();
   } catch (error) {
-    console.error('Erro ao validar configuração do Supabase:', error);
+    console.error('[Supabase] Erro na validação:', error);
   }
 }

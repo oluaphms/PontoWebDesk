@@ -55,9 +55,6 @@ function createInProcessAuthLock(): LockFunc {
  * Falhas de rede não impedem a criação nem o uso do cliente.
  */
 export function getSupabaseClient(): SupabaseClient | null {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
-    throw new Error('[BLOQUEADO] Supabase não pode ser usado em LOCAL_API');
-  }
   if (serviceRoleOverride) return serviceRoleOverride;
   if (!isCloudEnabled()) return null;
   if (typeof window !== 'undefined' && (window as any).__ENV_FATAL_ERROR) {
@@ -78,6 +75,8 @@ export function getSupabaseClient(): SupabaseClient | null {
 
   const url = sanitizeSupabaseUrl(env.url);
   const key = env.key;
+
+  console.log('SUPABASE URL:', url);
 
   if (!url.startsWith('https://') || !url.includes('.supabase.co')) {
     console.error('[SUPABASE] URL inválida');
@@ -158,7 +157,7 @@ export function getSupabaseClient(): SupabaseClient | null {
     opLog.info('SUPABASE INIT', {
       effectiveHost,
       anonKeyChars: String(key || '').trim().length,
-      bundleViteHost: viteUrlRaw ? viteHost : '(vazio, usa window.ENV/__VITE__ após AppInitializer)',
+      bundleViteHost: viteUrlRaw ? viteHost : '(vazio no bundle Vite)',
       ...(bundleKeyLen ? { bundleAnonChars: bundleKeyLen } : {}),
       ...(hostMismatch || keyLenMismatch ? { warning: 'efetivo_neq_bundle_env' } : {}),
     });

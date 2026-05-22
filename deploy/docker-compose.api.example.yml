@@ -1,0 +1,41 @@
+# Exemplo: API PontoWebDesk na VPS Hostinger (Ubuntu + Docker + Traefik)
+# Copie para a VPS, ajuste labels/domínio e ligue à rede do Postgres.
+#
+# Uso típico:
+#   docker network ls                    # ver rede do Traefik (ex.: traefik, web)
+#   docker network connect <rede> <postgres_container>  # se API precisar falar com postgres por nome
+#
+# Substitua:
+#   - Host() pelo seu subdomínio (DNS A → 177.7.51.209)
+#   - DATABASE_URL com user/senha/db do projeto postgresql-ccqe
+#   - JWT_SECRET forte
+
+services:
+  pontoweb-api:
+    image: node:20-alpine
+    working_dir: /app
+    restart: unless-stopped
+    command: sh -c "npm ci --omit=dev && node dist/server.js"
+    volumes:
+      - ../backend:/app
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://srv1694106.hstgr.cloud}
+      # DATABASE_SSL: "false"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pontoweb-api.rule=Host(`api.srv1694106.hstgr.cloud`)
+      - traefik.http.routers.pontoweb-api.entrypoints=websecure
+      - traefik.http.routers.pontoweb-api.tls=true
+      - traefik.http.routers.pontoweb-api.tls.certresolver=letsencrypt
+      - traefik.http.services.pontoweb-api.loadbalancer.server.port=3000
+    networks:
+      - default
+
+networks:
+  default:
+    external: true
+    name: traefik

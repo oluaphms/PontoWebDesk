@@ -1,6 +1,5 @@
 /**
- * ETAPA 2 - Bloqueio de Execução Prematura
- * Garante que o app só renderiza quando as variáveis de ambiente estão carregadas
+ * Garante que variáveis VITE_SUPABASE_* estão presentes antes de renderizar o app.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -16,6 +15,7 @@ import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/time
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { devVerboseInfo, isDevVerboseLogsEnabled } from '@/utils/devVerboseLogs';
+import { getSupabaseClient } from '../lib/supabaseClient';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -32,59 +32,29 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
     let mounted = true;
     const init = async () => {
-      const envName =
-        (typeof window !== 'undefined' && window.ENV?.ENVIRONMENT) ||
-        import.meta.env.MODE ||
-        'dev';
-      const envMap =
-        (typeof window !== 'undefined' && window.ENV?.SUPABASES) || {};
-      const envConfig = envMap?.[envName] || null;
-
       let supabaseUrl = '';
       let supabaseKey = '';
       try {
         const env = assertEnv();
-        /*
-         * Só sobrescreve com `SUPABASES[env]` quando vier **par** URL+key; senão pode casar URL de um projeto
-         * com a chave anon de outro (auth falha sempre, sem erro óbvio no UI).
-         */
-        if (
-          typeof envConfig?.url === 'string' &&
-          envConfig.url.trim() &&
-          typeof envConfig?.key === 'string' &&
-          envConfig.key.trim()
-        ) {
-          supabaseUrl = envConfig.url.trim().replace(/\/+$/, '');
-          supabaseKey = envConfig.key.trim();
-        } else {
-          supabaseUrl = env.url;
-          supabaseKey = env.key;
-          if (
-            envConfig &&
-            (envConfig.url || envConfig.key) &&
-            typeof console !== 'undefined'
-          ) {
-            console.warn(
-              `[ENV] window.ENV.SUPABASES['${envName}'] ignorado — defina url e anon key juntos (ou omita).`,
-            );
-          }
-        }
+        supabaseUrl = env.url;
+        supabaseKey = env.key;
       } catch (error: unknown) {
-        const message = messageFromUnknown(error, '[ENV] Variáveis ausentes');
+        const message = messageFromUnknown(
+          error,
+          'Variáveis VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY não carregadas',
+        );
         setSupabaseInfraFatal(message);
         if (mounted) setError(message);
         return;
       }
 
-      if (typeof window !== 'undefined') {
-        window.__VITE_SUPABASE_URL = supabaseUrl;
-        window.__VITE_SUPABASE_ANON_KEY = supabaseKey;
-      }
+      console.log('SUPABASE URL:', supabaseUrl);
 
       if (typeof console !== 'undefined' && isDevVerboseLogsEnabled()) {
         console.group('[ENV]');
-        console.log('Environment:', envName);
+        console.log('Mode:', import.meta.env.MODE);
         console.log('URL:', supabaseUrl);
+        console.log('Anon key length:', supabaseKey.length);
         console.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
         console.groupEnd();
       }
@@ -107,18 +77,10 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         }
       }
 
-      if (!supabaseUrl || !supabaseKey) {
-        const message = '[ENV] Variáveis ausentes';
-        setSupabaseInfraFatal(message);
-        showFatalError('Variáveis do Supabase ausentes. Verifique o ambiente ativo.');
-        if (mounted) setError(message);
-        return;
-      }
-
       if (!validateSupabaseUrl(supabaseUrl)) {
-        const message = '[ENV] SUPABASE_URL inválida';
+        const message = 'VITE_SUPABASE_URL inválida (deve ser https://*.supabase.co)';
         setSupabaseInfraFatal(message);
-        showFatalError('SUPABASE_URL inválida. Ajuste a configuração de ambiente.');
+        showFatalError(message);
         if (mounted) setError(message);
         return;
       }
@@ -156,12 +118,13 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         installMobileRuntimeStability();
       }
 
-      // Evita loop de refresh inválido ao abrir o app com token antigo no storage.
       await sanitizeAuthSessionOnBoot();
+
+      // Força criação do cliente (valida init + log no console)
+      getSupabaseClient();
 
       if (mounted) setIsReady(true);
 
-      // Diagnóstico não bloqueante: resultado apenas informativo — nunca bloqueia login.
       void checkSupabaseConnection();
     };
 
