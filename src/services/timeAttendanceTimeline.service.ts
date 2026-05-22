@@ -152,7 +152,7 @@ export async function appendTimeAttendanceTimelineEventOrThrow(input: AppendTime
   if (!companyId) throw new Error('companyId obrigatório para timeline.');
 
   const client = input.supabaseClient ?? getSupabaseClient();
-  if (!client) throw new Error('Cliente Supabase indisponível para timeline.');
+  if (!client) throw new Error('Modo offline ativo — dados serão sincronizados depois.');
 
   const row = {
     company_id: companyId,

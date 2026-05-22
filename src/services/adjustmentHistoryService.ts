@@ -6,6 +6,7 @@
 import { supabase, checkSupabaseConfigured } from '../../services/supabase';
 import { db } from '../../services/supabaseClient';
 import { TIME_ADJUSTMENTS_HISTORY_COLUMNS } from './egressSelectColumns';
+import { SYSTEM_CONFIG } from '../config/system';
 
 export interface AdjustmentHistoryEntry {
   id: string;
@@ -57,6 +58,7 @@ export const AdjustmentHistoryService = {
    * Obtém o histórico completo de um ajuste
    */
   async getAdjustmentHistory(adjustmentId: string): Promise<AdjustmentHistoryEntry[]> {
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return [];
     if (!checkSupabaseConfigured()) return [];
 
     try {
@@ -97,6 +99,7 @@ export const AdjustmentHistoryService = {
    * Obtém o histórico de múltiplos ajustes de uma vez
    */
   async getHistoryForAdjustments(adjustmentIds: string[]): Promise<AdjustmentHistoryEntry[]> {
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return [];
     if (!checkSupabaseConfigured()) return [];
 
     try {
@@ -144,6 +147,7 @@ export const AdjustmentHistoryService = {
     details: Record<string, unknown> | null,
     companyId: string | null
   ): Promise<void> {
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     if (!checkSupabaseConfigured()) {
       console.warn('[AdjustmentHistoryService] Supabase not configured, skipping history record');
       return;

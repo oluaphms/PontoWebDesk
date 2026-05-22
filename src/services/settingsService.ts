@@ -8,7 +8,12 @@ import type { GlobalSettings, CompanyLocation } from '../types/settings';
 import { DEFAULT_GLOBAL_SETTINGS } from '../types/settings';
 import { COMPANY_LOCATION_COLUMNS, GLOBAL_SETTINGS_COLUMNS } from './egressSelectColumns';
 import { queryCache, TTL } from './queryCache';
-import { isSupabaseBlocked } from './systemMode';
+import { isCloudEnabled } from './cloudService';
+import { cloudFallback } from './cloudFallback';
+import { cloudSafe } from './cloudSafe';
+import { enableDegradedMode } from './systemMode';
+import { isSupabaseBlocked } from '../utils/supabaseGuard';
+import { cacheSettings, getCachedSettings } from './localDb';
 
 const TABLE = 'global_settings';
 const LOCATIONS_TABLE = 'company_locations';
@@ -62,22 +67,37 @@ function mapRow(row: any): GlobalSettings | null {
  * Obtém as configurações globais (único registro).
  */
 export async function getSettings(): Promise<GlobalSettings | null> {
-  if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
-  return queryCache.getOrFetch('global_settings:singleton', async () => {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select(GLOBAL_SETTINGS_COLUMNS)
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.error('[settingsService] getSettings error:', error);
-    if (isSupabaseBlocked(error)) {
-      return DEFAULT_SETTINGS;
-    }
-    return DEFAULT_SETTINGS;
+  const localFallback = async () => {
+    const cached = await getCachedSettings<GlobalSettings>();
+    return cloudFallback(cached ?? DEFAULT_SETTINGS);
+  };
+  if (!isCloudEnabled()) {
+    return localFallback();
   }
-  return mapRow(data) ?? DEFAULT_SETTINGS;
-  }, TTL.STATIC);
+  if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
+  return cloudSafe(
+    () =>
+      queryCache.getOrFetch('global_settings:singleton', async () => {
+        const { data, error } = await supabase
+          .from(TABLE)
+          .select(GLOBAL_SETTINGS_COLUMNS)
+          .limit(1)
+          .maybeSingle();
+        if (error) {
+          if (isSupabaseBlocked(error)) {
+            enableDegradedMode();
+            console.warn('[MODO LOCAL] settings');
+            return await localFallback();
+          }
+          console.warn('[settingsService] getSettings:', error);
+          return await localFallback();
+        }
+        const mapped = mapRow(data) ?? DEFAULT_SETTINGS;
+        await cacheSettings(mapped as unknown as Record<string, unknown>);
+        return mapped;
+      }, TTL.STATIC),
+    DEFAULT_SETTINGS,
+  );
 }
 
 /**

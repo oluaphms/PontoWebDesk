@@ -68,6 +68,8 @@ import { useLanguage } from './src/contexts/LanguageContext';
 import { i18n } from './lib/i18n';
 import { useSessionTimeout } from './src/hooks/useSessionTimeout';
 import { AuthSessionProvider, readCachedSessionUser } from './src/contexts/AuthSessionProvider';
+import { isCloudEnabled } from './src/services/cloudService';
+import { isDegradedMode } from './src/services/systemMode';
 import { useAuth } from './src/hooks/useAuth';
 import { setAuthLogoutGuard } from './src/contexts/authSessionInternals';
 import { withTimeout } from './src/utils/withTimeout';
@@ -320,6 +322,12 @@ const AppMain: React.FC = () => {
   });
 
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
+
+  useEffect(() => {
+    if (!isCloudEnabled()) {
+      console.info('[SYSTEM] rodando em modo local-first');
+    }
+  }, []);
   /** Chrome operacional (badges/polling leve no layout) só após idle — reduz cascata pós setUser. */
   const portalChromeReady = useDeferredPortalChrome(user?.id);
   useScheduledTenantBackup(user, {
@@ -1274,7 +1282,7 @@ const AppMain: React.FC = () => {
       if (result.user) {
         if (result.source === 'local' || result.source === 'offline-forced') {
           setOfflineAuthMode(true);
-          setConnectionIssueMessage('Modo offline ativo — dados serão sincronizados quando a conexão voltar.');
+          console.warn('[MODO LOCAL]');
         } else {
           setOfflineAuthMode(false);
         }
@@ -1807,7 +1815,7 @@ const AppMain: React.FC = () => {
   }
 
   // Fallback bloqueante apenas quando a sessão online é obrigatória.
-  if (connectionUnavailable && !offlineAuthMode && Boolean(user)) {
+  if (connectionUnavailable && !offlineAuthMode && !isDegradedMode() && Boolean(user) && isCloudEnabled()) {
     const onClearSession = async () => {
       setIsResettingSession(true);
       try {
@@ -1961,11 +1969,6 @@ const AppMain: React.FC = () => {
           theme === 'dark' ? 'bg-slate-950/32' : 'bg-white/10'
         } lg:bg-transparent lg:backdrop-blur-none`}>
           <div className="w-full max-w-md space-y-3">
-            {(connectionUnavailable || offlineAuthMode) && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                Modo offline ativo — dados serão sincronizados quando a conexão voltar.
-              </div>
-            )}
             <LoginCard
               onLogin={handleLogin}
               isLoading={isLoggingIn}
@@ -2706,8 +2709,13 @@ const DeferredSchemaGuardBadge: React.FC = () => {
   return <SchemaGuardBadge />;
 };
 
+/** Cloud desligado ou degradado → app roda em modo local sem exigir cliente Supabase. */
+function canRunApp(): boolean {
+  return !isCloudEnabled() || checkSupabaseConfigured();
+}
+
 const AppContent: React.FC = () =>
-  !checkSupabaseConfigured() ? (
+  !canRunApp() ? (
     <ConfigSupabaseScreen />
   ) : (
     <QueryClientProvider client={queryClient}>

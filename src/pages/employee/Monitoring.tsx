@@ -4,7 +4,7 @@
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
+import { db } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -31,7 +31,7 @@ import {
 } from '../../services/monitoring/realtimeMonitoringGeoRegistry';
 import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { RefreshCw } from 'lucide-react';
-import { enqueueOfflineGeoOperationalSample, replayOfflineGeoOperationalBuffer } from '../../services/geolocation/offlineGeoOperationalBuffer';
+import { enqueueOfflineGeoOperationalSample } from '../../services/geolocation/offlineGeoOperationalBuffer';
 import {
   resolveBatteryStateLabel,
   resolveNetworkStateLabel,
@@ -43,6 +43,7 @@ import { setOperationalMonitoringIdentity } from '../../performance/operationalM
 import { syncServerOperationalClockOffset } from '../../services/serverOperationalClock.service';
 import { operationalReliabilitySLO } from '../../domain/operational/reliability/operationalReliabilitySLO';
 import { reportDeviceOperationalReputationEvent } from '../../services/deviceOperationalReputation.service';
+import { SYSTEM_CONFIG } from '../../config/system';
 
 const LIVE_UPSERT_MIN_MS = isDegradedMobileRuntime() ? 4_000 : 10_000;
 
@@ -58,7 +59,13 @@ const EmployeeMonitoring: React.FC = () => {
   const myOperationalStatusRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
+    if (!user?.companyId) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+      setUsingCos(false);
+      setPipelineRows([]);
+      setLoadingData(false);
+      return;
+    }
     const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     const nowMs = operationalClockMs();
@@ -138,22 +145,10 @@ const EmployeeMonitoring: React.FC = () => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!user?.companyId || !user?.id || !getSupabaseClient()) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    void (async () => {
-      await replayOfflineGeoOperationalBuffer({
-        companyId: user.companyId,
-        employeeId: user.id,
-        client: getSupabaseClient(),
-      });
-      void load();
-    })();
-  }, [user?.companyId, user?.id, load]);
-
   /** Heartbeat leve só em jornada ativa (trabalhando). */
   useEffect(() => {
-    if (!isSupabaseConfigured() || !getSupabaseClient() || !user?.companyId || !user?.id || !isWorking) return;
+    if (!user?.companyId || !user?.id || !isWorking) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
 
     let cancelled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -217,7 +212,8 @@ const EmployeeMonitoring: React.FC = () => {
 
   /** Publica posição na tabela `live_employee_location` (consumida pelo resolver de mapa). */
   useEffect(() => {
-    if (!isSupabaseConfigured() || !getSupabaseClient() || !user?.companyId || !user?.id) return;
+    if (!user?.companyId || !user?.id) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     let watchId: number | null = null;
@@ -291,14 +287,7 @@ const EmployeeMonitoring: React.FC = () => {
   useEffect(() => {
     const onOnline = () => {
       if (!user?.companyId || !user?.id) return;
-      void (async () => {
-        await replayOfflineGeoOperationalBuffer({
-          companyId: user.companyId,
-          employeeId: user.id,
-          client: getSupabaseClient(),
-        });
-        void load();
-      })();
+      void load();
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
@@ -317,8 +306,8 @@ const EmployeeMonitoring: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
-    if (!getSupabaseClient() || !user?.companyId) return;
-    const coord = getRealtimeGeoStreamCoordinator(`${user.companyId}:employee:monitoring`);
+    if (!user?.companyId) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     const run = () => {
       if (isPollingSuppressedByVisibility()) return;
       clearGeocodeCache();
@@ -326,39 +315,8 @@ const EmployeeMonitoring: React.FC = () => {
       queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
       void load();
     };
-    const schedule = () => coord.requestFlush('postgres_changes', run);
-
-    const ch = supabase
-      .channel('time_records_monitoring_employee_cos')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'current_operational_state', filter: `company_id=eq.${user.companyId}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!shouldProcessRealtimeCosPayload(user.companyId!, row)) return;
-          schedule();
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'time_records', filter: `company_id=eq.${user.companyId}` },
-        schedule,
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_employee_location', filter: `company_id=eq.${user.companyId}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!shouldProcessRealtimeLivePayload(user.companyId!, row)) return;
-          schedule();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      coord.cancel();
-      void supabase.removeChannel(ch);
-    };
+    const t = window.setInterval(run, 12_000);
+    return () => window.clearInterval(t);
   }, [user?.companyId, load]);
 
   const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);

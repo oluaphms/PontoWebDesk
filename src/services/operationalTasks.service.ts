@@ -1,4 +1,6 @@
-import { supabase } from './supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
+import { degradedResponse } from './degraded';
+import { getProvider } from './getProvider';
 
 export type OperationalTaskRow = {
   id: string;
@@ -19,15 +21,16 @@ export type OperationalTaskRow = {
 };
 
 export async function fetchOperationalTasks(companyId: string): Promise<OperationalTaskRow[]> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return degradedResponse<OperationalTaskRow[]>().data;
+  }
   const cid = companyId.trim();
   if (!cid) return [];
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+  const token = await getProvider().getAccessToken();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
   const res = await fetch(`/api/operational/tasks?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as {
@@ -44,16 +47,17 @@ export async function fetchOperationalTasks(companyId: string): Promise<Operatio
 }
 
 export async function completeOperationalTask(taskId: string): Promise<void> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return;
+  }
   const id = taskId.trim();
   if (!id) throw new Error('ID da tarefa inválido.');
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+  const token = await getProvider().getAccessToken();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
   const res = await fetch(`/api/operational/tasks/${encodeURIComponent(id)}/complete`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };

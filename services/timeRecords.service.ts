@@ -16,6 +16,8 @@ import { extractLocalCalendarDateFromIso } from '../src/utils/calendarUtils';
 import { runRepGovernanceAfterManualMirrorAdjustment } from '../src/services/repOperationalIntegrity.service';
 import { assertNoFutureOperationalPunch } from '../src/services/monitoring/monitoringGeoHardLock.service';
 import { assertValidUuid, insertTimeRecordForUser } from './insertTimeRecordRpc';
+import { isCloudEnabled } from '../src/services/cloudService';
+import { cloudFallback } from '../src/services/cloudFallback';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -30,10 +32,12 @@ export async function listTimeRecords(
   orderOrOptions?: DbSelectArg2,
   limit?: DbSelectArg3,
 ): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   return db.select('time_records', filters, orderOrOptions, limit);
 }
 
 export async function getTimeRecordsByUser(userId: string, limit = 50, offset = 0): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   const { data, error } = await getSupabaseClientOrThrow()
     .from('time_records')
     .select('id, user_id, type, method, created_at, location, company_id')
@@ -45,6 +49,7 @@ export async function getTimeRecordsByUser(userId: string, limit = 50, offset = 
 }
 
 export async function getTimeRecordsByCompany(companyId: string, limit = 50, offset = 0): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   const { data, error } = await getSupabaseClientOrThrow()
     .from('time_records')
     .select('id, user_id, type, created_at, company_id')
@@ -56,6 +61,7 @@ export async function getTimeRecordsByCompany(companyId: string, limit = 50, off
 }
 
 export async function getTimeRecordsByDateForUser(userId: string, date: string): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(date);
@@ -73,6 +79,7 @@ export async function getTimeRecordsByDateForUser(userId: string, date: string):
 }
 
 export async function countTimeRecordsByUser(userId: string): Promise<number> {
+  if (!isCloudEnabled()) return cloudFallback(0);
   const { count, error } = await getSupabaseClientOrThrow()
     .from('time_records')
     .select('id', { count: 'exact', head: true })
@@ -87,6 +94,7 @@ export async function getTimeRecordsForUserDayRange(
   startInclusive: string,
   endInclusive: string,
 ): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   return db.select(
     'time_records',
     [
@@ -100,6 +108,7 @@ export async function getTimeRecordsForUserDayRange(
 
 /** Histórico recente para validação antifraude no registro de ponto. */
 export async function getRecentTimeRecordsForUser(userId: string, limit = 50): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   return db.select(
     'time_records',
     [{ column: 'user_id', operator: 'eq', value: userId }],
@@ -112,6 +121,7 @@ export async function getRecentTimeRecordsForUser(userId: string, limit = 50): P
 }
 
 export async function getTimeRecordsForEmployeeDashboard(userId: string): Promise<any[]> {
+  if (!isCloudEnabled()) return cloudFallback([]);
   return db.select('time_records', [{ column: 'user_id', operator: 'eq', value: userId }], {
     columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
     limit: 500,
@@ -142,6 +152,7 @@ function refInstantFromLockRow(row: TimeRecordLockRow): string | null {
 }
 
 export async function createTimeRecord(row: Record<string, unknown>): Promise<void> {
+  if (!isCloudEnabled()) return;
   const companyId = String(row.company_id ?? '').trim();
   const employeeId = String(row.user_id ?? '').trim();
   const refIso =
@@ -171,6 +182,7 @@ export async function findTimeRecordIdByCompanySourceNsr(
   companyId: string,
   nsr: number,
 ): Promise<string | null> {
+  if (!isCloudEnabled()) return cloudFallback(null);
   const { data, error } = await getSupabaseClientOrThrow()
     .from('time_records')
     .select('id')
@@ -184,6 +196,7 @@ export async function findTimeRecordIdByCompanySourceNsr(
 }
 
 export async function updateTimeRecord(id: string, patch: Record<string, unknown>): Promise<void> {
+  if (!isCloudEnabled()) return;
   const row = await selectTimeRecordLockRow(id);
   if (!row) throw new Error('Registro de ponto não encontrado.');
 
@@ -220,6 +233,7 @@ export async function updateTimeRecord(id: string, patch: Record<string, unknown
 }
 
 export async function deleteTimeRecord(id: string): Promise<void> {
+  if (!isCloudEnabled()) return;
   const row = await selectTimeRecordLockRow(id);
   if (!row) throw new Error('Registro de ponto não encontrado.');
 
@@ -241,6 +255,7 @@ export async function updateTimeRecordPunchInstant(
   newCreatedAtIso: string,
   updatedAtIso: string,
 ): Promise<void> {
+  if (!isCloudEnabled()) return;
   const row = await selectTimeRecordLockRow(id);
   if (!row) throw new Error('Registro de ponto não encontrado.');
   await throwIfTimesheetClosedForPunchMutation({
@@ -326,6 +341,15 @@ export async function insertAdminMirrorTimeRecord(
   companyId: string,
   opts?: InsertAdminMirrorTimeRecordOpts,
 ): Promise<InsertAdminMirrorResult> {
+  if (!isCloudEnabled()) {
+    return cloudFallback({
+      id:
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `local-${Date.now()}`,
+      createdAt: String(data.created_at ?? new Date().toISOString()),
+    });
+  }
   const userId = assertValidUuid(String(data.user_id ?? ''), 'user_id');
   const companyUuid = assertValidUuid(companyId, 'company_id');
   const type = String(data.type ?? '');

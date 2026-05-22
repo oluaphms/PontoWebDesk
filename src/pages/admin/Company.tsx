@@ -10,6 +10,7 @@ import { firestoreService } from '../../../services/firestoreService';
 import { clearTenantMetadataSyncCache } from '../../../services/authService';
 import { getUserProfileStorage } from '../../../services/supabase';
 import type { Company } from '../../../types';
+import { SYSTEM_CONFIG } from '../../config/system';
 
 /** Campos obrigatórios pela Portaria 1510 */
 const PORTARIA_1510_FIELDS = ['name', 'cnpj', 'endereco', 'bairro', 'cidade', 'estado', 'cei'] as const;
@@ -75,6 +76,7 @@ const AdminCompany: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   /** Exibir seção "Configuração do Módulo Web na Nuvem" (quando permitir inclusão de ponto manual) */
   const [showWebModuleConfig, setShowWebModuleConfig] = useState(true);
+  const offlineMode = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
 
   useEffect(() => {
     if (!user) return;
@@ -375,6 +377,16 @@ const AdminCompany: React.FC = () => {
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
+  if (offlineMode) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Empresa" helpSlug="empresa" />
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+          Funcionalidade disponível apenas online
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

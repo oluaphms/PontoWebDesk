@@ -1,6 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { PUNCH_SOURCE_WEB, type PunchSource } from '../constants/punchSource';
 import { throwIfTimesheetClosedForPunchMutation } from './timesheetClosure';
+import { enqueueAndMaybeSyncWebPunch } from './punchOfflineQueue';
 
 /** Payload de insert em `public.punches` (campos conforme o schema no Supabase). */
 export type PunchInsert = Record<string, unknown> & { source?: PunchSource | string };
@@ -47,12 +47,7 @@ export function punchesRowForInsert(punch: PunchInsert, forcedSource?: string): 
   return row;
 }
 
-/**
- * Insere uma batida na tabela `punches`.
- * `source` default `web` (app); use `clock` apenas se o insert vier do agente nesta tabela.
- * @throws PostgrestError (ou derivado) quando o Supabase retorna `error`
- */
-export async function sendPunch(supabase: SupabaseClient, punch: PunchInsert): Promise<void> {
+export async function sendPunch(_unused: unknown, punch: PunchInsert): Promise<void> {
   const row = punchesRowForInsert(punch);
   const employeeId = String(row.employee_id ?? '').trim();
   const companyId = String(row.company_id ?? '').trim();
@@ -64,9 +59,16 @@ export async function sendPunch(supabase: SupabaseClient, punch: PunchInsert): P
     refIso,
     auditSource: 'services/sendPunch.service',
     auditAction: 'INSERT_PUNCH',
-    client: supabase,
+    client: null,
   });
-
-  const { error } = await supabase.from('punches').insert(row);
-  if (error) throw error;
+  await enqueueAndMaybeSyncWebPunch({
+    userId: employeeId,
+    companyId,
+    type: String(row.type ?? 'entrada'),
+    method: String(row.method ?? 'web'),
+    source: String(row.source ?? PUNCH_SOURCE_WEB),
+    latitude: null,
+    longitude: null,
+    accuracy: null,
+  });
 }

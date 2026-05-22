@@ -16,10 +16,13 @@ export function setSupabaseServiceRoleOverride(client: SupabaseClient | null): v
 }
 import type { LockFunc } from '@supabase/auth-js';
 import { isDnsError, markSupabaseAsDown } from '../services/supabaseCircuitBreaker';
-import { isEgressQuotaHttpStatus, markSupabaseEgressBlocked } from '../services/supabaseEgressGuard';
+import { enableDegradedMode } from '../services/systemMode';
+import { isSupabaseBlocked } from '../utils/supabaseGuard';
 import { getSupabaseInfraFatal } from './supabaseInfraGuard';
 import { assertEnv } from './assertEnv';
 import { opLog } from '../utils/operationalLogger';
+import { isCloudEnabled } from '../services/cloudService';
+import { SYSTEM_CONFIG } from '../config/system';
 
 let supabaseInstance: SupabaseClient | null = null;
 /** Só true após falha “permanente” (URL inválida / createClient falhou). assertEnv falhar ainda permite nova tentativa. */
@@ -52,7 +55,11 @@ function createInProcessAuthLock(): LockFunc {
  * Falhas de rede não impedem a criação nem o uso do cliente.
  */
 export function getSupabaseClient(): SupabaseClient | null {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    throw new Error('[BLOQUEADO] Supabase não pode ser usado em LOCAL_API');
+  }
   if (serviceRoleOverride) return serviceRoleOverride;
+  if (!isCloudEnabled()) return null;
   if (typeof window !== 'undefined' && (window as any).__ENV_FATAL_ERROR) {
     return null;
   }
@@ -109,8 +116,8 @@ export function getSupabaseClient(): SupabaseClient | null {
           }
           try {
             const response = await fetch(input, requestInit);
-            if (isEgressQuotaHttpStatus(response.status)) {
-              markSupabaseEgressBlocked();
+            if (response.status === 402 || isSupabaseBlocked({ status: response.status })) {
+              enableDegradedMode();
             }
             return response;
           } catch (error) {

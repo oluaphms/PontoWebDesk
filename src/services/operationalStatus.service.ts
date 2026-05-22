@@ -1,4 +1,6 @@
-import { supabase } from './supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
+import { degradedResponse } from './degraded';
+import { getProvider } from './getProvider';
 
 export type OperationalDayStatusRow = {
   id: string;
@@ -17,18 +19,19 @@ export type OperationalDayStatusRow = {
 };
 
 export async function fetchOperationalStatus(companyId: string): Promise<OperationalDayStatusRow[]> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return degradedResponse<OperationalDayStatusRow[]>().data;
+  }
   const cid = companyId.trim();
   if (!cid) return [];
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  const token = await getProvider().getAccessToken();
+  if (!token) {
     throw new Error('Sessão expirada. Faça login novamente.');
   }
 
   const res = await fetch(`/api/operational/status?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as {

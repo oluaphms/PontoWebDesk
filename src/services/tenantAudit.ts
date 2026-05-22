@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../../services/supabase';
 import type { TenantId, User } from '../../types';
 import { resolveTenantId } from './tenantScope';
+import { SYSTEM_CONFIG } from '../config/system';
 
 /**
  * Registra evento auditável por tenant (login, ações sensíveis).
@@ -12,6 +13,7 @@ export async function logTenantAuditEvent(params: {
   action: string;
   details?: Record<string, unknown>;
 }): Promise<void> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
   if (!isSupabaseConfigured()) return;
   const tid = (params.tenantId || '').trim();
   if (!tid) return;

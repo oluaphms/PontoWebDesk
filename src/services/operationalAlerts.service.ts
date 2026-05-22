@@ -1,4 +1,6 @@
-import { supabase } from './supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
+import { degradedResponse } from './degraded';
+import { getProvider } from './getProvider';
 
 export type OperationalAlertRow = {
   id: string;
@@ -16,15 +18,16 @@ export type OperationalAlertRow = {
 };
 
 export async function fetchOperationalAlerts(companyId: string): Promise<OperationalAlertRow[]> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return degradedResponse<OperationalAlertRow[]>().data;
+  }
   const cid = companyId.trim();
   if (!cid) return [];
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+  const token = await getProvider().getAccessToken();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
   const res = await fetch(`/api/operational/alerts?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as {
@@ -41,16 +44,17 @@ export async function fetchOperationalAlerts(companyId: string): Promise<Operati
 }
 
 export async function resolveOperationalAlert(alertId: string): Promise<void> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return;
+  }
   const id = alertId.trim();
   if (!id) throw new Error('ID do alerta inválido.');
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+  const token = await getProvider().getAccessToken();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
   const res = await fetch(`/api/operational/alerts/${encodeURIComponent(id)}/resolve`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };

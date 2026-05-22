@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CalendarDays, Clock as ClockIcon, Inbox, Layers3 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db, isSupabaseConfigured, supabase, getSupabaseClient } from '../services/supabaseClient';
+import { db } from '../services/supabaseClient';
 import { TimeRecord, LogType } from '../../types';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
@@ -16,6 +16,7 @@ import { ExpandableTextCell } from '../components/ClickableFullContent';
 import { queryCache, TTL } from '../services/queryCache';
 import { withRetry } from '../services/retry';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
+import { SYSTEM_CONFIG } from '../config/system';
 
 function isTimeoutLike(e: unknown): boolean {
   return /tempo esgotado|timeout/i.test(String((e as Error)?.message ?? e));
@@ -54,7 +55,15 @@ const DashboardPage: React.FC = () => {
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   useEffect(() => {
-    if (!user || !isSupabaseConfigured()) return;
+    if (!user) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+      setRecords([]);
+      setBalance(null);
+      setPendingRequests([]);
+      setLastRecordSummary(null);
+      setIsLoadingData(false);
+      return;
+    }
 
     const load = async () => {
       setIsLoadingData(true);
@@ -199,27 +208,13 @@ const DashboardPage: React.FC = () => {
   }, [user, rtTick]);
 
   useEffect(() => {
-    if (!user?.id || !getSupabaseClient() || !isSupabaseConfigured()) return;
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase
-      .channel(`portal_dash_${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'time_records', filter: `user_id=eq.${user.id}` },
-        () => {
-          if (t) clearTimeout(t);
-          t = setTimeout(() => {
-            t = null;
-            queryCache.invalidate(`time_records:user:${user.id}`);
-            setRtTick((x) => x + 1);
-          }, 400);
-        },
-      )
-      .subscribe();
-    return () => {
-      if (t) clearTimeout(t);
-      void supabase.removeChannel(channel);
-    };
+    if (!user?.id) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
+    const t = window.setInterval(() => {
+      queryCache.invalidate(`time_records:user:${user.id}`);
+      setRtTick((x) => x + 1);
+    }, 15_000);
+    return () => window.clearInterval(t);
   }, [user?.id]);
 
   const todayHours = useMemo(() => {

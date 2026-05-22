@@ -1,11 +1,13 @@
 import type { RegisterPunchSecureParams } from '../rep/repEngine';
 
 const DB_NAME = 'pontoweb_local';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = {
   punches: 'punches',
   employees: 'employees',
+  timeRecords: 'time_records',
+  settingsCache: 'settings_cache',
   syncQueue: 'sync_queue',
   syncMetadata: 'sync_metadata',
   deviceState: 'device_state',
@@ -65,6 +67,13 @@ function openLocalDb(): Promise<IDBDatabase | null> {
       }
       if (!db.objectStoreNames.contains(STORES.employees)) {
         db.createObjectStore(STORES.employees, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORES.timeRecords)) {
+        const tr = db.createObjectStore(STORES.timeRecords, { keyPath: 'id' });
+        tr.createIndex('by_user_timestamp', ['user_id', 'timestamp']);
+      }
+      if (!db.objectStoreNames.contains(STORES.settingsCache)) {
+        db.createObjectStore(STORES.settingsCache, { keyPath: 'key' });
       }
       if (!db.objectStoreNames.contains(STORES.syncQueue)) {
         const queue = db.createObjectStore(STORES.syncQueue, { keyPath: 'id' });
@@ -238,4 +247,130 @@ export async function rescheduleSyncQueueItems(ids: string[], retryAt: number): 
     } satisfies LocalSyncQueueItem);
   }
   await txDone(tx);
+}
+
+export async function cacheEmployees(rows: Array<Record<string, unknown>>): Promise<void> {
+  const db = await openLocalDb();
+  if (!db || rows.length === 0) return;
+  const tx = db.transaction([STORES.employees], 'readwrite');
+  const store = tx.objectStore(STORES.employees);
+  for (const row of rows) {
+    const id = String(row.id || '').trim();
+    if (!id) continue;
+    store.put({ ...row, id });
+  }
+  await txDone(tx);
+}
+
+export async function listCachedEmployeesByCompany(companyId: string): Promise<Array<Record<string, unknown>>> {
+  const db = await openLocalDb();
+  if (!db) return [];
+  const tx = db.transaction([STORES.employees], 'readonly');
+  const all = await reqToPromise<Array<Record<string, unknown>>>(tx.objectStore(STORES.employees).getAll());
+  return all.filter((row) => String(row.company_id || '') === companyId);
+}
+
+export async function cacheSettings(settings: Record<string, unknown>): Promise<void> {
+  const db = await openLocalDb();
+  if (!db) return;
+  const tx = db.transaction([STORES.settingsCache], 'readwrite');
+  tx.objectStore(STORES.settingsCache).put({
+    key: 'global_settings',
+    value: settings,
+    updated_at: Date.now(),
+  });
+  await txDone(tx);
+}
+
+export async function getCachedSettings<T extends Record<string, unknown>>(): Promise<T | null> {
+  const db = await openLocalDb();
+  if (!db) return null;
+  const tx = db.transaction([STORES.settingsCache], 'readonly');
+  const row = await reqToPromise<{ key: string; value?: T } | undefined>(
+    tx.objectStore(STORES.settingsCache).get('global_settings'),
+  );
+  return row?.value ?? null;
+}
+
+/** Todas as batidas locais (store `punches`). */
+export async function getLocalTimeRecords(): Promise<LocalPunchRecord[]> {
+  const db = await openLocalDb();
+  if (!db) return [];
+  const tx = db.transaction([STORES.punches], 'readonly');
+  return reqToPromise<LocalPunchRecord[]>(tx.objectStore(STORES.punches).getAll());
+}
+
+export type LocalDashboardCards = {
+  totalEmployees: number;
+  activeEmployees: number;
+  recordsToday: number;
+  absentToday: number;
+};
+
+function todayYmdLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export async function getLocalAdminDashboardCards(companyId: string): Promise<LocalDashboardCards> {
+  const employees = await listCachedEmployeesByCompany(companyId);
+  const punches = await getLocalTimeRecords();
+  const today = todayYmdLocal();
+  const todayPunches = punches.filter((p) => p.timestamp.slice(0, 10) === today);
+  const activeIds = new Set(todayPunches.map((p) => p.user_id));
+  const staff = employees.filter((u) => {
+    const role = String(u.role || '').toLowerCase();
+    return role !== 'admin' && role !== 'hr';
+  });
+  const expected = staff.length;
+  return {
+    totalEmployees: employees.length,
+    activeEmployees: employees.filter((u) => String(u.status || 'active') !== 'inactive').length,
+    recordsToday: todayPunches.length,
+    absentToday: Math.max(0, expected - activeIds.size),
+  };
+}
+
+export type LocalDashboardLastRecord = {
+  id: string;
+  userId: string;
+  employeeName: string;
+  type: string;
+  typeLabel: string;
+  date: string;
+  time: string;
+  location: string;
+  originLabel: string;
+};
+
+export async function getLocalAdminLastRecords(companyId: string, limit = 8): Promise<LocalDashboardLastRecord[]> {
+  const employees = await listCachedEmployeesByCompany(companyId);
+  const nameById = new Map(employees.map((u) => [String(u.id), String(u.nome || u.name || u.id)]));
+  const today = todayYmdLocal();
+  const punches = (await getLocalTimeRecords())
+    .filter((p) => p.timestamp.slice(0, 10) === today)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, limit);
+
+  return punches.map((p) => {
+    const d = new Date(p.timestamp);
+    const date = d.toLocaleDateString('pt-BR');
+    const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const typeLabel =
+      p.type === 'entrada' ? 'Entrada' : p.type === 'saída' || p.type === 'saida' ? 'Saída' : 'Batida';
+    return {
+      id: p.id,
+      userId: p.user_id,
+      employeeName: nameById.get(p.user_id) ?? p.user_id.slice(0, 8),
+      type: p.type,
+      typeLabel,
+      date,
+      time,
+      location: '—',
+      originLabel: p.source === 'rep' ? 'REP' : 'App',
+    };
+  });
 }

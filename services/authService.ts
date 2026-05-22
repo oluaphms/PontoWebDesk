@@ -32,8 +32,18 @@ import {
   auditSessionRequestEnd,
 } from '../src/auth/authDuplicateRequestAudit';
 import { User } from '../types';
-import { clearLocalSession, getLocalSession, saveLocalSession, type LocalSession } from '../src/services/localAuth';
-import { isSupabaseBlocked } from '../src/services/systemMode';
+import {
+  clearLocalSession,
+  ensureDefaultLocalAdmin,
+  getLocalSession,
+  saveLocalSession,
+  verifyLocalCredentials,
+  type LocalSession,
+} from '../src/services/localAuth';
+import { isSupabaseBlocked } from '../src/utils/supabaseGuard';
+import { enableDegradedMode } from '../src/services/systemMode';
+import { isCloudEnabled } from '../src/services/cloudService';
+import { cacheEmployees } from '../src/services/localDb';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -306,7 +316,8 @@ class AuthService {
         if (typeof emailResolved === 'string' && emailResolved.trim()) {
           return emailResolved.trim().toLowerCase();
         }
-      } catch {
+      } catch (rpcErr) {
+        if (isSupabaseBlocked(rpcErr)) enableDegradedMode();
         // ignora e segue com fallback (db.select) para compatibilidade
       }
     }
@@ -634,6 +645,10 @@ class AuthService {
           throw new Error('Erro ao fazer login. Tente novamente.');
         }
         if (error) {
+          if (isSupabaseBlocked(error)) {
+            enableDegradedMode();
+            throw error;
+          }
           if (this.isRetriableLoginTransportError(error) && attempt < maxAttempts - 1) {
             if (typeof console !== 'undefined') {
               console.warn('[LOGIN RETRY]', { afterMs: 2000, attempt: attempt + 1 });
@@ -990,6 +1005,32 @@ class AuthService {
     let resolvedEmail = '';
     const isEmailInput = (identifier || '').trim().includes('@');
     const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
+    if (!isCloudEnabled()) {
+      await ensureDefaultLocalAdmin();
+      const localUser = await verifyLocalCredentials(identifier, password);
+      if (localUser) {
+        const mapped = mapLocalSessionToUser({
+          user_id: localUser.id,
+          name: localUser.name,
+          company_id: localUser.company_id,
+          role: localUser.role,
+          last_login: Date.now(),
+        });
+        await saveLocalSession(mapUserToLocalSession(mapped));
+        persistCurrentUserToProfileStore(mapped);
+        await cacheEmployees([
+          {
+            id: mapped.id,
+            nome: mapped.nome,
+            company_id: mapped.companyId,
+            role: mapped.role,
+            status: 'active',
+          },
+        ]);
+        return { user: mapped, error: null, source: 'local' };
+      }
+      return { user: null, error: 'Credenciais locais inválidas' };
+    }
     try {
       // Resolver identificador (email, CPF, nome) para um email válido
       resolvedEmail = await this.resolveLoginEmail(identifier);
@@ -1098,7 +1139,31 @@ class AuthService {
           return { user: fallbackLocal, error: null, source: 'local' };
         }
         if (isSupabaseBlocked(error)) {
-          console.warn('[AUTH] Supabase bloqueado — entrando em modo offline');
+          enableDegradedMode();
+          console.warn('[MODO LOCAL] auth');
+          await ensureDefaultLocalAdmin();
+          const credUser = await verifyLocalCredentials(identifier, password);
+          if (credUser) {
+            const mapped = mapLocalSessionToUser({
+              user_id: credUser.id,
+              name: credUser.name,
+              company_id: credUser.company_id,
+              role: credUser.role,
+              last_login: Date.now(),
+            });
+            await saveLocalSession(mapUserToLocalSession(mapped));
+            persistCurrentUserToProfileStore(mapped);
+            await cacheEmployees([
+              {
+                id: mapped.id,
+                nome: mapped.nome,
+                company_id: mapped.companyId,
+                role: mapped.role,
+                status: 'active',
+              },
+            ]);
+            return { user: mapped, error: null, source: 'local' };
+          }
           const forcedLocalSession: LocalSession = {
             user_id: 'offline-user',
             name: 'Usuário Offline',
@@ -1109,6 +1174,15 @@ class AuthService {
           await saveLocalSession(forcedLocalSession);
           const forcedUser = mapLocalSessionToUser(forcedLocalSession);
           persistCurrentUserToProfileStore(forcedUser);
+          await cacheEmployees([
+            {
+              id: forcedUser.id,
+              nome: forcedUser.nome,
+              company_id: forcedUser.companyId,
+              role: forcedUser.role,
+              status: 'active',
+            },
+          ]);
           return { user: forcedUser, error: null, source: 'offline-forced' };
         }
         return { user: null, error: 'Sem conexão e sem sessão local' };

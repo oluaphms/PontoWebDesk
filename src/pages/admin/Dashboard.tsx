@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import PageHeader from '../../components/PageHeader';
-import { checkSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
@@ -82,7 +81,7 @@ const AdminDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!user?.companyId || !checkSupabaseConfigured()) {
+    if (!user?.companyId) {
       setLoadingCards(false);
       return;
     }
@@ -112,7 +111,7 @@ const AdminDashboard: React.FC = () => {
   }, [user?.companyId]);
 
   useEffect(() => {
-    if (!user?.companyId || !checkSupabaseConfigured()) {
+    if (!user?.companyId) {
       setLoadingRecords(false);
       return;
     }

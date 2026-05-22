@@ -3,7 +3,6 @@
  */
 import type { RegisterPunchResult, RegisterPunchSecureParams } from '../rep/repEngine';
 import { savePunchEvidence, type SavePunchEvidenceParams } from './punchEvidenceService';
-import { supabase } from './supabaseClient';
 import {
   ensurePunchOfflineDbReady,
   idbCountPending,
@@ -17,7 +16,9 @@ import {
   markLocalPunchSynced,
   putLocalPunch,
 } from './localDb';
+import { isCloudEnabled } from './cloudService';
 import type { QueuedWebPunch } from './punchOfflineQueue.types';
+import { getProvider } from './getProvider';
 
 export type { QueuedWebPunch } from './punchOfflineQueue.types';
 
@@ -112,6 +113,9 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
   retry_after?: number;
   clientIds?: string[];
 }> {
+  if (!isCloudEnabled()) {
+    return { flushed: 0, degraded: true, retry_after: 60_000, clientIds: [] };
+  }
   await ensurePunchOfflineDbReady();
   const pending = await idbListPunchesByStatus('pending');
   if (pending.length === 0) return { flushed: 0, clientIds: [] };
@@ -123,25 +127,15 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(0, MAX_BATCH);
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  const provider = getProvider();
+  const accessToken = await provider.getAccessToken();
+  if (!accessToken) {
     return { flushed: 0, clientIds: [] };
   }
 
-  const res = await fetch('/api/punches/batch', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const data = (await provider.registerPunchBatch({
       punches: batch.map((b) => ({ client_id: b.id, ...b.params, _evidence: b.evidence ?? undefined })),
-    }),
-  });
-
-  const data = (await res.json().catch(() => null)) as {
+    })) as {
     ok?: boolean;
     degraded?: boolean;
     retry_after?: number;
@@ -152,7 +146,7 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
     return { flushed: 0, degraded: true, retry_after: data.retry_after ?? 60_000, clientIds: [] };
   }
 
-  if (!res.ok || !data?.ok) {
+  if (!data?.ok) {
     return { flushed: 0, clientIds: [] };
   }
 

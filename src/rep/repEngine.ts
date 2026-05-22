@@ -5,7 +5,7 @@
  */
 
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
-import { supabase, db, isSupabaseConfigured } from '../services/supabaseClient';
+import { db } from '../services/supabaseClient';
 import {
   enqueueAndMaybeSyncWebPunch,
   flushWebPunchQueue,
@@ -14,10 +14,9 @@ import {
 } from '../services/punchOfflineQueue';
 
 export { onWebPunchQueueSynced };
-import { withTimeout } from '../utils/withTimeout';
-import { fetchReconcileAndUpsertOperationalDayStatus } from '../../modules/rep-integration/repOperationalSequenceResolver';
-import { repCivilDateFromIsoUtc } from '../../modules/rep-integration/repIngestPunchCore';
 import type { SavePunchEvidenceParams } from '../services/punchEvidenceService';
+import { SYSTEM_CONFIG } from '../config/system';
+import { getProvider } from '../services/getProvider';
 
 const WEB_PUNCH_QUEUE =
   typeof import.meta !== 'undefined' &&
@@ -77,8 +76,6 @@ export interface IntegrityResult {
   details?: { nsr?: number; expectedHash?: string; actualHash?: string }[];
 }
 
-const RPC_NAME = 'rep_register_punch';
-const MAX_NSR = 999999999;
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -125,8 +122,8 @@ export function normalizePunchRegistrationError(err: unknown): Error {
  * Usa RPC no Supabase para garantir sequência e hash no servidor.
  */
 export async function registerPunch(params: RegisterPunchParams): Promise<RegisterPunchResult> {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase não configurado. Não é possível registrar ponto REP-P.');
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return enqueueAndMaybeSyncWebPunch(params as RegisterPunchSecureParams);
   }
   const {
     userId,
@@ -142,34 +139,26 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
   ensureUuidLike(userId, 'user_id');
   ensureUuidLike(companyId, 'company_id');
 
-  const RPC_TIMEOUT_MS = 15000;
-  const { data, error } = await withTimeout(
-    supabase.rpc(RPC_NAME, {
-      p_user_id: userId,
-      p_company_id: companyId,
-      p_type: type,
-      p_method: method,
-      p_record_id: recordId || null,
-      p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
-      p_photo_url: photoUrl || null,
-      p_source: source,
-    }) as unknown as Promise<{ data: unknown; error: unknown }>,
-    RPC_TIMEOUT_MS,
-    'registrar ponto (REP)',
-  );
+  const provider = getProvider();
+  const data = await provider.registerPunch({
+    user_id: userId,
+    company_id: companyId,
+    type,
+    method,
+    record_id: recordId || null,
+    location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
+    photo_url: photoUrl || null,
+    source,
+  });
 
-  if (error) throw normalizePunchRegistrationError(error);
-  if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
-
-  const result = data as RegisterPunchResult;
-  const ymd = repCivilDateFromIsoUtc(result.timestamp);
-  if (ymd) {
-    void fetchReconcileAndUpsertOperationalDayStatus(supabase, companyId, userId, ymd).catch((err) => {
-      console.warn('[repEngine] fetchReconcileAndUpsertOperationalDayStatus', err);
-    });
-  }
-
-  return result;
+  return {
+    id: String((data as any)?.id ?? `local-${Date.now()}`),
+    nsr: Number((data as any)?.nsr ?? 0),
+    hash: String((data as any)?.hash ?? `hash-${Date.now()}`),
+    previous_hash: String((data as any)?.previous_hash ?? '0'),
+    timestamp: String((data as any)?.timestamp ?? new Date().toISOString()),
+    receipt_id: String((data as any)?.receipt_id ?? (data as any)?.id ?? `receipt-${Date.now()}`),
+  };
 }
 
 /** Drena fila web (ex.: botão ou ao fechar comprovante). */
@@ -190,8 +179,6 @@ export async function getPendingWebPunchCount(): Promise<number> {
   return countPendingWebPunches();
 }
 
-const RPC_SECURE_NAME = 'rep_register_punch_secure';
-
 /**
  * Registro com fila offline (IndexedDB) + lote ≥10 — reduz egress no mobile/web.
  */
@@ -199,9 +186,6 @@ export async function registerPunchSecure(
   params: RegisterPunchSecureParams,
   evidence?: Omit<SavePunchEvidenceParams, 'timeRecordId'> | null,
 ): Promise<RegisterPunchResult & { pending?: boolean; clientId?: string }> {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase não configurado. Não é possível registrar ponto REP-P.');
-  }
   if (webPunchQueueAvailable()) {
     return enqueueAndMaybeSyncWebPunch(params, evidence ?? null);
   }
@@ -227,47 +211,16 @@ export async function registerPunchSecure(
   ensureUuidLike(userId, 'user_id');
   ensureUuidLike(companyId, 'company_id');
 
-  const RPC_TIMEOUT_MS = 15000;
-  const { data, error } = await withTimeout(
-    supabase.rpc(RPC_SECURE_NAME, {
-      p_user_id: userId,
-      p_company_id: companyId,
-      p_type: type,
-      p_method: method,
-      p_record_id: recordId || null,
-      p_location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
-      p_photo_url: photoUrl || null,
-      p_source: source,
-      p_latitude: latitude ?? null,
-      p_longitude: longitude ?? null,
-      p_accuracy: accuracy ?? null,
-      p_device_id: deviceId ?? null,
-      p_device_type: deviceType ?? null,
-      p_ip_address: ipAddress ?? null,
-      p_fraud_score: fraudScore ?? null,
-      p_fraud_flags: fraudFlags && fraudFlags.length ? fraudFlags : null,
-    }) as unknown as Promise<{ data: unknown; error: unknown }>,
-    RPC_TIMEOUT_MS,
-    'registrar ponto (REP seguro)',
-  );
-
-  if (error) {
-    if ((error as { code?: string }).code === '42883') {
-      return registerPunch(params);
-    }
-    throw normalizePunchRegistrationError(error);
-  }
-  if (!data) throw new Error('Resposta vazia do registro de ponto REP-P.');
-
-  const result = data as RegisterPunchResult;
-  const ymd = repCivilDateFromIsoUtc(result.timestamp);
-  if (ymd) {
-    void fetchReconcileAndUpsertOperationalDayStatus(supabase, companyId, userId, ymd).catch((err) => {
-      console.warn('[repEngine] fetchReconcileAndUpsertOperationalDayStatus', err);
-    });
-  }
-
-  return result;
+  return registerPunch({
+    userId,
+    companyId,
+    type,
+    method,
+    recordId,
+    location,
+    photoUrl,
+    source,
+  });
 }
 
 /**

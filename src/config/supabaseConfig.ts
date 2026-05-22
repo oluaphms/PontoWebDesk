@@ -3,8 +3,11 @@
  * Padronização e validação segura de variáveis de ambiente
  */
 
+import { SYSTEM_CONFIG } from './system';
+
 // ETAPA 1.2 - Verificar valores das variáveis
 const getSupabaseUrl = (): string => {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return '';
   // Tentar múltiplas fontes em ordem de prioridade
   const url =
     // 1. Variável de ambiente em tempo de build (Vite)
@@ -17,6 +20,7 @@ const getSupabaseUrl = (): string => {
 };
 
 const getSupabaseAnonKey = (): string => {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return '';
   // Tentar múltiplas fontes em ordem de prioridade
   const key =
     // 1. Variável de ambiente em tempo de build (Vite)
@@ -33,6 +37,10 @@ export const SUPABASE_ANON_KEY = getSupabaseAnonKey();
 
 // ETAPA 3 - Validação segura
 export const validateSupabaseConfig = (): void => {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    console.warn('[SAFE MODE] Supabase config ignorada em LOCAL_API');
+    return;
+  }
   if (!SUPABASE_URL) {
     const msg = '❌ CRÍTICO: SUPABASE_URL não definida. Configure VITE_SUPABASE_URL nas variáveis de ambiente.';
     console.error(msg);

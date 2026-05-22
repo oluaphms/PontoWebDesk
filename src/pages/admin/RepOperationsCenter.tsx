@@ -49,6 +49,7 @@ import {
   type TrendArrow,
 } from '../../services/repOperationsCenter.service';
 import { markRepPunchInvestigating } from '../../services/repPendingSequenceReconciliation.service';
+import { SYSTEM_CONFIG } from '../../config/system';
 
 /** `badIsUp`: quando true, aumento do valor é mau (vermelho no ↑). */
 function TrendGlyph({ trend, badIsUp = true }: { trend: TrendArrow; badIsUp?: boolean }) {
@@ -164,6 +165,7 @@ const RepOperationsCenter: React.FC = () => {
   const [modalCtx, setModalCtx] = useState<{ employeeId: string; dateYmd: string; logId: string } | null>(null);
 
   const reviewedBy = String(user?.id ?? '').trim();
+  const offlineMode = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
 
   const loadKpi = useCallback(async () => {
     if (!supabase || !companyId) return;
@@ -390,10 +392,6 @@ const RepOperationsCenter: React.FC = () => {
     [companyId, reviewedBy, loadQueue, loadKpi],
   );
 
-  if (!isSupabaseConfigured()) {
-    return <Navigate to="/" replace />;
-  }
-
   if (loading) {
     return (
       <div className="p-6">
@@ -404,6 +402,22 @@ const RepOperationsCenter: React.FC = () => {
 
   if (user && user.role !== 'admin' && user.role !== 'hr') {
     return <Navigate to="/dashboard-admin" replace />;
+  }
+  if (offlineMode || !isSupabaseConfigured()) {
+    return (
+      <div className="min-h-screen bg-slate-50/80 dark:bg-slate-950">
+        <div className="max-w-[1600px] mx-auto p-4 md:p-6 space-y-6">
+          <PageHeader
+            title="Centro operacional REP"
+            subtitle="Fila única, correlação, stream e heatmap."
+            icon={<Layers className="w-6 h-6" />}
+          />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+            Funcionalidade disponível apenas online
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

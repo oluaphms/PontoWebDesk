@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { db, isSupabaseConfigured, type DbRealtimePayload } from '../services/supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
 
 type EventType = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
@@ -26,6 +27,7 @@ export function useSupabaseRealtime<TPayload extends DbRealtimePayload = DbRealt
   onPayload,
 }: RealtimeOptions<TPayload>) {
   useEffect(() => {
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     if (!isSupabaseConfigured()) return;
     let unsubscribe: (() => void) | undefined;
 

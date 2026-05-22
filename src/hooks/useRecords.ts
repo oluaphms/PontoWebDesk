@@ -5,7 +5,7 @@ import { PontoService } from '../../services/pontoService';
 import { OfflinePunchService } from '../../services/offlinePunchService';
 import { getTimeRecordsByUser } from '../../services/timeRecords.service';
 import { invalidateAfterPunch } from '../services/queryCache';
-import { isSupabaseConfigured, supabase } from '../../services/supabase';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { isLowNetworkMode } from '../performance/networkMode';
 import { startDeferredRealtime } from '../performance/deferredRealtime';
 import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
@@ -58,26 +58,17 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
       }, debounceMs);
     };
 
-    const channel = supabase
-      .channel(`time_records:${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'time_records',
-          // HARD LOCK egress: filtro por user_id (antes company_id = todos os colaboradores da empresa).
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          scheduleRealtimeCoalesce();
-        }
-      )
-      .subscribe();
+    const unsubscribe = db.subscribe(
+      'time_records',
+      () => {
+        scheduleRealtimeCoalesce();
+      },
+      `user_id=eq.${userId}`,
+    );
 
     return () => {
       if (batchedTimer) clearTimeout(batchedTimer);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [userId, companyId, queryClient, realtimeReady]);
 

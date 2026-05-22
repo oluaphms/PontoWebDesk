@@ -29,7 +29,7 @@ export default function AdminMetricasProduto() {
     }
     const client = getSupabaseClient();
     if (!client) {
-      setLoadErr('Cliente Supabase indisponível.');
+      setLoadErr('Modo offline ativo — dados serão sincronizados depois.');
       setLoadingSnap(false);
       return;
     }

@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { Navigate } from 'react-router-dom';
-import { db, supabase, isSupabaseConfigured, getSupabaseClient } from '../../services/supabaseClient';
+import { db } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
@@ -15,8 +15,6 @@ import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.ser
 import { queryCache } from '../../services/queryCache';
 import {
   commitMonitoringGeoRegistryFromFetch,
-  shouldProcessRealtimeCosPayload,
-  shouldProcessRealtimeLivePayload,
 } from '../../services/monitoring/realtimeMonitoringGeoRegistry';
 import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
@@ -43,7 +41,7 @@ import {
   Zap,
   Calendar,
 } from 'lucide-react';
-import { getRealtimeGeoStreamCoordinator } from '../../services/monitoring/realtimeGeoStreamCoordinator';
+import { SYSTEM_CONFIG } from '../../config/system';
 
 type UserRow = { id: string; nome: string; email?: string };
 
@@ -61,7 +59,15 @@ const AdminMonitoring: React.FC = () => {
   const refreshGenerationRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
+    if (!user?.companyId) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+      setUsingOperationalStateTable(false);
+      setTodayUsers([]);
+      setPipelineRows([]);
+      setPresenceList([]);
+      setLoadingData(false);
+      return;
+    }
     const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
@@ -145,8 +151,8 @@ const AdminMonitoring: React.FC = () => {
   }, [refresh]);
 
   useEffect(() => {
-    if (!getSupabaseClient() || !user?.companyId) return;
-    const coord = getRealtimeGeoStreamCoordinator(`${user.companyId}:admin:monitoring`);
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
+    if (!user?.companyId) return;
     const run = () => {
       if (isPollingSuppressedByVisibility()) return;
       clearGeocodeCache();
@@ -155,39 +161,8 @@ const AdminMonitoring: React.FC = () => {
       queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
       void refresh();
     };
-    const schedule = () => coord.requestFlush('postgres_changes', run);
-
-    const ch = supabase
-      .channel('admin_monitoring_operational_state')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'current_operational_state', filter: `company_id=eq.${user.companyId}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!shouldProcessRealtimeCosPayload(user.companyId!, row)) return;
-          schedule();
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'time_records', filter: `company_id=eq.${user.companyId}` },
-        schedule,
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_employee_location', filter: `company_id=eq.${user.companyId}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!shouldProcessRealtimeLivePayload(user.companyId!, row)) return;
-          schedule();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      coord.cancel();
-      void supabase.removeChannel(ch);
-    };
+    const t = window.setInterval(run, 12_000);
+    return () => window.clearInterval(t);
   }, [user?.companyId, refresh]);
 
   const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);

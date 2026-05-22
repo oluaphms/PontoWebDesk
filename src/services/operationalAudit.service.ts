@@ -1,4 +1,6 @@
-import { supabase } from './supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
+import { degradedResponse } from './degraded';
+import { getProvider } from './getProvider';
 
 export type OperationalAuditRow = {
   id: string;
@@ -18,12 +20,13 @@ export async function fetchOperationalAudit(
   companyId: string,
   opts?: { entityType?: string; entityId?: string; limit?: number },
 ): Promise<OperationalAuditRow[]> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return degradedResponse<OperationalAuditRow[]>().data;
+  }
   const cid = companyId.trim();
   if (!cid) return [];
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+  const token = await getProvider().getAccessToken();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
   const params = new URLSearchParams({ company_id: cid });
   if (opts?.entityType?.trim()) params.set('entity_type', opts.entityType.trim());
@@ -31,7 +34,7 @@ export async function fetchOperationalAudit(
   if (opts?.limit != null) params.set('limit', String(opts.limit));
 
   const res = await fetch(`/api/operational/audit?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   const body = (await res.json().catch(() => ({}))) as {

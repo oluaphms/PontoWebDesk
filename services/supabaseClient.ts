@@ -33,6 +33,7 @@ import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../src/lib/supabaseClient';
 import { withTimeout } from '../src/utils/withTimeout';
 import { DB_SELECT_TIMEOUT_MS } from './supabase';
+import { isCloudEnabled } from '../src/services/cloudService';
 
 /** Evita REST com JWT ainda não hidratado do storage (sintoma: dados vazios até relogar). */
 /** Sessão lenta (IndexedDB / lock do GoTrue) — evitar timeout prematuro antes do primeiro REST. */
@@ -298,6 +299,7 @@ export const db: DbInterface = {
     orderBy?: OrderBy | SelectOptions,
     limit?: number
   ): Promise<T[]> => {
+    if (!isCloudEnabled()) return [];
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -410,6 +412,7 @@ export const db: DbInterface = {
   },
 
   insert: async <T extends DbRow = DbRow>(table: string, data: DbRow): Promise<T> => {
+    if (!isCloudEnabled()) return data as T;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -424,6 +427,7 @@ export const db: DbInterface = {
   },
 
   upsert: async (table: string, data: DbRow, onConflict: string): Promise<void> => {
+    if (!isCloudEnabled()) return;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -436,6 +440,7 @@ export const db: DbInterface = {
   },
 
   rpc: async <T = unknown>(fn: string, args?: DbRow): Promise<{ data: T | null; error: PostgrestError | null }> => {
+    if (!isCloudEnabled()) return { data: null, error: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -447,6 +452,7 @@ export const db: DbInterface = {
     idOrData: string | DbRow,
     dataOrFilters?: DbRow | Filter[],
   ): Promise<T> => {
+    if (!isCloudEnabled()) return (typeof idOrData === 'object' ? idOrData : (dataOrFilters as DbRow)) as T;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -496,6 +502,7 @@ export const db: DbInterface = {
   },
 
   delete: async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
+    if (!isCloudEnabled()) return;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -538,6 +545,7 @@ export const db: DbInterface = {
 
   // Método auxiliar para buscar um único registro por ID
   findById: async <T extends DbRow = DbRow>(table: string, id: string, columns?: string): Promise<T | null> => {
+    if (!isCloudEnabled()) return null;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -570,6 +578,7 @@ export const db: DbInterface = {
       count?: boolean;
     },
   ): Promise<{ data: T[]; count: number | null }> => {
+    if (!isCloudEnabled()) return { data: [], count: 0 };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -616,6 +625,7 @@ export const db: DbInterface = {
 
   // Contagem rápida sem carregar dados
   count: async (table: string, filters?: Filter[]): Promise<number> => {
+    if (!isCloudEnabled()) return 0;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     await ensureSupabaseAuthSessionReady(client);
@@ -649,6 +659,7 @@ export const db: DbInterface = {
     callback: (payload: DbRealtimePayload) => void,
     filter?: string
   ): (() => void) => {
+    if (!isCloudEnabled()) return () => {};
     const client = getSupabaseClient();
     if (!client) {
       console.warn('[db.subscribe] Supabase não inicializado');
@@ -689,11 +700,18 @@ export const db: DbInterface = {
 
 export const storage = {
   from: (bucket: string) => {
+    if (!isCloudEnabled()) {
+      return {
+        upload: async () => ({ data: null, error: null }),
+        getPublicUrl: () => ({ data: { publicUrl: '' } }),
+      } as unknown as ReturnType<NonNullable<SupabaseClient['storage']>['from']>;
+    }
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.storage.from(bucket);
   },
   upload: (bucket: string, path: string, body: Blob | File | ArrayBuffer | FormData, options?: Record<string, unknown>) => {
+    if (!isCloudEnabled()) return Promise.resolve({ data: null, error: null });
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.storage.from(bucket).upload(
@@ -703,6 +721,7 @@ export const storage = {
     );
   },
   getPublicUrl: (bucket: string, path: string) => {
+    if (!isCloudEnabled()) return '';
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
@@ -711,6 +730,7 @@ export const storage = {
 
 export const auth = {
   signUp: async (email: string, password: string, options?: Record<string, unknown>) => {
+    if (!isCloudEnabled()) return { user: null, session: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { data, error } = await client.auth.signUp({ email, password, options });
@@ -719,6 +739,7 @@ export const auth = {
   },
   /** Alias de signInWithPassword para compatibilidade com authService */
   signIn: async (email: string, password: string) => {
+    if (!isCloudEnabled()) return { user: null, session: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -726,6 +747,7 @@ export const auth = {
     return data;
   },
   signInWithPassword: async (email: string, password: string) => {
+    if (!isCloudEnabled()) return { user: null, session: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -733,6 +755,7 @@ export const auth = {
     return data;
   },
   signInWithOAuth: async (provider: string, options?: Record<string, unknown>) => {
+    if (!isCloudEnabled()) return { provider, url: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { data, error } = await client.auth.signInWithOAuth({
@@ -743,34 +766,44 @@ export const auth = {
     return data;
   },
   signOut: async (options?: { scope?: 'global' | 'local' | 'others' }) => {
+    if (!isCloudEnabled()) return { error: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     resetSessionAuthWarmup();
     return client.auth.signOut(options);
   },
   getSession: async () => {
+    if (!isCloudEnabled()) return { data: { session: null }, error: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.auth.getSession();
   },
   getUser: async () => {
+    if (!isCloudEnabled()) return { data: { user: null }, error: null };
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.auth.getUser();
   },
   updatePassword: async (newPassword: string) => {
+    if (!isCloudEnabled()) return;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) throw error;
   },
   resetPassword: async (email: string, redirectTo?: string) => {
+    if (!isCloudEnabled()) return;
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     const { error } = await client.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
     if (error) throw error;
   },
   onAuthStateChange: (callback: AuthOnChangeCallback) => {
+    if (!isCloudEnabled()) {
+      return {
+        data: { subscription: { unsubscribe: () => {} } },
+      } as ReturnType<SupabaseClient['auth']['onAuthStateChange']>;
+    }
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase não inicializado');
     return client.auth.onAuthStateChange(callback);

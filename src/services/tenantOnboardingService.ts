@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../../services/supabase';
+import { SYSTEM_CONFIG } from '../config/system';
 
 export type CreateTenantResult = { tenantId: string; ok: boolean };
 
@@ -11,6 +12,9 @@ export async function createTenantOnboarding(params: {
   slug: string;
   plan?: 'free' | 'pro' | 'enterprise';
 }): Promise<{ data: CreateTenantResult | null; error: Error | null }> {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return { data: null, error: new Error('Funcionalidade disponível apenas online') };
+  }
   if (!isSupabaseConfigured()) {
     return { data: null, error: new Error('Supabase não configurado') };
   }

@@ -16,7 +16,6 @@ import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/time
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { devVerboseInfo, isDevVerboseLogsEnabled } from '@/utils/devVerboseLogs';
-import { SupabaseEgressBanner } from './SupabaseEgressBanner';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -163,16 +162,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       if (mounted) setIsReady(true);
 
       // Diagnóstico não bloqueante: resultado apenas informativo — nunca bloqueia login.
-      void (async () => {
-        const result = await checkSupabaseConnection();
-        if (!result.ok) {
-          const suffix =
-            result.status === 'egress_quota'
-              ? '— login e batidas ficam indisponíveis até liberar a cota no Supabase.'
-              : '— o login pode falhar se o Supabase não responder.';
-          console.warn('[SUPABASE] modo degradado ativo:', result.message, suffix);
-        }
-      })();
+      void checkSupabaseConnection();
     };
 
     void init();
@@ -254,10 +244,5 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
     );
   }
 
-  return (
-    <>
-      <SupabaseEgressBanner />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 };

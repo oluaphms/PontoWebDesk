@@ -1,4 +1,3 @@
-import { supabase } from './supabaseClient';
 import {
   listReadySyncQueueItems,
   markLocalPunchSynced,
@@ -6,6 +5,8 @@ import {
   rescheduleSyncQueueItems,
   updateSyncQueueStatus,
 } from './localDb';
+import { isCloudEnabled } from './cloudService';
+import { getProvider } from './getProvider';
 
 const SYNC_MIN_BATCH = 10;
 const SYNC_MAX_BATCH = 50;
@@ -33,6 +34,10 @@ function schedule(ms: number): void {
 
 async function syncLoop(): Promise<void> {
   if (!running) return;
+  if (!isCloudEnabled()) {
+    schedule(SYNC_INTERVAL_MS);
+    return;
+  }
   let inflightIds: string[] = [];
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     schedule(OFFLINE_WAIT_MS);
@@ -50,32 +55,21 @@ async function syncLoop(): Promise<void> {
     inflightIds = ids;
     await updateSyncQueueStatus(ids, 'processing');
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
+    const provider = getProvider();
+    const accessToken = await provider.getAccessToken();
+    if (!accessToken) {
       await updateSyncQueueStatus(ids, 'pending');
       schedule(SYNC_INTERVAL_MS);
       return;
     }
 
-    const res = await fetch('/api/punches/batch', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const data = (await provider.registerPunchBatch({
         punches: ready.map((item) => ({
           client_id: item.id,
           punch_hash: item.payload.punch_hash,
           ...item.payload,
         })),
-      }),
-    });
-
-    const data = (await res.json().catch(() => null)) as {
+      })) as {
       degraded?: boolean;
       retry_after?: number;
       results?: Array<{ punch_hash?: string; success?: boolean; duplicate?: boolean }>;
@@ -88,7 +82,7 @@ async function syncLoop(): Promise<void> {
       return;
     }
 
-    if (!res.ok || !data) {
+    if (!data) {
       const retryAt = Date.now() + 60_000;
       await rescheduleSyncQueueItems(ids, retryAt);
       schedule(SYNC_INTERVAL_MS);
@@ -137,6 +131,7 @@ async function syncLoop(): Promise<void> {
 export function startSyncEngine(): void {
   if (running || typeof window === 'undefined') return;
   running = true;
+  console.log('[SYNC] fila local ativa');
   schedule(1_000);
 }
 
@@ -145,5 +140,61 @@ export function stopSyncEngine(): void {
   if (timer != null) {
     window.clearTimeout(timer);
     timer = null;
+  }
+}
+
+export async function flushAll(): Promise<void> {
+  if (!isCloudEnabled()) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  for (;;) {
+    const ready = await listReadySyncQueueItems(SYNC_MAX_BATCH);
+    if (ready.length === 0) return;
+    const ids = ready.map((item) => item.id);
+    await updateSyncQueueStatus(ids, 'processing');
+    try {
+      const provider = getProvider();
+      const accessToken = await provider.getAccessToken();
+      if (!accessToken) {
+        await updateSyncQueueStatus(ids, 'pending');
+        return;
+      }
+      const data = (await provider.registerPunchBatch({
+          punches: ready.map((item) => ({
+            client_id: item.id,
+            punch_hash: item.payload.punch_hash,
+            ...item.payload,
+          })),
+        })) as {
+        degraded?: boolean;
+        retry_after?: number;
+        results?: Array<{ punch_hash?: string; success?: boolean; duplicate?: boolean }>;
+      } | null;
+      if (!data || data?.degraded) {
+        const retryAt = Date.now() + (data?.retry_after ?? 60_000);
+        await rescheduleSyncQueueItems(ids, retryAt);
+        return;
+      }
+      const byHash = new Map<string, { success?: boolean; duplicate?: boolean }>();
+      for (const item of data?.results ?? []) {
+        const key = String(item.punch_hash || '').trim();
+        if (key) byHash.set(key, item);
+      }
+      const okIds: string[] = [];
+      const retryIds: string[] = [];
+      for (const item of ready) {
+        const r = byHash.get(item.payload.punch_hash);
+        if (r?.success || r?.duplicate) okIds.push(item.id);
+        else retryIds.push(item.id);
+      }
+      await markLocalPunchSynced(okIds);
+      await removeSyncQueueItems(okIds);
+      if (retryIds.length > 0) {
+        await rescheduleSyncQueueItems(retryIds, Date.now() + 60_000);
+        return;
+      }
+    } catch {
+      await rescheduleSyncQueueItems(ids, Date.now() + 60_000);
+      return;
+    }
   }
 }

@@ -27,6 +27,15 @@ import { buildOperationalDayRange, getOperationalTodayYmd } from '../utils/opera
 import { operationalClockMs } from '../utils/operationalClock';
 import { opLog } from '../utils/operationalLogger';
 import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
+import { isCloudEnabled } from './cloudService';
+import { cloudFallback } from './cloudFallback';
+import { enableDegradedMode } from './systemMode';
+import { isSupabaseBlocked } from '../utils/supabaseGuard';
+import {
+  getLocalAdminDashboardCards,
+  getLocalAdminLastRecords,
+  type LocalDashboardLastRecord,
+} from './localDb';
 
 export interface AdminDashboardCards {
   totalEmployees: number;
@@ -491,7 +500,38 @@ function enrichAdminLastRecordsWithCosGeo(
 /**
  * Cards do painel sem gráfico semanal (primeiro paint mais leve).
  */
+function mapLocalLastToAdmin(row: LocalDashboardLastRecord): AdminDashboardLastRecord {
+  return {
+    id: row.id,
+    employeeName: row.employeeName,
+    type: row.type,
+    typeLabel: row.typeLabel,
+    date: row.date,
+    time: row.time,
+    location: row.location,
+    originLabel: row.originLabel,
+    userId: row.userId,
+    lat: null,
+    lng: null,
+    accuracy: null,
+    sourceRecordId: row.id,
+    hasTimeAnomaly: false,
+    timeAnomalyReason: null,
+    streetAddress: null,
+    streetResolved: false,
+    geoStreet: null,
+    geoDistrict: null,
+    geoPostalCode: null,
+    geoCity: null,
+    geoState: null,
+  };
+}
+
 export async function getAdminDashboardCardsQuick(companyId: string): Promise<AdminDashboardCards | null> {
+  const localFallback = () => getLocalAdminDashboardCards(companyId);
+  if (!isCloudEnabled()) {
+    return cloudFallback(await localFallback());
+  }
   return runSingleFlight(`adminDashCardsQuick:${companyId}`, async () => {
     recordCriticalRequest('adminDashCardsQuick');
     try {
@@ -539,8 +579,13 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
         absentToday,
       };
     } catch (e) {
+      if (isSupabaseBlocked(e)) {
+        enableDegradedMode();
+        console.warn('[MODO LOCAL] dashboard cards');
+        return await localFallback();
+      }
       handleError(e, 'getAdminDashboardCardsQuick');
-      return null;
+      return await localFallback();
     }
   });
 }
@@ -549,6 +594,9 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
  * Últimos registros do dia (GEO/reverse geocode ficam no painel, lazy).
  */
 export async function getAdminDashboardLastRecordsOnly(companyId: string): Promise<AdminDashboardLastRecord[]> {
+  const localFallback = async () =>
+    (await getLocalAdminLastRecords(companyId)).map(mapLocalLastToAdmin);
+  if (!isCloudEnabled()) return cloudFallback(await localFallback());
   return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
     recordCriticalRequest('adminDashLastRecOnly');
     try {
@@ -597,8 +645,13 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
       if (cosRows.length === 0) return baseLast;
       return enrichAdminLastRecordsWithCosGeo(baseLast, cosBy, recordById, liveBy, nowMs);
     } catch (e) {
+      if (isSupabaseBlocked(e)) {
+        enableDegradedMode();
+        console.warn('[MODO LOCAL] dashboard last records');
+        return await localFallback();
+      }
       handleError(e, 'getAdminDashboardLastRecordsOnly');
-      return [];
+      return await localFallback();
     }
   });
 }
@@ -607,6 +660,28 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
  * Agrega dados do painel admin em chamadas controladas (evita N queries na UI).
  */
 export async function getAdminDashboardData(companyId: string): Promise<AdminDashboardPayload | null> {
+  if (!isCloudEnabled()) {
+    return cloudFallback({
+      cards: {
+        totalEmployees: 0,
+        activeEmployees: 0,
+        recordsToday: 0,
+        absentToday: 0,
+      },
+      users: [],
+      weeklyChart: [],
+      weeklySummary: {
+        total: 0,
+        averagePerDay: 0,
+        peakDay: '',
+        peakCount: 0,
+        lowDay: '',
+        lowCount: 0,
+      },
+      previousWeekTotal: 0,
+      lastRecords: [],
+    });
+  }
   return runSingleFlight(`getAdminDashboardData:${companyId}`, async () => {
     recordCriticalRequest('getAdminDashboardData');
     try {

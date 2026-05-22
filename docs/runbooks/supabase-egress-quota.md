@@ -61,6 +61,18 @@ Depois: no navegador, limpar o flag local (F12 → Application → Session Stora
 | Limpar 15k+ registros de teste | Menos dados transferidos em listagens |
 | Evitar `select *` em telas admin | Usar colunas mínimas (`egressSelectColumns`) |
 
-## Mensagem no app
+## Comportamento no app (offline-first)
 
-Após deploy com detecção de 402, o modo degradado mostra status `egress_quota` com texto orientando billing/suporte.
+- Primeiro **402** → `enableDegradedMode()` (sessão `pontoweb:degraded_mode`)
+- `isCloudEnabled()` passa a `false` → REST/Auth param de ser chamados
+- Dashboard/settings/auth usam **IndexedDB** (`src/services/localDb.ts`)
+- **Sem** faixa vermelha nem tela bloqueante por egress
+- Log único: `[MODO LOCAL]` ou `[SYSTEM] Modo degradado ativo (sem cloud)`
+
+### Testes
+
+| Cenário | Config |
+|---------|--------|
+| Cloud off | `src/config/system.ts` → `CLOUD_ENABLED: false` |
+| Cloud on + 402 | `CLOUD_ENABLED: true` + projeto Supabase restrito |
+| Voltar ao cloud | Liberar cota no Supabase + `clearDegradedMode()` ou aba anônima |

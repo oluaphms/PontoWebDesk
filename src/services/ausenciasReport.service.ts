@@ -4,6 +4,8 @@ import {
   finalizeOperationalTrace,
 } from '../domain/operational/tracing';
 import { supabase } from './supabaseClient';
+import { SYSTEM_CONFIG } from '../config/system';
+import { degradedResponse } from './degraded';
 
 export type AusenciasReportParams = {
   dataIni: string;
@@ -20,6 +22,9 @@ export type AusenciasReportParams = {
 };
 
 export async function fetchAusenciasReport(params: AusenciasReportParams) {
+  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+    return degradedResponse([]);
+  }
   const trace = beginOperationalTrace({
     source: 'ausenciasReport.fetchAusenciasReport',
     employee_id: params.employeeId ?? null,

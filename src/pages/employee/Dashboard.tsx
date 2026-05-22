@@ -3,7 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { Clock, CalendarDays, Activity, Scale, ClipboardList, LogIn, LogOut, FileEdit, FileText, CalendarClock } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, isSupabaseConfigured, supabase, getSupabaseClient } from '../../services/supabaseClient';
+import { db } from '../../services/supabaseClient';
 import { getTimeRecordsForEmployeeDashboard } from '../../../services/timeRecords.service';
 import { Button, LoadingState } from '../../../components/UI';
 import { calcularHorasHojeMs, formatarTempoLegivel, localTodayYmd } from '../../utils/workedHoursToday';
@@ -18,6 +18,7 @@ import {
 } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
 import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
+import { SYSTEM_CONFIG } from '../../config/system';
 
 function punchTypeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType): string {
   switch (norm) {
@@ -58,7 +59,13 @@ const EmployeeDashboard: React.FC = () => {
     async (options?: { showLoading?: boolean }) => {
       const showLoading = options?.showLoading !== false;
       if (!user) return;
-      if (!isSupabaseConfigured()) {
+      if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+        setTodayRecords([]);
+        setLastRecord(null);
+        setTodayHours('0h 0m');
+        setMonthHours('0h 0m');
+        setBalanceHours('—');
+        setPendingRequests(0);
         setLoadingData(false);
         return;
       }
@@ -207,26 +214,12 @@ const EmployeeDashboard: React.FC = () => {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!user?.id || !getSupabaseClient() || !isSupabaseConfigured()) return;
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase
-      .channel(`employee_dash_records_${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'time_records', filter: `user_id=eq.${user.id}` },
-        () => {
-          if (t) clearTimeout(t);
-          t = setTimeout(() => {
-            t = null;
-            void loadDashboard({ showLoading: false });
-          }, 400);
-        },
-      )
-      .subscribe();
-    return () => {
-      if (t) clearTimeout(t);
-      void supabase.removeChannel(channel);
-    };
+    if (!user?.id) return;
+    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
+    const t = window.setInterval(() => {
+      void loadDashboard({ showLoading: false });
+    }, 15_000);
+    return () => window.clearInterval(t);
   }, [user?.id, loadDashboard]);
 
   const statusLabel = (() => {

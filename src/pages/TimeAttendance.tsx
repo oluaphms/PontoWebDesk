@@ -6,7 +6,7 @@ import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { auth, db, isSupabaseConfigured } from '../services/supabaseClient';
+import { db } from '../services/supabaseClient';
 import { resolveTenantId } from '../services/tenantScope';
 import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
 import {
@@ -62,47 +62,10 @@ const TimeAttendancePage: React.FC = () => {
   });
   const [saving, setSaving] = useState(false);
 
-  const [companyIdFromSession, setCompanyIdFromSession] = useState('');
-  useEffect(() => {
-    let cancelled = false;
-    if (!isSupabaseConfigured()) {
-      setCompanyIdFromSession('');
-      return;
-    }
-    void (async () => {
-      try {
-        const {
-          data: { session },
-        } = await auth.getSession();
-        const u = session?.user;
-        if (!u || cancelled) return;
-        const meta = (u.user_metadata || {}) as Record<string, unknown>;
-        const app = (u.app_metadata || {}) as Record<string, unknown>;
-        const pick = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-        const fromJwt =
-          pick(meta.tenant_id) ||
-          pick(meta.company_id) ||
-          pick(meta.companyId) ||
-          pick(app.company_id) ||
-          pick(app.tenant_id);
-        if (!cancelled) setCompanyIdFromSession(fromJwt);
-      } catch {
-        if (!cancelled) setCompanyIdFromSession('');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-
-  const effectiveCompanyId = useMemo(() => {
-    const fromProfile = resolveTenantId(user);
-    if (fromProfile) return fromProfile;
-    return companyIdFromSession;
-  }, [user, companyIdFromSession]);
+  const effectiveCompanyId = useMemo(() => resolveTenantId(user), [user]);
 
   const loadData = useCallback(async () => {
-    if (!user || !isSupabaseConfigured() || !effectiveCompanyId) return;
+    if (!user || !effectiveCompanyId) return;
 
     setIsLoadingData(true);
     setError(null);
@@ -180,7 +143,7 @@ const TimeAttendancePage: React.FC = () => {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSupabaseConfigured() || !user || !effectiveCompanyId) return;
+    if (!user || !effectiveCompanyId) return;
     if (!form.employeeId || !form.date || !form.clockIn || !form.clockOut) return;
 
     setSaving(true);
