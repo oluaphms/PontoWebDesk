@@ -18,10 +18,18 @@ function trimStr(v) {
   return String(v ?? '').trim();
 }
 
+/** Remove BOM UTF-8 (PowerShell Set-Content -Encoding UTF8 grava ï»¿ no início). */
+function stripUtf8Bom(raw) {
+  const s = String(raw ?? '');
+  if (s.charCodeAt(0) === 0xfeff) return s.slice(1);
+  if (s.startsWith('\uFEFF')) return s.slice(1);
+  return s;
+}
+
 function parseConfigJson(raw) {
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(stripUtf8Bom(raw));
   } catch (e) {
     throw new Error(`config.json inválido (JSON): ${e?.message || e}`);
   }
@@ -40,6 +48,7 @@ function applyConfigToProcessEnv(cfg) {
   const devicePort = cfg.device_port != null ? String(cfg.device_port).trim() : '443';
   const deviceLogin = trimStr(cfg.device_login) || 'admin';
   const devicePassword = trimStr(cfg.device_password);
+  const deviceSession = trimStr(cfg.device_session);
   const timezone = trimStr(cfg.timezone) || '-03:00';
   const deviceScheme = trimStr(cfg.device_scheme).toLowerCase();
   const insecureTls = cfg.insecure_tls === true || /^(1|true|yes)$/i.test(trimStr(cfg.insecure_tls));
@@ -53,6 +62,9 @@ function applyConfigToProcessEnv(cfg) {
   process.env.REP_DEVICE_PORT = devicePort || '443';
   process.env.REP_DEVICE_LOGIN = deviceLogin;
   process.env.REP_DEVICE_PASSWORD = devicePassword;
+  if (deviceSession) {
+    process.env.REP_DEVICE_SESSION = deviceSession;
+  }
   process.env.REP_DEVICE_TIMEZONE_OFFSET = timezone;
 
   if (deviceScheme === 'http' || deviceScheme === 'https') {
@@ -69,6 +81,18 @@ function applyConfigToProcessEnv(cfg) {
 
   if (cfg.agent_interval_ms != null) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
+  }
+
+  const ingestFrom = trimStr(cfg.ingest_from_date);
+  if (ingestFrom) {
+    process.env.REP_INGEST_FROM_DATE = ingestFrom;
+  }
+  const ingestEnd = trimStr(cfg.ingest_end_date);
+  if (ingestEnd) {
+    process.env.REP_INGEST_END_DATE = ingestEnd;
+  }
+  if (cfg.ingest_catch_up_days != null && String(cfg.ingest_catch_up_days).trim() !== '') {
+    process.env.REP_INGEST_CATCH_UP_DAYS = String(cfg.ingest_catch_up_days).trim();
   }
 
   process.env.REP_AGENT_SKIP_DOTENV = '1';

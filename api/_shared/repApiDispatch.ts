@@ -52,6 +52,41 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
       );
     }
   }
+  const nestedDeviceMatch = raw.match(/^\/api\/rep\/devices\/([^/]+)\/([^/?]+)\/?$/i);
+  if (nestedDeviceMatch) {
+    const nestedDeviceId = decodeURIComponent(nestedDeviceMatch[1] || '');
+    const nestedAction = decodeURIComponent(nestedDeviceMatch[2] || '');
+    if (nestedAction === 'sync-status') {
+      try {
+        const { handleRepDeviceSyncStatusLite } = await import('./repSyncStatusLite.js');
+        return handleRepDeviceSyncStatusLite(request, nestedDeviceId);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return noCache(
+          Response.json(
+            { error: 'REP_SYNC_STATUS_MODULE_LOAD_FAILED', detail },
+            { status: 500, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+    }
+    try {
+      const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');
+      return handleDeviceSyncRoute(
+        request,
+        `devices/${encodeURIComponent(nestedDeviceId)}/${nestedAction}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { error: 'REP_DEVICE_SYNC_MODULE_LOAD_FAILED', detail },
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
+
   if (slug.startsWith('devices/')) {
     try {
       const { handleDeviceSyncRoute } = await import('./deviceSyncHttp.js');

@@ -15,6 +15,18 @@ export function localTodayYmd() {
   return `${y}-${m}-${d}`;
 }
 
+/** Data civil local N dias atrás (YYYY-MM-DD). */
+export function localYmdDaysAgo(days) {
+  const n = Math.max(0, parseInt(String(days), 10) || 0);
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - n);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function parseYmdToMs(ymd) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return NaN;
   return new Date(`${ymd}T00:00:00`).getTime();
@@ -184,14 +196,38 @@ export async function resolveAgentReceivePolicy(ctx) {
   if (isFirstRun) {
     console.log('[BOOT] Primeira execução detectada');
     const today = localTodayYmd();
+    const catchUpRaw = String(
+      process.env.REP_INGEST_CATCH_UP_DAYS ?? process.env.REP_INGEST_CATCHUP_DAYS ?? '7'
+    ).trim();
+    const catchUpDays = Math.max(0, parseInt(catchUpRaw, 10) || 0);
     if (productionMode) {
-      console.log('[BOOT] Modo produção: incremental desde hoje (sem importar histórico inteiro)');
+      let fromDateStr = catchUpDays > 0 ? localYmdDaysAgo(catchUpDays) : today;
+      let toDateMs = NaN;
+      let toDateStr = '';
+      if (envIngestFromDate) {
+        const v = validateIngestFromDateEnv(envIngestFromDate, { allowFutureThrow: true });
+        fromDateStr = v.ymd;
+        console.log(
+          `[BOOT] Modo produção: incremental desde ${fromDateStr} (ingest_from_date; sem histórico completo)`
+        );
+      } else if (catchUpDays > 0) {
+        console.log(
+          `[BOOT] Modo produção: incremental desde ${fromDateStr} (últimos ${catchUpDays} dias; sem histórico completo)`
+        );
+      } else {
+        console.log('[BOOT] Modo produção: incremental desde hoje (sem importar histórico inteiro)');
+      }
+      if (ingestEndDate) {
+        const v = validateIngestFromDateEnv(ingestEndDate, { allowFutureThrow: false });
+        toDateMs = parseYmdEndMs(v.ymd);
+        toDateStr = v.ymd;
+      }
       return {
         scope: 'incremental',
-        fromDateMs: parseYmdToMs(today),
-        fromDateStr: today,
-        toDateMs: NaN,
-        toDateStr: '',
+        fromDateMs: parseYmdToMs(fromDateStr),
+        fromDateStr,
+        toDateMs,
+        toDateStr,
         isFirstRun: true,
         meta,
         autoMode: true,
@@ -272,6 +308,8 @@ export function isFirstRunPromotionEligible(cycleResult) {
   if (!cycleResult || cycleResult.fatal) return false;
   if (Number(cycleResult.sendErrors || 0) > 0) return false;
   if (cycleResult.mode === 'MANUAL_IMPORT_REQUIRED') return false;
+  /** Não “graduar” a primeira execução se nada entrou no escopo / nada foi enviado (ex.: filtro de data). */
+  if (Number(cycleResult.ok || 0) < 1) return false;
   return true;
 }
 

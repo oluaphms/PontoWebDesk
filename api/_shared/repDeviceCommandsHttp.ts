@@ -9,6 +9,11 @@ import { noCache } from './cache.js';
 import { getCallerContext, isAdminOrHr } from './callerContext.js';
 import { getSupabaseUrlForServer } from './getSupabaseConfig.js';
 import { verifyRepAgentToken } from './repAgentAuth.js';
+import {
+  emptyCommandsResponse,
+  isSupabaseQuotaOrUnavailableError,
+  logRepApi,
+} from './repApiResilience.js';
 
 const TERMINAL = new Set(['done', 'error', 'cancelled']);
 
@@ -51,17 +56,39 @@ async function isAgentRequest(request: Request, supabase: SupabaseClient): Promi
   return verifyRepAgentToken(supabase, token, deviceId || null);
 }
 
+function normCompanyIdForCompare(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+}
+
 async function loadDevice(
   supabase: SupabaseClient,
   deviceId: string,
 ): Promise<{ id: string; company_id: string } | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('rep_devices')
     .select('id, company_id')
     .eq('id', deviceId)
     .maybeSingle();
+  if (error) {
+    console.error('[REP COMMANDS] loadDevice:', error.message, { device_id: deviceId });
+    return null;
+  }
   if (!data?.id) return null;
   return { id: String(data.id), company_id: String(data.company_id) };
+}
+
+function deviceMatchesCompany(
+  device: { company_id: string },
+  companyId: string,
+): boolean {
+  return normCompanyIdForCompare(device.company_id) === normCompanyIdForCompare(companyId);
+}
+
+/** Filtro seguro em rep_device_commands (coluna UUID). */
+function companyIdDbFilter(companyId: string): string {
+  return String(companyId ?? '').trim();
 }
 
 const STUCK_PROCESSING_MS = 30_000;
@@ -80,7 +107,7 @@ async function reclaimStuckProcessingCommands(
       updated_at: new Date().toISOString(),
       result: { message: 'Reenfileirado após timeout do agente' },
     })
-    .eq('company_id', companyId)
+    .eq('company_id', companyIdDbFilter(companyId))
     .eq('status', 'processing')
     .not('execution_id', 'is', null)
     .lt('updated_at', cutoff);
@@ -118,7 +145,7 @@ async function claimPendingCommands(
   let claimQuery = supabase
     .from('rep_device_commands')
     .select('id')
-    .eq('company_id', companyId)
+    .eq('company_id', companyIdDbFilter(companyId))
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
     .limit(10);
@@ -127,10 +154,15 @@ async function claimPendingCommands(
 
   const { data: pending, error: pendErr } = await claimQuery;
   if (pendErr) {
-    console.error('[REP COMMANDS ERROR] list pending:', pendErr.message, {
+    logRepApi('error', '/api/rep/commands', {
+      op: 'list_pending',
+      message: pendErr.message,
       company_id: companyId,
       device_id: deviceId,
     });
+    if (isSupabaseQuotaOrUnavailableError(pendErr.message)) {
+      throw new Error(pendErr.message);
+    }
     return [];
   }
   if (!pending?.length) return [];
@@ -200,7 +232,7 @@ async function handleCreateCommand(
   }
 
   const device = await loadDevice(supabase, deviceId);
-  if (!device || device.company_id !== caller.companyId) {
+  if (!device || !deviceMatchesCompany(device, caller.companyId)) {
     return json({ error: 'Dispositivo não encontrado' }, 404, headers);
   }
 
@@ -284,40 +316,59 @@ async function handleGetCommands(
 
   if (await isAgentRequest(request, supabase)) {
     const companyId = companyIdParam;
-    if (!companyId) return json({ error: 'company_id obrigatório' }, 400, headers);
+    if (!companyId) {
+      logRepApi('warn', '/api/rep/commands', { op: 'agent_poll', reason: 'missing_company_id' });
+      return emptyCommandsResponse(headers, 'company_id_required');
+    }
 
     const deviceId = deviceIdParam || null;
 
     if (deviceId) {
       const device = await loadDevice(supabase, deviceId);
-      if (!device || device.company_id !== companyId) {
-        return json({ error: 'Dispositivo não encontrado ou empresa incorreta' }, 404, headers);
+      if (!device || !deviceMatchesCompany(device, companyId)) {
+        logRepApi('warn', '/api/rep/commands', {
+          op: 'agent_poll',
+          reason: 'device_not_found_or_company',
+          device_id: deviceId,
+        });
+        return emptyCommandsResponse(headers, 'device_not_found_or_company');
       }
     }
 
     try {
-      await reclaimStuckProcessingCommands(supabase, companyId);
+      try {
+        await reclaimStuckProcessingCommands(supabase, companyId);
+      } catch (reclaimErr) {
+        const msg = reclaimErr instanceof Error ? reclaimErr.message : String(reclaimErr);
+        logRepApi('warn', '/api/rep/commands', { op: 'reclaim_stuck', message: msg, company_id: companyId });
+      }
       const claimed = await claimPendingCommands(supabase, companyId, deviceId);
       return json({ success: true, ok: true, commands: claimed }, 200, headers);
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
-      console.error('[REP COMMANDS FATAL] agent poll:', detail);
-      return json({ error: 'internal_error', detail }, 500, headers);
+      logRepApi('error', '/api/rep/commands', { op: 'agent_poll', message: detail, company_id: companyId });
+      return emptyCommandsResponse(headers, detail);
     }
   }
 
   const token = extractBearerToken(request);
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
   const supabaseUrl = getSupabaseUrlForServer();
-  if (!token || !anonKey) return json({ error: 'Authorization obrigatório' }, 401, headers);
+  if (!token || !anonKey) {
+    logRepApi('warn', '/api/rep/commands', { op: 'panel_list', reason: 'missing_auth' });
+    return emptyCommandsResponse(headers, 'authorization_required');
+  }
 
   const caller = await getCallerContext(supabaseUrl, anonKey, supabase, token);
-  if (!caller) return json({ error: 'Não autorizado' }, 401, headers);
+  if (!caller) {
+    logRepApi('warn', '/api/rep/commands', { op: 'panel_list', reason: 'unauthorized' });
+    return emptyCommandsResponse(headers, 'unauthorized');
+  }
 
   if (latest) {
     if (!deviceIdParam) return json({ error: 'device_id obrigatório' }, 400, headers);
     const device = await loadDevice(supabase, deviceIdParam);
-    if (!device || device.company_id !== caller.companyId) {
+    if (!device || !deviceMatchesCompany(device, caller.companyId)) {
       return json({ error: 'Dispositivo não encontrado' }, 404, headers);
     }
 
@@ -331,7 +382,10 @@ async function handleGetCommands(
     if (commandId) q = q.eq('id', commandId);
 
     const { data: row, error } = await q.maybeSingle();
-    if (error) return json({ error: error.message }, 500, headers);
+    if (error) {
+      logRepApi('error', '/api/rep/commands', { op: 'latest', message: error.message });
+      return json({ success: true, command: null, commands: [], degraded: true }, 200, headers);
+    }
     if (!row) return json({ success: true, command: null }, 200, headers);
 
     return json({ success: true, command: row }, 200, headers);
@@ -348,7 +402,13 @@ async function handleGetCommands(
   if (statusFilter) listQuery = listQuery.eq('status', statusFilter);
 
   const { data: rows, error: listErr } = await listQuery;
-  if (listErr) return json({ error: listErr.message }, 500, headers);
+  if (listErr) {
+    logRepApi('error', '/api/rep/commands', { op: 'list', message: listErr.message });
+    if (isSupabaseQuotaOrUnavailableError(listErr.message)) {
+      return json({ success: true, commands: [], degraded: true }, 200, headers);
+    }
+    return json({ error: listErr.message }, 500, headers);
+  }
 
   return json({ success: true, commands: rows ?? [] }, 200, headers);
 }
@@ -475,6 +535,10 @@ export async function handleRepCommands(request: Request): Promise<Response> {
       supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
+      logRepApi('error', '/api/rep/commands', { op: 'supabase_config', message: detail });
+      if (request.method === 'GET') {
+        return emptyCommandsResponse(headers, detail);
+      }
       return json({ error: 'Supabase não configurado', detail }, 500, headers);
     }
 
@@ -482,13 +546,25 @@ export async function handleRepCommands(request: Request): Promise<Response> {
       return handleCreateCommand(request, supabase, headers);
     }
     if (request.method === 'GET') {
-      return handleGetCommands(request, supabase, headers);
+      try {
+        return await handleGetCommands(request, supabase, headers);
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        logRepApi('error', '/api/rep/commands', { op: 'get', message: detail });
+        return emptyCommandsResponse(headers, detail);
+      }
     }
 
+    if (request.method === 'GET') {
+      return emptyCommandsResponse(headers, 'method_not_allowed');
+    }
     return json({ error: 'Method not allowed' }, 405, headers);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    console.error('[REP COMMANDS FATAL]', detail);
+    logRepApi('error', '/api/rep/commands', { op: 'handler', message: detail });
+    if (request.method === 'GET') {
+      return emptyCommandsResponse(headers, detail);
+    }
     return json({ error: 'internal_error', detail }, 500, headers);
   }
 }

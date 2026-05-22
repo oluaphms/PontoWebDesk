@@ -13,6 +13,7 @@ import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getRecentTimeRecordsForUser } from '../../../services/timeRecords.service';
 import { getDayRecords, getLocalDateString, validatePunchSequence, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
+import { fetchRepPunchSequenceForDay } from '../../services/repPunchSequenceEvidence.service';
 import {
   getCurrentLocationRobustResult,
   geolocationReasonMessage,
@@ -393,15 +394,28 @@ const EmployeeClockIn: React.FC = () => {
 
       const today = getLocalDateString();
       const dayRecords = await getDayRecords(user.id, today);
+      const repHits = user.companyId
+        ? await fetchRepPunchSequenceForDay(user.id, String(user.companyId), today)
+        : [];
+      const repPunchTypes = repHits.map((h) => h.tipo);
       const logicalTypeStr =
         type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
       const persistenceType = persistenceTypeFromClockWebAction(dayRecords, type);
 
-      const validation = validatePunchSequence(dayRecords, logicalTypeStr, { nextEventTime: new Date() });
+      const validation = validatePunchSequence(dayRecords, logicalTypeStr, {
+        nextEventTime: new Date(),
+        repPunchTypes,
+      });
       if (!validation.valid) {
         setError(validation.error || 'Sequência inválida.');
         toast.addToast('error', validation.error || 'Sequência inválida.');
         return;
+      }
+      if (validation.repSequenceAdjusted) {
+        toast.addToast(
+          'warning',
+          'Há batida do relógio REP no dia; sequência ajustada. O espelho será reconciliado após sincronização.',
+        );
       }
 
       if (globalSettings?.gps_required && !manualBypass) {
@@ -761,13 +775,26 @@ const EmployeeClockIn: React.FC = () => {
     setError(null);
     const today = getLocalDateString();
     const dayRecords = await getDayRecords(user.id, today);
+    const repHits = user.companyId
+      ? await fetchRepPunchSequenceForDay(user.id, String(user.companyId), today)
+      : [];
+    const repPunchTypes = repHits.map((h) => h.tipo);
     const logicalTypeStr =
       type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
-    const validation = validatePunchSequence(dayRecords, logicalTypeStr, { nextEventTime: new Date() });
+    const validation = validatePunchSequence(dayRecords, logicalTypeStr, {
+      nextEventTime: new Date(),
+      repPunchTypes,
+    });
     if (!validation.valid) {
       setError(validation.error || 'Sequência inválida.');
       toast.addToast('error', validation.error || 'Sequência inválida.');
       return;
+    }
+    if (validation.repSequenceAdjusted) {
+      toast.addToast(
+        'warning',
+        'Há batida do relógio REP no dia; sequência ajustada. O espelho será reconciliado após sincronização.',
+      );
     }
     setVerificationMode(mode);
     setPendingLogType(type);

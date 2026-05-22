@@ -17,7 +17,10 @@ const offlineSnapshot = (): DeviceSyncStatusSnapshot => ({
   last_heartbeat_at: null,
 });
 
-/** GET /api/rep/sync-status?device_id= — baseado em heartbeat (agente → nuvem). */
+/**
+ * GET sync-status — ordem: rota plana (estável) → legado aninhada (rewrite).
+ * API retorna sempre 200; corpo pode vir degraded se Supabase/auth falhar.
+ */
 export async function fetchRepDeviceSyncStatus(
   deviceId: string,
   accessToken: string,
@@ -27,25 +30,29 @@ export async function fetchRepDeviceSyncStatus(
   const timeout = setTimeout(() => controller.abort(), REP_SYNC_STATUS_TIMEOUT_MS);
   const signal = options?.signal ?? controller.signal;
 
-  try {
-    const res = await fetch(`/api/rep/sync-status?device_id=${encodeURIComponent(deviceId)}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-      signal,
-    });
+  const authHeaders: HeadersInit = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/json',
+  };
 
-    if (!res.ok) {
+  try {
+    const flatUrl = `/api/rep/sync-status?device_id=${encodeURIComponent(deviceId)}&lite=1`;
+    const nestedUrl = `/api/rep/devices/${encodeURIComponent(deviceId)}/sync-status`;
+
+    let res = await fetch(flatUrl, { method: 'GET', headers: authHeaders, signal });
+
+    if (res.status === 404 || res.status >= 500) {
+      res = await fetch(nestedUrl, { method: 'GET', headers: authHeaders, signal });
+    }
+
+    const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
+
+    if (!res.ok || !body) {
       if (import.meta.env.DEV) {
         console.warn('[REP STATUS] sync-status HTTP', { device_id: deviceId, status: res.status });
       }
       return offlineSnapshot();
     }
-
-    const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
-    if (!body || body.ok === false) return offlineSnapshot();
 
     console.log('[REP STATUS]', {
       device_id: deviceId,
@@ -53,12 +60,17 @@ export async function fetchRepDeviceSyncStatus(
       last_heartbeat: body.last_heartbeat_at ?? body.last_seen_at,
     });
 
+    const online = Boolean(body.online ?? body.device_status === 'online');
     return {
       ...offlineSnapshot(),
       ...body,
-      ok: body.ok ?? body.success ?? true,
-      online: body.online ?? body.device_status === 'online',
-      last_heartbeat_at: body.last_heartbeat_at ?? body.last_seen_at ?? null,
+      ok: true,
+      success: body.success ?? true,
+      online,
+      connection: online ? 'online' : 'offline',
+      device_status: online ? 'online' : 'offline',
+      last_heartbeat_at: body.last_heartbeat_at ?? body.last_seen_at ?? body.last_seen ?? null,
+      last_seen_at: body.last_seen_at ?? body.last_seen ?? null,
     };
   } catch (e) {
     if (import.meta.env.DEV) {

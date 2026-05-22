@@ -262,13 +262,55 @@ async function handleSyncStatus(request: Request, supabase: AnySupabase, deviceI
     const res = authResponse(auth);
     return noCache(new Response(await res.text(), { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } }));
   }
-  await markOfflineDevices(supabase, auth.device.company_id);
-  const { data: rows, error } = await supabase.from('device_user_sync').select('sync_status, last_sync_at').eq('device_id', deviceId);
-  if (error) return noCache(Response.json({ error: 'Falha ao carregar métricas de sincronização' }, { status: 500, headers }));
-  const pending = (rows || []).filter((r) => r.sync_status === 'pending').length;
-  const sent = (rows || []).filter((r) => r.sync_status === 'sent').length;
-  const errorCount = (rows || []).filter((r) => r.sync_status === 'error').length;
-  const lastSyncAt = (rows || []).map((r) => r.last_sync_at).filter(Boolean).sort().at(-1) || null;
+  const skipHeavySync =
+    new URL(request.url).searchParams.get('lite') === '1' ||
+    new URL(request.url).searchParams.get('heartbeat_only') === '1';
+
+  if (!skipHeavySync) {
+    await markOfflineDevices(supabase, auth.device.company_id);
+  }
+
+  let pending = 0;
+  let sent = 0;
+  let errorCount = 0;
+  let lastSyncAt: string | null = null;
+
+  if (!skipHeavySync) {
+    const [pendingRes, sentRes, errorRes, lastRes] = await Promise.all([
+      supabase
+        .from('device_user_sync')
+        .select('id', { count: 'exact', head: true })
+        .eq('device_id', deviceId)
+        .eq('sync_status', 'pending'),
+      supabase
+        .from('device_user_sync')
+        .select('id', { count: 'exact', head: true })
+        .eq('device_id', deviceId)
+        .eq('sync_status', 'sent'),
+      supabase
+        .from('device_user_sync')
+        .select('id', { count: 'exact', head: true })
+        .eq('device_id', deviceId)
+        .eq('sync_status', 'error'),
+      supabase
+        .from('device_user_sync')
+        .select('last_sync_at')
+        .eq('device_id', deviceId)
+        .not('last_sync_at', 'is', null)
+        .order('last_sync_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (pendingRes.error || sentRes.error || errorRes.error) {
+      return noCache(
+        Response.json({ error: 'Falha ao carregar métricas de sincronização' }, { status: 500, headers }),
+      );
+    }
+    pending = Number(pendingRes.count ?? 0);
+    sent = Number(sentRes.count ?? 0);
+    errorCount = Number(errorRes.count ?? 0);
+    lastSyncAt = (lastRes.data?.last_sync_at as string | null) ?? null;
+  }
   const { data: deviceNow, error: deviceErr } = await supabase
     .from('rep_devices')
     .select('status_runtime, last_seen_at')
