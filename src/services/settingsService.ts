@@ -8,9 +8,19 @@ import type { GlobalSettings, CompanyLocation } from '../types/settings';
 import { DEFAULT_GLOBAL_SETTINGS } from '../types/settings';
 import { COMPANY_LOCATION_COLUMNS, GLOBAL_SETTINGS_COLUMNS } from './egressSelectColumns';
 import { queryCache, TTL } from './queryCache';
+import { isSupabaseBlocked } from './systemMode';
 
 const TABLE = 'global_settings';
 const LOCATIONS_TABLE = 'company_locations';
+
+export const DEFAULT_SETTINGS: GlobalSettings = {
+  id: 'local-default-settings',
+  ...DEFAULT_GLOBAL_SETTINGS,
+  allow_manual_punch: true,
+  late_tolerance_minutes: 10,
+  min_break_minutes: 60,
+  timezone: 'America/Sao_Paulo',
+};
 
 /** Converte time do banco (HH:MM:SS ou HH:MM) para "HH:mm" */
 function timeToHHmm(value: string | null | undefined): string {
@@ -52,7 +62,7 @@ function mapRow(row: any): GlobalSettings | null {
  * Obtém as configurações globais (único registro).
  */
 export async function getSettings(): Promise<GlobalSettings | null> {
-  if (!checkSupabaseConfigured()) return null;
+  if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
   return queryCache.getOrFetch('global_settings:singleton', async () => {
   const { data, error } = await supabase
     .from(TABLE)
@@ -61,9 +71,12 @@ export async function getSettings(): Promise<GlobalSettings | null> {
     .maybeSingle();
   if (error) {
     console.error('[settingsService] getSettings error:', error);
-    return null;
+    if (isSupabaseBlocked(error)) {
+      return DEFAULT_SETTINGS;
+    }
+    return DEFAULT_SETTINGS;
   }
-  return mapRow(data);
+  return mapRow(data) ?? DEFAULT_SETTINGS;
   }, TTL.STATIC);
 }
 

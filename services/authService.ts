@@ -33,6 +33,7 @@ import {
 } from '../src/auth/authDuplicateRequestAudit';
 import { User } from '../types';
 import { clearLocalSession, getLocalSession, saveLocalSession, type LocalSession } from '../src/services/localAuth';
+import { isSupabaseBlocked } from '../src/services/systemMode';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -77,7 +78,7 @@ import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/a
 export interface AuthResult {
   user: User | null;
   error: string | null;
-  source?: 'remote' | 'local';
+  source?: 'remote' | 'local' | 'offline-forced';
 }
 
 /** Evita chamadas repetidas a auth.updateUser (causavam lentidão, refresh em loop e logout falso). */
@@ -96,6 +97,7 @@ function isSupabaseDown(error: unknown): boolean {
   const e = error as { message?: string; status?: number; code?: string };
   const msg = String(e?.message || '').toLowerCase();
   return (
+    isSupabaseBlocked(error) ||
     e?.status === 402 ||
     msg.includes('exceed_egress_quota') ||
     msg.includes('failed to fetch') ||
@@ -1094,6 +1096,20 @@ class AuthService {
           await saveLocalSession(mapUserToLocalSession(fallbackLocal));
           persistCurrentUserToProfileStore(fallbackLocal);
           return { user: fallbackLocal, error: null, source: 'local' };
+        }
+        if (isSupabaseBlocked(error)) {
+          console.warn('[AUTH] Supabase bloqueado — entrando em modo offline');
+          const forcedLocalSession: LocalSession = {
+            user_id: 'offline-user',
+            name: 'Usuário Offline',
+            company_id: 'offline-company',
+            role: 'admin',
+            last_login: Date.now(),
+          };
+          await saveLocalSession(forcedLocalSession);
+          const forcedUser = mapLocalSessionToUser(forcedLocalSession);
+          persistCurrentUserToProfileStore(forcedUser);
+          return { user: forcedUser, error: null, source: 'offline-forced' };
         }
         return { user: null, error: 'Sem conexão e sem sessão local' };
       }

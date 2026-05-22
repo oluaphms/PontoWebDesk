@@ -1134,7 +1134,7 @@ const AppMain: React.FC = () => {
         }
       }
 
-      let result: { user: any; error: string | null; source?: 'remote' | 'local' };
+      let result: { user: any; error: string | null; source?: 'remote' | 'local' | 'offline-forced' };
       try {
         /**
          * Hard-lock anti-spinner infinito no mobile:
@@ -1272,7 +1272,7 @@ const AppMain: React.FC = () => {
       }
 
       if (result.user) {
-        if (result.source === 'local') {
+        if (result.source === 'local' || result.source === 'offline-forced') {
           setOfflineAuthMode(true);
           setConnectionIssueMessage('Modo offline ativo — dados serão sincronizados quando a conexão voltar.');
         } else {
@@ -1806,8 +1806,8 @@ const AppMain: React.FC = () => {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><LoadingState message={i18n.t('app.securingConnection')} /></div>;
   }
 
-  // Fallback: servidor temporariamente indisponível (free tier pausado / rede lenta)
-  if (connectionUnavailable) {
+  // Fallback bloqueante apenas quando a sessão online é obrigatória.
+  if (connectionUnavailable && !offlineAuthMode && Boolean(user)) {
     const onClearSession = async () => {
       setIsResettingSession(true);
       try {
@@ -1960,14 +1960,21 @@ const AppMain: React.FC = () => {
         <div className={`relative z-10 w-full lg:w-1/2 lg:min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 py-7 lg:py-0 backdrop-blur-sm transition-colors duration-500 ${
           theme === 'dark' ? 'bg-slate-950/32' : 'bg-white/10'
         } lg:bg-transparent lg:backdrop-blur-none`}>
-          <LoginCard
-            onLogin={handleLogin}
-            isLoading={isLoggingIn}
-            error={loginError}
-            onClearError={() => setLoginError(null)}
-            onClearSession={handleClearSessionAndRetry}
-            isResettingSession={isResettingSession}
-          />
+          <div className="w-full max-w-md space-y-3">
+            {(connectionUnavailable || offlineAuthMode) && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                Modo offline ativo — dados serão sincronizados quando a conexão voltar.
+              </div>
+            )}
+            <LoginCard
+              onLogin={handleLogin}
+              isLoading={isLoggingIn}
+              error={loginError}
+              onClearError={() => setLoginError(null)}
+              onClearSession={handleClearSessionAndRetry}
+              isResettingSession={isResettingSession}
+            />
+          </div>
         </div>
       </div>
     );
