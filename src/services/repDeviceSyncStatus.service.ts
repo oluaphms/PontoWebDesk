@@ -54,11 +54,13 @@ export async function fetchRepDeviceSyncStatus(
       return offlineSnapshot();
     }
 
-    console.log('[REP STATUS]', {
-      device_id: deviceId,
-      status: body.connection ?? (body.online ? 'online' : 'offline'),
-      last_heartbeat: body.last_heartbeat_at ?? body.last_seen_at,
-    });
+    if (import.meta.env.DEV) {
+      console.log('[REP STATUS]', {
+        device_id: deviceId,
+        status: body.connection ?? (body.online ? 'online' : 'offline'),
+        last_heartbeat: body.last_heartbeat_at ?? body.last_seen_at,
+      });
+    }
 
     const online = Boolean(body.online ?? body.device_status === 'online');
     return {

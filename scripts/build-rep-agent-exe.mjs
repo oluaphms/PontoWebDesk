@@ -30,6 +30,7 @@ await esbuild.build({
   outfile: bundlePath,
   sourcemap: false,
   logLevel: 'info',
+  external: ['better-sqlite3'],
   define: {
     __REP_AGENT_BUILD_ID__: JSON.stringify(buildId),
   },
@@ -37,7 +38,7 @@ await esbuild.build({
 
 console.log('[build:agent] pkg → dist/rep-agent.staging.exe …');
 execSync(
-  `npx pkg "${bundlePath}" --targets node18-win-x64 --output "${exeStagingPath}"`,
+  `npx pkg "${bundlePath}" --targets node18-win-x64 --output "${exeStagingPath}" --public-packages better-sqlite3`,
   { cwd: root, stdio: 'inherit', shell: true }
 );
 

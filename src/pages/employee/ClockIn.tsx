@@ -12,8 +12,8 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getRecentTimeRecordsForUser } from '../../../services/timeRecords.service';
-import { getDayRecords, getLocalDateString, validatePunchSequence, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
-import { fetchRepPunchSequenceForDay } from '../../services/repPunchSequenceEvidence.service';
+import { getDayRecords, getLocalDateString, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
+import { getLastPunchLocal, validarSequenciaLocal } from '../../utils/clockInLocalSequence';
 import {
   getCurrentLocationRobustResult,
   geolocationReasonMessage,
@@ -34,7 +34,12 @@ import {
 } from '../../security/antiFraudEngine';
 import { detectBehaviorAnomaly } from '../../ai/anomalyDetection';
 import { PUNCH_SOURCE_WEB } from '../../constants/punchSource';
-import { registerPunchSecure, normalizePunchRegistrationError } from '../../rep/repEngine';
+import {
+  registerPunchSecure,
+  normalizePunchRegistrationError,
+  flushPendingWebPunches,
+  onWebPunchQueueSynced,
+} from '../../rep/repEngine';
 import { savePunchEvidence, createFraudAlertsForFlags } from '../../services/punchEvidenceService';
 import { getCompanyLocations, isWithinAllowedLocation } from '../../services/settingsService';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -143,6 +148,33 @@ const EmployeeClockIn: React.FC = () => {
   useEffect(() => {
     void loadTodayState();
   }, [loadTodayState]);
+
+  useEffect(() => {
+    const unsub = onWebPunchQueueSynced(({ flushed }) => {
+      if (flushed > 0) {
+        toast.addToast(
+          'success',
+          flushed === 1 ? 'Ponto sincronizado com sucesso.' : `${flushed} pontos sincronizados com sucesso.`,
+        );
+        void loadTodayState();
+        if (user?.id && user?.companyId) {
+          void queryClient.invalidateQueries({ queryKey: ['records'] }, { force: true });
+          invalidateAfterPunch(user.id, user.companyId);
+        }
+      }
+    });
+    return unsub;
+  }, [user?.id, user?.companyId, loadTodayState, toast]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void flushPendingWebPunches();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
 
   useEffect(() => {
     const onVisible = () => {
@@ -394,28 +426,23 @@ const EmployeeClockIn: React.FC = () => {
 
       const today = getLocalDateString();
       const dayRecords = await getDayRecords(user.id, today);
-      const repHits = user.companyId
-        ? await fetchRepPunchSequenceForDay(user.id, String(user.companyId), today)
-        : [];
-      const repPunchTypes = repHits.map((h) => h.tipo);
+      const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
       const logicalTypeStr =
         type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
       const persistenceType = persistenceTypeFromClockWebAction(dayRecords, type);
 
-      const validation = validatePunchSequence(dayRecords, logicalTypeStr, {
+      const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
         nextEventTime: new Date(),
-        repPunchTypes,
       });
+      if (!lastLocal.tipo && logicalTypeStr !== 'entrada') {
+        setError('O primeiro registro do dia deve ser entrada.');
+        toast.addToast('error', 'O primeiro registro do dia deve ser entrada.');
+        return;
+      }
       if (!validation.valid) {
         setError(validation.error || 'Sequência inválida.');
         toast.addToast('error', validation.error || 'Sequência inválida.');
         return;
-      }
-      if (validation.repSequenceAdjusted) {
-        toast.addToast(
-          'warning',
-          'Há batida do relógio REP no dia; sequência ajustada. O espelho será reconciliado após sincronização.',
-        );
       }
 
       if (globalSettings?.gps_required && !manualBypass) {
@@ -591,24 +618,40 @@ const EmployeeClockIn: React.FC = () => {
         console.info('[ClockIn] registerPunchSecure', punchPayload);
       }
 
-      const result = await registerPunchSecure({
-        userId: user.id,
-        companyId: user.companyId,
-        type: persistenceType,
-        method,
-        location: geoPos ? { lat: geoPos.latitude, lng: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
-        photoUrl: photoUrl || undefined,
-        source: PUNCH_SOURCE_WEB,
-        latitude: geoPos?.latitude ?? null,
-        longitude: geoPos?.longitude ?? null,
-        accuracy: geoPos?.accuracy ?? null,
+      const evidenceForQueue = {
+        photoUrl: photoUrl || null,
+        locationLat: geoPos?.latitude ?? null,
+        locationLng: geoPos?.longitude ?? null,
         deviceId: fingerprint.deviceId,
-        deviceType: 'web',
-        ipAddress: null,
         fraudScore: validationResult.fraudScore,
-        fraudFlags: validationResult.fraudFlags.length ? validationResult.fraudFlags : null,
-      });
+        geoSnapshot: baseGeoSnapshot,
+        geoValidationIssues: geoValidation.issues,
+      };
 
+      const result = await registerPunchSecure(
+        {
+          userId: user.id,
+          companyId: user.companyId,
+          type: persistenceType,
+          method,
+          location: geoPos ? { lat: geoPos.latitude, lng: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
+          photoUrl: photoUrl || undefined,
+          source: PUNCH_SOURCE_WEB,
+          latitude: geoPos?.latitude ?? null,
+          longitude: geoPos?.longitude ?? null,
+          accuracy: geoPos?.accuracy ?? null,
+          deviceId: fingerprint.deviceId,
+          deviceType: 'web',
+          ipAddress: null,
+          fraudScore: validationResult.fraudScore,
+          fraudFlags: validationResult.fraudFlags.length ? validationResult.fraudFlags : null,
+        },
+        evidenceForQueue,
+      );
+
+      const isPending = Boolean((result as { pending?: boolean }).pending);
+
+      if (!isPending) {
       await savePunchEvidence({
         timeRecordId: result.id,
         photoUrl: photoUrl || null,
@@ -649,8 +692,9 @@ const EmployeeClockIn: React.FC = () => {
             : null,
         geoValidationIssues: geoValidation.issues,
       });
+      }
 
-      if (validationResult.fraudFlags.length > 0) {
+      if (!isPending && validationResult.fraudFlags.length > 0) {
         await createFraudAlertsForFlags(user.id, result.id, validationResult.fraudFlags);
       }
 
@@ -667,7 +711,11 @@ const EmployeeClockIn: React.FC = () => {
               : logicalTypeStr === 'saída'
                 ? 'Saída'
                 : 'Intervalo';
-      toast.addToast('success', `${label} registrada com sucesso.`);
+      if (isPending) {
+        toast.addToast('info', `${label} registrado (sincronizando com o servidor…)`);
+      } else {
+        toast.addToast('success', `${label} registrado e sincronizado com sucesso.`);
+      }
       closeProofModal();
     } catch (e: unknown) {
       console.error('Erro ao registrar ponto:', e);
@@ -775,26 +823,21 @@ const EmployeeClockIn: React.FC = () => {
     setError(null);
     const today = getLocalDateString();
     const dayRecords = await getDayRecords(user.id, today);
-    const repHits = user.companyId
-      ? await fetchRepPunchSequenceForDay(user.id, String(user.companyId), today)
-      : [];
-    const repPunchTypes = repHits.map((h) => h.tipo);
+    const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
     const logicalTypeStr =
       type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
-    const validation = validatePunchSequence(dayRecords, logicalTypeStr, {
+    const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
       nextEventTime: new Date(),
-      repPunchTypes,
     });
+    if (!lastLocal.tipo && logicalTypeStr !== 'entrada') {
+      setError('O primeiro registro do dia deve ser entrada.');
+      toast.addToast('error', 'O primeiro registro do dia deve ser entrada.');
+      return;
+    }
     if (!validation.valid) {
       setError(validation.error || 'Sequência inválida.');
       toast.addToast('error', validation.error || 'Sequência inválida.');
       return;
-    }
-    if (validation.repSequenceAdjusted) {
-      toast.addToast(
-        'warning',
-        'Há batida do relógio REP no dia; sequência ajustada. O espelho será reconciliado após sincronização.',
-      );
     }
     setVerificationMode(mode);
     setPendingLogType(type);

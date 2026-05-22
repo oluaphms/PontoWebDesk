@@ -206,6 +206,9 @@ export default defineConfig(({ mode }) => {
               if (pathname === '/api/rep-punch') {
                 const { handleRepPunchRpcLite } = await import('./api/_shared/repPunchRpcLite.ts');
                 response = await run(handleRepPunchRpcLite, req.url ?? pathname);
+              } else if (pathname === '/api/web-punches') {
+                const { handleWebPunchesBatch } = await import('./api/_shared/webPunchesBatchHttp.ts');
+                response = await run(handleWebPunchesBatch, req.url ?? pathname);
               } else if (pathname.startsWith('/api/operational')) {
                 const { dispatchOperationalRequest } = await import('./api/_shared/operationalApiDispatch.ts');
                 const requestBody = await readConnectRequestBody(req as IncomingMessage);

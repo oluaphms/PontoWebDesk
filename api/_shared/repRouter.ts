@@ -104,7 +104,21 @@ export async function routeRepRequest(request: Request): Promise<Response | null
     return handleRepCollect(request);
   }
 
-  if (ctx.slug === 'punch' || (ctx.slug === 'punches' && request.method === 'POST')) {
+  if (ctx.slug === 'punches' && request.method === 'POST') {
+    try {
+      const { handleRepPunchesBatch } = await import('./repPunchesBatchHttp.js');
+      return handleRepPunchesBatch(request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { ok: false, error: 'REP_PUNCHES_BATCH_MODULE_LOAD_FAILED', detail },
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
+  if (ctx.slug === 'punch') {
     try {
       const { handleRepPunchRpcLite } = await import('./repPunchRpcLite.js');
       return handleRepPunchRpcLite(request);

@@ -1,89 +1,5 @@
--- Corrige operator does not exist: uuid = text em rep_ingest_punch / precheck (pós-migração company_id → UUID).
-
-CREATE OR REPLACE FUNCTION public.rep_ingest_idempotency_precheck(
-  p_company_id text,
-  p_rep_device_id uuid,
-  p_pis text,
-  p_cpf text,
-  p_data_hora timestamptz,
-  p_nsr bigint,
-  p_punch_hash text
-) RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SET search_path = public
-AS $$
-DECLARE
-  v_company_uuid uuid;
-  v_hash text;
-  v_log_id uuid;
-  v_sem_pis text;
-  v_sem_id uuid;
-BEGIN
-  v_company_uuid := NULLIF(btrim(COALESCE(p_company_id, '')), '')::uuid;
-  v_hash := NULLIF(btrim(COALESCE(p_punch_hash, '')), '');
-  IF v_hash IS NULL AND p_data_hora IS NOT NULL THEN
-    v_hash := public.rep_compute_punch_hash(
-      p_rep_device_id,
-      COALESCE(p_pis, p_cpf),
-      p_data_hora,
-      p_nsr
-    );
-  END IF;
-
-  IF v_hash IS NOT NULL THEN
-    SELECT id INTO v_log_id FROM public.rep_punch_logs WHERE punch_hash = v_hash LIMIT 1;
-    IF v_log_id IS NOT NULL THEN
-      RETURN jsonb_build_object(
-        'success', true,
-        'duplicate', true,
-        'inserted', false,
-        'idempotent', true,
-        'punch_hash', v_hash,
-        'rep_log_id', v_log_id,
-        'duplicate_reason', 'hash'
-      );
-    END IF;
-  END IF;
-
-  IF p_data_hora IS NOT NULL THEN
-    v_sem_pis := COALESCE(
-      public.rep_afd_canonical_11_digits(p_pis),
-      public.rep_afd_canonical_11_digits(p_cpf),
-      ''
-    );
-    IF v_sem_pis <> '' THEN
-      SELECT id INTO v_sem_id
-      FROM public.rep_punch_logs
-      WHERE company_id = v_company_uuid
-        AND dedupe_device = COALESCE(p_rep_device_id::text, '')
-        AND data_hora = p_data_hora
-        AND COALESCE(public.rep_afd_canonical_11_digits(pis), public.rep_afd_canonical_11_digits(cpf), '') = v_sem_pis
-      LIMIT 1;
-      IF v_sem_id IS NOT NULL THEN
-        RAISE LOG '[REP SEMANTIC DUPLICATE] company=% device=% pis=% ts=% existing=%',
-          p_company_id, p_rep_device_id, v_sem_pis, p_data_hora, v_sem_id;
-        RETURN jsonb_build_object(
-          'success', true,
-          'duplicate', true,
-          'inserted', false,
-          'idempotent', true,
-          'rep_log_id', v_sem_id,
-          'duplicate_reason', 'semantic',
-          'semantic_duplicate', true
-        );
-      END IF;
-    END IF;
-  END IF;
-
-  RETURN NULL;
-END;
-$$;
-
-DROP FUNCTION IF EXISTS public.rep_ingest_punch(
-  text, uuid, text, text, text, text, timestamptz, text, bigint, jsonb, boolean, boolean, uuid, boolean
-);
-
+-- Reaplica rep_ingest_punch com guarda INSERT por punch_hash (bases já migradas antes do patch).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rep_punch_hash ON public.rep_punch_logs (punch_hash) WHERE punch_hash IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.rep_ingest_punch(
   p_company_id text,
@@ -653,5 +569,4 @@ GRANT EXECUTE ON FUNCTION public.rep_ingest_idempotency_precheck(
 GRANT EXECUTE ON FUNCTION public.rep_ingest_punch(
   text, uuid, text, text, text, text, timestamptz, text, bigint, jsonb, boolean, boolean, uuid, boolean, text
 ) TO authenticated, service_role;
-
 

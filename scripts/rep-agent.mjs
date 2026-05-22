@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Agente local (rede da empresa): lê o relógio na LAN e envia marcações ao SaaS.
- * Fluxo: Relógio → este script → POST https://seu-app.vercel.app/api/rep/punch → Supabase
+ * Fluxo: Relógio → SQLite (fila) → lote POST /api/rep/punches → Supabase
  *
  * Dispositivos Control iD (idClass): o endpoint /api/punches exige POST com JSON e comando
  * explícito (GET ou POST vazio retorna "Bad Request: POST expected" / "Invalid command: none").
@@ -47,6 +47,14 @@
  *   --- loop / serviço ---
  *   REP_AGENT_LOOP        "1" (default) executa em loop contínuo; "0" roda um único ciclo.
  *   REP_AGENT_INTERVAL_MS Intervalo entre ciclos quando em loop (default 60000 = 1 min).
+ *   REP_COMMAND_POLL_MIN_MS  Poll de comandos — mínimo após sucesso (default 30000).
+ *   REP_COMMAND_POLL_MAX_MS  Poll de comandos — máximo / offline (default 60000).
+ *   REP_COMMAND_SKIP_IF_OFFLINE_MS  Sem heartbeat recente → não poll agressivo (default 180000).
+ *   REP_HEARTBEAT_INTERVAL_MS Heartbeat SaaS (default 60000; nunca menos em produção).
+ *   REP_DEBUG             "1" — logs verbosos de diagnóstico (poll, payloads, AFD).
+ *   REP_BATCH_SIZE        Batidas por lote (default 50, máx 50).
+ *   REP_BATCH_SYNC_INTERVAL_MS Loop de envio da fila (default 30000).
+ *   REP_AGENT_DB_PATH     Caminho do SQLite (default C:\ProgramData\PontoWebDesk\agent.db).
  *   REP_AGENT_SKIP_DOTENV "1" — não lê .env / .env.local (útil se o ficheiro tiver mock 127.0.0.1:8181
  *                         e quiser usar só variáveis definidas no PowerShell antes de npm run).
  *   Flag CLI: --once      Equivalente a REP_AGENT_LOOP=0.
@@ -76,6 +84,19 @@ import {
   parseYmdEndMs,
 } from './rep-agent-go-live.mjs';
 import { computeRepPunchHash } from './rep-punch-hash.mjs';
+import { AGENT_DB_PATH, closeAgentDb } from './rep-agent-db.mjs';
+import {
+  initPunchQueue,
+  savePunchLocal,
+  startPunchSyncLoop,
+  stopPunchSyncLoop,
+  flushPunchQueue,
+  countPendingPunches,
+} from './rep-agent-queue.mjs';
+import {
+  loadExecutedCommandIds,
+  rememberExecutedCommand,
+} from './rep-agent-commands-state.mjs';
 
 const bootResult = bootstrapProductionAgent();
 if (!bootResult.ok) {
@@ -217,19 +238,49 @@ let repCommandPollBusy = false;
 let repCommandPollTimer = null;
 let repHeartbeatTimer = null;
 let commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
-let lastCommandPollAt = 0;
-let lastHeartbeatOkAt = 0;
+/** Último heartbeat OK (0 = ainda não houve sucesso — poll de comandos em modo conservador). */
+let lastHeartbeatAt = 0;
 const REP_COMMAND_SKIP_IF_OFFLINE_MS = Math.max(
   120_000,
   parseInt(process.env.REP_COMMAND_SKIP_IF_OFFLINE_MS || '180000', 10) || 180_000,
 );
-const lastExecutedCommandIds = new Map();
-const REP_COMMAND_IDEMPOTENCY_TTL_MS = 6 * 60 * 60 * 1000;
+const REP_LOW_COST_MODE = /^(1|true|yes)$/i.test((process.env.REP_LOW_COST_MODE || '').trim());
+const REP_ULTRA_LOW_COST = /^(1|true|yes)$/i.test((process.env.REP_ULTRA_LOW_COST || '').trim());
+/** Poll /api/rep/commands — desligado por padrão (anti-egress). REP_ENABLE_COMMANDS=1 para ativar. */
+const ENABLE_COMMAND_POLL =
+  !REP_LOW_COST_MODE &&
+  !REP_ULTRA_LOW_COST &&
+  /^(1|true|yes)$/i.test((process.env.REP_ENABLE_COMMANDS || '0').trim());
+const ENABLE_HEARTBEAT_LOOP = !REP_ULTRA_LOW_COST;
+const REP_DEBUG = /^(1|true|yes)$/i.test((process.env.REP_DEBUG || '').trim());
+
+function log(...args) {
+  if (REP_DEBUG) console.log(...args);
+}
+
+function logWarn(...args) {
+  if (REP_DEBUG) console.warn(...args);
+}
+
+function markHeartbeat() {
+  lastHeartbeatAt = Date.now();
+}
+
+function isAgentOnline() {
+  if (lastHeartbeatAt <= 0) return false;
+  return Date.now() - lastHeartbeatAt < REP_COMMAND_SKIP_IF_OFFLINE_MS;
+}
+/** Comandos já executados (persistido em state/commands-executed.json). */
+let executedCommandsPersistent = new Set();
 /** Evita duas ingestões AFD simultâneas (loop 60s + collect_punches) no mesmo relógio. */
 let repAfdIngestChain = Promise.resolve();
 const REP_HEARTBEAT_INTERVAL_MS = Math.max(
-  15_000,
-  parseInt(process.env.REP_HEARTBEAT_INTERVAL_MS || '45000', 10) || 45_000,
+  REP_ULTRA_LOW_COST ? 600_000 : REP_LOW_COST_MODE ? 300_000 : 60_000,
+  parseInt(
+    process.env.REP_HEARTBEAT_INTERVAL_MS ||
+      (REP_ULTRA_LOW_COST ? '600000' : REP_LOW_COST_MODE ? '300000' : '300000'),
+    10,
+  ) || 300_000,
 );
 /** Instância de execução atual (claim) — descarta POST de resultado velho. */
 let currentExecutionId = null;
@@ -340,8 +391,11 @@ function logStartupConfig() {
     agentPolicy.toDateStr ? `| até=${agentPolicy.toDateStr}` : '',
     agentPolicy.autoMode ? '| go-live=auto' : '',
     repForceMode ? '| force_mode=on' : '',
-    `| cmd_poll=${REP_COMMAND_POLL_INTERVAL_MS}ms`,
-    `| sync_loop=${REP_AGENT_INTERVAL_MS}ms`
+    REP_LOW_COST_MODE ? '| low_cost=on' : '',
+    ENABLE_COMMAND_POLL ? `| cmd_poll=${REP_COMMAND_POLL_INTERVAL_MS}ms` : '| cmd_poll=off',
+    `| sync_loop=${REP_AGENT_INTERVAL_MS}ms`,
+    `| punch_db=${AGENT_DB_PATH}`,
+    `| pending=${countPendingPunches()}`
   );
   if (scheme === 'http' && (port === '443' || port === '442')) {
     console.warn(
@@ -780,18 +834,18 @@ async function fetchPunchesFromClock() {
     for (const payload of payloads) {
       attempts += 1;
       try {
-        console.log('[REP PAYLOAD TESTADO]', payload);
+        log('[REP PAYLOAD TESTADO]', payload);
         const res = await clockPostJson(url, payload);
         const text = res.text || '';
         const data = parseJsonSafe(text);
 
         if (data != null) {
-          console.log('[REP RAW RESPONSE]', data);
+          log('[REP RAW RESPONSE]', data);
           if (isInvalidCommandNoneResponse(data)) {
             invalidCommandHits += 1;
           }
         } else if (text) {
-          console.log('[REP RAW TEXT]', text.length > 8000 ? `${text.slice(0, 8000)}…` : text);
+          log('[REP RAW TEXT]', text.length > 8000 ? `${text.slice(0, 8000)}…` : text);
         }
 
         const okHttp = res.status >= 200 && res.status < 300;
@@ -852,35 +906,18 @@ async function fetchPunchesFromClock() {
   throw err;
 }
 
-async function postPunch(body) {
-  const res = await fetch(`${saas}/api/rep/punch`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { raw: text };
+/**
+ * Enfileira batida no SQLite — nunca envia direto à API (lote em background).
+ */
+function postPunch(body) {
+  const saved = savePunchLocal(body);
+  if (saved.duplicate) {
+    return { success: true, duplicate: true, inserted: false, queued: false };
   }
-  if (!res.ok) {
-    const hint =
-      typeof data?.message === 'string'
-        ? data.message
-        : typeof data?.detail === 'string'
-          ? data.detail
-          : '';
-    const bodyErr = [data?.error, data?.code, hint].filter(Boolean).join(' | ');
-    const snippet = (text || '').replace(/\s+/g, ' ').trim().slice(0, 400);
-    console.error(`[REP PUNCH HTTP] status=${res.status}`, bodyErr || snippet || '(sem corpo)');
-    throw new Error(bodyErr || snippet || `HTTP ${res.status}`);
+  if (saved.alreadyPending) {
+    return { success: true, duplicate: false, inserted: false, queued: false, alreadyPending: true };
   }
-  return data;
+  return { success: true, duplicate: false, inserted: true, queued: true };
 }
 
 // ============================================================================
@@ -1786,39 +1823,17 @@ async function executeRepCommand(cmd) {
   }
 }
 
-function pruneExecutedCommandCache() {
-  const cutoff = Date.now() - REP_COMMAND_IDEMPOTENCY_TTL_MS;
-  for (const [id, ts] of lastExecutedCommandIds) {
-    if (ts < cutoff) lastExecutedCommandIds.delete(id);
-  }
+function bumpCommandPollBackoff() {
+  const next = Math.min(
+    Math.max(commandPollDelayMs * 2, REP_COMMAND_POLL_ERROR_START_MS),
+    REP_COMMAND_POLL_MAX_MS,
+  );
+  commandPollDelayMs = Math.max(REP_COMMAND_POLL_MIN_MS, next);
 }
 
-function shouldSkipCommandPollNow() {
-  const now = Date.now();
-  if (now - lastCommandPollAt < commandPollDelayMs) return true;
-  if (lastHeartbeatOkAt > 0 && now - lastHeartbeatOkAt > REP_COMMAND_SKIP_IF_OFFLINE_MS) {
-    return true;
-  }
-  return false;
-}
-
-function noteCommandPollResult(ok) {
-  if (ok) {
-    commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
-  } else {
-    const next = Math.min(
-      Math.max(commandPollDelayMs * 2, REP_COMMAND_POLL_ERROR_START_MS),
-      REP_COMMAND_POLL_MAX_MS,
-    );
-    commandPollDelayMs = Math.max(REP_COMMAND_POLL_MIN_MS, next);
-  }
-  lastCommandPollAt = Date.now();
-}
-
-/** @returns {boolean} true se poll concluiu sem erro fatal de rede */
+/** @returns {boolean} true se poll concluiu sem erro de rede/API retryable */
 async function pollAndExecuteRepCommands() {
   if (!companyId || !apiKey || !saas) return false;
-  if (shouldSkipCommandPollNow()) return true;
 
   const qs = new URLSearchParams({ company_id: companyId });
   if (deviceId) qs.set('device_id', deviceId);
@@ -1847,34 +1862,35 @@ async function pollAndExecuteRepCommands() {
           await sleep(800 * attempt);
           continue;
         }
-        syncLog('[REP COMMANDS] poll falhou', {
-          detail: { status: res.status, body: errBody || undefined, attempt, next_delay_ms: commandPollDelayMs },
-        });
-        noteCommandPollResult(false);
+        console.warn('[REP COMMANDS] resposta inválida', res.status, errBody || '');
         return false;
       }
       const data =
         res.data && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : {};
       const commands = Array.isArray(data.commands) ? data.commands : [];
-      syncLog('[REP COMMANDS] poll ok', {
-        detail: {
-          status: res.status,
-          commands: commands.length,
-          attempt,
-          degraded: data.degraded === true,
-        },
+      if (commands.length === 0) {
+        log('[REP COMMANDS] vazio');
+        return true;
+      }
+      log('[REP COMMANDS] poll ok', {
+        status: res.status,
+        commands: commands.length,
+        attempt,
+        degraded: data.degraded === true,
       });
-      pruneExecutedCommandCache();
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();
-        if (cmdId && lastExecutedCommandIds.has(cmdId)) {
-          syncLog('[REP COMMANDS] ignorado (já executado localmente)', { detail: { command_id: cmdId } });
+        if (cmdId && executedCommandsPersistent.has(cmdId)) {
+          log('[REP COMMANDS] ignorado (já executado localmente)', cmdId);
           continue;
         }
-        await executeRepCommand(cmd);
-        if (cmdId) lastExecutedCommandIds.set(cmdId, Date.now());
+        try {
+          await executeRepCommand(cmd);
+        } catch (cmdErr) {
+          console.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
+        }
+        if (cmdId) rememberExecutedCommand(cmdId, executedCommandsPersistent);
       }
-      noteCommandPollResult(true);
       return true;
     } catch (e) {
       if (attempt < maxAttempts) {
@@ -1882,11 +1898,9 @@ async function pollAndExecuteRepCommands() {
         continue;
       }
       console.warn('[REP COMMANDS]', e?.message || e);
-      noteCommandPollResult(false);
       return false;
     }
   }
-  noteCommandPollResult(false);
   return false;
 }
 
@@ -1894,7 +1908,20 @@ async function runCommandPollOnce() {
   if (repCommandPollBusy) return;
   repCommandPollBusy = true;
   try {
-    await pollAndExecuteRepCommands();
+    if (!isAgentOnline()) {
+      console.log('[REP POLL] pulado — agente offline (sem heartbeat recente)');
+      commandPollDelayMs = REP_COMMAND_POLL_MAX_MS;
+      return;
+    }
+    const ok = await pollAndExecuteRepCommands();
+    if (ok) {
+      commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
+    } else {
+      bumpCommandPollBackoff();
+    }
+  } catch (err) {
+    console.error('[REP POLL ERROR]', err?.message || err);
+    bumpCommandPollBackoff();
   } finally {
     repCommandPollBusy = false;
   }
@@ -1911,6 +1938,10 @@ function scheduleNextCommandPoll() {
 }
 
 function startRepCommandPollLoop() {
+  if (!ENABLE_COMMAND_POLL) {
+    console.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_LOW_COST_MODE=1)');
+    return;
+  }
   if (!companyId || !apiKey || !saas) return;
   commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
   if (repCommandPollTimer) return;
@@ -1970,35 +2001,41 @@ async function postRepHeartbeat() {
 }
 
 async function sendHeartbeat() {
-  await postRepHeartbeat();
-  lastHeartbeatOkAt = Date.now();
+  if (!deviceId || !apiKey || !saas) return;
+  try {
+    await postRepHeartbeat();
+    markHeartbeat();
+    log('[HEARTBEAT OK]');
+  } catch (err) {
+    console.warn('[HEARTBEAT FAIL]', err?.message || err);
+  }
+}
+
+function scheduleNextHeartbeat() {
+  if (repHeartbeatTimer) {
+    clearTimeout(repHeartbeatTimer);
+    repHeartbeatTimer = null;
+  }
+  repHeartbeatTimer = setTimeout(() => {
+    void sendHeartbeat().finally(() => scheduleNextHeartbeat());
+  }, REP_HEARTBEAT_INTERVAL_MS);
 }
 
 function startRepHeartbeatLoop() {
+  if (!ENABLE_HEARTBEAT_LOOP) {
+    console.log('[REP HEARTBEAT LOOP] desativado (REP_ULTRA_LOW_COST=1)');
+    return;
+  }
   if (!deviceId || !apiKey || !saas) return;
-  void postRepHeartbeat()
-    .then(() => {
-      lastHeartbeatOkAt = Date.now();
-    })
-    .catch((e) => {
-      console.warn('[rep-agent] heartbeat:', e?.message || e);
-    });
   if (repHeartbeatTimer) return;
-  repHeartbeatTimer = setInterval(() => {
-    void postRepHeartbeat()
-      .then(() => {
-        lastHeartbeatOkAt = Date.now();
-      })
-      .catch((e) => {
-        console.warn('[rep-agent] heartbeat:', e?.message || e);
-      });
-  }, REP_HEARTBEAT_INTERVAL_MS);
-  console.log(`[REP HEARTBEAT LOOP] ativo a cada ${REP_HEARTBEAT_INTERVAL_MS}ms`);
+  void sendHeartbeat();
+  scheduleNextHeartbeat();
+  console.log(`[REP HEARTBEAT LOOP] ativo a cada ${REP_HEARTBEAT_INTERVAL_MS}ms (setTimeout)`);
 }
 
 function stopRepHeartbeatLoop() {
   if (repHeartbeatTimer) {
-    clearInterval(repHeartbeatTimer);
+    clearTimeout(repHeartbeatTimer);
     repHeartbeatTimer = null;
   }
 }
@@ -2425,16 +2462,17 @@ async function ingestViaAFD() {
 
     const body = normalizeAfdPunch(rec);
     try {
-      const r = await postPunch(body);
+      const r = postPunch(body);
       const wasDuplicate = !!(r && r.duplicate);
+      const wasQueued = !!(r && (r.queued || r.alreadyPending));
 
       processed.add(nsrKey);
       if (wasDuplicate) {
         dupServer += 1;
         if (dupServerSamples.length < MAX_DUP_SAMPLES) dupServerSamples.push(nsrKey);
-      } else {
+      } else if (wasQueued) {
         ok += 1;
-        console.log(`[REP PUNCH SENT] nsr=${nsrKey} pis=${rec.pis} data=${rec.date} hora=${rec.time}`);
+        log(`[REP PUNCH QUEUED] nsr=${nsrKey} pis=${rec.pis} data=${rec.date} hora=${rec.time}`);
       }
 
       // Avança o ponteiro incremental imediatamente após sucesso (mesmo em duplicate
@@ -2477,6 +2515,8 @@ async function ingestViaAFD() {
   if (preSkipped > 0) {
     console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
+
+  await flushPunchQueue();
 
   return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length, sendErrors, fatal: false };
   });
@@ -2603,13 +2643,15 @@ async function ingestViaApiDirect() {
       punch_hash,
     };
     try {
-      const r = await postPunch(body);
-      if (r.duplicate || (r.success !== false && r.inserted === false)) {
+      const r = postPunch(body);
+      if (r.duplicate) {
         skip += 1;
-        if (r.duplicate) {
-          console.log(`[REP IDEMPOTENT] nsr=${rawNsr ?? '?'} hash=${body.punch_hash?.slice(0, 12)}…`);
-        }
-      } else ok += 1;
+        log(`[REP IDEMPOTENT] nsr=${rawNsr ?? '?'} hash=${body.punch_hash?.slice(0, 12)}…`);
+      } else if (r.queued || r.alreadyPending) {
+        ok += 1;
+      } else {
+        skip += 1;
+      }
 
       if (hasNsr && (!lastNsr || compareNsr(rawNsr, lastNsr) > 0)) {
         lastNsr = String(rawNsr);
@@ -2625,7 +2667,8 @@ async function ingestViaApiDirect() {
   if (preSkipped > 0) {
     console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
-  console.log('[rep-agent] Concluído. Enviados OK:', ok, '| ignorados/duplicados:', skip);
+  await flushPunchQueue();
+  console.log('[rep-agent] Concluído. Enfileirados OK:', ok, '| ignorados/duplicados:', skip);
   return { ok, skip, preSkipped, sendErrors, fatal: false, mode: 'API' };
 }
 
@@ -2672,6 +2715,14 @@ async function runCycle() {
   }
 }
 
+process.on('unhandledRejection', (err) => {
+  console.error('[UNHANDLED]', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT]', err);
+});
+
 async function main() {
   if (!assertAgentCanStart()) {
     process.exit(1);
@@ -2686,17 +2737,32 @@ async function main() {
   if (!CLI_SYNC_USERS && companyId) {
     await initializeAgentPolicy();
   }
+  executedCommandsPersistent = loadExecutedCommandIds();
+  initPunchQueue({ saas, apiKey });
   logStartupConfig();
 
   const loopEnabled = REP_AGENT_LOOP && !CLI_ONCE;
 
+  if (REP_ULTRA_LOW_COST) {
+    console.log(
+      '[rep-agent] REP_ULTRA_LOW_COST=1 — sem heartbeat, sem commands, sync só lote cheio (≥REP_MIN_SEND_BATCH).',
+    );
+  } else if (REP_LOW_COST_MODE) {
+    console.log(
+      '[rep-agent] REP_LOW_COST_MODE=1 — commands off, heartbeat 5min, sync lote sob demanda (≥10 ou flush).',
+    );
+  }
   startRepCommandPollLoop();
   startRepHeartbeatLoop();
+  startPunchSyncLoop();
 
   if (!loopEnabled) {
     await runCycleWithBoot();
+    await flushPunchQueue();
     stopRepCommandPollLoop();
     stopRepHeartbeatLoop();
+    stopPunchSyncLoop();
+    closeAgentDb();
     return;
   }
 
@@ -2706,6 +2772,7 @@ async function main() {
     stopping = true;
     stopRepCommandPollLoop();
     stopRepHeartbeatLoop();
+    stopPunchSyncLoop();
     console.log(`[REP AGENT LOOP] sinal ${sig} recebido, encerrando após o ciclo atual.`);
   };
   process.on('SIGINT', () => stopOn('SIGINT'));
@@ -2730,6 +2797,8 @@ async function main() {
     await sleep(wait);
   }
 
+  await flushPunchQueue();
+  closeAgentDb();
   console.log('[REP AGENT LOOP] encerrado.');
 }
 

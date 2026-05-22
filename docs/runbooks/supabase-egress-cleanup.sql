@@ -1,0 +1,10 @@
+-- Runbook: retenção automática (preferir migration 20260522000000_cleanup_old_punches_cron.sql)
+-- Função: public.cleanup_old_punches() — cron diário 03:00 UTC (pg_cron job cleanup-punches-daily)
+--
+-- Manual por empresa (substitua SEU_COMPANY_ID):
+-- DELETE FROM rep_punch_logs WHERE company_id = 'SEU_COMPANY_ID' AND created_at < NOW() - INTERVAL '7 days';
+-- DELETE FROM time_records WHERE company_id = 'SEU_COMPANY_ID' AND created_at < NOW() - INTERVAL '30 days';
+--
+-- Verificar volume:
+-- SELECT COUNT(*) FROM rep_punch_logs WHERE created_at < NOW() - INTERVAL '7 days';
+-- SELECT COUNT(*) FROM time_records WHERE created_at < NOW() - INTERVAL '30 days';

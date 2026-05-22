@@ -12,6 +12,7 @@ export const LOGS_DIR = path.join(PROGRAM_DATA_ROOT, 'logs');
 export const LOG_FILE = path.join(LOGS_DIR, 'agent.log');
 export const STATE_DIR = path.join(PROGRAM_DATA_ROOT, 'state');
 export const DATA_DIR = path.join(PROGRAM_DATA_ROOT, 'data');
+export const AGENT_DB_FILE = path.join(PROGRAM_DATA_ROOT, 'agent.db');
 
 export function isPackagedAgent() {
   return Boolean(process.pkg);

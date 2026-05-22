@@ -8,6 +8,7 @@ export type SupabaseConnectionStatus =
   | 'timeout'
   | 'offline'
   | 'not_configured'
+  | 'egress_quota'
   | 'unknown'
   | 'circuit_breaker';
 
@@ -36,9 +37,33 @@ function getErrorText(error: unknown): string {
     .join(' | ');
 }
 
+function isEgressQuotaBlocked(error: unknown): boolean {
+  const e = error as { code?: string; status?: number; message?: string };
+  const code = String(e?.code ?? '').toLowerCase();
+  const status = Number(e?.status ?? 0);
+  const text = getErrorText(error);
+  return (
+    status === 402 ||
+    code === '402' ||
+    text.includes('exceed_egress_quota') ||
+    text.includes('egress_quota') ||
+    text.includes('payment required') ||
+    text.includes('service for this project is restricted')
+  );
+}
+
 function classifyFailure(error: unknown): SupabaseConnectionCheckResult {
   const text = getErrorText(error);
   const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  if (isEgressQuotaBlocked(error)) {
+    return {
+      ok: false,
+      status: 'egress_quota',
+      message:
+        'Projeto Supabase bloqueado por cota de egress (402). Libere no painel Supabase ou contate suporte — o app não consegue autenticar nem gravar dados até resolver.',
+    };
+  }
 
   if (text.includes('timeout') || text.includes('tempo esgotado')) {
     return { ok: false, status: 'timeout', message: 'Tempo esgotado ao conectar com o servidor.' };

@@ -165,7 +165,11 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       void (async () => {
         const result = await checkSupabaseConnection();
         if (!result.ok) {
-          console.warn('[SUPABASE] modo degradado ativo:', result.message, '— o login continuará funcionando.');
+          const suffix =
+            result.status === 'egress_quota'
+              ? '— login e batidas ficam indisponíveis até liberar a cota no Supabase.'
+              : '— o login pode falhar se o Supabase não responder.';
+          console.warn('[SUPABASE] modo degradado ativo:', result.message, suffix);
         }
       })();
     };

@@ -71,6 +71,11 @@ import {
   REP_SYNC_STATUS_CACHE_MS,
 } from '../../../services/repDeviceSyncStatus.service';
 import {
+  bustRepStatusCache,
+  getRepStatusCache,
+  setRepStatusCache,
+} from '../../../services/repStatusLocalCache';
+import {
   HUB_PROVIDER_OPTIONS,
   LS_REP_ALLOCATE,
   LS_REP_SKIP_BLOCKED,
@@ -245,11 +250,7 @@ const AdminRepDevices: React.FC = () => {
         { column: 'company_id', operator: 'eq', value: user.companyId },
       ])) as RepDeviceRow[];
       setDevices(list || []);
-      if (Array.isArray(list) && list.length > 0) {
-        void loadSyncStatusesForDevices(
-          list.filter((d) => d.ativo !== false).map((d) => d.id),
-        );
-      } else {
+      if (!Array.isArray(list) || list.length === 0) {
         setSyncStatusByDeviceId({});
       }
     } catch (e) {
@@ -267,7 +268,9 @@ const AdminRepDevices: React.FC = () => {
 
   const syncStatusCacheRef = useRef<{ at: number; key: string }>({ at: 0, key: '' });
 
-  const loadSyncStatusesForDevices = async (deviceIds: string[]) => {
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+
+  const loadSyncStatusesForDevices = async (deviceIds: string[], options?: { bypassCache?: boolean }) => {
     if (deviceIds.length === 0) {
       setSyncStatusByDeviceId({});
       return;
@@ -275,10 +278,21 @@ const AdminRepDevices: React.FC = () => {
     const cacheKey = deviceIds.slice().sort().join(',');
     const now = Date.now();
     if (
+      !options?.bypassCache &&
       syncStatusCacheRef.current.key === cacheKey &&
       now - syncStatusCacheRef.current.at < REP_SYNC_STATUS_CACHE_MS
     ) {
       return;
+    }
+    if (!options?.bypassCache && user?.companyId) {
+      const local = getRepStatusCache(user.companyId);
+      if (local) {
+        const next: Record<string, DeviceSyncStatusSnapshot | undefined> = {};
+        for (const id of deviceIds) next[id] = local[id];
+        setSyncStatusByDeviceId(next);
+        syncStatusCacheRef.current = { at: now, key: cacheKey };
+        return;
+      }
     }
     try {
       const {
@@ -295,10 +309,27 @@ const AdminRepDevices: React.FC = () => {
       for (const [id, snap] of entries) next[id] = snap;
       setSyncStatusByDeviceId(next);
       syncStatusCacheRef.current = { at: now, key: cacheKey };
+      if (user?.companyId) setRepStatusCache(user.companyId, next);
     } catch {
       // Não bloquear a tela principal por falhas de observabilidade.
     }
   };
+
+  const fetchStatusOnce = useCallback(async () => {
+    const activeIds = devices.filter((d) => d.ativo !== false).map((d) => d.id);
+    if (activeIds.length === 0) {
+      setSyncStatusByDeviceId({});
+      return;
+    }
+    syncStatusCacheRef.current = { at: 0, key: '' };
+    bustRepStatusCache();
+    setRefreshingStatus(true);
+    try {
+      await loadSyncStatusesForDevices(activeIds, { bypassCache: true });
+    } finally {
+      setRefreshingStatus(false);
+    }
+  }, [devices]);
 
   const handleForceSyncDevice = async (deviceId: string) => {
     setForcingSyncId(deviceId);
@@ -346,16 +377,16 @@ const AdminRepDevices: React.FC = () => {
     void loadDevices();
   }, [user?.companyId]);
 
+  const statusFetchedOnOpenRef = useRef(false);
   useEffect(() => {
-    if (!user?.companyId || devices.length === 0) return;
-    const activeIds = devices.filter((d) => d.ativo !== false).map((d) => d.id);
-    if (activeIds.length === 0) return;
-    const timer = window.setInterval(() => {
-      syncStatusCacheRef.current = { at: 0, key: '' };
-      void loadSyncStatusesForDevices(activeIds);
-    }, 45_000);
-    return () => window.clearInterval(timer);
-  }, [user?.companyId, devices]);
+    statusFetchedOnOpenRef.current = false;
+  }, [user?.companyId]);
+
+  useEffect(() => {
+    if (!user?.companyId || devices.length === 0 || statusFetchedOnOpenRef.current) return;
+    statusFetchedOnOpenRef.current = true;
+    void fetchStatusOnce();
+  }, [user?.companyId, devices.length, fetchStatusOnce]);
 
   useEffect(() => {
     if (!message || message.type !== 'success') return;
@@ -2537,6 +2568,22 @@ const AdminRepDevices: React.FC = () => {
         onRetry={() => void loadDevices()}
         onOpenSetup={scrollToRepCommunication}
       />
+
+      {devices.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void fetchStatusOnce()}
+            disabled={refreshingStatus || loadingList}
+          >
+            {refreshingStatus ? 'Atualizando status…' : 'Atualizar status'}
+          </Button>
+          <span className="text-sm text-slate-500 dark:text-slate-400">
+            Status do agente só é consultado ao abrir a tela ou ao clicar aqui (sem polling automático).
+          </span>
+        </div>
+      )}
 
       {!agentIsActive && (
         <RepSetupGuide setupGuideRef={setupGuideRef} agentIsActive={agentIsActive} onCopyCommand={copyCommandToClipboard} />

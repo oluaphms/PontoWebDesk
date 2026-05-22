@@ -38,7 +38,21 @@ export async function dispatchRepRequest(request: Request): Promise<Response | n
     const { handleRepCollect } = await import('./repCollectHttp.js');
     return handleRepCollect(request);
   }
-  if (slug === 'punch' || (slug === 'punches' && request.method === 'POST')) {
+  if (slug === 'punches' && request.method === 'POST') {
+    try {
+      const { handleRepPunchesBatch } = await import('./repPunchesBatchHttp.js');
+      return handleRepPunchesBatch(request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return noCache(
+        Response.json(
+          { ok: false, error: 'REP_PUNCHES_BATCH_MODULE_LOAD_FAILED', detail },
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+  }
+  if (slug === 'punch') {
     try {
       const { handleRepPunchRpcLite } = await import('./repPunchRpcLite.js');
       return handleRepPunchRpcLite(request);

@@ -6,9 +6,23 @@
 
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
 import { supabase, db, isSupabaseConfigured } from '../services/supabaseClient';
+import {
+  enqueueAndMaybeSyncWebPunch,
+  flushWebPunchQueue,
+  countPendingWebPunches,
+  onWebPunchQueueSynced,
+} from '../services/punchOfflineQueue';
+
+export { onWebPunchQueueSynced };
 import { withTimeout } from '../utils/withTimeout';
 import { fetchReconcileAndUpsertOperationalDayStatus } from '../../modules/rep-integration/repOperationalSequenceResolver';
 import { repCivilDateFromIsoUtc } from '../../modules/rep-integration/repIngestPunchCore';
+import type { SavePunchEvidenceParams } from '../services/punchEvidenceService';
+
+const WEB_PUNCH_QUEUE =
+  typeof import.meta !== 'undefined' &&
+  import.meta.env &&
+  import.meta.env.VITE_REP_WEB_PUNCH_QUEUE !== '0';
 
 export interface RegisterPunchParams {
   userId: string;
@@ -158,15 +172,38 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
   return result;
 }
 
+/** Drena fila web (ex.: botão ou ao fechar comprovante). */
+function webPunchQueueAvailable(): boolean {
+  return WEB_PUNCH_QUEUE && typeof indexedDB !== 'undefined';
+}
+
+export async function flushPendingWebPunches(): Promise<{ flushed: number; clientIds?: string[] }> {
+  if (!webPunchQueueAvailable()) {
+    return { flushed: 0, clientIds: [] };
+  }
+  const r = await flushWebPunchQueue({ force: true });
+  return { flushed: r.flushed, clientIds: r.clientIds ?? [] };
+}
+
+export async function getPendingWebPunchCount(): Promise<number> {
+  if (!webPunchQueueAvailable()) return 0;
+  return countPendingWebPunches();
+}
+
 const RPC_SECURE_NAME = 'rep_register_punch_secure';
 
 /**
- * Registra marcação com dados antifraude (geolocalização, dispositivo, fraud_score).
- * Usa RPC rep_register_punch_secure quando disponível.
+ * Registro com fila offline (IndexedDB) + lote ≥10 — reduz egress no mobile/web.
  */
-export async function registerPunchSecure(params: RegisterPunchSecureParams): Promise<RegisterPunchResult> {
+export async function registerPunchSecure(
+  params: RegisterPunchSecureParams,
+  evidence?: Omit<SavePunchEvidenceParams, 'timeRecordId'> | null,
+): Promise<RegisterPunchResult & { pending?: boolean; clientId?: string }> {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase não configurado. Não é possível registrar ponto REP-P.');
+  }
+  if (webPunchQueueAvailable()) {
+    return enqueueAndMaybeSyncWebPunch(params, evidence ?? null);
   }
   const {
     userId,
