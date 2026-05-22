@@ -149,14 +149,7 @@ export default defineConfig(({ mode }) => {
               return;
             }
             try {
-              let mod: { fetch: (r: Request) => Promise<Response> };
-              if (pathname === '/api/rep/sync-status' || pathname.endsWith('/sync-status')) {
-                mod = (await import('./api/rep/sync-status.ts')).default;
-              } else if (pathname === '/api/rep/commands') {
-                mod = (await import('./api/rep/commands.ts')).default;
-              } else {
-                mod = (await import('./api/rep/[[...slug]].ts')).default;
-              }
+              const { default: mod } = await import('./api/rep/[[...slug]].ts');
               const host = (req.headers.host as string) || 'localhost:3010';
               const fullUrl = `http://${host}${req.url ?? ''}`;
               const repRequestBody = await readConnectRequestBody(req as IncomingMessage);

@@ -117,8 +117,13 @@ export async function handleSyncStatus(request: Request, deviceId: string): Prom
 
   const auth = await authorizeOptional(request, id);
   if (!auth.ok) {
-    logRepApi('warn', '/api/rep/sync-status', { op: 'handleSyncStatus', device_id: id, auth: auth.reason });
-    return json(offlinePayload(auth.reason), headers);
+    const authReason = auth.reason;
+    logRepApi('warn', '/api/rep/sync-status', {
+      op: 'handleSyncStatus',
+      device_id: id,
+      auth: authReason,
+    });
+    return json(offlinePayload(authReason), headers);
   }
 
   try {

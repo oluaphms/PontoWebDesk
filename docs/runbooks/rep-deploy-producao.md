@@ -9,13 +9,13 @@ Teste sem deploy novo pode mostrar:
 
 ## Após `git push`
 
-### 1. Confirmar funções na Vercel
+### 1. Confirmar funções na Vercel (Hobby ≤ 12)
 
-Em **Deployments** → **Functions**, devem existir:
+Em **Deployments** → **Functions**, REP deve ser só:
 
-- `api/rep/sync-status`
-- `api/rep/commands`
-- `api/rep/[[...slug]]`
+- `api/rep/[[...slug]]` (sync-status + commands + heartbeat no mesmo handler)
+
+Não criar `api/rep/sync-status.ts` nem `api/rep/commands.ts` separados — estoura o limite Hobby.
 
 ### 2. Validar (use **API_KEY** real, não placeholder)
 

@@ -1,6 +1,7 @@
 /**
- * Catch-all REP: heartbeat, punch, collect, etc.
- * sync-status e commands têm ficheiros dedicados (api/rep/sync-status.ts, api/rep/commands.ts).
+ * ÚNICA Serverless Function para /api/rep/* (limite Hobby: 12 funções).
+ * Inclui: sync-status, commands, heartbeat, punch, collect, devices/...
+ * Rotas dedicadas api/rep/sync-status.ts e api/rep/commands.ts foram removidas (contagem).
  */
 
 import { buildRepRouteContext, logRepRoute, routeRepRequest } from '../_shared/repRouter.js';
@@ -19,27 +20,36 @@ async function handler(request: Request): Promise<Response> {
 
   if (ctx.slug === 'sync-status' || url.pathname.includes('/sync-status')) {
     const deviceId = url.searchParams.get('device_id')?.trim() ?? '';
+    if (!deviceId && ctx.segments[0] === 'devices' && ctx.segments[2] === 'sync-status') {
+      return handleSyncStatus(request, ctx.segments[1] ?? '');
+    }
     return handleSyncStatus(request, deviceId);
   }
 
-  if (ctx.slug === 'commands' && request.method === 'GET') {
+  if (ctx.slug === 'commands') {
+    const hdr = getSecureCorsHeaders(request, {
+      allowMethods: 'GET, POST, OPTIONS',
+      allowHeaders: 'Content-Type, Authorization',
+    });
+    if (request.method === 'GET') {
+      const deviceId = url.searchParams.get('device_id')?.trim() ?? '';
+      const companyId = url.searchParams.get('company_id')?.trim() ?? '';
+      if (!deviceId || !companyId) {
+        return emptyCommandsResponse(hdr, 'missing_query_params');
+      }
+    }
     try {
       const { handleRepCommands } = await import('../_shared/repDeviceCommandsHttp.js');
       const res = await handleRepCommands(request);
-      if (res.status >= 500) {
-        const hdr = getSecureCorsHeaders(request, {
-          allowMethods: 'GET, POST, OPTIONS',
-          allowHeaders: 'Content-Type, Authorization',
-        });
+      if (request.method === 'GET' && res.status >= 500) {
         return emptyCommandsResponse(hdr, `upstream_${res.status}`);
       }
       return res;
     } catch (e) {
-      const hdr = getSecureCorsHeaders(request, {
-        allowMethods: 'GET, POST, OPTIONS',
-        allowHeaders: 'Content-Type, Authorization',
-      });
-      return emptyCommandsResponse(hdr, e instanceof Error ? e.message : String(e));
+      if (request.method === 'GET') {
+        return emptyCommandsResponse(hdr, e instanceof Error ? e.message : String(e));
+      }
+      throw e;
     }
   }
 
@@ -59,11 +69,7 @@ async function handler(request: Request): Promise<Response> {
 
     return noCache(
       Response.json(
-        {
-          error: 'route_not_found',
-          path: url.pathname,
-          slug: ctx.slug,
-        },
+        { error: 'route_not_found', path: url.pathname, slug: ctx.slug },
         { status: 404, headers: { 'Content-Type': 'application/json' } },
       ),
     );
@@ -79,8 +85,8 @@ async function handler(request: Request): Promise<Response> {
       return emptyCommandsResponse(hdr, detail);
     }
 
-    if (ctx.slug === 'sync-status' || url.pathname.includes('sync-status')) {
-      const deviceId = url.searchParams.get('device_id')?.trim() ?? '';
+    if (ctx.slug === 'sync-status' || url.pathname.includes('/sync-status')) {
+      const deviceId = url.searchParams.get('device_id')?.trim() ?? ctx.segments[1] ?? '';
       return handleSyncStatus(request, deviceId);
     }
 

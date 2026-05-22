@@ -4,9 +4,8 @@
 
 | Arquivo | Função |
 |---------|--------|
-| `api/rep/sync-status.ts` | **Fallback** dedicado `GET ?device_id=` (sempre 200) |
-| `api/rep/commands.ts` | **Fallback** dedicado `GET` (sempre 200 + `commands: []`) |
-| `api/rep/[[...slug]].ts` | Catch-all demais rotas REP |
+| `api/rep/[[...slug]].ts` | **Única** função REP (limite Hobby 12 serverless) |
+| `api/_shared/repRouter.ts` | Router interno (sync-status, commands, …) |
 | `api/_shared/repSyncStatusLite.ts` | `handleSyncStatus(device_id)` |
 | `api/_shared/repRouter.ts` | Router interno (segmentos) |
 | `vercel.json` | Rewrite aninhado → plano |
