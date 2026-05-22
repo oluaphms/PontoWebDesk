@@ -12,6 +12,11 @@ import {
   idbPutPunch,
   idbUpdatePunch,
 } from './punchOfflineDb';
+import {
+  enqueueLocalSyncPunch,
+  markLocalPunchSynced,
+  putLocalPunch,
+} from './localDb';
 import type { QueuedWebPunch } from './punchOfflineQueue.types';
 
 export type { QueuedWebPunch } from './punchOfflineQueue.types';
@@ -76,6 +81,18 @@ export async function savePunchLocal(
     status: 'pending',
   };
   await idbPutPunch(entry);
+  const timestamp = new Date(entry.createdAt).toISOString();
+  const local = await putLocalPunch({
+    id,
+    timestamp,
+    payload: params,
+  });
+  if (local) {
+    await enqueueLocalSyncPunch({
+      id,
+      payload: { ...params, client_id: id, punch_hash: local.punch_hash },
+    });
+  }
   return entry;
 }
 
@@ -113,7 +130,7 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
     return { flushed: 0, clientIds: [] };
   }
 
-  const res = await fetch('/api/web-punches', {
+  const res = await fetch('/api/punches/batch', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${session.access_token}`,
@@ -161,6 +178,7 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
         }
       }
       await idbUpdatePunch(item);
+      await markLocalPunchSynced([item.id]);
     } else if (r) {
       item.status = 'error';
       item.error = r.error;

@@ -59,7 +59,7 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
   }
 
   if (request.method !== 'POST') {
-    return json200(request, { ok: false, error: 'Method not allowed' });
+    return json200(request, { ok: true, degraded: true, retry_after: 60_000, results: [] });
   }
 
   const blockedOrigin = requireTrustedOrigin(request, cors);
@@ -70,7 +70,7 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
     const raw = await request.json();
     body = raw && typeof raw === 'object' ? (raw as { punches?: unknown[] }) : {};
   } catch {
-    return json200(request, { ok: false, error: 'Body inválido', results: [] });
+    return json200(request, { ok: true, degraded: true, retry_after: 60_000, results: [] });
   }
 
   const list = Array.isArray(body.punches) ? body.punches : [];
@@ -79,7 +79,7 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
   }
 
   if (list.length > 50) {
-    return json200(request, { ok: false, error: 'Máximo 50 batidas por lote', results: [] });
+    return json200(request, { ok: true, degraded: true, retry_after: 60_000, results: [] });
   }
 
   const results: PunchResult[] = [];
@@ -139,7 +139,7 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
 
   if (degradedHits > 0) {
     return json200(request, {
-      ok: false,
+      ok: true,
       degraded: true,
       retry_after: 60_000,
       error: 'Supabase indisponível ou cota excedida — retenha fila local e tente depois',

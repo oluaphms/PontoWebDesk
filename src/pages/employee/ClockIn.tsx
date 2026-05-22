@@ -12,8 +12,9 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { getRecentTimeRecordsForUser } from '../../../services/timeRecords.service';
-import { getDayRecords, getLocalDateString, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
+import { getLocalDateString, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
 import { getLastPunchLocal, validarSequenciaLocal } from '../../utils/clockInLocalSequence';
+import { getConsolidatedDayPunches } from '../../services/punchStateEngine';
 import {
   getCurrentLocationRobustResult,
   geolocationReasonMessage,
@@ -40,6 +41,7 @@ import {
   flushPendingWebPunches,
   onWebPunchQueueSynced,
 } from '../../rep/repEngine';
+import { startSyncEngine, stopSyncEngine } from '../../services/syncEngine';
 import { savePunchEvidence, createFraudAlertsForFlags } from '../../services/punchEvidenceService';
 import { getCompanyLocations, isWithinAllowedLocation } from '../../services/settingsService';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -130,7 +132,7 @@ const EmployeeClockIn: React.FC = () => {
     if (!user || !isSupabaseConfigured()) return;
     try {
       const today = getLocalDateString();
-      const dayRecords = await getDayRecords(user.id, today);
+      const dayRecords = await getConsolidatedDayPunches(user.id, today);
       if (!dayRecords.length) {
         setLastType(null);
         setLastRecordAt(null);
@@ -174,6 +176,11 @@ const EmployeeClockIn: React.FC = () => {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  useEffect(() => {
+    startSyncEngine();
+    return () => stopSyncEngine();
   }, []);
 
   useEffect(() => {
@@ -425,7 +432,7 @@ const EmployeeClockIn: React.FC = () => {
       const fingerprint: DeviceFingerprint = generateDeviceFingerprint();
 
       const today = getLocalDateString();
-      const dayRecords = await getDayRecords(user.id, today);
+      const dayRecords = await getConsolidatedDayPunches(user.id, today);
       const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
       const logicalTypeStr =
         type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
@@ -822,7 +829,7 @@ const EmployeeClockIn: React.FC = () => {
     }
     setError(null);
     const today = getLocalDateString();
-    const dayRecords = await getDayRecords(user.id, today);
+    const dayRecords = await getConsolidatedDayPunches(user.id, today);
     const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
     const logicalTypeStr =
       type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
