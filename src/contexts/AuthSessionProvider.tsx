@@ -11,6 +11,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -51,6 +52,7 @@ function commitUser(
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => readInitialSessionUser());
   const [loading, setLoading] = useState(() => readInitialSessionUser() == null);
+  const bootRefreshDoneRef = useRef(false);
 
   const setSessionUser = useCallback((next: User | null | ((prev: User | null) => User | null)) => {
     commitUser(setUser, next);
@@ -76,6 +78,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [setSessionUser]);
+
+  useEffect(() => {
+    if (bootRefreshDoneRef.current) return;
+    bootRefreshDoneRef.current = true;
+    if (!user) {
+      void refresh();
+    }
+  }, [refresh, user]);
 
   useEffect(() => {
     const onEnrich = (e: Event) => {

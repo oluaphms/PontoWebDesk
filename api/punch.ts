@@ -69,7 +69,12 @@ function normalizeEventType(type: string): string {
 async function handler(request: Request): Promise<Response> {
   const pathname = new URL(request.url).pathname.replace(/\/+$/, '');
   // Lote web/mobile (JWT) — mesma função que /api/punch (limite Hobby: 12 serverless)
-  if (pathname === '/api/web-punches' || pathname.endsWith('/web-punches')) {
+  if (
+    pathname === '/api/web-punches' ||
+    pathname.endsWith('/web-punches') ||
+    pathname === '/api/punches/batch' ||
+    pathname.endsWith('/punches/batch')
+  ) {
     const { handleWebPunchesBatch } = await import('./_shared/webPunchesBatchHttp.js');
     return handleWebPunchesBatch(request);
   }

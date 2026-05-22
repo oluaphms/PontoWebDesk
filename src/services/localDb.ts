@@ -1,7 +1,7 @@
 import type { RegisterPunchSecureParams } from '../rep/repEngine';
 
 const DB_NAME = 'pontoweb_local';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   punches: 'punches',

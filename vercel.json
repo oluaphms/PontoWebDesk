@@ -10,6 +10,10 @@
     {
       "source": "/api/web-punches",
       "destination": "/api/punch"
+    },
+    {
+      "source": "/api/punches/batch",
+      "destination": "/api/punch"
     }
   ],
   "routes": [
@@ -27,6 +31,10 @@
     },
     {
       "src": "^/api/web-punches/?$",
+      "dest": "/api/punch"
+    },
+    {
+      "src": "^/api/punches/batch/?$",
       "dest": "/api/punch"
     },
     {

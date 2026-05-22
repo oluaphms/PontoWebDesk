@@ -32,6 +32,7 @@ import {
   auditSessionRequestEnd,
 } from '../src/auth/authDuplicateRequestAudit';
 import { User } from '../types';
+import { clearLocalSession, getLocalSession, saveLocalSession, type LocalSession } from '../src/services/localAuth';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -76,6 +77,7 @@ import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/a
 export interface AuthResult {
   user: User | null;
   error: string | null;
+  source?: 'remote' | 'local';
 }
 
 /** Evita chamadas repetidas a auth.updateUser (causavam lentidão, refresh em loop e logout falso). */
@@ -89,6 +91,18 @@ const TENANT_META_SYNC_KEY = 'sp_tenant_meta_sync';
  */
 const GET_CURRENT_USER_TIMEOUT_MS = 30_000;
 const GET_CURRENT_USER_RETRY_DELAY_MS = 750;
+
+function isSupabaseDown(error: unknown): boolean {
+  const e = error as { message?: string; status?: number; code?: string };
+  const msg = String(e?.message || '').toLowerCase();
+  return (
+    e?.status === 402 ||
+    msg.includes('exceed_egress_quota') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('timeout')
+  );
+}
 
 function persistCurrentUserToProfileStore(u: User): void {
   if (typeof window === 'undefined') return;
@@ -104,6 +118,51 @@ function readCurrentUserFromProfileStore(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     return getUserProfileStorage().getItem('current_user');
+  } catch {
+    return null;
+  }
+}
+
+function mapUserToLocalSession(user: User): LocalSession {
+  return {
+    user_id: user.id,
+    name: user.nome || user.email || 'Usuário',
+    company_id: user.companyId || '',
+    role: user.role || 'employee',
+    last_login: Date.now(),
+  };
+}
+
+function mapLocalSessionToUser(local: LocalSession): User {
+  const roleRaw = String(local.role || 'employee').toLowerCase();
+  const role: User['role'] =
+    roleRaw === 'admin' || roleRaw === 'hr' || roleRaw === 'supervisor' || roleRaw === 'employee'
+      ? (roleRaw as User['role'])
+      : 'employee';
+  return {
+    id: local.user_id,
+    nome: local.name || 'Usuário',
+    email: '',
+    cargo: 'Colaborador',
+    role,
+    createdAt: new Date(local.last_login || Date.now()),
+    companyId: local.company_id || '',
+    tenantId: local.company_id || '',
+    departmentId: '',
+    preferences: {
+      notifications: true,
+      theme: 'light',
+      allowManualPunch: true,
+      language: 'pt-BR',
+    },
+  };
+}
+
+function tryReadUserFromProfileStoreUnsafe(): User | null {
+  try {
+    const raw = readCurrentUserFromProfileStore();
+    if (!raw) return null;
+    return JSON.parse(raw) as User;
   } catch {
     return null;
   }
@@ -928,6 +987,7 @@ class AuthService {
   async signInWithEmail(identifier: string, password: string): Promise<AuthResult> {
     let resolvedEmail = '';
     const isEmailInput = (identifier || '').trim().includes('@');
+    const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
     try {
       // Resolver identificador (email, CPF, nome) para um email válido
       resolvedEmail = await this.resolveLoginEmail(identifier);
@@ -1019,8 +1079,24 @@ class AuthService {
       });
 
       this.enqueuePostLoginSideEffects(appUser, authUser as { user_metadata?: Record<string, unknown> });
-      return { user: appUser, error: null };
+      await saveLocalSession(mapUserToLocalSession(appUser));
+      return { user: appUser, error: null, source: 'remote' };
     } catch (error: any) {
+      if (isSupabaseDown(error)) {
+        const local = await getLocalSession();
+        if (local) {
+          const localUser = mapLocalSessionToUser(local);
+          persistCurrentUserToProfileStore(localUser);
+          return { user: localUser, error: null, source: 'local' };
+        }
+        if (preLoginCachedUser?.id) {
+          const fallbackLocal = preLoginCachedUser;
+          await saveLocalSession(mapUserToLocalSession(fallbackLocal));
+          persistCurrentUserToProfileStore(fallbackLocal);
+          return { user: fallbackLocal, error: null, source: 'local' };
+        }
+        return { user: null, error: 'Sem conexão e sem sessão local' };
+      }
       let errorMessage = 'Erro ao fazer login';
       const msg = error?.message ?? '';
       const msgLower = msg.toLowerCase();
@@ -1049,7 +1125,7 @@ class AuthService {
         errorMessage = msg;
       }
 
-      return { user: null, error: errorMessage };
+      return { user: null, error: errorMessage, source: 'remote' };
     } finally {
       setTimeout(() => {
         this._passwordSignInActive = false;
@@ -1182,6 +1258,7 @@ class AuthService {
       // 1) Derruba a sessão local imediatamente (instantâneo).
       // Isso evita ficar preso num estado “meio logado” no PWA.
       await clearLocalAuthSession();
+      await clearLocalSession();
 
       // 2) Tenta invalidar sessão no servidor também (quando houver rede).
       // `global` faz logout mais robusto em cenários com múltiplos dispositivos/sessões.
@@ -1446,6 +1523,10 @@ class AuthService {
     // Verificar se Supabase está configurado antes de tentar (usando verificação dinâmica)
     if (!checkSupabaseConfigured()) {
       console.warn('Supabase not configured - returning null user');
+      const local = await getLocalSession();
+      if (local) {
+        return mapLocalSessionToUser(local);
+      }
       try {
         const stored = readCurrentUserFromProfileStore();
         if (stored) {
@@ -1458,6 +1539,12 @@ class AuthService {
     }
 
     if (!this.isOnline()) {
+      const local = await getLocalSession();
+      if (local) {
+        const localUser = mapLocalSessionToUser(local);
+        persistCurrentUserToProfileStore(localUser);
+        return localUser;
+      }
       const cached = readCurrentUserFromProfileStore();
       if (cached) {
         return JSON.parse(cached) as User;
@@ -1521,6 +1608,7 @@ class AuthService {
       const appUser = await this.supabaseUserToAppUser(supabaseUser);
       if (appUser) {
         persistCurrentUserToProfileStore(appUser);
+        await saveLocalSession(mapUserToLocalSession(appUser));
         setCachedAuthProfile(
           appUser.id,
           resolveTenantId(appUser) || appUser.companyId || tenantCacheKey,
@@ -1542,6 +1630,7 @@ class AuthService {
 
     const minimal = await this.buildMinimalAppUserFromAuthUser(supabaseUser);
     persistCurrentUserToProfileStore(minimal);
+    await saveLocalSession(mapUserToLocalSession(minimal));
     setCachedAuthProfile(
       minimal.id,
       resolveTenantId(minimal) || minimal.companyId || tenantCacheKey,

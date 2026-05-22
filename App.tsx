@@ -293,6 +293,7 @@ const AppMain: React.FC = () => {
   // Conexão Supabase (fallback quando servidor pausado/rede lenta)
   const [connectionUnavailable, setConnectionUnavailable] = useState(false);
   const [connectionIssueMessage, setConnectionIssueMessage] = useState<string | null>(null);
+  const [offlineAuthMode, setOfflineAuthMode] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isResettingSession, setIsResettingSession] = useState(false);
   const [accountSwitchLogoutBusy, setAccountSwitchLogoutBusy] = useState(false);
@@ -1133,7 +1134,7 @@ const AppMain: React.FC = () => {
         }
       }
 
-      let result: { user: any; error: string | null };
+      let result: { user: any; error: string | null; source?: 'remote' | 'local' };
       try {
         /**
          * Hard-lock anti-spinner infinito no mobile:
@@ -1271,6 +1272,12 @@ const AppMain: React.FC = () => {
       }
 
       if (result.user) {
+        if (result.source === 'local') {
+          setOfflineAuthMode(true);
+          setConnectionIssueMessage('Modo offline ativo — dados serão sincronizados quando a conexão voltar.');
+        } else {
+          setOfflineAuthMode(false);
+        }
         if (alreadyAuthenticatedRef.current) {
           logAuth('[AUTH PIPELINE IGNORED]', {
             attemptId,
@@ -1757,6 +1764,31 @@ const AppMain: React.FC = () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [connectionUnavailable]);
+
+  useEffect(() => {
+    if (!offlineAuthMode || !checkSupabaseConfigured()) return;
+    let cancelled = false;
+    const syncSessionWithServer = async () => {
+      try {
+        const current = await authService.getCurrentUser();
+        if (!cancelled && current) {
+          setSessionUser(current);
+          setOfflineAuthMode(false);
+          setConnectionIssueMessage(null);
+        }
+      } catch {
+        // mantém modo offline até próxima reconexão
+      }
+    };
+    const onOnline = () => {
+      void syncSessionWithServer();
+    };
+    window.addEventListener('online', onOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', onOnline);
+    };
+  }, [offlineAuthMode, setSessionUser]);
 
   // Timeout de segurança adicional para garantir que o loading sempre termine
   useEffect(() => {
@@ -2254,6 +2286,11 @@ const AppMain: React.FC = () => {
 
   return (
     <Layout onLogout={handleLogout} operationalChromeReady={portalChromeReady}>
+      {offlineAuthMode && (
+        <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          Modo offline — dados serão sincronizados depois.
+        </div>
+      )}
       {showOnboarding && (
         <Onboarding
           onComplete={() => {
