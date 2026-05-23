@@ -2,6 +2,8 @@
  * Comandos REP via agente local (test_connection em LAN).
  */
 
+import { apiGet, apiPost } from './api';
+
 export type RepDeviceCommandRow = {
   id: string;
   device_id: string;
@@ -42,22 +44,22 @@ export async function createRepTestConnectionCommand(
   deviceId: string,
   accessToken: string,
 ): Promise<CreateTestConnectionResult> {
-  const res = await fetch('/api/rep/commands', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
+  const data = (await apiPost(
+    '/rep/commands',
+    { device_id: deviceId, command: 'test_connection' },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
     },
-    body: JSON.stringify({ device_id: deviceId, command: 'test_connection' }),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  )) as {
     error?: string;
     command_id?: string;
     status?: string;
     reused?: boolean;
   };
-  if (!res.ok || !data.command_id) {
+  if (!data.command_id) {
     throw new Error(data.error || 'Não foi possível solicitar o teste via agente.');
   }
   return {
@@ -74,20 +76,15 @@ export async function fetchLatestRepDeviceCommand(
 ): Promise<RepDeviceCommandRow | null> {
   const qs = new URLSearchParams({ device_id: deviceId, latest: 'true' });
   if (commandId) qs.set('command_id', commandId);
-  const res = await fetch(`/api/rep/commands?${qs}`, {
-    method: 'GET',
+  const data = (await apiGet(`/rep/commands?${qs}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',
     },
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  })) as {
     error?: string;
     command?: RepDeviceCommandRow | null;
   };
-  if (!res.ok) {
-    throw new Error(data.error || 'Falha ao consultar resultado do teste.');
-  }
   return data.command ?? null;
 }
 

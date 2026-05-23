@@ -1,6 +1,6 @@
 import { SYSTEM_CONFIG } from '../config/system';
+import { apiGet } from './api';
 import { degradedResponse } from './degraded';
-import { getProvider } from './getProvider';
 
 export type OperationalDayStatusRow = {
   id: string;
@@ -25,22 +25,13 @@ export async function fetchOperationalStatus(companyId: string): Promise<Operati
   const cid = companyId.trim();
   if (!cid) return [];
 
-  const token = await getProvider().getAccessToken();
-  if (!token) {
-    throw new Error('Sessão expirada. Faça login novamente.');
-  }
-
-  const res = await fetch(`/api/operational/status?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: OperationalDayStatusRow[];
     error?: string;
-  };
+  }>(`/operational/status?company_id=${encodeURIComponent(cid)}`);
 
-  if (!res.ok || body.success === false) {
+  if (body.success === false) {
     throw new Error(body.error || 'Falha ao carregar status operacional');
   }
 

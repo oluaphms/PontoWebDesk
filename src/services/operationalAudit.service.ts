@@ -1,6 +1,6 @@
 import { SYSTEM_CONFIG } from '../config/system';
+import { apiGet } from './api';
 import { degradedResponse } from './degraded';
-import { getProvider } from './getProvider';
 
 export type OperationalAuditRow = {
   id: string;
@@ -25,25 +25,18 @@ export async function fetchOperationalAudit(
   }
   const cid = companyId.trim();
   if (!cid) return [];
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
   const params = new URLSearchParams({ company_id: cid });
   if (opts?.entityType?.trim()) params.set('entity_type', opts.entityType.trim());
   if (opts?.entityId?.trim()) params.set('entity_id', opts.entityId.trim());
   if (opts?.limit != null) params.set('limit', String(opts.limit));
 
-  const res = await fetch(`/api/operational/audit?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: OperationalAuditRow[];
     error?: string;
-  };
+  }>(`/operational/audit?${params.toString()}`);
 
-  if (!res.ok || body.success === false) {
+  if (body.success === false) {
     throw new Error(body.error || 'Falha ao carregar auditoria');
   }
 

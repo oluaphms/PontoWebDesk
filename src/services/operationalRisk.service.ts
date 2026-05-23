@@ -1,5 +1,5 @@
 import { SYSTEM_CONFIG } from '../config/system';
-import { getProvider } from './getProvider';
+import { apiGet } from './api';
 
 export type CompanyRiskApiPayload = {
   risk: 'ok' | 'medium' | 'high' | 'critical';
@@ -36,20 +36,13 @@ export async function fetchOperationalRisk(companyId: string): Promise<CompanyRi
     };
   }
 
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-  const res = await fetch(`/api/operational/risk?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: CompanyRiskApiPayload;
     error?: string;
-  };
+  }>(`/operational/risk?company_id=${encodeURIComponent(cid)}`);
 
-  if (!res.ok || body.success === false || !body.data) {
+  if (body.success === false || !body.data) {
     throw new Error(body.error || 'Falha ao carregar risco operacional');
   }
 

@@ -1,4 +1,5 @@
 import { auth } from './supabaseClient';
+import { apiPost } from './api';
 
 const AUTH_ERROR_CODES: Record<string, string> = {
   USER_ALREADY_EXISTS: 'E-mail já cadastrado.',
@@ -8,10 +9,6 @@ const AUTH_ERROR_CODES: Record<string, string> = {
   RATE_LIMIT: 'Limite de requisições atingido. Tente novamente em alguns minutos.',
   CREATE_FAILED: 'Falha ao criar usuário no Auth.',
 };
-
-function resolveAppBaseUrl(): string {
-  return (import.meta.env.VITE_APP_URL as string) || (typeof window !== 'undefined' ? window.location.origin : '');
-}
 
 async function getAdminAccessToken(): Promise<string> {
   const {
@@ -25,16 +22,13 @@ async function getAdminAccessToken(): Promise<string> {
 export async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
   try {
     const token = await getAdminAccessToken();
-    const base = resolveAppBaseUrl();
-    if (!base) return;
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action: 'confirm-email', email: email.trim().toLowerCase() }),
-    });
-    if (!res.ok) return;
+    await apiPost(
+      '/auth/admin',
+      { action: 'confirm-email', email: email.trim().toLowerCase() },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
   } catch {
-    // Ignora; funcionário foi criado, admin pode confirmar manualmente no Supabase se precisar.
+    // Ignora; funcionário foi criado, admin pode confirmar manualmente se precisar.
   }
 }
 
@@ -44,28 +38,22 @@ export async function setEmployeePasswordInAuth(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const token = await getAdminAccessToken();
-    const base = resolveAppBaseUrl();
-    if (!base) return { success: false, error: 'URL do app não resolvida.' };
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action: 'set-password', email: email.trim().toLowerCase(), newPassword: newPassword.trim() }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = typeof data?.error === 'string' ? data.error : 'Falha ao alterar senha.';
-      return { success: false, error: msg };
-    }
+    await apiPost(
+      '/auth/admin',
+      { action: 'set-password', email: email.trim().toLowerCase(), newPassword: newPassword.trim() },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
     return { success: true };
-  } catch (e: any) {
-    return { success: false, error: e?.message || 'Erro ao alterar senha.' };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Erro ao alterar senha.';
+    return { success: false, error: msg };
   }
 }
 
 export async function createEmployeeAuthUser(params: {
   email?: string;
   password?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }): Promise<{ userId: string; existing?: boolean }> {
   const email = String(params.email || '').trim().toLowerCase();
   const password = String(params.password || '').trim();
@@ -78,37 +66,43 @@ export async function createEmployeeAuthUser(params: {
   if (email) requestBody.email = email;
   if (password) requestBody.password = password;
 
-  const res = await fetch('/api/auth/admin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'omit',
-    cache: 'no-store',
-    body: JSON.stringify(requestBody),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const apiMessage = typeof data?.error === 'string' ? data.error.trim() : '';
-    const apiDetail = typeof data?.detail === 'string' ? data.detail.trim() : '';
-    const apiCode = data?.code ?? '';
+  try {
+    const data = (await apiPost('/auth/admin', requestBody)) as {
+      user_id?: string;
+      userId?: string;
+      existing?: boolean;
+      code?: string;
+      error?: string;
+      detail?: string;
+    };
+    const userId = data?.user_id ?? data?.userId;
+    if (!userId) throw new Error('Conta criada mas ID não retornado.');
+    return { userId: String(userId), existing: !!data?.existing };
+  } catch (e: unknown) {
+    const apiCode =
+      e && typeof e === 'object' && 'body' in e
+        ? (e as { body?: { code?: string; error?: string; detail?: string } }).body?.code
+        : undefined;
+    const body =
+      e && typeof e === 'object' && 'body' in e
+        ? ((e as { body?: { error?: string; detail?: string } }).body ?? {})
+        : {};
+    const apiMessage = typeof body.error === 'string' ? body.error.trim() : '';
+    const apiDetail = typeof body.detail === 'string' ? body.detail.trim() : '';
     const friendlyMessage =
       apiDetail ||
       apiMessage ||
       (apiCode && AUTH_ERROR_CODES[apiCode]) ||
-      res.statusText ||
+      (e instanceof Error ? e.message : '') ||
       'Falha ao criar usuário no Auth.';
     const err = new Error(friendlyMessage) as Error & { code?: string };
     err.code = apiCode || 'CREATE_FAILED';
     throw err;
   }
-  const userId = data?.user_id ?? data?.userId;
-  if (!userId) throw new Error('Conta criada mas ID não retornado.');
-  return { userId: String(userId), existing: !!data?.existing };
 }
 
 export async function rollbackEmployeeAuthUser(params: { userId?: string; email?: string }): Promise<void> {
   const token = await getAdminAccessToken();
-  const base = resolveAppBaseUrl();
-  if (!base) throw new Error('URL do app não resolvida.');
   const userId = String(params.userId || '').trim();
   const email = String(params.email || '').trim().toLowerCase();
   if (!userId && !email) throw new Error('Rollback requer userId ou email.');
@@ -117,14 +111,5 @@ export async function rollbackEmployeeAuthUser(params: { userId?: string; email?
   if (userId) body.userId = userId;
   if (email) body.email = email;
 
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/admin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = typeof data?.error === 'string' ? data.error : 'Falha ao executar rollback no Auth.';
-    throw new Error(msg);
-  }
+  await apiPost('/auth/admin', body, { headers: { Authorization: `Bearer ${token}` } });
 }

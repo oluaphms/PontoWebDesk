@@ -1,4 +1,5 @@
 import type { DeviceSyncStatusSnapshot } from '../pages/admin/repDevices/types';
+import { buildApiUrl } from './api';
 
 export const REP_SYNC_STATUS_TIMEOUT_MS = 5000;
 export const REP_SYNC_STATUS_CACHE_MS = 30_000;
@@ -36,8 +37,8 @@ export async function fetchRepDeviceSyncStatus(
   };
 
   try {
-    const flatUrl = `/api/rep/sync-status?device_id=${encodeURIComponent(deviceId)}&lite=1`;
-    const nestedUrl = `/api/rep/devices/${encodeURIComponent(deviceId)}/sync-status`;
+    const flatUrl = buildApiUrl(`/rep/sync-status?device_id=${encodeURIComponent(deviceId)}&lite=1`);
+    const nestedUrl = buildApiUrl(`/rep/devices/${encodeURIComponent(deviceId)}/sync-status`);
 
     let res = await fetch(flatUrl, { method: 'GET', headers: authHeaders, signal });
 

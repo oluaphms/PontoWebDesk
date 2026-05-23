@@ -1,6 +1,6 @@
 import { SYSTEM_CONFIG } from '../config/system';
+import { apiGet, apiPatch } from './api';
 import { degradedResponse } from './degraded';
-import { getProvider } from './getProvider';
 
 export type OperationalTaskRow = {
   id: string;
@@ -26,20 +26,13 @@ export async function fetchOperationalTasks(companyId: string): Promise<Operatio
   }
   const cid = companyId.trim();
   if (!cid) return [];
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-  const res = await fetch(`/api/operational/tasks?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: OperationalTaskRow[];
     error?: string;
-  };
+  }>(`/operational/tasks?company_id=${encodeURIComponent(cid)}`);
 
-  if (!res.ok || body.success === false) {
+  if (body.success === false) {
     throw new Error(body.error || 'Falha ao carregar tarefas operacionais');
   }
 
@@ -52,16 +45,11 @@ export async function completeOperationalTask(taskId: string): Promise<void> {
   }
   const id = taskId.trim();
   if (!id) throw new Error('ID da tarefa inválido.');
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-  const res = await fetch(`/api/operational/tasks/${encodeURIComponent(id)}/complete`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
-  if (!res.ok || body.success === false) {
+  const body = await apiPatch<{ success?: boolean; error?: string }>(
+    `/operational/tasks/${encodeURIComponent(id)}/complete`,
+    {},
+  );
+  if (body.success === false) {
     throw new Error(body.error || 'Não foi possível concluir a tarefa');
   }
 }

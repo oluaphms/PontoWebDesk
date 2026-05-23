@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
-import { getAppBaseUrl } from '../../services/appUrl';
+import { apiGet, apiPost } from '../services/api';
 import { validatePassword } from '../utils/passwordRules';
-
-const API_BASE = getAppBaseUrl();
 
 interface InviteInfo {
   email: string;
@@ -33,19 +31,24 @@ const AcceptInvitePage: React.FC = () => {
       setLoading(false);
       return;
     }
-    fetch(`${API_BASE}/api/auth/employee-invite?token=${encodeURIComponent(t)}`)
-      .then((res) => res.json().then((data) => ({ status: res.status, ok: res.ok, ...data })).catch(() => ({ status: res.status, ok: false, error: 'Resposta inválida' })))
+    apiGet<{ error?: string; email?: string; role?: string; expiresAt?: string }>(
+      `/auth/employee-invite?token=${encodeURIComponent(t)}`,
+    )
       .then((data) => {
         if (data.error) {
           setError(data.error || 'Link inválido ou expirado.');
           setInvite(null);
         } else {
-          setInvite({ email: data.email, role: data.role, expiresAt: data.expiresAt });
+          setInvite({
+            email: String(data.email ?? ''),
+            role: String(data.role ?? ''),
+            expiresAt: String(data.expiresAt ?? ''),
+          });
           setError(null);
         }
       })
       .catch(() => {
-        setError('Erro ao validar o link. Verifique se as APIs estão no mesmo domínio (/api/auth/employee-invite) ou configure o proxy.');
+        setError('Erro ao validar o link. Verifique VITE_API_URL (deve terminar em /api).');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -69,13 +72,12 @@ const AcceptInvitePage: React.FC = () => {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/employee-invite/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, name: nameTrim, password }),
+      const data = await apiPost<{ success?: boolean; error?: string }>('/auth/employee-invite/accept', {
+        token,
+        name: nameTrim,
+        password,
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      if (data.success) {
         setSuccess(true);
       } else {
         setError(data.error || 'Não foi possível criar a conta. Tente novamente.');

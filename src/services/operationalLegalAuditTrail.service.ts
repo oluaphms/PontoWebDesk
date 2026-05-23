@@ -3,6 +3,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { apiPost } from './api';
 import { getSupabaseClient } from './supabaseClient';
 import { getOperationalDeviceKey } from './deviceOperationalReputation.service';
 import { operationalBusEmit } from '../domain/operational/bus/operationalEventBus';
@@ -127,13 +128,9 @@ async function insertLegalAuditViaApi(
   if (!session?.access_token) return { ok: false, error: 'no_session' };
 
   try {
-    const res = await fetch('/api/operational/legal-audit', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
+    const body = await apiPost<{ success?: boolean; error?: string }>(
+      '/operational/legal-audit',
+      {
         company_id: input.companyId,
         action: input.action,
         source: input.source ?? null,
@@ -142,10 +139,10 @@ async function insertLegalAuditViaApi(
         payload_before: input.payloadBefore ?? null,
         payload_after: input.payloadAfter ?? null,
         correlation_id: input.correlationId ?? null,
-      }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
-    if (res.ok && body.success !== false) {
+      },
+      { headers: { Authorization: `Bearer ${session.access_token}` } },
+    ).catch(() => ({ success: false as const }));
+    if (body.success !== false) {
       noteAuditTrailSuccess();
       return { ok: true };
     }

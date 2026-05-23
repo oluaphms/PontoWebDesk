@@ -1,6 +1,6 @@
 import { SYSTEM_CONFIG } from '../config/system';
+import { apiGet } from './api';
 import { degradedResponse } from './degraded';
-import { getProvider } from './getProvider';
 
 export type TimelineEventDTO = {
   id: string;
@@ -25,26 +25,19 @@ export async function fetchOperationalTimeline(
   const d = dateYmd.trim();
   if (!cid || !eid || !d) return [];
 
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
   const params = new URLSearchParams({
     company_id: cid,
     employee_id: eid,
     date: d,
   });
 
-  const res = await fetch(`/api/operational/timeline?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: TimelineEventDTO[];
     error?: string;
-  };
+  }>(`/operational/timeline?${params.toString()}`);
 
-  if (!res.ok || body.success === false) {
+  if (body.success === false) {
     throw new Error(body.error || 'Falha ao carregar timeline');
   }
 

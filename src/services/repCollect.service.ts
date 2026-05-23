@@ -2,6 +2,8 @@
  * Coleta manual REP por intervalo (enfileira comando no agente local).
  */
 
+import { apiPost } from './api';
+
 export type RepCollectRequest = {
   device_id: string;
   company_id?: string;
@@ -23,20 +25,17 @@ export async function enqueueRepCollect(
   accessToken: string,
   payload: RepCollectRequest,
 ): Promise<RepCollectResponse> {
-  const res = await fetch('/api/rep/collect', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      ...payload,
-      receive_scope: payload.receive_scope ?? 'date_range',
-    }),
-  });
-  const data = (await res.json().catch(() => ({}))) as RepCollectResponse & { error?: string };
-  if (!res.ok) {
-    return { success: false, error: data.error || `HTTP ${res.status}` };
+  try {
+    return (await apiPost(
+      '/rep/collect',
+      {
+        ...payload,
+        receive_scope: payload.receive_scope ?? 'date_range',
+      },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    )) as RepCollectResponse;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Falha na coleta REP';
+    return { success: false, error: msg };
   }
-  return data;
 }

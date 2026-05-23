@@ -4,6 +4,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { buscarFiltrosEspelhoAdmin } from '../../../services/api';
+import { buildApiUrl } from '../../services/api';
 import { LoadingState, Button } from '../../../components/UI';
 import { Upload, FileText, X } from 'lucide-react';
 
@@ -86,10 +87,9 @@ const AdminImportRep: React.FC = () => {
       if (forceUserId.trim()) formData.set('force_user_id', forceUserId.trim());
       formData.set('file', file);
 
-      const baseUrl = getAppUrl();
       const headers: Record<string, string> = {};
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-      const res = await fetch(`${baseUrl}/api/rep/import-afd`, {
+      const res = await fetch(buildApiUrl('/rep/import-afd'), {
         method: 'POST',
         headers,
         body: formData,

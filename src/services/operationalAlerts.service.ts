@@ -1,6 +1,6 @@
 import { SYSTEM_CONFIG } from '../config/system';
+import { apiGet, apiPatch } from './api';
 import { degradedResponse } from './degraded';
-import { getProvider } from './getProvider';
 
 export type OperationalAlertRow = {
   id: string;
@@ -23,20 +23,13 @@ export async function fetchOperationalAlerts(companyId: string): Promise<Operati
   }
   const cid = companyId.trim();
   if (!cid) return [];
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-  const res = await fetch(`/api/operational/alerts?company_id=${encodeURIComponent(cid)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = await apiGet<{
     success?: boolean;
     data?: OperationalAlertRow[];
     error?: string;
-  };
+  }>(`/operational/alerts?company_id=${encodeURIComponent(cid)}`);
 
-  if (!res.ok || body.success === false) {
+  if (body.success === false) {
     throw new Error(body.error || 'Falha ao carregar alertas');
   }
 
@@ -49,16 +42,11 @@ export async function resolveOperationalAlert(alertId: string): Promise<void> {
   }
   const id = alertId.trim();
   if (!id) throw new Error('ID do alerta inválido.');
-  const token = await getProvider().getAccessToken();
-  if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-  const res = await fetch(`/api/operational/alerts/${encodeURIComponent(id)}/resolve`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
-  if (!res.ok || body.success === false) {
+  const body = await apiPatch<{ success?: boolean; error?: string }>(
+    `/operational/alerts/${encodeURIComponent(id)}/resolve`,
+    {},
+  );
+  if (body.success === false) {
     throw new Error(body.error || 'Não foi possível resolver o alerta');
   }
 }

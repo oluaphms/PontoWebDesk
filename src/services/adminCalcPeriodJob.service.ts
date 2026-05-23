@@ -1,4 +1,5 @@
 import { auth } from './supabaseClient';
+import { buildApiUrl } from './api';
 
 type EnqueueResponse = {
   error?: string;
@@ -13,10 +14,6 @@ type JobStatusResponse = {
   status?: string;
   result?: { error?: string };
 };
-
-function resolveAppBaseUrl(): string {
-  return (import.meta.env.VITE_APP_URL as string) || (typeof window !== 'undefined' ? window.location.origin : '');
-}
 
 async function getAdminToken(): Promise<string> {
   const {
@@ -37,11 +34,9 @@ export async function runCalcPeriodJob(params: {
   periodEnd: string;
   timeoutMs?: number;
 }): Promise<void> {
-  const base = resolveAppBaseUrl();
   const token = await getAdminToken();
-  const root = base.replace(/\/$/, '');
 
-  const enqueueUrl = `${root}/api/jobs/calc-period`;
+  const enqueueUrl = buildApiUrl('/jobs/calc-period');
   const enqueueRes = await fetch(enqueueUrl, {
     method: 'POST',
     cache: 'no-store',
@@ -66,7 +61,7 @@ export async function runCalcPeriodJob(params: {
   const jobId = enqueueJson.job_id;
   if (!jobId) throw new Error('Resposta sem job_id.');
 
-  const processUrl = `${root}/api/jobs/process`;
+  const processUrl = buildApiUrl('/jobs/process');
   void fetch(processUrl, {
     method: 'POST',
     cache: 'no-store',
@@ -79,7 +74,7 @@ export async function runCalcPeriodJob(params: {
   let lastStatus = 'pending';
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    const statusUrl = `${root}/api/jobs/${jobId}`;
+    const statusUrl = buildApiUrl(`/jobs/${jobId}`);
     const statusRes = await fetch(statusUrl, {
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

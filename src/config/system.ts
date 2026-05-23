@@ -1,8 +1,7 @@
-/** Frontend opera 100% via API Node na VPS. */
-export const API_VPS_BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
-  (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
-  'http://177.7.51.209/api';
+import { getApiBaseUrl } from '../services/api';
+
+/** Frontend opera 100% via API Node na VPS (`VITE_API_URL`, sufixo `/api`). */
+export const API_VPS_BASE = getApiBaseUrl();
 
 /** @deprecated Use API_VPS_BASE — mantido para imports legados. */
 export const SYSTEM_CONFIG = {

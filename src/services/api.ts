@@ -1,9 +1,46 @@
-import { clearToken, getToken } from './authToken';
+import { clearToken, getToken, setToken } from './authToken';
 
-const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
-  (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
-  'http://177.7.51.209/api';
+const DEFAULT_API_BASE = 'http://177.7.51.209/api';
+
+function readEnvApiUrl(): string {
+  return (
+    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim() ||
+    ''
+  );
+}
+
+/**
+ * Base da API VPS — derivada de `VITE_API_URL` (deve terminar em `/api`).
+ * Se o env vier só com o host (ex.: `https://api.phmsdev.com.br`), acrescenta `/api`.
+ */
+export function normalizeApiBase(raw?: string): string {
+  const trimmed = (raw ?? readEnvApiUrl()).replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_API_BASE;
+  if (trimmed.endsWith('/api')) return trimmed;
+  return `${trimmed}/api`;
+}
+
+/** Base normalizada usada por todas as funções HTTP do frontend. */
+export const API_BASE = normalizeApiBase();
+
+function normalizeApiPath(path: string): string {
+  let p = path.trim();
+  if (!p) return '/';
+  if (!p.startsWith('/')) p = `/${p}`;
+  if (p === '/api') return '/';
+  if (p.startsWith('/api/')) p = p.slice(4);
+  return p.startsWith('/') ? p : `/${p}`;
+}
+
+/** Monta URL absoluta: `${API_BASE}${path}` — path relativo sem prefixo `/api` duplicado. */
+export function buildApiUrl(path: string): string {
+  return `${API_BASE}${normalizeApiPath(path)}`;
+}
+
+export function getApiBaseUrl(): string {
+  return API_BASE;
+}
 
 export type ApiResult<T = unknown> = {
   data?: T;
@@ -22,15 +59,6 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
-}
-
-function buildUrl(path: string): string {
-  const p = path.startsWith('/') ? path : `/${path}`;
-  return `${API_URL}${p}`;
-}
-
-export function getApiBaseUrl(): string {
-  return API_URL;
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -62,7 +90,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
 }
 
 export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+  const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'GET',
     headers: {
@@ -74,7 +102,7 @@ export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): P
 }
 
 export async function apiPost<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+  const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'POST',
     headers: {
@@ -88,7 +116,7 @@ export async function apiPost<T = ApiResult>(path: string, body: unknown, init?:
 }
 
 export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+  const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'PATCH',
     headers: {
@@ -102,7 +130,7 @@ export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?
 }
 
 export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+  const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'DELETE',
     headers: {
