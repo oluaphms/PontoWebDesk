@@ -1,35 +1,32 @@
-import { db } from '../../services/supabaseClient';
 import { handleError } from '../utils/handleError';
-import { isCloudEnabled } from './cloudService';
-import { cloudFallback } from './cloudFallback';
-import { cacheEmployees, listCachedEmployeesByCompany } from './localDb';
-import { getProvider } from './getProvider';
+import { cacheEmployees } from './localDb';
+import {
+  createEmployee,
+  deleteEmployee,
+  fetchEmployees,
+  updateEmployee,
+  type ApiEmployee,
+} from './employeesApi.service';
 
-export async function getUsersByCompany(companyId: string) {
-  if (!isCloudEnabled()) {
-    return cloudFallback(await listCachedEmployeesByCompany(companyId));
-  }
+export type { ApiEmployee };
+
+export async function getEmployeesByCompany(companyId: string): Promise<ApiEmployee[]> {
+  const cid = String(companyId || '').trim();
+  if (!cid) return [];
   try {
-    const provider = getProvider();
-    const rows = await provider.getEmployees(companyId);
+    const rows = await fetchEmployees(cid);
     await cacheEmployees(rows as Array<Record<string, unknown>>);
     return rows;
   } catch (e) {
-    handleError(e, 'getUsersByCompany');
-    return cloudFallback(await listCachedEmployeesByCompany(companyId));
+    handleError(e, 'getEmployeesByCompany');
+    return [];
   }
 }
 
-export async function getLegacyEmployeesByCompany(companyId: string) {
-  if (!isCloudEnabled()) {
-    return cloudFallback(await listCachedEmployeesByCompany(companyId));
-  }
-  try {
-    const rows = await db.select('employees', [{ column: 'company_id', operator: 'eq', value: companyId }]);
-    await cacheEmployees(rows as Array<Record<string, unknown>>);
-    return rows;
-  } catch (e) {
-    handleError(e, 'getLegacyEmployeesByCompany');
-    return cloudFallback(await listCachedEmployeesByCompany(companyId));
-  }
-}
+/** @deprecated Use getEmployeesByCompany */
+export const getUsersByCompany = getEmployeesByCompany;
+
+/** @deprecated Alias — mesma fonte API */
+export const getLegacyEmployeesByCompany = getEmployeesByCompany;
+
+export { createEmployee, updateEmployee, deleteEmployee, fetchEmployees };

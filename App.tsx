@@ -22,14 +22,12 @@ import { beginPostLoginRequestBudgetWindow } from './src/performance/requestBudg
 import { installMobileClockDriftGuard } from './src/performance/mobileClockDriftGuard';
 import { clearTenantScopedCaches } from './src/domain/operational/cache/tenantCacheIsolation';
 import {
-  checkSupabaseConfigured,
-  testSupabaseConnection,
   resetSession,
   clearLocalAuthSession,
   clearCurrentUserFromAllStorages,
 } from './services/supabaseClient';
-import { getSupabaseClient } from './src/lib/supabaseClient';
-import { checkSupabaseConnection } from './src/services/checkSupabaseConnection';
+import { checkApiConnection } from './src/services/checkApiConnection';
+import { getToken } from './src/services/authToken';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
 import {
@@ -68,7 +66,6 @@ import { useLanguage } from './src/contexts/LanguageContext';
 import { i18n } from './lib/i18n';
 import { useSessionTimeout } from './src/hooks/useSessionTimeout';
 import { AuthSessionProvider, readCachedSessionUser } from './src/contexts/AuthSessionProvider';
-import { isCloudEnabled } from './src/services/cloudService';
 import { isDegradedMode } from './src/services/systemMode';
 import { useAuth } from './src/hooks/useAuth';
 import { setAuthLogoutGuard } from './src/contexts/authSessionInternals';
@@ -270,10 +267,8 @@ const AppMain: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   /** Só bloqueia splash quando há cache de sessão a validar — login pode renderizar logo (sem “Protegendo…” longo). */
   const [isInitialLoading, setIsInitialLoading] = useState(() => {
-    if (!checkSupabaseConfigured()) return false;
-    // Só mostrar loading inicial se usuário marcou "lembrar-me"
     const rememberMe = typeof window !== 'undefined' && localStorage.getItem('pontowebdesk_remember_me') === 'true';
-    return rememberMe && readCachedSessionUser() != null;
+    return rememberMe && (readCachedSessionUser() != null || Boolean(getToken()));
   });
   const [company, setCompany] = useState<Company | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
@@ -324,9 +319,7 @@ const AppMain: React.FC = () => {
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
 
   useEffect(() => {
-    if (!isCloudEnabled()) {
-      console.info('[SYSTEM] rodando em modo local-first');
-    }
+    console.info('[SYSTEM] API VPS — Supabase desativado');
   }, []);
   /** Chrome operacional (badges/polling leve no layout) só após idle — reduz cascata pós setUser. */
   const portalChromeReady = useDeferredPortalChrome(user?.id);
@@ -488,28 +481,11 @@ const AppMain: React.FC = () => {
           }
         }, INIT_APP_MAX_MS);
 
-        // Verificar se Supabase está configurado (usando verificação dinâmica)
-        if (!checkSupabaseConfigured()) {
-          console.warn('Supabase not configured - app will show login screen');
-          if (isMounted) {
-            clearTimeout(timeoutId);
-            setIsInitialLoading(false);
+        checkApiConnection().then((result) => {
+          if (import.meta.env?.DEV) {
+            console.log(result.ok ? '[PontoWebDesk] API OK' : '[PontoWebDesk] API indisponível:', result.message);
           }
-          return;
-        }
-
-        // Teste de conexão ao iniciar apenas para log (não bloqueia a tela)
-        const connectionTimeoutMs = 15000;
-        const isOfflineDevMode =
-          typeof window !== 'undefined' && (window as any).__SUPABASE_OFFLINE_DEV === true;
-        if (!isOfflineDevMode) {
-          testSupabaseConnection(connectionTimeoutMs).then((result) => {
-            if (result.ok && import.meta.env?.DEV) {
-              console.log('[PontoWebDesk] Conexão Supabase OK');
-            }
-            // Não loga falha aqui para não poluir o console; login mostrará erro se precisar.
-          });
-        }
+        });
 
         // Não usar getSession() isolado com timeout curto como “portão”: se IndexedDB/rede atrasarem,
         // a app saía antes de hidratar e o usuário via tela presa / sem perfil em cache.
@@ -563,9 +539,8 @@ const AppMain: React.FC = () => {
 
     initApp();
 
-    // Observar mudanças no estado de autenticação (apenas se Supabase configurado)
     let unsubscribe: (() => void) | null = null;
-    if (checkSupabaseConfigured()) {
+    if (false) {
       try {
         unsubscribe = authService.onAuthStateChanged((authUser) => {
           if (!isMounted) return;
@@ -1031,31 +1006,8 @@ const AppMain: React.FC = () => {
       });
       logAuth('[AUTH HYDRATION START]', { attemptId, owner });
       try {
-        const client = getSupabaseClient();
-        if (!client) return false;
-
-        const sessionPack = await withHydrationTimeout(owner, 12_000, () =>
-          measureSupabaseAsync('getSession_hydrate', () => client.auth.getSession()),
-        );
-        if (sessionPack === 'hydration_timeout') {
-          logAuth('[AUTH HYDRATION FAILED]', { attemptId, reason: 'session_hydration_timeout' });
-          dispatchAuthFlow({ type: 'FAILED', attemptId, error: 'hydration_timeout' });
-          return false;
-        }
-        const { data } = sessionPack as Awaited<ReturnType<typeof client.auth.getSession>>;
-        traceLoginStep(getActiveLoginTrace(), 'session_received', { hasUser: Boolean(data?.session?.user) });
-        logAuth('[LOGIN SESSION FOUND]', {
-          attemptId,
-          hasSession: Boolean(data?.session?.user),
-        });
-        if (data?.session?.user) {
-          dispatchAuthFlow({ type: 'SESSION_DETECTED', attemptId });
-        }
-        if (!data?.session?.user) return false;
-        if (!isHydrationOwnerActive(owner)) {
-          logAuth('[AUTH HYDRATION STALE]', { attemptId, phase: 'post_session' });
-          return false;
-        }
+        if (!getToken()) return false;
+        dispatchAuthFlow({ type: 'SESSION_DETECTED', attemptId });
 
         const hydratedUserResult = await withHydrationTimeout(owner, 45_000, () => authService.getCurrentUser());
         if (hydratedUserResult === 'hydration_timeout') {
@@ -1131,7 +1083,7 @@ const AppMain: React.FC = () => {
       // Pré-check rápido para reduzir espera percebida quando o projeto Supabase está pausado.
       const FAST_PRECHECK_TIMEOUT_MS = 3000;
       const precheckResult = await Promise.race([
-        checkSupabaseConnection(),
+        checkApiConnection(),
         new Promise<'unknown'>((resolve) => setTimeout(() => resolve('unknown'), FAST_PRECHECK_TIMEOUT_MS)),
       ]);
       if (precheckResult !== 'unknown' && !precheckResult.ok) {
@@ -1187,7 +1139,7 @@ const AppMain: React.FC = () => {
         if (isTimeoutError && !isDnsError) {
           try {
             const connectionCheck = await Promise.race([
-              checkSupabaseConnection(),
+              checkApiConnection(),
               new Promise<'unknown'>((resolve) => setTimeout(() => resolve('unknown'), 1500)),
             ]);
             if (connectionCheck !== 'unknown') {
@@ -1364,19 +1316,6 @@ const AppMain: React.FC = () => {
           }
 
           try {
-            const client = getSupabaseClient();
-            if (client && import.meta.env.DEV && typeof console !== 'undefined') {
-              const { data: sessSnap, error: sessErr } = await client.auth.getSession();
-              console.log('[SESSION AFTER LOGIN]', {
-                sessionExists: !!sessSnap?.session,
-                error: sessErr?.message ?? null,
-              });
-            }
-          } catch {
-            // log opcional; nunca quebra login
-          }
-
-          try {
             const comp = await Promise.race([
               PontoService.getCompany(result.user.companyId),
               new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000)),
@@ -1506,10 +1445,7 @@ const AppMain: React.FC = () => {
         elapsedMs: elapsed,
       });
       try {
-        const client = getSupabaseClient();
-        if (!client) return;
-        const { data } = await withTimeout(client.auth.getSession(), 4000, 'session_recovery');
-        if (!data?.session?.user) return;
+        if (!getToken()) return;
         const hydrated = await withTimeout(authService.getCurrentUser(), 7000, 'hydration_recovery');
         if (!hydrated) return;
         const selectedRole = pendingLoginRoleRef.current;
@@ -1584,17 +1520,13 @@ const AppMain: React.FC = () => {
       if (document.visibilityState !== 'visible') return;
       void (async () => {
         try {
-          if (!checkSupabaseConfigured()) return;
-          const client = getSupabaseClient();
-          if (!client) return;
-          const { data } = await withTimeout(client.auth.getSession(), 6000, 'foreground_resume_session');
-          if (!data?.session?.user) return;
+          if (!getToken()) return;
           if (isLoggingIn && loginStartedAtRef.current && Date.now() - loginStartedAtRef.current > 4000) {
             dispatchAuthFlow({ type: 'RELEASE_LOADING' });
             activeLoginAttemptIdRef.current = null;
             logAuth('[AUTH FOREGROUND RECONCILE]', { action: 'release_stuck_loading' });
           }
-          if (!user && data.session.user) {
+          if (!user) {
             const u = await withTimeout(authService.getCurrentUser(), 8000, 'foreground_resume_hydrate');
             if (u) {
               flushSync(() => {
@@ -1731,7 +1663,7 @@ const AppMain: React.FC = () => {
 
   // Reconexão automática quando servidor está indisponível (ex.: free tier pausado)
   useEffect(() => {
-    if (!connectionUnavailable || !checkSupabaseConfigured()) return;
+    if (!connectionUnavailable) return;
 
     let active = true;
     let retryDelayMs = 3000;
@@ -1745,7 +1677,7 @@ const AppMain: React.FC = () => {
     const run = async () => {
       if (!active) return;
       setIsReconnecting(true);
-      const result = await checkSupabaseConnection();
+      const result = await checkApiConnection();
       if (!active) return;
       if (result.ok) {
         setConnectionIssueMessage(null);
@@ -1755,7 +1687,7 @@ const AppMain: React.FC = () => {
       }
       setIsReconnecting(false);
       if (result.status === 'dns') {
-        setConnectionIssueMessage('Falha de DNS detectada ao acessar o Supabase. Verifique conexão/rede DNS e tente novamente.');
+        setConnectionIssueMessage('Falha de DNS detectada ao acessar a API. Verifique conexão/rede DNS e tente novamente.');
       } else if (result.status === 'circuit_breaker') {
         setConnectionIssueMessage(result.message);
       } else if (result.status === 'offline') {
@@ -1774,7 +1706,7 @@ const AppMain: React.FC = () => {
   }, [connectionUnavailable]);
 
   useEffect(() => {
-    if (!offlineAuthMode || !checkSupabaseConfigured()) return;
+    if (!offlineAuthMode) return;
     let cancelled = false;
     const syncSessionWithServer = async () => {
       try {
@@ -1815,7 +1747,7 @@ const AppMain: React.FC = () => {
   }
 
   // Fallback bloqueante apenas quando a sessão online é obrigatória.
-  if (connectionUnavailable && !offlineAuthMode && !isDegradedMode() && Boolean(user) && isCloudEnabled()) {
+  if (connectionUnavailable && !offlineAuthMode && !isDegradedMode() && Boolean(user)) {
     const onClearSession = async () => {
       setIsResettingSession(true);
       try {
@@ -2709,9 +2641,9 @@ const DeferredSchemaGuardBadge: React.FC = () => {
   return <SchemaGuardBadge />;
 };
 
-/** Cloud desligado ou degradado → app roda em modo local sem exigir cliente Supabase. */
+/** UI sempre inicia; Supabase ausente só desativa features cloud (sem tela de bloqueio). */
 function canRunApp(): boolean {
-  return !isCloudEnabled() || checkSupabaseConfigured();
+  return true;
 }
 
 const AppContent: React.FC = () =>

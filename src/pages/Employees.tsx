@@ -6,7 +6,8 @@ import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState } from '../../components/UI';
-import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { fetchEmployees, updateEmployee } from '../services/employeesApi.service';
+import { useCatalogStore } from '../stores/catalogStore';
 import { NotificationService } from '../../services/notificationService';
 import { LoggingService } from '../../services/loggingService';
 import { LogSeverity } from '../../types';
@@ -83,61 +84,30 @@ const EmployeesPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = async () => {
-    if (!user || !isSupabaseConfigured()) return;
+    if (!user?.companyId) return;
     setIsLoadingData(true);
     try {
-      // Otimização: carregar apenas colunas necessárias
-      const [employees, ws, us, depts] = await Promise.all([
-        db.select(
-          'users',
-          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-          { 
-            columns: 'id, nome, email, role, department_id, preferences, created_at',
-            orderBy: { column: 'created_at', ascending: false },
-            limit: 500,
-          },
-        ) as Promise<any[]>,
-        db.select('work_schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-          columns: 'id, name',
-          limit: 200,
-        }) as Promise<any[]>,
-        db.select('user_schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-          columns: 'user_id, schedule_id',
-          limit: 1000,
-        }) as Promise<any[]>,
-        db.select('departments', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-          columns: 'id, name',
-          limit: 100,
-        }) as Promise<any[]>,
-      ]);
+      await useCatalogStore.getState().ensureCatalog(user.companyId);
+      const catalog = useCatalogStore.getState().getCatalog(user.companyId);
+      const deptList = catalog.departments ?? [];
+      setDepartments(deptList.map((d) => ({ id: d.id, name: d.name })));
+      setSchedules([]);
 
-      const empList = employees ?? [];
-      const scheduleList = ws ?? [];
-      const userSchedList = us ?? [];
-      const deptList = depts ?? [];
-
-      setSchedules(scheduleList.map((w: any) => ({ id: w.id, name: w.name })));
-      setDepartments(deptList.map((d: any) => ({ id: d.id, name: d.name })));
-
+      const empList = await fetchEmployees(user.companyId);
       setRows(
-        empList.map((e: any) => {
-          const link = userSchedList.find((u: any) => u.user_id === e.id);
-          const schedule = scheduleList.find((w: any) => w.id === link?.schedule_id);
-          const dept = deptList.find((d: any) => d.id === e.department_id);
-          return {
-            id: e.id,
-            nome: e.nome,
-            email: e.email,
-            role: e.role || 'employee',
-            department_id: e.department_id,
-            department_name: dept?.name ?? null,
-            schedule_name: schedule?.name ?? null,
-            status: e.preferences?.status === 'inactive' ? 'Inativo' : 'Ativo',
-          };
-        }),
+        empList.map((e) => ({
+          id: e.id,
+          nome: e.nome,
+          email: e.email || '',
+          role: e.role || 'employee',
+          department_id: null,
+          department_name: null,
+          schedule_name: null,
+          status: e.status === 'inactive' || e.status === 'inativo' ? 'Inativo' : 'Ativo',
+        })),
       );
     } catch (e) {
-      console.error('Erro ao carregar funcionários:', e);
+      console.error('Erro ao carregar colaboradores:', e);
     } finally {
       setIsLoadingData(false);
     }
@@ -155,7 +125,10 @@ const EmployeesPage: React.FC = () => {
 
   const handleAssignSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedEmployee || !selectedScheduleId || !isSupabaseConfigured()) return;
+    if (!user || !selectedEmployee || !selectedScheduleId) return;
+    console.warn('[Employees] Atribuição de escala requer endpoint de API (não disponível).');
+    return;
+    /*
     try {
       const existing =
         (await db.select('user_schedules', [
@@ -196,6 +169,7 @@ const EmployeesPage: React.FC = () => {
     } catch (err) {
       console.error('Erro ao atribuir escala:', err);
     }
+    */
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -305,12 +279,9 @@ const EmployeesPage: React.FC = () => {
   };
 
   const handleDeactivate = useCallback(async (emp: EmployeeRow) => {
-    if (!isSupabaseConfigured() || !user) return;
+    if (!user) return;
     try {
-      const existing = (await db.select('users', [{ column: 'id', operator: 'eq', value: emp.id }])) as any[] | null;
-      const currentPrefs = existing?.[0]?.preferences ?? {};
-      const prefs = { ...currentPrefs, status: 'inactive' };
-      await (db as { update: (table: string, id: string, data: any) => Promise<any> }).update('users', emp.id, { preferences: prefs });
+      await updateEmployee(emp.id, { status: 'inactive' });
       setRows((prev) => prev.map((r) => (r.id === emp.id ? { ...r, status: 'Inativo' } : r)));
     } catch (err) {
       console.error('Erro ao desativar:', err);

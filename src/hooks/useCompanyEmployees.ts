@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { fetchEmployees } from '../services/employeesApi.service';
 import { queryCache, TTL } from '../services/queryCache';
 import { useAbortableAsyncEffect } from './useAbortableAsyncEffect';
 
@@ -7,6 +7,9 @@ export type CompanyEmployeeOption = {
   id: string;
   nome: string;
   department_id?: string;
+  email?: string;
+  role?: string;
+  status?: string;
 };
 
 export function useCompanyEmployees(companyId: string | undefined): {
@@ -18,7 +21,7 @@ export function useCompanyEmployees(companyId: string | undefined): {
 
   useAbortableAsyncEffect(
     async (isCancelled) => {
-      if (!companyId || !isSupabaseConfigured()) {
+      if (!companyId) {
         setEmployees([]);
         setLoadingEmployees(false);
         return;
@@ -26,24 +29,25 @@ export function useCompanyEmployees(companyId: string | undefined): {
 
       setLoadingEmployees(true);
       try {
-        const list = (await queryCache.getOrFetch(
-          `users:${companyId}`,
-          () =>
-            db.select(
-              'users',
-              [{ column: 'company_id', operator: 'eq', value: companyId }],
-              { columns: 'id,nome,email,department_id', limit: 500 },
-            ) as Promise<any[]>,
+        const list = await queryCache.getOrFetch(
+          `employees-api:${companyId}`,
+          () => fetchEmployees(companyId),
           TTL.NORMAL,
-        )) as any[];
+        );
         if (isCancelled()) return;
         setEmployees(
-          (list ?? []).map((u: any) => ({
+          (list ?? []).map((u) => ({
             id: u.id,
             nome: u.nome || u.email || 'Sem nome',
-            department_id: u.department_id || '',
+            department_id: '',
+            email: u.email ?? undefined,
+            role: u.role,
+            status: u.status,
           })),
         );
+      } catch (e) {
+        console.warn('[useCompanyEmployees] API:', e);
+        if (!isCancelled()) setEmployees([]);
       } finally {
         if (!isCancelled()) setLoadingEmployees(false);
       }

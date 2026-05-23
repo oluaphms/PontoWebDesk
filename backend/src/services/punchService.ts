@@ -1,4 +1,5 @@
 import { pool } from '../db/index.js';
+import { getPunchColumns } from './punchSchema.js';
 
 type PunchInput = {
   client_id?: string;
@@ -33,23 +34,35 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
     return { success: false, punch_hash: punchHash };
   }
 
+  const cols = await getPunchColumns();
   const client = await pool.connect();
   try {
-    const existing = await client.query(
-      'select id from punches where punch_hash = $1 limit 1',
-      [punchHash],
-    );
-    if (existing.rowCount && existing.rows[0]?.id) {
-      return { success: true, duplicate: true, id: String(existing.rows[0].id), punch_hash: punchHash };
+    if (cols.hasPunchHash) {
+      const existing = await client.query(
+        'select id from punches where punch_hash = $1 limit 1',
+        [punchHash],
+      );
+      if (existing.rowCount && existing.rows[0]?.id) {
+        return { success: true, duplicate: true, id: String(existing.rows[0].id), punch_hash: punchHash };
+      }
+    }
+
+    if (cols.mode === 'api_legacy') {
+      const inserted = await client.query(
+        `insert into punches (company_id, user_id, type, timestamp, punch_hash, payload)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id`,
+        [companyId, userId, type, timestamp, punchHash, JSON.stringify(punch)],
+      );
+      return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
     }
 
     const inserted = await client.query(
-      `insert into punches (company_id, user_id, type, timestamp, punch_hash, payload)
-       values ($1, $2, $3, $4, $5, $6)
+      `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data)
+       values ($1, $2, $3, $4, $5, $6, $7)
        returning id`,
-      [companyId, userId, type, timestamp, punchHash, JSON.stringify(punch)],
+      [userId, companyId, type, 'api', timestamp, 'web', JSON.stringify({ ...punch, punch_hash: punchHash })],
     );
-
     return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
   } finally {
     client.release();
@@ -79,4 +92,3 @@ export async function insertPunchBatchSafe(punches: PunchInput[]): Promise<Array
   }
   return out;
 }
-

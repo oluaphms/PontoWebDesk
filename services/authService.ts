@@ -42,8 +42,10 @@ import {
 } from '../src/services/localAuth';
 import { isSupabaseBlocked } from '../src/utils/supabaseGuard';
 import { enableDegradedMode } from '../src/services/systemMode';
-import { isCloudEnabled } from '../src/services/cloudService';
+import { fetchAuthMe } from '../src/services/authMe.service';
+import { getToken, clearToken } from '../src/services/authToken';
 import { cacheEmployees } from '../src/services/localDb';
+import { getProvider } from '../src/services/getProvider';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -1005,31 +1007,44 @@ class AuthService {
     let resolvedEmail = '';
     const isEmailInput = (identifier || '').trim().includes('@');
     const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
-    if (!isCloudEnabled()) {
-      await ensureDefaultLocalAdmin();
-      const localUser = await verifyLocalCredentials(identifier, password);
-      if (localUser) {
-        const mapped = mapLocalSessionToUser({
-          user_id: localUser.id,
-          name: localUser.name,
-          company_id: localUser.company_id,
-          role: localUser.role,
-          last_login: Date.now(),
-        });
-        await saveLocalSession(mapUserToLocalSession(mapped));
-        persistCurrentUserToProfileStore(mapped);
-        await cacheEmployees([
-          {
-            id: mapped.id,
-            nome: mapped.nome,
-            company_id: mapped.companyId,
-            role: mapped.role,
-            status: 'active',
-          },
-        ]);
-        return { user: mapped, error: null, source: 'local' };
+    if (true) {
+      try {
+        const apiRes = await getProvider().login({ identifier, password });
+        const apiUser = apiRes?.user as
+          | { id?: string; email?: string; company_id?: string; role?: string }
+          | undefined;
+        if (apiRes?.ok && apiUser?.id) {
+          const mapped = mapLocalSessionToUser({
+            user_id: String(apiUser.id),
+            name: String(apiUser.email || identifier),
+            company_id: String(apiUser.company_id || ''),
+            role: String(apiUser.role || 'employee'),
+            last_login: Date.now(),
+          });
+          mapped.email = String(apiUser.email || identifier);
+          await saveLocalSession(mapUserToLocalSession(mapped));
+          persistCurrentUserToProfileStore(mapped);
+          try {
+            const employees = await getProvider().getEmployees(mapped.companyId);
+            if (employees.length > 0) await cacheEmployees(employees);
+          } catch {
+            await cacheEmployees([
+              {
+                id: mapped.id,
+                nome: mapped.nome,
+                company_id: mapped.companyId,
+                role: mapped.role,
+                status: 'active',
+              },
+            ]);
+          }
+          return { user: mapped, error: null, source: 'api' };
+        }
+      } catch (apiErr) {
+        const msg = apiErr instanceof Error ? apiErr.message : 'Falha no login';
+        return { user: null, error: msg || 'Credenciais inválidas' };
       }
-      return { user: null, error: 'Credenciais locais inválidas' };
+      return { user: null, error: 'Credenciais inválidas' };
     }
     try {
       // Resolver identificador (email, CPF, nome) para um email válido
@@ -1612,18 +1627,20 @@ class AuthService {
   private async getCurrentUserResolved(): Promise<User | null> {
     // Verificar se Supabase está configurado antes de tentar (usando verificação dinâmica)
     if (!checkSupabaseConfigured()) {
-      console.warn('Supabase not configured - returning null user');
-      const local = await getLocalSession();
-      if (local) {
-        return mapLocalSessionToUser(local);
+      const me = await fetchAuthMe();
+      if (me) {
+        persistCurrentUserToProfileStore(me);
+        return me;
+      }
+      if (!getToken()) {
+        clearToken();
+        return null;
       }
       try {
         const stored = readCurrentUserFromProfileStore();
-        if (stored) {
-          return JSON.parse(stored) as User;
-        }
+        if (stored) return JSON.parse(stored) as User;
       } catch {
-        // ignora erro de leitura
+        // ignora
       }
       return null;
     }

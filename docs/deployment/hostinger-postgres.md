@@ -63,16 +63,76 @@ CORS_ORIGINS=https://srv1694106.hstgr.cloud,https://api.srv1694106.hstgr.cloud
 
 Use a porta publicada no Compose se não for `5432`.
 
-### C) Schema + admin + API
+### C) Banco de dados na VPS
+
+Há dois fluxos:
+
+| Fluxo | Comando | Quando usar |
+|--------|---------|-------------|
+| **Mínimo** (API auth + employees + punches) | `npm run db:apply-schema` → `npm run db:migrate` | Testes rápidos, só módulos já expostos na API |
+| **Completo** (todo o schema do produto) | `npm run db:migrate:full` | Produção: mesmas tabelas/RPCs que existiam no Supabase |
+
+#### C.1) Schema completo (recomendado para produção)
+
+Replica o banco do produto: bootstrap VPS → `supabase_full_schema.sql` → **216** ficheiros em `supabase/migrations/` → migrations em `backend/db/migrations/`.
+
+```bash
+cd /caminho/PontoWebDesk/backend
+npm install
+
+# Banco vazio ou com backup (não misture com db:apply-schema no mesmo DB)
+npm run db:migrate:full
+
+# Opcional: empresa de teste (SQL Editor equivalente)
+# psql $DATABASE_URL -f ../supabase/seed_empresa_teste.sql
+
+npm run db:seed
+npm run build
+npm run start
+curl http://127.0.0.1:3000/api/health
+```
+
+Flags úteis:
+
+```bash
+npm run db:migrate:full -- --dry-run          # lista ficheiros sem ligar ao Postgres
+npm run db:migrate:full -- --from 20250401000000_foo.sql   # retoma a partir de uma migration
+npm run db:migrate:full -- --continue-on-error # não para no primeiro erro (rever log)
+```
+
+O progresso fica em `public._schema_migrations` (reexecução é idempotente por ficheiro).
+
+#### C.1.1) Migrar dados do Supabase (após schema completo)
+
+Ver guia detalhado: **`docs/migration/supabase-to-vps-data.md`**.
+
+```bash
+# No PC — exportar
+cd backend && npm run db:data:export
+
+# Na VPS — importar (com backup automático)
+bash scripts/data-migration/import-to-vps.sh /root/supabase-data.dump
+
+# Validar contagens
+npm run db:data:validate
+```
+
+**Importante:** `db:migrate:full` substitui o fluxo mínimo no **mesmo** database. Se já correu `db:apply-schema`, faça backup ou use outro nome de base (`createdb pontowebdesk_full`).
+
+Shims incluídos para VPS sem Supabase Cloud: `auth.users`, `auth.uid()`, roles `authenticated`/`service_role`, schema `storage` (fotos), `extensions.pgcrypto`.
+
+Login da API usa `password_hash` em `public.users` (migration `003_api_local_auth.sql`).
+
+#### C.2) Schema mínimo (legado)
 
 ```bash
 cd /caminho/PontoWebDesk/backend
 npm install
 npm run build
 npm run db:apply-schema
+npm run db:migrate
 npm run db:seed
 npm run start
-# ou: pm2 start dist/server.js --name pontoweb-api
 curl http://127.0.0.1:3000/api/health
 ```
 

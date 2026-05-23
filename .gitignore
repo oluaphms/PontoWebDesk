@@ -75,3 +75,10 @@ agent/data/pending.db-shm
 
 # Script local com API_KEY / IP de produção (cópia de rep-agent-prod-env.ps1.example)
 scripts/rep-agent-prod-env.ps1
+
+# Dumps de migração Supabase → VPS (credenciais + dados)
+backend/data/*.dump
+backend/data/*.sql
+vps-pre-import-*.dump
+vps-backup-*.dump
+supabase-data.dump

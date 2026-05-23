@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { GitBranch, Plus, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { SYSTEM_CONFIG } from '../../config/system';
@@ -187,16 +187,14 @@ const AdminEstruturas: React.FC = () => {
           descricao: descTrim,
           parent_id: parentIdVal,
         });
-        if (supabase) {
-          await supabase.from('estrutura_responsaveis').delete().eq('estrutura_id', editingId);
-          for (const uid of responsavelIds) {
-            await supabase.from('estrutura_responsaveis').insert({
-              id: crypto.randomUUID(),
-              estrutura_id: editingId,
-              user_id: uid,
-              created_at: new Date().toISOString(),
-            });
-          }
+        await db.delete('estrutura_responsaveis', [{ column: 'estrutura_id', operator: 'eq', value: editingId }]);
+        for (const uid of responsavelIds) {
+          await db.insert('estrutura_responsaveis', {
+            id: crypto.randomUUID(),
+            estrutura_id: editingId,
+            user_id: uid,
+            created_at: new Date().toISOString(),
+          });
         }
         setMessage({ type: 'success', text: 'Estrutura atualizada com sucesso.' });
       } else {
@@ -210,15 +208,13 @@ const AdminEstruturas: React.FC = () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        if (supabase && responsavelIds.length > 0) {
-          for (const uid of responsavelIds) {
-            await supabase.from('estrutura_responsaveis').insert({
-              id: crypto.randomUUID(),
-              estrutura_id: newId,
-              user_id: uid,
-              created_at: new Date().toISOString(),
-            });
-          }
+        for (const uid of responsavelIds) {
+          await db.insert('estrutura_responsaveis', {
+            id: crypto.randomUUID(),
+            estrutura_id: newId,
+            user_id: uid,
+            created_at: new Date().toISOString(),
+          });
         }
         setMessage({ type: 'success', text: 'Estrutura cadastrada com sucesso.' });
       }

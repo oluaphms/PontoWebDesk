@@ -75,11 +75,7 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
       <LoadingState
-        message={
-          SYSTEM_CONFIG.CLOUD_ENABLED
-            ? 'A carregar perfil…'
-            : 'Modo offline ativo — dados serão sincronizados depois'
-        }
+        message="A carregar perfil…"
       />
     </div>
   );

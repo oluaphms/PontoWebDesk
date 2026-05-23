@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import PageHeader from '../../components/PageHeader';
-import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { Building2, User, MapPin, FileCheck, Cloud, Loader2 } from 'lucide-react';
 import { PontoService } from '../../../services/pontoService';
@@ -315,8 +315,8 @@ const AdminCompany: React.FC = () => {
         }
         try {
           const existing = await db.select('companies', [{ column: 'id', operator: 'eq', value: idToUse }]);
-          if (!existing?.length && supabase) {
-            await supabase.from('companies').insert({
+          if (!existing?.length) {
+            await db.insert('companies', {
               id: idToUse,
               ...payload,
               created_at: new Date().toISOString(),

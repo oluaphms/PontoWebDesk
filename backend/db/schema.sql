@@ -16,8 +16,20 @@ create table if not exists employees (
   email text,
   role text not null default 'employee',
   status text not null default 'active',
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  cpf varchar(14),
+  pis varchar(20),
+  telefone varchar(20),
+  data_admissao date,
+  cargo varchar(100),
+  departamento varchar(100),
+  salario numeric(10,2),
+  jornada_tipo varchar(50),
+  carga_horaria integer,
+  endereco text
 );
+
+create index if not exists idx_employees_company_cpf on employees(company_id, cpf);
 
 create table if not exists punches (
   id uuid primary key default uuid_generate_v4(),

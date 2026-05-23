@@ -1,7 +1,4 @@
-import { NavigatorLockAcquireTimeoutError } from '@supabase/auth-js';
-
 function isAuthLockContention(error: unknown): boolean {
-  if (error instanceof NavigatorLockAcquireTimeoutError) return true;
   const name = (error as { name?: string })?.name ?? '';
   const msg = String((error as { message?: string })?.message ?? error ?? '');
   return (
@@ -17,7 +14,7 @@ export function handleError(error: unknown, context?: string): void {
   const prefix = context ? `[${context}] ` : '';
   if (isAuthLockContention(error)) {
     if (import.meta.env?.DEV) {
-      console.debug(prefix + 'contenção de lock do Auth (use getSession serializado ou uma única chamada).', error);
+      console.debug(prefix + 'contenção de lock legado ignorada.', error);
     }
     return;
   }

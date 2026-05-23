@@ -1,7 +1,4 @@
-import { SYSTEM_CONFIG } from '../config/system';
-import { isDegradedMode } from './systemMode';
-
+/** @deprecated Cloud/Supabase removido — mantido só para compat de imports legados. */
 export function isCloudEnabled(): boolean {
-  return SYSTEM_CONFIG.CLOUD_ENABLED === true && !isDegradedMode();
+  return false;
 }
-

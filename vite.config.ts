@@ -20,6 +20,8 @@ const projectRoot = path.resolve(__dirname);
 
 // Garantir uma única instância de React: forçar resolução sempre para o mesmo path (evita useState of null)
 const reactAlias = {
+  '@supabase/supabase-js': path.resolve(projectRoot, 'src/types/supabaseShim.ts'),
+  '@supabase/auth-js': path.resolve(projectRoot, 'src/types/supabaseShim.ts'),
   react: path.resolve(projectRoot, 'node_modules/react'),
   'react-dom': path.resolve(projectRoot, 'node_modules/react-dom'),
   'react-dom/client': path.resolve(projectRoot, 'node_modules/react-dom/client'),

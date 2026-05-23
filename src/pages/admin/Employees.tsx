@@ -22,26 +22,19 @@ import {
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import {
-  db,
-  auth,
-  isSupabaseConfigured,
-  resetSession,
-  getSupabaseClient,
-  type DbRow,
-} from '../../services/supabaseClient';
+  fetchEmployees,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  validateEmployeeFormClient,
+  type ApiEmployee,
+  type EmployeeWriteInput,
+} from '../../services/employeesApi.service';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
-import { autoReprocessRepAfterEmployeeIdentityUpdate } from '../../../modules/rep-integration/repResolveCanonicalUser';
 import { resolveTenantId } from '../../services/tenantScope';
 import { invalidateCompanyListCaches } from '../../services/queryCache';
-import { useCatalogStore } from '../../stores/catalogStore';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
-import {
-  confirmEmployeeEmailInAuth,
-  createEmployeeAuthUser,
-  rollbackEmployeeAuthUser,
-  setEmployeePasswordInAuth,
-} from '../../services/authAdminApi.service';
 import { parseFile, extractHeaders } from '../../services/fileParser';
 import {
   suggestMapping,
@@ -87,6 +80,7 @@ interface EmployeeRow {
   cargo: string;
   department_id?: string;
   department_name?: string;
+  departamento?: string;
   schedule_id?: string;
   schedule_name?: string;
   shift_id?: string;
@@ -123,7 +117,9 @@ interface EmployeeRow {
   endereco_cidade?: string | null;
   endereco_estado?: string | null;
   endereco_cep?: string | null;
-  // Score de confiabilidade simples (0–100) calculado a partir de atrasos/faltas/ajustes/inconsistências
+  jornada_tipo?: string;
+  carga_horaria?: number;
+  endereco?: string;
   reliability_score?: number;
 }
 
@@ -153,6 +149,68 @@ function formatWorkShiftLabel(s: {
 }
 
 const OUTRO_CARGO_VALUE = '__outro__';
+
+const JORNADA_TIPO_OPTIONS = [
+  { value: '', label: 'Selecione…' },
+  { value: '44h_semanais', label: '44h semanais (CLT)' },
+  { value: '12x36', label: '12x36' },
+  { value: '6x1', label: '6x1' },
+  { value: '5x2', label: '5x2' },
+  { value: 'horista', label: 'Horista' },
+] as const;
+
+function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
+  return {
+    id: e.id,
+    nome: e.nome,
+    cpf: e.cpf ?? undefined,
+    email: e.email || '',
+    phone: e.telefone ?? undefined,
+    cargo: e.cargo || 'Colaborador',
+    department_id: undefined,
+    department_name: e.departamento ?? undefined,
+    status: e.status || 'active',
+    created_at: e.created_at || new Date().toISOString(),
+    salario_base: e.salario ?? null,
+    pis_pasep: e.pis ?? undefined,
+    admissao: e.data_admissao ?? undefined,
+    jornada_tipo: e.jornada_tipo ?? undefined,
+    carga_horaria: e.carga_horaria ?? undefined,
+    endereco: e.endereco ?? undefined,
+    invisivel: false,
+    employee_config: {},
+    reliability_score: calcularScoreConfiabilidade({
+      atrasos: 0,
+      faltas: 0,
+      ajustes: 0,
+      inconsistencias: 0,
+    }),
+    tipo_vinculo: 'clt',
+  };
+}
+
+function buildEnderecoFromForm(form: {
+  endereco: string;
+  endereco_rua: string;
+  endereco_numero: string;
+  endereco_bairro: string;
+  endereco_cidade: string;
+  endereco_estado: string;
+  endereco_cep: string;
+}): string | null {
+  if (form.endereco.trim()) return form.endereco.trim();
+  const parts = [
+    form.endereco_rua,
+    form.endereco_numero,
+    form.endereco_bairro,
+    form.endereco_cidade,
+    form.endereco_estado,
+    form.endereco_cep,
+  ]
+    .map((p) => p?.trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
+}
 
 /** Classes compartilhadas do modal Funcionários (apenas apresentação). */
 const EMP_MODAL_SECTION_TITLE =
@@ -273,34 +331,8 @@ const AdminEmployees: React.FC = () => {
   /** Perfil pode ter só tenantId ou JWT com company_id — evita bloquear salvar/lista quando companyId veio vazio no cache. */
   const [companyIdFromSession, setCompanyIdFromSession] = useState('');
   useEffect(() => {
-    let cancelled = false;
-    if (!isSupabaseConfigured()) {
-      setCompanyIdFromSession('');
-      return;
-    }
-    void (async () => {
-      try {
-        const { data: { session } } = await auth.getSession();
-        const u = session?.user;
-        if (!u || cancelled) return;
-        const meta = (u.user_metadata || {}) as Record<string, unknown>;
-        const app = (u.app_metadata || {}) as Record<string, unknown>;
-        const pick = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-        const fromJwt =
-          pick(meta.tenant_id) ||
-          pick(meta.company_id) ||
-          pick(meta.companyId) ||
-          pick(app.company_id) ||
-          pick(app.tenant_id);
-        if (!cancelled) setCompanyIdFromSession(fromJwt);
-      } catch {
-        if (!cancelled) setCompanyIdFromSession('');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
+    setCompanyIdFromSession(resolveTenantId(user) || user?.companyId || '');
+  }, [user?.id, user?.companyId]);
 
   const effectiveCompanyId = useMemo(() => {
     const fromProfile = resolveTenantId(user);
@@ -378,6 +410,10 @@ const AdminEmployees: React.FC = () => {
     endereco_estado: '',
     endereco_cep: '',
     shift_id: '',
+    departamento: '',
+    jornada_tipo: '',
+    carga_horaria: '',
+    endereco: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -392,204 +428,24 @@ const AdminEmployees: React.FC = () => {
   const estruturaSelectRef = useRef<HTMLSelectElement>(null);
 
   const loadData = async () => {
-    if (!effectiveCompanyId || !isSupabaseConfigured()) {
+    if (!effectiveCompanyId) {
       setLoadingData(false);
       return;
     }
     setLoadingData(true);
     const loadingTimer = window.setTimeout(() => setLoadingData(false), 5000);
     try {
-      await useCatalogStore.getState().ensureCatalog(effectiveCompanyId);
-      const catalog = useCatalogStore.getState().getCatalog(effectiveCompanyId);
-      const deptRows = catalog.departments;
-      const jobTitlesRows = catalog.jobTitles;
-      const estruturasRows = catalog.estruturas;
-
-      const [usersRows, legacyEmployeesRows, schedRows, shiftRows, motivosRows, cidadesRows, estadosCivisRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }], { column: 'created_at', ascending: false }) as Promise<DbRow[]>,
-        db.select('employees', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
-        db.select('schedules', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<DbRow[]>,
-        db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
-        db.select('motivo_demissao', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
-        db.select('cidades', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
-        db.select('estados_civis', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]).catch(() => []) as Promise<DbRow[]>,
-      ]);
-      const deptMap = new Map<string, string>(
-        (deptRows ?? []).map((d: DbRow) => [String(d.id ?? ''), String(d.name ?? '')]),
-      );
-      const schedMap = new Map<string, string>(
-        (schedRows ?? []).map((s: DbRow) => [String(s.id ?? ''), String(s.name ?? '')]),
-      );
-      const shiftMap = new Map<string, string>(
-        (shiftRows ?? []).map((ws: DbRow) => [String(ws.id ?? ''), formatWorkShiftLabel(ws)]),
-      );
-      const motivoMap = new Map<string, string>(
-        (motivosRows ?? []).map((m: DbRow) => [String(m.id ?? ''), String(m.name ?? '')]),
-      );
-      const estruturaMap = new Map<string, string>(
-        (estruturasRows ?? []).map((e: DbRow) => [
-          String(e.id ?? ''),
-          String(e.descricao ?? e.codigo ?? ''),
-        ]),
-      );
-      const cidadeMap = new Map<string, string>(
-        (cidadesRows ?? []).map((c: DbRow) => [String(c.id ?? ''), String(c.name ?? '')]),
-      );
-      const estadoCivilMap = new Map<string, string>(
-        (estadosCivisRows ?? []).map((ec: DbRow) => [String(ec.id ?? ''), String(ec.name ?? '')]),
-      );
-      const listFromUsers: EmployeeRow[] = (usersRows ?? []).map((u: DbRow) => {
-        // TODO: substituir contagens estáticas por dados reais de atrasos, faltas, ajustes e inconsistências.
-        const inputs: ReliabilityInputs = {
-          atrasos: Number(u.atrasos_count ?? 0),
-          faltas: Number(u.faltas_count ?? 0),
-          ajustes: Number(u.ajustes_count ?? 0),
-          inconsistencias: Number(u.inconsistencias_count ?? 0),
-        };
-        const score = calcularScoreConfiabilidade(inputs);
-        return {
-          id: String(u.id ?? ''),
-          nome: dbText(u.nome),
-          cpf: dbOptionalText(u.cpf),
-          email: dbText(u.email),
-          phone: dbOptionalText(u.phone),
-          cargo: dbText(u.cargo, 'Colaborador'),
-          department_id: dbOptionalText(u.department_id),
-          department_name: u.department_id != null ? deptMap.get(String(u.department_id)) : undefined,
-          schedule_id: dbOptionalText(u.schedule_id),
-          schedule_name: u.schedule_id != null ? schedMap.get(String(u.schedule_id)) : undefined,
-          shift_id: dbOptionalText(u.shift_id),
-          shift_label: u.shift_id != null ? shiftMap.get(String(u.shift_id)) : undefined,
-          estrutura_id: dbOptionalText(u.estrutura_id),
-          estrutura_name: u.estrutura_id != null ? estruturaMap.get(String(u.estrutura_id)) : undefined,
-          status: dbText(u.status, 'active'),
-          created_at: dbText(u.created_at),
-          numero_folha: dbOptionalText(u.numero_folha),
-          salario_base: u.salario_base != null ? Number(u.salario_base) : null,
-          pis_pasep: dbOptionalText(u.pis_pasep),
-          numero_identificador: dbOptionalText(u.numero_identificador),
-          ctps: dbOptionalText(u.ctps),
-          admissao: dbOptionalText(u.admissao),
-          demissao: dbOptionalText(u.demissao),
-          motivo_demissao_id: dbOptionalText(u.motivo_demissao_id),
-          motivo_demissao_name:
-            u.motivo_demissao_id != null ? motivoMap.get(String(u.motivo_demissao_id)) : undefined,
-          observacoes: dbOptionalText(u.observacoes),
-          invisivel: parseBooleanFromDb(u.invisivel),
-          employee_config: (u.employee_config as EmployeeConfig | undefined) || {},
-          reliability_score: score,
-          tipo_vinculo: normalizeTipoVinculo(String(u.tipo_vinculo ?? '')),
-          contrato_fim: dbOptionalText(u.contrato_fim),
-          data_nascimento: dbOptionalText(u.data_nascimento),
-          rg: dbOptionalText(u.rg),
-          rg_orgao: dbOptionalText(u.rg_orgao),
-          naturalidade:
-            (u.naturalidade != null && String(u.naturalidade).trim()) ||
-            (u.cidade_id != null ? cidadeMap.get(String(u.cidade_id)) : undefined) ||
-            undefined,
-          estado_civil_text:
-            (u.estado_civil_text != null && String(u.estado_civil_text).trim()) ||
-            (u.estado_civil_id != null ? estadoCivilMap.get(String(u.estado_civil_id)) : undefined) ||
-            undefined,
-          endereco_rua: u.endereco_rua != null ? String(u.endereco_rua) : null,
-          endereco_numero: u.endereco_numero != null ? String(u.endereco_numero) : null,
-          endereco_bairro: u.endereco_bairro != null ? String(u.endereco_bairro) : null,
-          endereco_cidade: u.endereco_cidade != null ? String(u.endereco_cidade) : null,
-          endereco_estado: u.endereco_estado != null ? String(u.endereco_estado) : null,
-          endereco_cep: u.endereco_cep != null ? String(u.endereco_cep) : null,
-        };
-      });
-
-      // Alguns ambientes ainda usam tabela legacy employees; garantir que todo colaborador apareça na listagem,
-      // mesmo que ainda não tenha linha correspondente em users.
-      const byEmail = new Map(
-        listFromUsers
-          .filter((u) => u.email)
-          .map((u) => [u.email.toLowerCase(), u]),
-      );
-
-      const listFromLegacy: EmployeeRow[] = (legacyEmployeesRows ?? [])
-        .filter((e: DbRow) => {
-          const email = (e.email || '').toString().trim().toLowerCase();
-          if (!email) return false;
-          return !byEmail.has(email);
-        })
-        .map((e: DbRow) => {
-          const nome = dbText(e.nome ?? e.nome_completo);
-          const email = dbText(e.email).trim().toLowerCase();
-          const deptId = dbOptionalText(e.department_id ?? e.departamento_id);
-          const schedId = dbOptionalText(e.schedule_id ?? e.escala_id);
-          const legShiftId = dbOptionalText(e.shift_id);
-          return {
-            id: String(e.id ?? '') || `legacy-${email}`,
-            legacy_id: e.id != null ? String(e.id) : undefined,
-            nome,
-            cpf: dbOptionalText(e.cpf),
-            email,
-            phone: dbOptionalText(e.phone ?? e.telefone),
-            cargo: dbText(e.cargo, 'Colaborador'),
-            department_id: deptId,
-            department_name: deptId ? deptMap.get(deptId) : undefined,
-            schedule_id: schedId,
-            schedule_name: schedId ? schedMap.get(schedId) : undefined,
-            shift_id: legShiftId,
-            shift_label: legShiftId ? shiftMap.get(legShiftId) : undefined,
-            estrutura_id: dbOptionalText(e.estrutura_id),
-            estrutura_name: e.estrutura_id != null ? estruturaMap.get(String(e.estrutura_id)) : undefined,
-            status: dbText(e.status, 'active'),
-            created_at: dbText(e.created_at, new Date().toISOString()),
-            numero_folha: dbOptionalText(e.numero_folha),
-            salario_base: e.salario_base != null ? Number(e.salario_base) : null,
-            pis_pasep: dbOptionalText(e.pis_pasep),
-            numero_identificador: dbOptionalText(e.numero_identificador),
-            ctps: dbOptionalText(e.ctps),
-            admissao: dbOptionalText(e.admissao),
-            demissao: dbOptionalText(e.demissao),
-            motivo_demissao_id: dbOptionalText(e.motivo_demissao_id),
-            motivo_demissao_name:
-              e.motivo_demissao_id != null ? motivoMap.get(String(e.motivo_demissao_id)) : undefined,
-            observacoes: dbOptionalText(e.observacoes),
-            invisivel: parseBooleanFromDb(e.invisivel),
-            employee_config: {} as EmployeeConfig,
-            reliability_score: undefined,
-            company_name: undefined,
-            tipo_vinculo: normalizeTipoVinculo(String(e.tipo_vinculo ?? '')),
-            contrato_fim: dbOptionalText(e.contrato_fim),
-            data_nascimento: dbOptionalText(e.data_nascimento),
-            rg: dbOptionalText(e.rg),
-            rg_orgao: dbOptionalText(e.rg_orgao),
-            naturalidade:
-              (e.naturalidade != null && String(e.naturalidade).trim()) ||
-              (e.cidade_id != null ? cidadeMap.get(String(e.cidade_id)) : undefined) ||
-              undefined,
-            estado_civil_text:
-              (e.estado_civil_text != null && String(e.estado_civil_text).trim()) ||
-              (e.estado_civil_id != null ? estadoCivilMap.get(String(e.estado_civil_id)) : undefined) ||
-              undefined,
-            endereco_rua: e.endereco_rua != null ? String(e.endereco_rua) : null,
-            endereco_numero: e.endereco_numero != null ? String(e.endereco_numero) : null,
-            endereco_bairro: e.endereco_bairro != null ? String(e.endereco_bairro) : null,
-            endereco_cidade: e.endereco_cidade != null ? String(e.endereco_cidade) : null,
-            endereco_estado: e.endereco_estado != null ? String(e.endereco_estado) : null,
-            endereco_cep: e.endereco_cep != null ? String(e.endereco_cep) : null,
-          };
-        });
-
-      const mergedList = [...listFromUsers, ...listFromLegacy];
-      setRows(mergedList);
-      setSchedules((schedRows ?? []).map((s: DbRow) => ({ id: String(s.id ?? ''), name: String(s.name ?? '') })));
-      setWorkShifts(
-        (shiftRows ?? []).map((ws: DbRow) => ({
-          id: String(ws.id ?? ''),
-          label: formatWorkShiftLabel(ws),
-        })),
-      );
-      setDepartments((deptRows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') })));
-      setEstruturas((estruturasRows ?? []).map((e: DbRow) => ({ id: String(e.id ?? ''), codigo: String(e.codigo ?? ''), descricao: String(e.descricao ?? e.codigo ?? '') })));
-      setCargos((jobTitlesRows ?? []).map((j: DbRow) => ({ id: String(j.id ?? ''), name: String(j.name ?? '') })));
-      setMotivosDemissao((motivosRows ?? []).map((m: DbRow) => ({ id: String(m.id ?? ''), name: String(m.name ?? '') })));
+      const apiEmployees = await fetchEmployees(effectiveCompanyId);
+      setRows(apiEmployees.map(mapApiEmployeeToRow));
+      setSchedules([]);
+      setWorkShifts([]);
+      setDepartments([]);
+      setEstruturas([]);
+      setCargos([]);
+      setMotivosDemissao([]);
     } catch (e) {
       console.error(e);
+      setError('Não foi possível carregar colaboradores da API.');
     } finally {
       window.clearTimeout(loadingTimer);
       setLoadingData(false);
@@ -600,49 +456,50 @@ const AdminEmployees: React.FC = () => {
     loadData();
   }, [effectiveCompanyId]);
 
-  const defaultForm = () => {
-    const firstCargo = cargos[0]?.name || '';
-    return {
-      numero_folha: '',
-      salario_base: '',
-      nome: '',
-      cpf: '',
-      email: '',
-      password: '',
-      phone: '',
-      pis_pasep: '',
-      numero_identificador: '',
-      ctps: '',
-      cargo: firstCargo || OUTRO_CARGO_VALUE,
-      cargoOutro: '',
-      department_id: '',
-      estrutura_id: '',
-      schedule_id: '',
-      shift_id: '',
-      admissao: '',
-      demissao: '',
-      motivo_demissao_id: '',
-      observacoes: '',
-      afastamento_inicio: '',
-      afastamento_fim: '',
-      afastamento_justificativa: '',
-      afastamento_motivo: '',
-      photo_preview: '',
-      tipo_vinculo: 'clt' as TipoVinculo,
-      contrato_fim: '',
-      data_nascimento: '',
-      rg: '',
-      rg_orgao: '',
-      naturalidade: '',
-      estado_civil_text: '',
-      endereco_rua: '',
-      endereco_numero: '',
-      endereco_bairro: '',
-      endereco_cidade: '',
-      endereco_estado: '',
-      endereco_cep: '',
-    };
-  };
+  const defaultForm = () => ({
+    numero_folha: '',
+    salario_base: '',
+    nome: '',
+    cpf: '',
+    email: '',
+    password: '',
+    phone: '',
+    pis_pasep: '',
+    numero_identificador: '',
+    ctps: '',
+    cargo: '',
+    cargoOutro: '',
+    department_id: '',
+    estrutura_id: '',
+    schedule_id: '',
+    shift_id: '',
+    admissao: '',
+    demissao: '',
+    motivo_demissao_id: '',
+    observacoes: '',
+    afastamento_inicio: '',
+    afastamento_fim: '',
+    afastamento_justificativa: '',
+    afastamento_motivo: '',
+    photo_preview: '',
+    tipo_vinculo: 'clt' as TipoVinculo,
+    contrato_fim: '',
+    data_nascimento: '',
+    rg: '',
+    rg_orgao: '',
+    naturalidade: '',
+    estado_civil_text: '',
+    endereco_rua: '',
+    endereco_numero: '',
+    endereco_bairro: '',
+    endereco_cidade: '',
+    endereco_estado: '',
+    endereco_cep: '',
+    departamento: '',
+    jornada_tipo: '',
+    carga_horaria: '',
+    endereco: '',
+  });
 
   const openCreate = () => {
     setEditingId(null);
@@ -658,47 +515,24 @@ const AdminEmployees: React.FC = () => {
     setEditingId(row.id);
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
-    const cargoCadastrado = cargos.some((c) => c.name === row.cargo);
-    const cfg = row.employee_config || {};
     setForm({
+      ...defaultForm(),
       numero_folha: row.numero_folha || '',
-      salario_base: row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
+      salario_base:
+        row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
       nome: row.nome,
       cpf: row.cpf || '',
       email: row.email,
-      password: '',
       phone: row.phone || '',
       pis_pasep: row.pis_pasep || '',
-      numero_identificador: row.numero_identificador || '',
-      ctps: row.ctps || '',
-      cargo: cargoCadastrado ? row.cargo : OUTRO_CARGO_VALUE,
-      cargoOutro: cargoCadastrado ? '' : row.cargo,
-      department_id: row.department_id || '',
-      estrutura_id: row.estrutura_id || '',
-      schedule_id: row.schedule_id || '',
-      shift_id: row.shift_id || '',
+      cargo: row.cargo || '',
+      departamento: row.department_name || row.departamento || '',
+      jornada_tipo: row.jornada_tipo || '',
+      carga_horaria: row.carga_horaria != null ? String(row.carga_horaria) : '',
+      endereco: row.endereco || '',
       admissao: row.admissao || '',
       demissao: row.demissao || '',
-      motivo_demissao_id: row.motivo_demissao_id || '',
-      observacoes: row.observacoes || '',
-      afastamento_inicio: cfg.afastamentos?.[0]?.periodo_inicio || '',
-      afastamento_fim: cfg.afastamentos?.[0]?.periodo_fim || '',
-      afastamento_justificativa: cfg.afastamentos?.[0]?.justificativa || '',
-      afastamento_motivo: cfg.afastamentos?.[0]?.motivo || '',
-      photo_preview: cfg.photo_url || '',
       tipo_vinculo: normalizeTipoVinculo(row.tipo_vinculo),
-      contrato_fim: row.contrato_fim || '',
-      data_nascimento: row.data_nascimento || '',
-      rg: row.rg || '',
-      rg_orgao: row.rg_orgao || '',
-      naturalidade: row.naturalidade || '',
-      estado_civil_text: row.estado_civil_text || '',
-      endereco_rua: row.endereco_rua || '',
-      endereco_numero: row.endereco_numero || '',
-      endereco_bairro: row.endereco_bairro || '',
-      endereco_cidade: row.endereco_cidade || '',
-      endereco_estado: row.endereco_estado || '',
-      endereco_cep: row.endereco_cep || '',
     });
     setModalOpen(true);
     setError(null);
@@ -730,20 +564,20 @@ const AdminEmployees: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!isSupabaseConfigured()) {
-      setError('Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
-      scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
     if (!effectiveCompanyId) {
       setError(
-        'Empresa não identificada no seu perfil. Atualize a página, faça login de novo ou peça ao administrador para vincular sua conta à empresa (company_id / tenant no Supabase).',
+        'Empresa não identificada no seu perfil. Atualize a página, faça login de novo ou peça ao administrador para vincular sua conta à empresa.',
       );
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     if (!form.nome.trim()) {
       setError('Nome é obrigatório.');
+      scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (!form.cpf.trim()) {
+      setError('CPF é obrigatório.');
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
@@ -764,132 +598,47 @@ const AdminEmployees: React.FC = () => {
       salarioParsed = p;
     }
     // PIS/PASEP opcional para não bloquear salvamento; recomendado para REP/relatórios
-    const cargoFinal = form.cargo === OUTRO_CARGO_VALUE ? (form.cargoOutro.trim() || 'Colaborador') : form.cargo;
-    const editingSnapshot = editingId ? rows.find((r) => r.id === editingId) : undefined;
+    const cargoFinal =
+      form.cargo === OUTRO_CARGO_VALUE ? form.cargoOutro.trim() || 'Colaborador' : form.cargo.trim() || 'Colaborador';
+    const cargaParsed = form.carga_horaria?.trim() ? parseInt(form.carga_horaria, 10) : null;
+    const clientErr = validateEmployeeFormClient({
+      nome: form.nome,
+      cpf: form.cpf,
+      data_admissao: form.admissao || undefined,
+      salario: salarioParsed,
+      carga_horaria: cargaParsed ?? undefined,
+    });
+    if (clientErr) {
+      setError(clientErr);
+      scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    const apiPayload: EmployeeWriteInput = {
+      nome: form.nome.trim(),
+      cpf: form.cpf.trim(),
+      email: form.email.trim().toLowerCase() || null,
+      role: 'employee',
+      status: form.demissao?.trim() ? 'inactive' : 'active',
+      companyId: effectiveCompanyId,
+      pis: form.pis_pasep?.trim() || null,
+      telefone: form.phone?.trim() || null,
+      data_admissao: form.admissao || null,
+      cargo: cargoFinal,
+      departamento: form.departamento?.trim() || null,
+      salario: salarioParsed,
+      jornada_tipo: form.jornada_tipo || null,
+      carga_horaria: cargaParsed,
+      endereco: buildEnderecoFromForm(form),
+    };
+
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      const payload: Record<string, unknown> = {
-        nome: form.nome.trim(),
-        cpf: form.cpf?.trim() || null,
-        phone: form.phone?.trim() || null,
-        cargo: cargoFinal,
-        department_id: form.department_id || null,
-        estrutura_id: form.estrutura_id || null,
-        schedule_id: form.schedule_id || null,
-        shift_id: form.shift_id || null,
-        numero_folha: form.numero_folha?.trim() || null,
-        salario_base: salarioParsed,
-        numero_identificador: form.numero_identificador?.trim() || null,
-        ctps: form.ctps?.trim() || null,
-        admissao: form.admissao || null,
-        demissao: form.demissao || null,
-        motivo_demissao_id: form.motivo_demissao_id || null,
-        observacoes: form.observacoes?.trim() || null,
-        employee_config: buildEmployeeConfig(),
-        updated_at: new Date().toISOString(),
-        tipo_vinculo: normalizeTipoVinculo(form.tipo_vinculo),
-        contrato_fim: form.contrato_fim?.trim() || null,
-        data_nascimento: form.data_nascimento?.trim() || null,
-        rg: form.rg?.trim() || null,
-        rg_orgao: form.rg_orgao?.trim() || null,
-        naturalidade: form.naturalidade?.trim() || null,
-        estado_civil_text: form.estado_civil_text?.trim() || null,
-        cidade_id: null,
-        estado_civil_id: null,
-        endereco_rua: form.endereco_rua?.trim() || null,
-        endereco_numero: form.endereco_numero?.trim() || null,
-        endereco_bairro: form.endereco_bairro?.trim() || null,
-        endereco_cidade: form.endereco_cidade?.trim() || null,
-        endereco_estado: form.endereco_estado?.trim() || null,
-        endereco_cep: form.endereco_cep?.trim() || null,
-      };
-      // Em edição: não reenviar pis_pasep se não mudou (evita sobrescrita acidental / cast no backend).
-      if (!editingId || !editingSnapshot) {
-        payload.pis_pasep = form.pis_pasep?.trim() || null;
-      } else {
-        const nextPis = (form.pis_pasep ?? '').trim();
-        const prevPis = String(editingSnapshot.pis_pasep ?? '').trim();
-        if (nextPis !== prevPis) {
-          payload.pis_pasep = nextPis || null;
-        }
-      }
       if (editingId) {
-        const editingRow = rows.find((r) => r.id === editingId);
-        const isLegacyRow = editingId.startsWith('legacy-');
-        let updated = false;
-
-        if (!isLegacyRow) {
-          let lastErr: unknown = null;
-          try {
-            const resultRow = await db.update('users', editingId, payload);
-            updated = !!resultRow;
-          } catch (e) {
-            lastErr = e;
-            updated = false;
-          }
-          if (!updated) {
-            try {
-              const legacyUpdated = await db.update('employees', editingId, payload);
-              updated = !!legacyUpdated;
-            } catch (e) {
-              lastErr = lastErr || e;
-              updated = false;
-            }
-          }
-          if (!updated) {
-            const msg =
-              lastErr && typeof lastErr === 'object' && 'message' in lastErr
-                ? String((lastErr as { message?: string }).message)
-                : '';
-            throw new Error(
-              msg || 'Não foi possível salvar as alterações. Verifique permissões da tabela users/employees e tente novamente.',
-            );
-          }
-        } else {
-          // Linha legada (employees sem id estável na lista): localizar por id legado ou e-mail.
-          const legacyEmail = (editingRow?.email || '').trim().toLowerCase();
-          const legacyId = editingRow?.legacy_id;
-
-          if (legacyId) {
-            const legacyUpdated = await db.update('employees', legacyId, payload);
-            updated = !!legacyUpdated;
-          } else if (legacyEmail) {
-            const legacyRows = await db.select('employees', [
-              { column: 'company_id', operator: 'eq', value: effectiveCompanyId },
-              { column: 'email', operator: 'eq', value: legacyEmail },
-            ]) as DbRow[];
-            const targetLegacy = legacyRows?.[0];
-            if (!targetLegacy?.id) {
-              throw new Error('Funcionário legado não encontrado para atualização.');
-            }
-            const legacyUpdated = await db.update('employees', String(targetLegacy.id), payload);
-            updated = !!legacyUpdated;
-          } else {
-            throw new Error('Não foi possível identificar o funcionário legado para salvar.');
-          }
-        }
-        if (!updated) {
-          throw new Error('Não foi possível salvar as alterações. Verifique permissões da tabela users/employees e tente novamente.');
-        }
-        if (editingSnapshot) {
-          const idChanged =
-            String(editingSnapshot.cpf ?? '').trim() !== String(form.cpf ?? '').trim() ||
-            String(editingSnapshot.pis_pasep ?? '').trim() !== String(form.pis_pasep ?? '').trim() ||
-            String(editingSnapshot.numero_folha ?? '').trim() !== String(form.numero_folha ?? '').trim() ||
-            String(editingSnapshot.numero_identificador ?? '').trim() !==
-              String(form.numero_identificador ?? '').trim();
-          if (idChanged && effectiveCompanyId) {
-            const supa = getSupabaseClient();
-            if (supa) {
-              void autoReprocessRepAfterEmployeeIdentityUpdate(supa, effectiveCompanyId).catch((err) => {
-                console.warn('[Employees] reprocesso REP best-effort falhou:', err);
-              });
-            }
-          }
-        }
-        setSuccess('Funcionário atualizado com sucesso.');
+        await updateEmployee(editingId, apiPayload);
+        setSuccess('Colaborador atualizado com sucesso.');
         if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
         setModalOpen(false);
         if (form.demissao?.trim()) {
@@ -898,90 +647,8 @@ const AdminEmployees: React.FC = () => {
           loadData();
         }
       } else {
-        const email = form.email.trim().toLowerCase();
-        const basePayload = {
-          ...payload,
-          email,
-          role: 'employee' as const,
-          company_id: effectiveCompanyId,
-          status: 'active' as const,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        let authUserId: string | null = null;
-        let authExisting = false;
-        const senhaCriacao = (form.password && form.password.trim()) ? form.password.trim() : '123456';
-        try {
-          // create-user é stateless (fetch credentials:omit) — não mexe na sessão do admin
-          const { userId, existing } = await createEmployeeAuthUser({
-            email,
-            password: senhaCriacao,
-            metadata: {
-              nome: form.nome,
-              cargo: cargoFinal,
-              cpf: form.cpf?.trim() || undefined,
-              pis_pasep: form.pis_pasep?.trim() || undefined,
-              company_id: effectiveCompanyId || undefined,
-            },
-          });
-          authUserId = userId;
-          authExisting = !!existing;
-          if (existing) {
-            await setEmployeePasswordInAuth(email, '123456');
-          }
-          await confirmEmployeeEmailInAuth(email);
-        } catch (authErr: unknown) {
-          console.error('[CREATE USER FRONT ERROR]', authErr);
-          const { message: msg, detail, status, code } = errorProps(authErr);
-          const lower = msg.toLowerCase();
-          const is404 =
-            status === 404 ||
-            code === '404' ||
-            lower.includes('404') ||
-            lower.includes('not found');
-
-          if (!is404) {
-            // Para erros "reais" (duplicado, 429, etc.), mantém o comportamento existente.
-            throw authErr instanceof Error ? authErr : new Error(msg || detail || 'Erro ao criar usuário.');
-          }
-          // 404: backend de Auth não está disponível.
-          // Vamos seguir com cadastro apenas local (sem acesso ao login).
-        }
-
-        let userIdLocal: string;
-        if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-          userIdLocal = crypto.randomUUID();
-        } else {
-          userIdLocal = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        }
-
-        try {
-          console.info({ step: 'insert_db_user', context: 'create_employee', email, auth_user_id: authUserId });
-          await db.insert('users', {
-            id: userIdLocal,
-            auth_user_id: authUserId,
-            ...basePayload,
-          });
-          console.info({ step: 'insert_db_user', context: 'create_employee', success: true, email });
-        } catch (dbErr) {
-          console.error({ step: 'insert_db_user', context: 'create_employee', success: false, email, error: dbErr });
-          if (authUserId && !authExisting) {
-            try {
-              await rollbackEmployeeAuthUser({ userId: authUserId, email });
-              console.info({ step: 'rollback_auth', context: 'create_employee', success: true, email, auth_user_id: authUserId });
-            } catch (rollbackErr) {
-              console.error({ step: 'rollback_auth', context: 'create_employee', success: false, email, auth_user_id: authUserId, error: rollbackErr });
-            }
-          }
-          throw dbErr;
-        }
-
-        setSuccess(
-          authUserId
-            ? 'Funcionário cadastrado. Ele pode fazer login com o e-mail e a senha provisória informada.'
-            : 'Funcionário cadastrado apenas no sistema (backend de autenticação indisponível).'
-        );
+        await createEmployee(apiPayload);
+        setSuccess('Colaborador cadastrado na API.');
         setModalOpen(false);
         setForm({ ...form, password: '' });
         invalidateCompanyListCaches(effectiveCompanyId);
@@ -999,14 +666,7 @@ const AdminEmployees: React.FC = () => {
         (lower.includes('jwt') && lower.includes('expired'));
 
       if (isAuthSessionError) {
-        setError('Sua sessão expirou ou ficou inválida. A página será recarregada para novo login.');
-        try {
-          await resetSession();
-        } catch {
-          if (typeof window !== 'undefined') {
-            window.location.reload();
-          }
-        }
+        setError('Sua sessão expirou ou ficou inválida. Faça login novamente.');
         return;
       }
 
@@ -1045,7 +705,7 @@ const AdminEmployees: React.FC = () => {
 
   const confirmInvisivel = async (id: string) => {
     try {
-      await db.update('users', id, { invisivel: true, updated_at: new Date().toISOString() });
+      await updateEmployee(id, { status: 'inactive' });
       setSuccess('Funcionário marcado como invisível (não aparecerá nos relatórios).');
       setAskInvisivel(null);
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
@@ -1058,7 +718,7 @@ const AdminEmployees: React.FC = () => {
   const handleDeactivate = async (id: string) => {
     if (!confirm('Desativar este funcionário?')) return;
     try {
-      await db.update('users', id, { status: 'inactive', updated_at: new Date().toISOString() });
+      await updateEmployee(id, { status: 'inactive' });
       setSuccess('Funcionário desativado.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
@@ -1069,7 +729,7 @@ const AdminEmployees: React.FC = () => {
 
   const handleReactivate = async (id: string) => {
     try {
-      await db.update('users', id, { status: 'active', updated_at: new Date().toISOString() });
+      await updateEmployee(id, { status: 'active' });
       setSuccess('Funcionário reativado.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
@@ -1112,7 +772,7 @@ const AdminEmployees: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (!confirm('Excluir este funcionário? Esta ação não pode ser desfeita.')) return;
     try {
-      await db.delete('users', id);
+      await deleteEmployee(id);
       setSuccess('Funcionário excluído.');
       if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
       loadData();
@@ -1215,95 +875,19 @@ const AdminEmployees: React.FC = () => {
       const scheduleId = row.escala ? schedByName.get(row.escala.trim().toLowerCase()) || '' : '';
 
       const doCreateAndInsert = async (): Promise<boolean> => {
-        let authUserId: string | null = null;
-        let authExisting = false;
-        try {
-          const { userId, existing } = await createEmployeeAuthUser({
-            email: emailFinal.toLowerCase(),
-            password: senha,
-            metadata: {
-              nome: nomeFinal,
-              cargo: cargoFinal,
-              cpf: row.cpf?.trim() || undefined,
-              pis_pasep: row.pis_pasep?.trim() || undefined,
-              company_id: effectiveCompanyId || undefined,
-            },
-          });
-          authUserId = userId;
-          authExisting = !!existing;
-          if (existing) {
-            await setEmployeePasswordInAuth(emailFinal.toLowerCase(), '123456');
-          }
-          await confirmEmployeeEmailInAuth(emailFinal.toLowerCase());
-        } catch (authErr: unknown) {
-          console.error('[CREATE USER FRONT ERROR]', authErr);
-          const { message: msg, detail, status, code } = errorProps(authErr);
-          const lower = msg.toLowerCase();
-          const is404 =
-            status === 404 ||
-            code === '404' ||
-            lower.includes('404') ||
-            lower.includes('not found');
-          if (!is404) {
-            // Motivo real do erro (não genérico); quem chama vai push em failed e continuar.
-            throw authErr instanceof Error ? authErr : new Error(msg || detail || 'Erro ao criar usuário.');
-          }
-        }
-
-        let userIdLocal: string;
-        if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-          userIdLocal = crypto.randomUUID();
-        } else {
-          userIdLocal = `import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        }
-
-        const tipoV = parseTipoVinculoImport(row.tipo_vinculo);
-        const adm = parseFlexibleDate(row.admissao);
-        const cf = parseFlexibleDate(row.contrato_fim);
-        const dn = parseFlexibleDate(row.data_nascimento);
-        const payload: DbRow = {
-          id: userIdLocal,
-          auth_user_id: authUserId,
+        await createEmployee({
           nome: nomeFinal,
-          cpf: row.cpf?.trim() || null,
+          cpf: row.cpf?.trim() || `000000000${String(rowNum).slice(-2)}`,
           email: emailFinal.toLowerCase(),
-          phone: row.telefone?.trim() || null,
-          cargo: cargoFinal,
           role: 'employee',
-          company_id: effectiveCompanyId,
-          department_id: departmentId || null,
-          schedule_id: scheduleId || null,
           status: 'active',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          tipo_vinculo: tipoV,
-          admissao: adm,
-          contrato_fim: cf,
-          data_nascimento: dn,
-          rg: row.rg?.trim() || null,
-          rg_orgao: row.rg_orgao?.trim() || null,
-          naturalidade: row.cidade?.trim() || null,
-          estado_civil_text: normalizeEstadoCivilImport(row.estado_civil || '') || null,
-          cidade_id: null,
-          estado_civil_id: null,
-        };
-
-        try {
-          console.info({ step: 'insert_db_user', context: 'import_employee', email: emailFinal.toLowerCase(), auth_user_id: authUserId });
-          await db.insert('users', payload);
-          console.info({ step: 'insert_db_user', context: 'import_employee', success: true, email: emailFinal.toLowerCase() });
-        } catch (dbErr) {
-          console.error({ step: 'insert_db_user', context: 'import_employee', success: false, email: emailFinal.toLowerCase(), error: dbErr });
-          if (authUserId && !authExisting) {
-            try {
-              await rollbackEmployeeAuthUser({ userId: authUserId, email: emailFinal.toLowerCase() });
-              console.info({ step: 'rollback_auth', context: 'import_employee', success: true, email: emailFinal.toLowerCase(), auth_user_id: authUserId });
-            } catch (rollbackErr) {
-              console.error({ step: 'rollback_auth', context: 'import_employee', success: false, email: emailFinal.toLowerCase(), auth_user_id: authUserId, error: rollbackErr });
-            }
-          }
-          throw dbErr;
-        }
+          companyId: effectiveCompanyId,
+          telefone: row.telefone?.trim() || null,
+          cargo: cargoFinal,
+          departamento: row.departamento?.trim() || null,
+          data_admissao: row.admissao || null,
+          pis: row.pis_pasep?.trim() || null,
+        });
         return true;
       };
 
@@ -1364,7 +948,7 @@ const AdminEmployees: React.FC = () => {
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !effectiveCompanyId || !isSupabaseConfigured()) return;
+    if (!file || !effectiveCompanyId) return;
     setImportResult(null);
     setImportPreview(null);
     setImportParseError(null);
@@ -1791,18 +1375,73 @@ const AdminEmployees: React.FC = () => {
                           <label className={EMP_MODAL_LABEL}>
                             Departamento <span className="text-red-500">*</span>
                           </label>
-                          <select
-                            value={form.department_id}
-                            onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+                          <input
+                            type="text"
+                            value={form.departamento}
+                            onChange={(e) => setForm({ ...form, departamento: e.target.value })}
                             className={EMP_MODAL_INPUT}
-                          >
-                            <option value="">Selecione</option>
-                            {departments.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="Ex.: RH, Produção, Vendas"
+                          />
+                        </div>
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>
+                            Cargo / Função <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={form.cargo}
+                            onChange={(e) => setForm({ ...form, cargo: e.target.value })}
+                            className={EMP_MODAL_INPUT}
+                            placeholder="Ex.: Analista, Operador"
+                          />
+                        </div>
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>Salário base</label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={form.salario_base}
+                            onChange={(e) => setForm({ ...form, salario_base: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                            placeholder="Ex.: 3500,00"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className={EMP_MODAL_LABEL}>Tipo de jornada</label>
+                            <select
+                              value={form.jornada_tipo}
+                              onChange={(e) => setForm({ ...form, jornada_tipo: e.target.value })}
+                              className={EMP_MODAL_INPUT}
+                            >
+                              {JORNADA_TIPO_OPTIONS.map((o) => (
+                                <option key={o.value || 'empty'} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className={EMP_MODAL_LABEL}>Carga horária (h/dia)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={60}
+                              value={form.carga_horaria}
+                              onChange={(e) => setForm({ ...form, carga_horaria: e.target.value })}
+                              className={EMP_MODAL_INPUT_NUMERIC}
+                              placeholder="8"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className={EMP_MODAL_LABEL}>Endereço</label>
+                          <textarea
+                            value={form.endereco}
+                            onChange={(e) => setForm({ ...form, endereco: e.target.value })}
+                            className={`${EMP_MODAL_INPUT} min-h-[80px] resize-y`}
+                            placeholder="Rua, número, bairro, cidade — UF, CEP"
+                          />
                         </div>
                         <div>
                           <label className={EMP_MODAL_LABEL}>CTPS</label>

@@ -9,7 +9,13 @@
     "start": "node dist/server.js",
     "test:api": "node scripts/test-api.js",
     "db:apply-schema": "node scripts/apply-schema.mjs",
-    "db:seed": "node scripts/seed-admin.mjs"
+    "db:seed": "node scripts/seed-admin.mjs",
+    "db:migrate": "node scripts/apply-migrations.mjs",
+    "db:migrate:full": "node scripts/apply-full-database.mjs",
+    "db:data:export": "node scripts/data-migration/export-supabase.mjs",
+    "db:data:validate": "node scripts/data-migration/validate-migration.mjs",
+    "test": "vitest run",
+    "test:employees": "vitest run src/utils/employeeValidation.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -27,6 +33,7 @@
     "@types/node": "^24.10.1",
     "@types/pg": "^8.20.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

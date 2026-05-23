@@ -3,10 +3,8 @@
  * Responsável por consultar e exibir o histórico de mudanças
  */
 
-import { supabase, checkSupabaseConfigured } from '../../services/supabase';
 import { db } from '../../services/supabaseClient';
 import { TIME_ADJUSTMENTS_HISTORY_COLUMNS } from './egressSelectColumns';
-import { SYSTEM_CONFIG } from '../config/system';
 
 export interface AdjustmentHistoryEntry {
   id: string;
@@ -147,29 +145,21 @@ export const AdjustmentHistoryService = {
     details: Record<string, unknown> | null,
     companyId: string | null
   ): Promise<void> {
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
-    if (!checkSupabaseConfigured()) {
-      console.warn('[AdjustmentHistoryService] Supabase not configured, skipping history record');
-      return;
-    }
-
     try {
-      const { error } = await supabase.from('time_adjustments_history').insert({
+      const { getAuthUserOutsideReact } = await import('../auth/sessionAccess');
+      const actor = getAuthUserOutsideReact();
+      await db.insert('time_adjustments_history', {
         adjustment_id: adjustmentId,
         old_status: oldStatus,
         new_status: newStatus,
         reason,
         details,
         company_id: companyId,
-        changed_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+        changed_by: actor?.id ?? null,
         changed_at: new Date().toISOString(),
       });
-
-      if (error) {
-        console.error('[AdjustmentHistoryService] Error recording history:', error);
-      }
     } catch (err) {
-      console.error('[AdjustmentHistoryService] Unexpected error recording history:', err);
+      console.error('[AdjustmentHistoryService] Error recording history:', err);
     }
   },
 };

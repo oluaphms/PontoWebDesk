@@ -4,6 +4,7 @@
  */
 
 import { db, type DbRow, type Filter } from './supabaseClient';
+import { fetchEmployees } from '../src/services/employeesApi.service';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 
@@ -86,14 +87,15 @@ export type AdminTimesheetEmployee = { id: string; nome: string; department_id?:
 export type AdminTimesheetDepartment = { id: string; name: string };
 export type AdminHolidayRow = { id: string; date: string; name: string };
 
-/** Colaboradores da empresa (admin / espelho). */
+/** Colaboradores da empresa (admin / espelho) — API VPS. */
 export async function buscarColaboradores(companyId: string): Promise<AdminTimesheetEmployee[]> {
   const cid = String(companyId).trim();
-  const rows = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }])) as DbRow[];
-  return (rows ?? []).map((u: DbRow) => ({
-    id: String(u.id ?? ''),
-    nome: String(u.nome ?? u.email ?? ''),
-    department_id: u.department_id != null ? String(u.department_id) : undefined,
+  const rows = await fetchEmployees(cid);
+  return rows.map((u) => ({
+    id: u.id,
+    nome: u.nome || u.email || '',
+    department_id: undefined,
+    role: u.role,
   }));
 }
 
@@ -111,43 +113,13 @@ const ESPELHO_USERS_SELECT_OPTS = {
   orderBy: { column: 'nome', ascending: true },
 } as const;
 
-/** Junta `users` + `employees` (legacy) como na tela Colaboradores — sem excluir admin. */
-function mergeEmployeesForEspelho(usersRows: DbRow[], legacyRows: DbRow[]): AdminTimesheetEmployee[] {
-  const byEmail = new Map(
-    (usersRows ?? [])
-      .filter((u: DbRow) => u?.email)
-      .map((u: DbRow) => [String(u.email).toLowerCase().trim(), String(u.id ?? '')]),
-  );
-  const fromUsers: AdminTimesheetEmployee[] = (usersRows ?? []).map((u: DbRow) => ({
-    id: String(u.id ?? ''),
-    nome: String(u.nome ?? u.email ?? 'Colaborador'),
-    department_id: u.department_id != null ? String(u.department_id) : undefined,
-    role: u.role != null ? String(u.role) : undefined,
+function mapApiEmployeesToEspelho(rows: Awaited<ReturnType<typeof fetchEmployees>>): AdminTimesheetEmployee[] {
+  return rows.map((u) => ({
+    id: u.id,
+    nome: u.nome || u.email || 'Colaborador',
+    department_id: undefined,
+    role: u.role,
   }));
-  const fromLegacy: AdminTimesheetEmployee[] = (legacyRows ?? [])
-    .filter((e: DbRow) => {
-      const email = String(e?.email || '')
-        .trim()
-        .toLowerCase();
-      if (!email) return false;
-      return !byEmail.has(email);
-    })
-    .map((e: DbRow) => ({
-      id: String(e.id ?? ''),
-      nome: String(e.nome ?? e.nome_completo ?? e.email ?? 'Colaborador'),
-      department_id: (e.department_id ?? e.departamento_id) != null ? String(e.department_id ?? e.departamento_id) : undefined,
-      role: e.role != null ? String(e.role) : undefined,
-    }))
-    .filter((e) => e.id);
-
-  const seen = new Set<string>();
-  const out: AdminTimesheetEmployee[] = [];
-  for (const e of [...fromUsers, ...fromLegacy]) {
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    out.push(e);
-  }
-  return out;
 }
 
 /**
@@ -159,15 +131,12 @@ export async function buscarFiltrosEspelhoAdmin(companyId: string): Promise<{
   departments: AdminTimesheetDepartment[];
 }> {
   const cid = String(companyId).trim();
-  const [usersRows, departmentsRows, legacyRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS) as Promise<
-      DbRow[]
-    >,
+  const [apiEmployees, departmentsRows] = await Promise.all([
+    fetchEmployees(cid),
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
-    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
   ]);
   return {
-    employees: mergeEmployeesForEspelho(usersRows, legacyRows),
+    employees: mapApiEmployeesToEspelho(apiEmployees),
     departments: (departmentsRows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') })),
   };
 }
@@ -202,10 +171,8 @@ export async function buscarEspelhoAdmin(
 }> {
   const cid = String(companyId).trim();
 
-  const [usersRows, recordsRows, departmentsRows, legacyEmployeesRows, shiftsRows, holidaysRows] = await Promise.all([
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS) as Promise<
-      DbRow[]
-    >,
+  const [apiEmployees, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
+    fetchEmployees(cid),
     fetchTimeRecordsForMirrorWindow(
       [{ column: 'company_id', operator: 'eq', value: cid }],
       periodStart,
@@ -214,7 +181,6 @@ export async function buscarEspelhoAdmin(
       8000
     ) as Promise<DbRow[]>,
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
-    db.select('employees', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
     db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
     db
       .select('holidays', [{ column: 'company_id', operator: 'eq', value: cid }])
@@ -223,7 +189,7 @@ export async function buscarEspelhoAdmin(
       ) as Promise<DbRow[]>,
   ]);
 
-  const employees = mergeEmployeesForEspelho(usersRows, legacyEmployeesRows);
+  const employees = mapApiEmployeesToEspelho(apiEmployees);
   const departments: AdminTimesheetDepartment[] = (departmentsRows ?? []).map((d: DbRow) => ({
     id: String(d.id ?? ''),
     name: String(d.name ?? ''),

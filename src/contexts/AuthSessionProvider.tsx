@@ -17,7 +17,8 @@ import React, {
 } from 'react';
 import type { User } from '../../types';
 import { authService } from '../../services/authService';
-import { checkSupabaseConfigured } from '../services/supabaseClient';
+import { fetchAuthMe } from '../services/authMe.service';
+import { getToken, clearToken } from '../services/authToken';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from '../app/appShellBootstrap';
 import {
   readInitialSessionUser,
@@ -66,18 +67,24 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!checkSupabaseConfigured()) {
-      setLoading(false);
+    if (!getToken()) {
+      clearSession();
       return;
     }
     setLoading(true);
     try {
-      const current = await authService.getCurrentUser();
+      const current = await fetchAuthMe();
+      if (!current) {
+        clearToken();
+        clearSession();
+        return;
+      }
       setSessionUser(current);
     } catch {
-      setLoading(false);
+      clearToken();
+      clearSession();
     }
-  }, [setSessionUser]);
+  }, [clearSession, setSessionUser]);
 
   useEffect(() => {
     if (bootRefreshDoneRef.current) return;

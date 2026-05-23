@@ -3,6 +3,7 @@ import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 import employeeRoutes from './routes/employeeRoutes.js';
 import punchRoutes from './routes/punchRoutes.js';
+import dataRoutes from './routes/dataRoutes.js';
 import { checkDatabaseConnection } from './db/index.js';
 
 export const app = express();
@@ -41,13 +42,14 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/punches', punchRoutes);
+app.use('/api/data', dataRoutes);
 
 app.use((_req, res) => {
-  res.status(404).json({ ok: true, degraded: true, error: 'not_found' });
+  res.status(404).json({ ok: false, error: 'not_found' });
 });
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[API_ERROR]', err);
-  res.status(200).json({ ok: true, degraded: true });
+  res.status(500).json({ ok: false, error: 'internal_error' });
 });
 

@@ -1,0 +1,13 @@
+-- Cadastro completo de colaboradores (RH/CLT)
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS cpf VARCHAR(14);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS pis VARCHAR(20);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS telefone VARCHAR(20);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS data_admissao DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS cargo VARCHAR(100);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS departamento VARCHAR(100);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS salario NUMERIC(10,2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS jornada_tipo VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS carga_horaria INTEGER;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS endereco TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_employees_company_cpf ON employees(company_id, cpf);

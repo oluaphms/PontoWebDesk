@@ -241,21 +241,26 @@ const RepOperationsCenter: React.FC = () => {
   }, [companyId, streamCursor]);
 
   useEffect(() => {
-    if (!companyId || !supabase) return;
+    if (!companyId) return;
     void (async () => {
-      const { data: u } = await supabase.from('users').select('id,nome').eq('company_id', companyId).order('nome').limit(4000);
-      setEmployees((u as { id: string; nome: string | null }[]) ?? []);
-      const { data: d } = await supabase
-        .from('rep_devices')
-        .select('id,nome_dispositivo')
-        .eq('company_id', companyId)
-        .order('nome_dispositivo')
-        .limit(500);
+      const u = await db.select<{ id: string; nome: string | null }>(
+        'users',
+        [{ column: 'company_id', operator: 'eq', value: companyId }],
+        { column: 'nome', ascending: true },
+        4000,
+      );
+      setEmployees(u ?? []);
+      const d = await db.select<{ id: string; nome_dispositivo: string | null }>(
+        'rep_devices',
+        [{ column: 'company_id', operator: 'eq', value: companyId }],
+        { column: 'nome_dispositivo', ascending: true },
+        500,
+      );
       setDevices(
-        (d as { id: string; nome_dispositivo: string | null }[] | null)?.map((x) => ({
+        (d ?? []).map((x) => ({
           id: x.id,
           nome: x.nome_dispositivo,
-        })) ?? [],
+        })),
       );
     })();
   }, [companyId]);

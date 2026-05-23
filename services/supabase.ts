@@ -1,54 +1,7 @@
 /**
- * Supabase Configuration and Initialization
- *
- * Cliente sempre via singleton `getSupabaseClient()` — o export `supabase` é um Proxy
- * que encaminha para a instância atual (evita valor congelado no primeiro import).
+ * Utilitários de sessão local — Supabase Auth removido do frontend.
  */
 
-import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
-import {
-  getSupabaseClient,
-  getSupabaseClientOrThrow,
-  resetSession,
-  resetAuthSession,
-  clearStaleSupabaseAuthTokens,
-  getSupabase,
-} from '../src/lib/supabaseClient';
-
-export {
-  resetSession,
-  resetAuthSession,
-  clearStaleSupabaseAuthTokens,
-  getSupabase,
-  getSupabaseClient,
-  getSupabaseClientOrThrow,
-};
-
-/** Encaminha para o singleton; não recria cliente a cada acesso. */
-export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    if (prop === 'then') return undefined;
-    const client = getSupabaseClient();
-    if (!client) {
-      console.warn('[supabase] acesso sem cliente inicializado:', String(prop));
-      return undefined;
-    }
-    const value = (client as unknown as Record<string | symbol, unknown>)[prop as string];
-    return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(client) : value;
-  },
-}) as SupabaseClient;
-
-/** Verificação em tempo real (não use valor congelado de import). */
-export function isSupabaseConfigured(): boolean {
-  return !!getSupabaseClient();
-}
-
-/** @deprecated Use `isSupabaseConfigured` para manter nomenclatura única. */
-export function checkSupabaseConfigured(): boolean {
-  return isSupabaseConfigured();
-}
-
-// Storage para autenticação
 const authStorageEnv = String(import.meta.env?.VITE_SUPABASE_AUTH_STORAGE || '').toLowerCase();
 export const useSessionStorageForAuth = authStorageEnv !== 'local';
 
@@ -73,10 +26,6 @@ export function isOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine !== false;
 }
 
-/**
- * Limpa a sessão local de autenticação do Supabase (tokens sb-* no storage).
- * Não faz signOut no servidor — apenas derruba o estado local imediatamente.
- */
 export async function clearLocalAuthSession(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
@@ -91,107 +40,68 @@ export async function clearLocalAuthSession(): Promise<void> {
     clearSbKeys(window.sessionStorage);
     clearSbKeys(window.localStorage);
   } catch {
-    // ignora falha ao limpar storage
+    // ignora
   }
 }
 
 export async function clearBrokenSession(): Promise<void> {
-  if (!checkSupabaseConfigured()) return;
-  try {
-    const client = getSupabaseClientOrThrow();
-    await client.auth.signOut();
-  } catch {
-    // segue com limpeza local
-  } finally {
-    await clearLocalAuthSession();
-  }
+  await clearLocalAuthSession();
 }
 
-/**
- * Corrige sessões órfãs no boot (ex.: refresh token inválido após deploy/troca de projeto).
- * Não derruba sessão válida.
- */
 export async function sanitizeAuthSessionOnBoot(): Promise<void> {
-  if (!checkSupabaseConfigured()) return;
-  try {
-    const client = getSupabaseClientOrThrow();
-    const { error } = await client.auth.getSession();
-    if (!error) return;
-    const msg = String(error.message || '').toLowerCase();
-    const isInvalidRefresh =
-      msg.includes('invalid refresh token') ||
-      msg.includes('refresh token not found') ||
-      msg.includes('jwt expired');
-    if (isInvalidRefresh) {
-      await clearBrokenSession();
-    }
-  } catch (e) {
-    const msg = String((e as { message?: string })?.message || e || '').toLowerCase();
-    if (
-      msg.includes('invalid refresh token') ||
-      msg.includes('refresh token not found') ||
-      msg.includes('jwt expired')
-    ) {
-      await clearBrokenSession();
-    }
-  }
+  await clearLocalAuthSession();
 }
 
-// Timeout padrão para operações
+export function isSupabaseConfigured(): boolean {
+  return false;
+}
+
+export const checkSupabaseConfigured = isSupabaseConfigured;
+
+export function isSupabaseEnvConfigured(): boolean {
+  return false;
+}
+
+export function getSupabaseEnvOrNull(): null {
+  return null;
+}
+
+export async function resetSession(): Promise<void> {
+  await clearLocalAuthSession();
+}
+
+export async function resetAuthSession(): Promise<void> {
+  await clearLocalAuthSession();
+}
+
+export function clearStaleSupabaseAuthTokens(): void {
+  void clearLocalAuthSession();
+}
+
+export function getSupabaseClient(): null {
+  return null;
+}
+
+export function getSupabaseClientOrThrow(): never {
+  throw new Error('Supabase removido — use src/services/api.ts');
+}
+
+export const getSupabase = getSupabaseClient;
+
 export const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 export const DB_SELECT_TIMEOUT_MS = 28000;
 
-/**
- * Testa se o Supabase está acessível
- */
-export async function testSupabaseConnection(
-  timeoutMs: number = DEFAULT_CONNECTION_TIMEOUT_MS,
-): Promise<{ ok: boolean; message?: string }> {
-  const client = getSupabaseClient();
-  
-  if (!client) {
-    return { 
-      ok: false, 
-      message: 'Supabase não inicializado. Verifique as variáveis de ambiente.' 
-    };
-  }
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('timeout')), timeoutMs),
-  );
-
-  try {
-    const { error } = await Promise.race([
-      client.from('punches').select('id').limit(1),
-      timeoutPromise,
-    ]);
-    if (!error || error.code === 'PGRST116') {
-      console.log('[SmartPonto] Supabase conectado (tabela: punches)');
-      return { ok: true };
-    }
-    return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
-  } catch (e: unknown) {
-    if (e instanceof Error && e.message === 'timeout') {
-      return { ok: false, message: 'Supabase timeout. Projeto pode estar pausado ou rede lenta.' };
-    }
-    return { ok: false, message: 'Não foi possível conectar ao Supabase.' };
-  }
+export async function testSupabaseConnection(): Promise<{ ok: boolean; message?: string }> {
+  return { ok: false, message: 'Supabase removido' };
 }
 
-/**
- * Executa uma promise do Supabase com timeout
- */
 export async function withSupabaseTimeout<T>(
-  promise: Promise<{ data: T; error: PostgrestError | null }>,
-  ms: number = DEFAULT_CONNECTION_TIMEOUT_MS,
-): Promise<{ data: T | null; error: PostgrestError | null | { message: string } }> {
-  return Promise.race([
-    promise,
-    new Promise<{ data: null; error: { message: string } }>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Supabase timeout (${ms}ms)`)),
-        ms,
-      ),
-    ),
-  ]);
+  promise: Promise<{ data: T; error: unknown }>,
+): Promise<{ data: T | null; error: unknown }> {
+  return promise;
 }
+
+export { setSupabaseServiceRoleOverride } from '../src/lib/supabaseClient';
+
+/** Re-export do stub em supabaseClient — compatibilidade com imports legados. */
+export { supabase } from './supabaseClient';

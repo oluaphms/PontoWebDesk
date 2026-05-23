@@ -146,10 +146,11 @@ export function analyzePunch(
  * Persiste análise na tabela punch_risk_analysis.
  */
 export async function savePunchRiskAnalysis(
-  supabase: SupabaseClient,
+  _client: SupabaseClient | null,
   analysis: FraudAnalysisResult
 ): Promise<void> {
-  await supabase.from('punch_risk_analysis').insert({
+  const { db } = await import('../../services/supabaseClient');
+  await db.insert('punch_risk_analysis', {
     punch_id: analysis.punch_id,
     risk_score: analysis.risk_score,
     reason: analysis.reason,
@@ -157,5 +158,6 @@ export async function savePunchRiskAnalysis(
     latitude: analysis.latitude,
     longitude: analysis.longitude,
     details: { flags: analysis.flags },
+    created_at: new Date().toISOString(),
   });
 }

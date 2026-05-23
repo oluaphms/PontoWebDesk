@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../../hooks/useCurrentUser';
-import { db, isSupabaseConfigured, type Filter } from '../../../../services/supabaseClient';
 import { LoadingState } from '../../../../../components/UI';
 import { ReportReadShell } from './ReportReadShell';
 import { useAbortableAsyncEffect } from '../../../../hooks/useAbortableAsyncEffect';
+import { fetchEmployees } from '../../../../services/employeesApi.service';
 
 type U = { id: string; nome: string | null; email: string | null; role: string | null };
 
@@ -15,17 +15,16 @@ export function FuncionariosRead() {
 
   useAbortableAsyncEffect(
     async (isCancelled) => {
-      if (!user?.companyId || !isSupabaseConfigured()) {
+      if (!user?.companyId) {
         setLoadingData(false);
         return;
       }
       setLoadingData(true);
       try {
-        const filters: Filter[] = [{ column: 'company_id', operator: 'eq', value: user.companyId }];
-        const data = (await db.select('users', filters)) as any[];
+        const data = await fetchEmployees(user.companyId);
         if (isCancelled()) return;
         setRows(
-          (data ?? []).map((r: any) => ({
+          data.map((r) => ({
             id: r.id,
             nome: r.nome ?? null,
             email: r.email ?? null,
@@ -49,26 +48,24 @@ export function FuncionariosRead() {
       {loadingData ? (
         <LoadingState message="Carregando..." />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-100 dark:bg-slate-800 text-left text-xs font-bold text-slate-600 dark:text-slate-300 uppercase">
-                <th className="px-3 py-2">Nome</th>
-                <th className="px-3 py-2">E-mail</th>
-                <th className="px-3 py-2">Papel</th>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-gray-500">
+              <th className="py-2">Nome</th>
+              <th className="py-2">E-mail</th>
+              <th className="py-2">Perfil</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-gray-100">
+                <td className="py-2">{r.nome ?? '—'}</td>
+                <td className="py-2">{r.email ?? '—'}</td>
+                <td className="py-2">{r.role ?? '—'}</td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 text-slate-900 dark:text-white">{r.nome || '—'}</td>
-                  <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.email || '—'}</td>
-                  <td className="px-3 py-2">{r.role || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       )}
     </ReportReadShell>
   );

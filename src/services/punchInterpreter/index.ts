@@ -194,11 +194,12 @@ export async function interpretPunchSequence(
  * Persiste o resultado da interpretação na tabela punch_interpretations (upsert).
  */
 export async function saveInterpretation(
-  supabase: import('@supabase/supabase-js').SupabaseClient,
+  _supabase: import('@supabase/supabase-js').SupabaseClient | null,
   result: PunchInterpretationResult,
   companyId: string
 ): Promise<void> {
-  await supabase.from('punch_interpretations').upsert(
+  await db.upsert(
+    'punch_interpretations',
     {
       employee_id: result.employee_id,
       company_id: companyId,
@@ -208,6 +209,6 @@ export async function saveInterpretation(
       justification: result.justification,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'employee_id,date' }
+    'employee_id,date',
   );
 }

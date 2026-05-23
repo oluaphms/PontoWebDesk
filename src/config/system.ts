@@ -1,9 +1,10 @@
-const hasViteSupabase =
-  Boolean(String(import.meta.env.VITE_SUPABASE_URL ?? '').trim()) &&
-  Boolean(String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim());
+/** Frontend opera 100% via API Node na VPS. */
+export const API_VPS_BASE =
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
+  (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim()?.replace(/\/+$/, '') ||
+  'http://177.7.51.209/api';
 
-/** Com VITE_SUPABASE_* no .env → cloud + provider Supabase; senão → API local. */
+/** @deprecated Use API_VPS_BASE — mantido para imports legados. */
 export const SYSTEM_CONFIG = {
-  CLOUD_ENABLED: hasViteSupabase,
-  DATA_PROVIDER_MODE: hasViteSupabase ? ('SUPABASE' as const) : ('LOCAL_API' as const),
+  DATA_PROVIDER_MODE: 'LOCAL_API' as const,
 } as const;

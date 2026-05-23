@@ -1,7 +1,7 @@
 import { SYSTEM_CONFIG } from '../config/system';
 
 export const DATA_PROVIDER = {
-  mode: (SYSTEM_CONFIG.DATA_PROVIDER_MODE || 'LOCAL_API') as 'SUPABASE' | 'LOCAL_API',
+  mode: 'LOCAL_API' as const,
 };
 
 export type ProviderLoginParams = {

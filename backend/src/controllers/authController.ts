@@ -46,8 +46,9 @@ export async function loginController(req: Request, res: Response): Promise<void
         role: String(user.role || 'employee'),
       },
     });
-  } catch {
-    res.status(200).json({ ok: true, degraded: true, error: 'auth_degraded' });
+  } catch (e) {
+    console.error('[AUTH LOGIN]', e);
+    res.status(500).json({ ok: false, error: 'auth_failed' });
   }
 }
 

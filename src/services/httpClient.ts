@@ -1,9 +1,11 @@
+import { ApiError } from './apiClient';
+
 type HttpOptions = RequestInit & {
   timeoutMs?: number;
 };
 
-export async function httpRequest(url: string, options: HttpOptions = {}): Promise<any> {
-  const timeoutMs = Number(options.timeoutMs ?? 3000);
+export async function httpRequest(url: string, options: HttpOptions = {}): Promise<unknown> {
+  const timeoutMs = Number(options.timeoutMs ?? 30000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -11,19 +13,27 @@ export async function httpRequest(url: string, options: HttpOptions = {}): Promi
       ...options,
       signal: controller.signal,
     });
-    if (res.status === 402) {
-      console.warn('[CLOUD OFFLINE] Mudando para modo local');
-      return { degraded: true };
+    const text = await res.text();
+    let body: unknown = null;
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { error: text };
+      }
     }
-    try {
-      return await res.json();
-    } catch {
-      return null;
+    if (!res.ok) {
+      const msg =
+        body && typeof body === 'object' && 'error' in body
+          ? String((body as { error: unknown }).error)
+          : `HTTP ${res.status}`;
+      throw new ApiError(msg, res.status, body);
     }
-  } catch {
-    return { degraded: true };
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(e instanceof Error ? e.message : 'network_error', 0, null);
   } finally {
     clearTimeout(timer);
   }
 }
-
