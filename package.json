@@ -8,7 +8,7 @@
     "npm": ">=10"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --config vite.config.dev.ts",
     "build": "vite build",
     "preview": "vite preview",
     "preview:3010": "vite preview --port 3010",
