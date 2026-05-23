@@ -31,8 +31,10 @@ const reactAlias = {
   scheduler: path.resolve(projectRoot, 'node_modules/scheduler'),
 };
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const isProduction = mode === 'production'
+  /** Middlewares que importam api/* (Supabase legado) — só no `vite`, não no `vite build` (Vercel). */
+  const isDevServer = command === 'serve'
 
   /** Handlers em api/* (middleware dev) leem process.env; loadEnv garante VITE_* do .env/.env.local no processo Node. */
   const envFiles = loadEnv(mode, projectRoot, '')
@@ -69,6 +71,8 @@ export default defineConfig(({ mode }) => {
         },
       },
 
+      ...(isDevServer
+        ? [
       {
         name: 'reverse-geocode-api-dev',
         configureServer(server) {
@@ -278,6 +282,8 @@ export default defineConfig(({ mode }) => {
           });
         },
       },
+        ]
+        : []),
 
       {
         name: 'remove-tailwind-cdn',
@@ -390,7 +396,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) {
               return 'react-vendor'
             }
-            if (id.includes('node_modules/@supabase/supabase-js')) return 'supabase-vendor'
             if (id.includes('node_modules/lucide-react') || id.includes('node_modules/recharts')) return 'ui-vendor'
             return undefined
           }
