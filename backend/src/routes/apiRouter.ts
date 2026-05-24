@@ -3,18 +3,11 @@ import authRoutes from './authRoutes.js';
 import employeeRoutes from './employeeRoutes.js';
 import punchRoutes from './punchRoutes.js';
 import dataRoutes from './dataRoutes.js';
-import { checkDatabaseConnection } from '../db/index.js';
-
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
 const apiRouter = Router();
 
-apiRouter.get('/health', async (_req, res) => {
-  const dbOk = await checkDatabaseConnection();
-  res.json({
-    status: dbOk ? 'ok' : 'degraded',
-    database: dbOk ? 'connected' : 'unavailable',
-    provider: 'hostinger-postgres',
-  });
+apiRouter.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
 apiRouter.use('/auth', authRoutes);
