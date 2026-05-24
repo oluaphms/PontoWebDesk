@@ -1,54 +1,24 @@
 import type { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { pool } from '../db/index.js';
+import { authenticateLogin } from '../services/authLoginService.js';
 
 export async function loginController(req: Request, res: Response): Promise<void> {
-  const identifier = String(req.body?.identifier || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
-
-  if (!identifier || !password) {
-    res.status(400).json({ ok: false, error: 'missing_credentials' });
-    return;
-  }
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
 
   try {
-    const query = await pool.query(
-      'select id, email, company_id, role, password_hash from users where lower(email) = $1 limit 1',
-      [identifier],
-    );
-    const user = query.rows[0];
-    if (!user?.id || !user.password_hash) {
-      res.status(401).json({ ok: false, error: 'invalid_credentials' });
+    const result = await authenticateLogin(body);
+
+    if ('status' in result) {
+      res.status(result.status).json({ ok: false, error: result.error });
       return;
     }
-
-    const valid = await bcrypt.compare(password, String(user.password_hash));
-    if (!valid) {
-      res.status(401).json({ ok: false, error: 'invalid_credentials' });
-      return;
-    }
-
-    const secret = String(process.env.JWT_SECRET || '');
-    const token = jwt.sign(
-      { sub: String(user.id), companyId: String(user.company_id || ''), role: String(user.role || 'employee') },
-      secret,
-      { expiresIn: '12h' },
-    );
 
     res.json({
       ok: true,
-      token,
-      user: {
-        id: String(user.id),
-        email: String(user.email || ''),
-        company_id: String(user.company_id || ''),
-        role: String(user.role || 'employee'),
-      },
+      token: result.token,
+      user: result.user,
     });
   } catch (e) {
     console.error('[AUTH LOGIN]', e);
-    res.status(500).json({ ok: false, error: 'auth_failed' });
+    res.status(500).json({ ok: false, error: 'Erro interno no servidor' });
   }
 }
-

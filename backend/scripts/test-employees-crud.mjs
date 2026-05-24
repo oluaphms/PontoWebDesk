@@ -20,7 +20,7 @@ async function req(method, path, body, token) {
 const email = process.env.TEST_EMAIL || 'admin@test.com';
 const password = process.env.TEST_PASSWORD || 'admin123';
 
-const login = await req('POST', '/auth/login', { identifier: email, password });
+const login = await req('POST', '/api/auth/login', { identifier: email, password });
 if (!login.json?.token) {
   console.error('Login falhou', login);
   process.exit(1);

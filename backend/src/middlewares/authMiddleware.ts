@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 
 export type JwtPayload = {
   sub: string;
+  userId?: string;
   companyId: string;
   role?: string;
 };

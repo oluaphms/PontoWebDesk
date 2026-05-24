@@ -10,12 +10,28 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
   }
 
   try {
-    const result = await pool.query(
+    let result = await pool.query(
       `select id, coalesce(nome, email) as nome, email, cargo, role, company_id, department_id, avatar, preferences, schedule_id, cpf, phone, status
-       from users where id = $1 limit 1`,
+       from users where id::text = $1 limit 1`,
       [userId],
     );
-    const row = result.rows[0];
+    let row = result.rows[0];
+
+    if (!row) {
+      result = await pool.query(
+        `select id,
+                coalesce(nullif(trim(nome), ''), email) as nome,
+                email,
+                cargo,
+                role,
+                company_id,
+                status
+         from employees where id::text = $1 limit 1`,
+        [userId],
+      );
+      row = result.rows[0];
+    }
+
     if (!row) {
       res.status(404).json({ ok: false, error: 'user_not_found' });
       return;

@@ -373,23 +373,34 @@ DATA_PROVIDER_MODE: 'LOCAL_API',
 CLOUD_ENABLED: false,
 ```
 
-## 6. Nginx (exemplo)
+## 6. Nginx (API com prefixo `/api`)
+
+Use o ficheiro versionado no repo (evita `Cannot POST /auth/login`):
+
+```bash
+sudo bash deploy/nginx/install-api-vps.sh
+# ou: sudo cp deploy/nginx/api.phmsdev.com.br.conf /etc/nginx/sites-available/
+```
+
+**Obrigatório** em `location /api/`:
 
 ```nginx
-# API
-server {
-  listen 443 ssl;
-  server_name api.seudominio.com;
-
-  location / {
-    proxy_pass http://127.0.0.1:3000;
+location /api/ {
+    proxy_pass http://127.0.0.1:3000/api/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-  }
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
 }
+```
 
-# Frontend
+**Não use** `proxy_pass http://127.0.0.1:3000/;` — remove o prefixo `/api`.
+
+Detalhes: [nginx-api-phmsdev.md](./nginx-api-phmsdev.md)
+
+Frontend (outro `server` ou Vercel):
+
+```nginx
 server {
   listen 443 ssl;
   server_name app.seudominio.com;

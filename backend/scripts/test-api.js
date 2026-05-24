@@ -4,10 +4,11 @@ const identifier = process.env.TEST_LOGIN || 'admin@local.test';
 const password = process.env.TEST_PASSWORD || '123456';
 
 async function run() {
-  const loginRes = await fetch(`${base}/api/auth/login`, {
+  const loginPath = process.env.TEST_LOGIN_PATH || '/api/auth/login';
+  const loginRes = await fetch(`${base}${loginPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ identifier, password, email: identifier }),
   });
   const loginData = await loginRes.json().catch(() => ({}));
   console.log('[test-api] login:', loginRes.status, loginData);
@@ -18,14 +19,12 @@ async function run() {
     'Content-Type': 'application/json',
   };
 
+  // Só `type` — user_id e company_id vêm do JWT
   const punchRes = await fetch(`${base}/api/punches`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      company_id: 'demo-company',
-      user_id: 'demo-user',
       type: 'entrada',
-      timestamp: new Date().toISOString(),
       punch_hash: `test-${Date.now()}`,
     }),
   });
@@ -37,10 +36,7 @@ async function run() {
     body: JSON.stringify({
       punches: Array.from({ length: 2 }).map((_, i) => ({
         client_id: `c-${Date.now()}-${i}`,
-        company_id: 'demo-company',
-        user_id: 'demo-user',
         type: i % 2 === 0 ? 'entrada' : 'saida',
-        timestamp: new Date().toISOString(),
         punch_hash: `batch-${Date.now()}-${i}`,
       })),
     }),

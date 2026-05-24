@@ -1,10 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import authRoutes from './routes/authRoutes.js';
-import employeeRoutes from './routes/employeeRoutes.js';
-import punchRoutes from './routes/punchRoutes.js';
-import dataRoutes from './routes/dataRoutes.js';
-import { checkDatabaseConnection } from './db/index.js';
+import apiRouter from './routes/apiRouter.js';
 
 export const app = express();
 
@@ -22,27 +18,40 @@ app.use(
 app.use(express.json({ limit: '1mb' }));
 
 app.use((req, _res, next) => {
-  console.log('[API]', req.path);
+  console.log('[API]', req.method, req.originalUrl);
   next();
 });
 
+/** Health local (sem DB) — útil se o proxy expuser só /api. */
 app.get('/health', (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, hint: 'Use GET /api/health for database status' });
 });
 
-app.get('/api/health', async (_req, res) => {
-  const dbOk = await checkDatabaseConnection();
-  res.json({
-    status: dbOk ? 'ok' : 'degraded',
-    database: dbOk ? 'connected' : 'unavailable',
-    provider: 'hostinger-postgres',
+/** Todas as rotas públicas da API com prefixo /api. */
+app.use('/api', apiRouter);
+
+/**
+ * Rotas legadas sem /api (ex.: proxy_pass errado ou cliente antigo).
+ * Evita confusão com "Cannot POST /auth/login" genérico do Express.
+ */
+const legacyApiPaths = ['/auth', '/employees', '/punches', '/data'];
+for (const prefix of legacyApiPaths) {
+  app.use(prefix, (_req, res) => {
+    res.status(404).json({
+      ok: false,
+      error: 'not_found',
+      message: `Esta rota deve usar o prefixo /api. Ex.: POST /api${prefix}/...`,
+    });
+  });
+}
+
+app.get('/', (_req, res) => {
+  res.status(404).json({
+    ok: false,
+    error: 'not_found',
+    message: 'API PontoWebDesk — use paths under /api (ex.: GET /api/health)',
   });
 });
-
-app.use('/api/auth', authRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/punches', punchRoutes);
-app.use('/api/data', dataRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'not_found' });
@@ -52,4 +61,3 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   console.error('[API_ERROR]', err);
   res.status(500).json({ ok: false, error: 'internal_error' });
 });
-
