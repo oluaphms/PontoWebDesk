@@ -55,7 +55,7 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
 export async function createPunchBatchController(req: AuthedRequest, res: Response): Promise<void> {
   try {
     const raw = Array.isArray(req.body?.punches) ? req.body.punches : [];
-    const punches = raw.map((item) =>
+    const punches = raw.map((item: unknown) =>
       mergePunchBody(req, item && typeof item === 'object' ? (item as PunchBody) : {}),
     );
     const results = await insertPunchBatchSafe(punches);

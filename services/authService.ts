@@ -302,6 +302,17 @@ class AuthService {
     const rawNormalized = raw.replace(/\s+/g, ' ');
     const lower = rawNormalized.toLowerCase();
 
+    // Atalhos antes de RPC/Supabase (modo API VPS não depende do GoTrue)
+    if (lower === 'admin' || lower === 'administrador') {
+      return 'admin@smartponto.com';
+    }
+    if (lower === 'desenvolvedor' || lower === 'dev') {
+      return 'desenvolvedor@smartponto.com';
+    }
+    if (lower === 'funcionario' || lower === 'funcionário') {
+      return 'funcionario@smartponto.com';
+    }
+
     // Se for o usuário informando "nome"/"primeiro nome" (sem @),
     // o app ainda NÃO tem sessão auth; então RLS costuma bloquear leitura de public.users.
     // Para funcionar sempre, chamamos uma RPC SECURITY DEFINER que ignora RLS e resolve para o email.
@@ -322,17 +333,6 @@ class AuthService {
         if (isSupabaseBlocked(rpcErr)) enableDegradedMode();
         // ignora e segue com fallback (db.select) para compatibilidade
       }
-    }
-
-    // 0) Atalhos comuns: "admin" e "administrador" sempre usam a conta admin padrão
-    if (lower === 'admin' || lower === 'administrador') {
-      return 'admin@smartponto.com';
-    }
-    if (lower === 'desenvolvedor' || lower === 'dev') {
-      return 'desenvolvedor@smartponto.com';
-    }
-    if (lower === 'funcionario' || lower === 'funcionário') {
-      return 'funcionario@smartponto.com';
     }
 
     // 1) Já é um email
@@ -1009,7 +1009,9 @@ class AuthService {
     const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
     if (true) {
       try {
-        const apiRes = await getProvider().login({ identifier, password });
+        const resolvedForApi = await this.resolveLoginEmail(identifier);
+        const loginIdentifier = resolvedForApi || identifier.trim().toLowerCase();
+        const apiRes = await getProvider().login({ identifier: loginIdentifier, password });
         const apiUser = apiRes?.user as
           | { id?: string; email?: string; company_id?: string; role?: string }
           | undefined;

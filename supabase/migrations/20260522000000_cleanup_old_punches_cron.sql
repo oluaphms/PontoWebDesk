@@ -35,10 +35,16 @@ COMMENT ON FUNCTION public.cleanup_old_punches() IS
 
 DO $$
 BEGIN
-  CREATE EXTENSION IF NOT EXISTS pg_cron;
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+  ELSE
+    RAISE NOTICE 'pg_cron indisponível — cleanup_old_punches via cron do SO';
+  END IF;
 EXCEPTION
   WHEN insufficient_privilege THEN
     NULL;
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pg_cron skip: %', SQLERRM;
 END;
 $$;
 

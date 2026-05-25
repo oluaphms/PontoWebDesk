@@ -40,7 +40,7 @@ CREATE POLICY "notifications_delete_own_v2" ON public.notifications
 -- 3) Garantir que RLS está habilitado
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
-COMMENT ON POLICY "notifications_select_own" ON public.notifications IS 'Usuário vê suas próprias notificações';
-COMMENT ON POLICY "notifications_insert_own" ON public.notifications IS 'Usuário cria suas próprias notificações';
-COMMENT ON POLICY "notifications_update_own" ON public.notifications IS 'Usuário atualiza suas próprias notificações';
-COMMENT ON POLICY "notifications_delete_own" ON public.notifications IS 'Usuário deleta suas próprias notificações';
+COMMENT ON POLICY "notifications_select_own_v2" ON public.notifications IS 'Usuário vê suas próprias notificações';
+COMMENT ON POLICY "notifications_insert_own_v2" ON public.notifications IS 'Usuário cria suas próprias notificações';
+COMMENT ON POLICY "notifications_update_own_v2" ON public.notifications IS 'Usuário atualiza suas próprias notificações';
+COMMENT ON POLICY "notifications_delete_own_v2" ON public.notifications IS 'Usuário deleta suas próprias notificações';

@@ -97,7 +97,7 @@ async function runSqlFile(client, filePath, name) {
       console.log('[db:full] (dry-run) aplicaria:', name);
       return { applied: false, skipped: false };
     }
-    const sql = fs.readFileSync(filePath, 'utf8');
+    const sql = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
     await client.query(sql);
     await markApplied(client, name);
     console.log('[db:full] OK', name);

@@ -603,12 +603,19 @@ BEGIN
 END;
 $$;
 
+-- pg_cron: opcional (Supabase Cloud); na VPS instale postgresql-16-cron ou ignore o agendamento.
 DO $$
 BEGIN
-  CREATE EXTENSION IF NOT EXISTS pg_cron;
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+  ELSE
+    RAISE NOTICE 'pg_cron indisponível — jobs cleanup via cron do sistema ou manual';
+  END IF;
 EXCEPTION
   WHEN insufficient_privilege THEN
     NULL;
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pg_cron skip: %', SQLERRM;
 END;
 $$;
 

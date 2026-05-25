@@ -10,6 +10,8 @@
     "test:api": "node scripts/test-api.js",
     "db:apply-schema": "node scripts/apply-schema.mjs",
     "db:seed": "node scripts/seed-admin.mjs",
+    "db:set-password": "node scripts/set-user-password.mjs",
+    "db:test": "node scripts/test-db-connection.mjs",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:full": "node scripts/apply-full-database.mjs",
     "db:data:export": "node scripts/data-migration/export-supabase.mjs",

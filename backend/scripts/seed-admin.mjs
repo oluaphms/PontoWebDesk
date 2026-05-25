@@ -21,8 +21,11 @@ if (!connectionString) {
 
 const email = (process.env.SEED_ADMIN_EMAIL || 'admin@local.test').trim().toLowerCase();
 const password = process.env.SEED_ADMIN_PASSWORD || '123456';
-const companyId = process.env.SEED_COMPANY_ID || 'demo-company';
+const companyIdEnv = (process.env.SEED_COMPANY_ID || '').trim();
 const role = process.env.SEED_ADMIN_ROLE || 'admin';
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ssl =
   process.env.DATABASE_SSL === 'true' || process.env.DATABASE_SSL === '1'
@@ -48,6 +51,50 @@ async function authUsersExists(client) {
   return (r.rowCount ?? 0) > 0;
 }
 
+async function usersCompanyIdIsUuid(client) {
+  const r = await client.query(
+    `select data_type from information_schema.columns
+     where table_schema = 'public' and table_name = 'users' and column_name = 'company_id'
+     limit 1`,
+  );
+  return r.rows[0]?.data_type === 'uuid';
+}
+
+/** Schema completo (Supabase/VPS) usa UUID; schema mínimo aceita texto (demo-company). */
+async function resolveCompanyId(client) {
+  if (companyIdEnv) return companyIdEnv;
+
+  const existing = await client.query(
+    `select company_id::text as company_id from users where lower(trim(email)) = $1 limit 1`,
+    [email],
+  );
+  const fromUser = existing.rows[0]?.company_id;
+  if (fromUser && String(fromUser).trim()) {
+    console.log('[seed-admin] company_id do utilizador existente:', fromUser);
+    return String(fromUser).trim();
+  }
+
+  const companies = await client.query(
+    `select id::text as id from companies
+     order by created_at desc nulls last
+     limit 1`,
+  );
+  const fromCompanies = companies.rows[0]?.id;
+  if (fromCompanies && String(fromCompanies).trim()) {
+    console.log('[seed-admin] company_id da primeira empresa:', fromCompanies);
+    return String(fromCompanies).trim();
+  }
+
+  const needsUuid = await usersCompanyIdIsUuid(client);
+  if (needsUuid) {
+    throw new Error(
+      'Nenhuma empresa em public.companies. Importe dados ou defina SEED_COMPANY_ID=<uuid da empresa>.',
+    );
+  }
+  console.warn('[seed-admin] Sem companies — usando demo-company (schema mínimo)');
+  return 'demo-company';
+}
+
 try {
   const hash = await bcrypt.hash(password, 10);
   const client = await pool.connect();
@@ -58,6 +105,13 @@ try {
     const hasNome = await tableHasColumn(client, 'users', 'nome');
     const hasPasswordHash = await tableHasColumn(client, 'users', 'password_hash');
     const useAuthUsers = await authUsersExists(client);
+    const companyId = await resolveCompanyId(client);
+
+    if (await usersCompanyIdIsUuid(client) && !UUID_RE.test(companyId)) {
+      throw new Error(
+        `company_id "${companyId}" não é UUID. Use SEED_COMPANY_ID com id de public.companies.`,
+      );
+    }
 
     const existing = await client.query(
       'select id from users where lower(email) = $1 limit 1',

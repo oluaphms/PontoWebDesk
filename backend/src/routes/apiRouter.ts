@@ -8,8 +8,14 @@ import { pool } from '../db/index.js';
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
 const apiRouter = Router();
 
-apiRouter.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
+apiRouter.get('/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', db: 'connected' });
+  } catch (err) {
+    console.error('[HEALTH]', err);
+    res.status(503).json({ status: 'degraded', db: 'down' });
+  }
 });
 
 apiRouter.get('/health/db', async (_req, res) => {
