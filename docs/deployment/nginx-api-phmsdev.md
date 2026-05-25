@@ -76,8 +76,27 @@ PORT=3000
 DATABASE_URL=postgresql://...
 JWT_SECRET=<openssl rand -hex 32>
 JWT_EXPIRES_IN=7d
-CORS_ORIGINS=https://seu-frontend.vercel.app,https://smartponto.app
+CORS_ORIGINS=https://pontowebdesk.vercel.app,https://api.phmsdev.com.br,http://localhost:3010
 ```
+
+Sem a URL do frontend na lista, o browser bloqueia o login com **CORS / Failed to fetch** (mesmo com credenciais corretas).
+
+Depois de alterar:
+
+```bash
+pm2 restart pontoweb-api --update-env
+```
+
+Teste preflight:
+
+```bash
+curl -i -X OPTIONS "https://api.phmsdev.com.br/api/auth/login" \
+  -H "Origin: https://pontowebdesk.vercel.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+
+Deve incluir `Access-Control-Allow-Origin: https://pontowebdesk.vercel.app`.
 
 Seed do admin:
 
