@@ -98,6 +98,17 @@ curl -i -X OPTIONS "https://api.phmsdev.com.br/api/auth/login" \
 
 Deve incluir `Access-Control-Allow-Origin: https://pontowebdesk.vercel.app`.
 
+Se o preflight devolver **204 sem** `Access-Control-Allow-Origin`, atualize o site Nginx e recarregue:
+
+```bash
+cd /root/PontoWebDesk
+git pull
+sudo cp deploy/nginx/api.phmsdev.com.br.conf /etc/nginx/sites-available/api.phmsdev.com.br
+sudo nginx -t && sudo systemctl reload nginx
+cd backend && npm run build
+pm2 restart pontoweb-api --update-env
+```
+
 Seed do admin:
 
 ```bash

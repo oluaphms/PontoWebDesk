@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './loadEnv.js';
 import { app } from './app.js';
 import { checkDatabaseConnection } from './db/index.js';
 

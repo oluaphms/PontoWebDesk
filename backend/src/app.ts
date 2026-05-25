@@ -1,20 +1,32 @@
 import express from 'express';
 import cors from 'cors';
 import apiRouter from './routes/apiRouter.js';
+import { buildCorsAllowList, resolveCorsOrigin } from './corsConfig.js';
 
 export const app = express();
 
-const corsOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const corsAllowList = buildCorsAllowList();
 
 app.use(
   cors({
-    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    origin(origin, callback) {
+      const resolved = resolveCorsOrigin(origin, corsAllowList);
+      if (resolved === false) {
+        console.warn('[CORS] Origin bloqueada:', origin);
+        callback(null, false);
+        return;
+      }
+      callback(null, resolved);
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type'],
   }),
 );
+
+if (process.env.NODE_ENV !== 'test') {
+  console.log('[CORS] Origens permitidas:', corsAllowList.join(', '));
+}
 app.use(express.json({ limit: '1mb' }));
 
 app.use((req, _res, next) => {

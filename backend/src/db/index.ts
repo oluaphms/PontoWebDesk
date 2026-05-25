@@ -1,23 +1,17 @@
-import 'dotenv/config';
+import './loadEnv.js';
 import { Pool } from 'pg';
+import { buildPgPoolConfig } from './pgConfig.js';
 
-const connectionString = process.env.DATABASE_URL;
+const pgConfig = buildPgPoolConfig();
+const hasDbTarget = Boolean(
+  pgConfig.connectionString ||
+    (pgConfig.host && pgConfig.user && pgConfig.database),
+);
 
-const sslEnabled =
-  process.env.DATABASE_SSL === 'true' ||
-  process.env.DATABASE_SSL === '1' ||
-  process.env.PGSSLMODE === 'require';
-
-export const pool = new Pool({
-  connectionString,
-  ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-  max: Number(process.env.PG_POOL_MAX || 10),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
-});
+export const pool = new Pool(pgConfig);
 
 export async function checkDatabaseConnection(): Promise<boolean> {
-  if (!connectionString) return false;
+  if (!hasDbTarget) return false;
   try {
     const client = await pool.connect();
     try {
