@@ -1,3 +1,5 @@
+import { openPontowebLocalDb } from './localDb';
+
 export type LocalSession = {
   user_id: string;
   name: string;
@@ -18,8 +20,6 @@ export type LocalUser = {
   updated_at: number;
 };
 
-const DB_NAME = 'pontoweb_local';
-const DB_VERSION = 3;
 const STORE_AUTH = 'auth_session';
 const STORE_USERS = 'users_local';
 const AUTH_KEY = 'session';
@@ -37,25 +37,6 @@ function txDone(tx: IDBTransaction): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('idb_tx_failed'));
     tx.onabort = () => reject(tx.error ?? new Error('idb_tx_aborted'));
-  });
-}
-
-function openAuthDb(): Promise<IDBDatabase | null> {
-  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onerror = () => reject(req.error ?? new Error('idb_open_failed'));
-    req.onsuccess = () => resolve(req.result);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_AUTH)) {
-        db.createObjectStore(STORE_AUTH, { keyPath: 'key' });
-      }
-      if (!db.objectStoreNames.contains(STORE_USERS)) {
-        const users = db.createObjectStore(STORE_USERS, { keyPath: 'id' });
-        users.createIndex('by_identifier', 'identifier', { unique: true });
-      }
-    };
   });
 }
 
@@ -78,7 +59,7 @@ export async function saveLocalUser(input: {
   password: string;
   pin?: string;
 }): Promise<LocalUser | null> {
-  const db = await openAuthDb();
+  const db = await openPontowebLocalDb();
   if (!db) return null;
   const now = Date.now();
   const identifier = String(input.identifier || '').trim().toLowerCase();
@@ -104,7 +85,7 @@ export async function saveLocalUser(input: {
 }
 
 export async function getLocalUserByIdentifier(identifier: string): Promise<LocalUser | null> {
-  const db = await openAuthDb();
+  const db = await openPontowebLocalDb();
   if (!db) return null;
   const tx = db.transaction([STORE_USERS], 'readonly');
   const row = await reqToPromise<LocalUser | undefined>(
@@ -137,7 +118,7 @@ export async function ensureDefaultLocalAdmin(): Promise<void> {
 }
 
 export async function saveLocalSession(session: LocalSession): Promise<void> {
-  const db = await openAuthDb();
+  const db = await openPontowebLocalDb();
   if (!db) return;
   const tx = db.transaction([STORE_AUTH], 'readwrite');
   tx.objectStore(STORE_AUTH).put({
@@ -151,7 +132,7 @@ export async function saveLocalSession(session: LocalSession): Promise<void> {
 }
 
 export async function getLocalSession(): Promise<LocalSession | null> {
-  const db = await openAuthDb();
+  const db = await openPontowebLocalDb();
   if (!db) return null;
   const tx = db.transaction([STORE_AUTH], 'readonly');
   const row = await reqToPromise<{ key: string; value?: LocalSession } | undefined>(
@@ -168,7 +149,7 @@ export async function getLocalSession(): Promise<LocalSession | null> {
 }
 
 export async function clearLocalSession(): Promise<void> {
-  const db = await openAuthDb();
+  const db = await openPontowebLocalDb();
   if (!db) return;
   const tx = db.transaction([STORE_AUTH], 'readwrite');
   tx.objectStore(STORE_AUTH).delete(AUTH_KEY);

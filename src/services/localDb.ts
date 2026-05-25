@@ -1,7 +1,8 @@
 import type { RegisterPunchSecureParams } from '../rep/repEngine';
 
 const DB_NAME = 'pontoweb_local';
-const DB_VERSION = 4;
+/** Versão única — localAuth partilha este DB (evita "requested version 3 < existing 4"). */
+const DB_VERSION = 5;
 
 const STORES = {
   punches: 'punches',
@@ -86,8 +87,20 @@ function openLocalDb(): Promise<IDBDatabase | null> {
       if (!db.objectStoreNames.contains(STORES.deviceState)) {
         db.createObjectStore(STORES.deviceState, { keyPath: 'key' });
       }
+      if (!db.objectStoreNames.contains('auth_session')) {
+        db.createObjectStore('auth_session', { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains('users_local')) {
+        const users = db.createObjectStore('users_local', { keyPath: 'id' });
+        users.createIndex('by_identifier', 'identifier', { unique: true });
+      }
     };
   });
+}
+
+/** Abertura partilhada do IndexedDB local (sessão offline + fila de batidas). */
+export function openPontowebLocalDb(): Promise<IDBDatabase | null> {
+  return openLocalDb();
 }
 
 function toHashInput(params: RegisterPunchSecureParams): string {
