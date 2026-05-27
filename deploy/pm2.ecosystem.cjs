@@ -1,9 +1,10 @@
 /**
  * PM2 na VPS — garante cwd no backend (dotenv lê backend/.env).
- * Uso na VPS:
- *   cd /root/PontoWebDesk/backend && npm run build
- *   pm2 delete pontoweb-api 2>/dev/null; pm2 start ../deploy/pm2.ecosystem.cjs
- *   pm2 save
+ * Preferir ecosystem na raiz:
+ *   cd /root/PontoWebDesk && pm2 start ecosystem.config.cjs && pm2 save
+ *
+ * Alternativa direta:
+ *   cd /root/PontoWebDesk/backend && pm2 start dist/server.js --name pontoweb-api
  */
 const path = require('path');
 

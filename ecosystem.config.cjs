@@ -1,23 +1,21 @@
+/**
+ * PM2 — use na raiz do projeto:
+ *   cd /root/PontoWebDesk && pm2 start ecosystem.config.cjs
+ *   pm2 save
+ */
+const path = require('path');
+
 module.exports = {
   apps: [
     {
-      name: 'clock-agent',
-      script: 'agent/index.ts',
-      interpreter: 'tsx',
-      cwd: 'D:\\PontoWebDesk',
+      name: 'pontoweb-api',
+      script: 'dist/server.js',
+      cwd: path.join(__dirname, 'backend'),
       instances: 1,
       autorestart: true,
-      watch: false,
-      max_memory_restart: '500M',
       env: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
       },
-      // Reinicia automaticamente se der erro
-      restart_delay: 5000,
-      // Logs
-      log_file: 'D:\\PontoWebDesk\\agent\\logs\\agent.log',
-      out_file: 'D:\\PontoWebDesk\\agent\\logs\\agent-out.log',
-      err_file: 'D:\\PontoWebDesk\\agent\\logs\\agent-error.log'
-    }
-  ]
+    },
+  ],
 };
