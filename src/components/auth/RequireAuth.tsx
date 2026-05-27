@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { useAuth } from '../../hooks/useAuth';
-import { SYSTEM_CONFIG } from '../../config/system';
+import { getToken } from '../../services/authToken';
 
 export type RequireAuthProps = {
   /** @deprecated Perfil vem de `useAuth()` — mantido para compatibilidade. */
@@ -12,51 +12,59 @@ export type RequireAuthProps = {
 };
 
 /**
- * Única gate de sessão Supabase: getSession, loading, refresh inválido e redirect para /login (SPA).
+ * Gate de sessão: exige JWT válido (via refresh /auth/me) e perfil em useAuth().
  * RBAC fica em RoleGuard nos filhos.
  */
 const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user: sessionUser } = useAuth();
+  const { user: sessionUser, loading, refresh, clearSession } = useAuth();
   const appUser = appUserProp ?? sessionUser;
-  const [sessionChecked, setSessionChecked] = useState(false);
+  const [tokenChecked, setTokenChecked] = useState(false);
 
   const loginNavigationIssuedRef = useRef(false);
 
   const redirectToLogin = useCallback(
-    (reason: string, options?: { hard?: boolean }) => {
-      if (loginNavigationIssuedRef.current) {
-        return;
-      }
+    (reason: string) => {
+      if (loginNavigationIssuedRef.current) return;
       loginNavigationIssuedRef.current = true;
-      authDev('[AUTH REDIRECT]', { reason, to: '/login' });
-
-      if (options?.hard && typeof window !== 'undefined') {
-        window.location.replace(`${window.location.origin}/login`);
-        return;
+      if (import.meta.env?.DEV) {
+        console.info('[AUTH REDIRECT]', { reason, to: '/login' });
       }
-
       navigate('/login', { replace: true, state: { from: location.pathname } });
     },
     [navigate, location.pathname],
   );
 
   useEffect(() => {
-    setSessionChecked(true);
-  }, [appUser]);
+    let cancelled = false;
+    (async () => {
+      const token = getToken();
+      if (!token) {
+        if (!cancelled) {
+          clearSession();
+          setTokenChecked(true);
+        }
+        return;
+      }
+      if (!appUser && !loading) {
+        await refresh();
+      }
+      if (!cancelled) setTokenChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser, loading, refresh, clearSession]);
 
   useEffect(() => {
-    if (appUser) return;
-    if (!sessionChecked) return;
-    redirectToLogin('no_local_session');
-  }, [appUser, sessionChecked, redirectToLogin]);
+    if (!tokenChecked || loading) return;
+    if (!getToken() || !appUser) {
+      redirectToLogin(!getToken() ? 'no_token' : 'no_session_user');
+    }
+  }, [appUser, tokenChecked, loading, redirectToLogin]);
 
-  if (appUser) {
-    return <>{children}</>;
-  }
-
-  if (!sessionChecked) {
+  if (!tokenChecked || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
         <LoadingState message="A validar sessão…" />
@@ -64,19 +72,13 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
     );
   }
 
-  if (!appUser) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <LoadingState message="A redirecionar…" />
-      </div>
-    );
+  if (appUser && getToken()) {
+    return <>{children}</>;
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-      <LoadingState
-        message="A carregar perfil…"
-      />
+      <LoadingState message="A redirecionar…" />
     </div>
   );
 };

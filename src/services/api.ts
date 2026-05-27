@@ -1,5 +1,13 @@
 import { clearToken, getToken, setToken } from './authToken';
 
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+/** Registra callback global para 401 (logout automático). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
 const DEFAULT_API_BASE = 'http://177.7.51.209/api';
 
 function readEnvApiUrl(): string {
@@ -80,6 +88,10 @@ async function parseResponse<T>(res: Response): Promise<T> {
     }
   }
   if (!res.ok) {
+    if (res.status === 401) {
+      clearToken();
+      unauthorizedHandler?.();
+    }
     const errMsg =
       body && typeof body === 'object' && 'error' in body
         ? String((body as ApiResult).error)

@@ -19,6 +19,7 @@ import type { User } from '../../types';
 import { authService } from '../../services/authService';
 import { fetchAuthMe } from '../services/authMe.service';
 import { getToken, clearToken } from '../services/authToken';
+import { setUnauthorizedHandler } from '../services/api';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from '../app/appShellBootstrap';
 import {
   readInitialSessionUser,
@@ -85,6 +86,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       clearSession();
     }
   }, [clearSession, setSessionUser]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearToken();
+      clearSession();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [clearSession]);
 
   useEffect(() => {
     if (bootRefreshDoneRef.current) return;

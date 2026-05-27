@@ -16,6 +16,7 @@
     "db:migrate:full": "node scripts/apply-full-database.mjs",
     "db:data:export": "node scripts/data-migration/export-supabase.mjs",
     "db:data:validate": "node scripts/data-migration/validate-migration.mjs",
+    "db:data:count": "node scripts/data-migration/count-vps-tables.mjs",
     "test": "vitest run",
     "test:employees": "vitest run src/utils/employeeValidation.test.ts"
   },

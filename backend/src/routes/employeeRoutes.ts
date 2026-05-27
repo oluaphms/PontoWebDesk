@@ -6,12 +6,13 @@ import {
   updateEmployeeController,
 } from '../controllers/employeeController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { requireAdminOrHr } from '../middlewares/requireRole.js';
 
 const router = Router();
 
 router.get('/', authMiddleware, listEmployeesController);
-router.post('/', authMiddleware, createEmployeeController);
-router.patch('/:id', authMiddleware, updateEmployeeController);
-router.delete('/:id', authMiddleware, deleteEmployeeController);
+router.post('/', authMiddleware, requireAdminOrHr, createEmployeeController);
+router.patch('/:id', authMiddleware, requireAdminOrHr, updateEmployeeController);
+router.delete('/:id', authMiddleware, requireAdminOrHr, deleteEmployeeController);
 
 export default router;

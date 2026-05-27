@@ -3,6 +3,7 @@ import authRoutes from './authRoutes.js';
 import employeeRoutes from './employeeRoutes.js';
 import punchRoutes from './punchRoutes.js';
 import dataRoutes from './dataRoutes.js';
+import adminRoutes from './adminRoutes.js';
 import { pool } from '../db/index.js';
 
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
@@ -29,6 +30,7 @@ apiRouter.get('/health/db', async (_req, res) => {
 });
 
 apiRouter.use('/auth', authRoutes);
+apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/employees', employeeRoutes);
 apiRouter.use('/punches', punchRoutes);
 apiRouter.use('/data', dataRoutes);

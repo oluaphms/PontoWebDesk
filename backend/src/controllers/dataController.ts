@@ -1,73 +1,16 @@
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
-
-const ALLOWED_TABLES = new Set([
-  'companies',
-  'users',
-  'employees',
-  'departments',
-  'time_records',
-  'punches',
-  'absences',
-  'ausencias',
-  'employee_absences',
-  'events',
-  'work_shifts',
-  'schedules',
-  'requests',
-  'notifications',
-  'settings',
-  'global_settings',
-  'feriados',
-  'justificativas',
-  'eventos_folha',
-  'lancamento_eventos',
-  'job_titles',
-  'cidades',
-  'estados_civis',
-  'motivo_demissao',
-  'estruturas',
-  'estrutura_responsaveis',
-  'colaborador_jornada',
-  'escala_mensal',
-  'cartao_ponto_dia',
-  'rep_devices',
-  'rep_punch_logs',
-  'bank_hours',
-  'bank_hours_ledger',
-  'time_balance',
-  'work_locations',
-  'trusted_devices',
-  'user_schedules',
-  'employee_shift_schedule',
-  'projects',
-  'project_members',
-  'project_tasks',
-  'teams',
-  'alerts',
-  'fraud_alerts',
-  'activity_sessions',
-  'productivity_logs',
-  'time_logs',
-  'activity_logs',
-  'company_rules',
-  'overtime_rules',
-  'folha_pagamento_periodos',
-  'folha_pagamento_itens',
-  'punch_interpretations',
-  'time_adjustments_history',
-  'tenant_audit_log',
-  'audit_logs',
-  'punch_risk_analysis',
-  'rep_logs',
-  'rep_unresolved_punches',
-  'timesheets',
-  'timesheet_daily_snapshots',
-  'employee_invites',
-  'devices',
-  'clock_event_logs',
-]);
+import { normalizeRole, requireCompanyId } from '../utils/authContext.js';
+import { logAuthDenied } from '../services/authAuditService.js';
+import {
+  ALLOWED_TABLES,
+  applyTenantToRow,
+  isTableReadable,
+  isTableWritable,
+  tableHasTenantScope,
+  tenantScopeSql,
+} from '../utils/dataTablePolicy.js';
 
 const ALLOWED_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is']);
 
@@ -97,70 +40,12 @@ function buildWhere(
   const params: unknown[] = [];
   let idx = 1;
 
-  const tenantTables = new Set([
-    'users',
-    'employees',
-    'departments',
-    'time_records',
-    'punches',
-    'work_shifts',
-    'schedules',
-    'requests',
-    'settings',
-    'feriados',
-    'justificativas',
-    'eventos_folha',
-    'lancamento_eventos',
-    'job_titles',
-    'cidades',
-    'estados_civis',
-    'motivo_demissao',
-    'estruturas',
-    'colaborador_jornada',
-    'escala_mensal',
-    'cartao_ponto_dia',
-    'rep_devices',
-    'rep_punch_logs',
-    'bank_hours',
-    'bank_hours_ledger',
-    'time_balance',
-    'work_locations',
-    'trusted_devices',
-    'employee_shift_schedule',
-    'projects',
-    'project_members',
-    'project_tasks',
-    'teams',
-    'alerts',
-    'fraud_alerts',
-    'activity_sessions',
-    'productivity_logs',
-    'time_logs',
-    'activity_logs',
-    'company_rules',
-    'overtime_rules',
-    'folha_pagamento_periodos',
-    'folha_pagamento_itens',
-    'punch_interpretations',
-    'time_adjustments_history',
-    'tenant_audit_log',
-    'audit_logs',
-    'estrutura_responsaveis',
-    'employee_absences',
-    'punch_risk_analysis',
-    'rep_logs',
-    'rep_unresolved_punches',
-    'timesheets',
-    'employee_invites',
-    'clock_event_logs',
-  ]);
-
-  if (tenantTables.has(table) && companyId) {
+  if (tableHasTenantScope(table) && companyId) {
     const hasCompanyFilter = filters.some(
       (f) => f.column === 'company_id' || f.column === 'tenant_id',
     );
     if (!hasCompanyFilter) {
-      parts.push(`(company_id = $${idx} OR tenant_id = $${idx})`);
+      parts.push(tenantScopeSql(idx));
       params.push(companyId);
       idx += 1;
     }
@@ -208,14 +93,35 @@ function buildWhere(
   return { clause: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params };
 }
 
+function denyTableAccess(
+  req: AuthedRequest,
+  res: Response,
+  table: string,
+  op: 'read' | 'write',
+): boolean {
+  const role = normalizeRole(req.auth?.role);
+  const allowed = op === 'read' ? isTableReadable(table, role) : isTableWritable(table, role);
+  if (!allowed) {
+    void logAuthDenied(req, 403, op === 'read' ? 'table_read_forbidden' : 'table_write_forbidden', {
+      table,
+    });
+    res.status(403).json({ ok: false, error: 'forbidden', message: 'Sem permissão para esta tabela.' });
+    return true;
+  }
+  return false;
+}
+
 export async function listDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
+  if (denyTableAccess(req, res, table, 'read')) return;
 
-  const companyId = String(req.auth?.companyId || '').trim();
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
   const filters = parseFilters(typeof req.query.filters === 'string' ? req.query.filters : undefined);
   const rawCols = String(req.query.columns || '*').trim();
   const columns =
@@ -250,7 +156,13 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
-  const row = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  if (denyTableAccess(req, res, table, 'write')) return;
+
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
+  const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const row = applyTenantToRow(table, raw, companyId);
   const keys = Object.keys(row).filter((k) => safeIdent(k));
   if (!keys.length) {
     res.status(400).json({ ok: false, error: 'empty_payload' });
@@ -276,7 +188,13 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     res.status(400).json({ ok: false, error: 'invalid_request' });
     return;
   }
-  const row = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  if (denyTableAccess(req, res, table, 'write')) return;
+
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
+  const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const row = applyTenantToRow(table, raw, companyId);
   const keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
   if (!keys.length) {
     res.status(400).json({ ok: false, error: 'empty_payload' });
@@ -284,9 +202,19 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   }
   const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
   const values = keys.map((k) => row[k]);
+
+  const tenantIdx = keys.length + 1;
+  const idIdx = keys.length + 2;
+  const tenantClause = tableHasTenantScope(table) ? ` AND ${tenantScopeSql(tenantIdx)}` : '';
+  const params = [...values, ...(tableHasTenantScope(table) ? [companyId] : []), id];
+
   try {
-    const sql = `UPDATE public.${table} SET ${sets} WHERE id = $${keys.length + 1} RETURNING *`;
-    const result = await pool.query(sql, [...values, id]);
+    const sql = `UPDATE public.${table} SET ${sets} WHERE id = $${idIdx}${tenantClause} RETURNING *`;
+    const result = await pool.query(sql, params);
+    if (!result.rows[0]) {
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
     res.json({ ok: true, data: result.rows[0] });
   } catch (e) {
     console.error('[DATA UPDATE]', table, e);
@@ -301,8 +229,22 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
     res.status(400).json({ ok: false, error: 'invalid_request' });
     return;
   }
+  if (denyTableAccess(req, res, table, 'write')) return;
+
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
   try {
-    await pool.query(`DELETE FROM public.${table} WHERE id = $1`, [id]);
+    const tenantClause = tableHasTenantScope(table) ? ` AND ${tenantScopeSql(2)}` : '';
+    const params = tableHasTenantScope(table) ? [id, companyId] : [id];
+    const result = await pool.query(
+      `DELETE FROM public.${table} WHERE id = $1${tenantClause} RETURNING id`,
+      params,
+    );
+    if (!result.rows[0]) {
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error('[DATA DELETE]', table, e);
@@ -316,7 +258,11 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
-  const companyId = String(req.auth?.companyId || '').trim();
+  if (denyTableAccess(req, res, table, 'read')) return;
+
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
   const filters = parseFilters(typeof req.query.filters === 'string' ? req.query.filters : undefined);
   const { clause, params } = buildWhere(table, filters, companyId);
   try {
@@ -342,7 +288,30 @@ export async function rpcDataController(req: AuthedRequest, res: Response): Prom
     res.status(400).json({ ok: false, error: 'rpc_not_allowed' });
     return;
   }
-  const args = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+
+  const companyId = requireCompanyId(req, res);
+  if (companyId === null) return;
+
+  const args =
+    req.body && typeof req.body === 'object' ? { ...(req.body as Record<string, unknown>) } : {};
+
+  if (fn === 'get_my_company_id') {
+    res.json({ ok: true, data: companyId, error: null });
+    return;
+  }
+
+  const role = normalizeRole(req.auth?.role);
+  if (fn === 'insert_time_record_for_user' && role !== 'admin' && role !== 'hr') {
+    const targetUser = String(args.user_id ?? args.p_user_id ?? '').trim();
+    const selfId = String(req.auth?.sub || '').trim();
+    if (targetUser && targetUser !== selfId) {
+      res.status(403).json({ ok: false, error: 'forbidden', data: null });
+      return;
+    }
+    args.user_id = selfId;
+    args.company_id = companyId;
+  }
+
   const params = Object.values(args);
   const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
   try {

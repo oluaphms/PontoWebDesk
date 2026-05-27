@@ -1338,6 +1338,15 @@ class AuthService {
    */
   async signOut(): Promise<void> {
     const startedAt = Date.now();
+    if (getToken()) {
+      try {
+        const { apiPost } = await import('../src/services/api');
+        await apiPost('/auth/logout', {});
+      } catch {
+        // revogação no servidor é best-effort
+      }
+    }
+    clearToken();
     try {
       const current = await this.getCurrentUser().catch(() => null);
       if (current?.companyId) {

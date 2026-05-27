@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { pool } from '../db/index.js';
+import { newTokenJti } from './tokenRevocationService.js';
 
 export type AuthLoginRow = {
   id: string;
@@ -138,14 +139,16 @@ export async function authenticateLogin(
   }
 
   const signOptions: SignOptions = {
-    expiresIn: (process.env.JWT_EXPIRES_IN?.trim() || '7d') as SignOptions['expiresIn'],
+    expiresIn: (process.env.JWT_EXPIRES_IN?.trim() || '2h') as SignOptions['expiresIn'],
   };
+  const jti = newTokenJti();
   const token = jwt.sign(
     {
       sub: user.id,
       userId: user.id,
       companyId: user.company_id,
       role: user.role,
+      jti,
     },
     secret,
     signOptions,

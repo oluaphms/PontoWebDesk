@@ -1,4 +1,4 @@
-import './loadEnv.js';
+import '../loadEnv.js';
 import { Pool } from 'pg';
 import { buildPgPoolConfig } from './pgConfig.js';
 

@@ -27,7 +27,8 @@ import {
   clearCurrentUserFromAllStorages,
 } from './services/supabaseClient';
 import { checkApiConnection } from './src/services/checkApiConnection';
-import { getToken } from './src/services/authToken';
+import { apiPost } from './src/services/api';
+import { clearToken, getToken } from './src/services/authToken';
 import { logSupabaseError } from './src/services/errorLogger';
 import { validateLogin } from './lib/validationSchemas';
 import {
@@ -1575,7 +1576,14 @@ const AppMain: React.FC = () => {
 
     const tenantScope = user ? { companyId: user.companyId, userId: user.id } : undefined;
 
-    // Zera estado React e storage local antes do signOut — evita RequireAuth em /admin/* e re-hidratação.
+    if (getToken()) {
+      try {
+        await apiPost('/auth/logout', {});
+      } catch {
+        // revogação no servidor é best-effort
+      }
+    }
+    clearToken();
     clearSession();
     try {
       clearCurrentUserFromAllStorages();

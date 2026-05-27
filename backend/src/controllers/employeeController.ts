@@ -7,10 +7,7 @@ import {
   validateEmployeePatch,
   type NormalizedEmployeeInput,
 } from '../utils/employeeValidation.js';
-
-function resolveCompanyId(req: AuthedRequest): string {
-  return String(req.query.companyId || req.auth?.companyId || req.body?.company_id || '').trim();
-}
+import { rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
 
 function mapRow(row: Record<string, unknown>) {
   return {
@@ -24,11 +21,10 @@ function mapRow(row: Record<string, unknown>) {
 }
 
 export async function listEmployeesController(req: AuthedRequest, res: Response): Promise<void> {
-  const companyId = resolveCompanyId(req);
-  if (!companyId) {
-    res.json({ ok: true, employees: [] });
-    return;
-  }
+  if (rejectTenantOverride(req, res)) return;
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+
   try {
     const result = await pool.query(
       `select ${EMPLOYEE_SELECT_COLUMNS} from employees where company_id = $1 order by created_at desc limit 1000`,
@@ -42,7 +38,10 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
 }
 
 export async function createEmployeeController(req: AuthedRequest, res: Response): Promise<void> {
-  const companyId = resolveCompanyId(req);
+  if (rejectTenantOverride(req, res)) return;
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+
   const validation = validateEmployeeCreate(req.body, companyId);
   if (!validation.ok) {
     res.status(400).json({ ok: false, error: validation.error, field: validation.field });
@@ -108,9 +107,12 @@ const PATCHABLE: (keyof NormalizedEmployeeInput)[] = [
 ];
 
 export async function updateEmployeeController(req: AuthedRequest, res: Response): Promise<void> {
-  const companyId = resolveCompanyId(req);
+  if (rejectTenantOverride(req, res)) return;
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+
   const id = String(req.params.id || '').trim();
-  if (!companyId || !id) {
+  if (!id) {
     res.status(400).json({ ok: false, error: 'missing_fields' });
     return;
   }
@@ -161,9 +163,12 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
 }
 
 export async function deleteEmployeeController(req: AuthedRequest, res: Response): Promise<void> {
-  const companyId = resolveCompanyId(req);
+  if (rejectTenantOverride(req, res)) return;
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+
   const id = String(req.params.id || '').trim();
-  if (!companyId || !id) {
+  if (!id) {
     res.status(400).json({ ok: false, error: 'missing_fields' });
     return;
   }
