@@ -414,30 +414,10 @@ class SupabaseService {
    * Upload de foto
    */
   async uploadPhoto(userId: string, photoBase64: string): Promise<string> {
-    if (!isSupabaseConfigured()) {
-      // Retornar base64 como está (fallback)
-      return photoBase64;
-    }
-
-    try {
-      // Converter base64 para Blob
-      const base64Data = photoBase64.split(',')[1] || photoBase64;
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'image/jpeg' });
-      
-      const relativePath = `${userId}/${Date.now()}.jpg`;
-      await storage.upload('photos', relativePath, blob);
-      return storage.getPublicUrl('photos', relativePath);
-    } catch (error) {
-      console.error('Erro ao fazer upload da foto:', error);
-      // Fallback para base64
-      return photoBase64;
-    }
+    const { uploadPhotoViaApi } = await import('../src/services/uploadPhotoApi');
+    const result = await uploadPhotoViaApi({ dataUrl: photoBase64, kind: 'punch', filename: `${userId}/punch.jpg` });
+    if (result.ok) return result.url;
+    throw new Error(result.error || 'Falha ao enviar foto');
   }
 
   /**

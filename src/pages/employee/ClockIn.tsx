@@ -497,12 +497,12 @@ const EmployeeClockIn: React.FC = () => {
           toast.addToast('error', uploaded.error);
           return;
         } else {
-          photoUrl = localPhotoDataUrl;
+          photoUrl = null;
           toast.addToast(
-            'info',
+            'warning',
             uploaded.transientFailure
-              ? 'Rede instável: foto mantida no registro; tente novamente mais tarde para sincronizar o arquivo.'
-              : 'Não foi possível enviar a foto ao servidor; o registro segue com referência local.'
+              ? 'Rede instável: ponto registrado sem foto. Tente novamente quando a conexão estabilizar.'
+              : uploaded.error || 'Não foi possível enviar a foto; o ponto foi registrado sem imagem.'
           );
         }
       }

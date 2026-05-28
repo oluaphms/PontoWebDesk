@@ -22,6 +22,11 @@ import { resolveRequestUrl } from '../../api/_shared/getRequestBaseUrl.js';
 import { getSupabaseConfig } from '../../api/_shared/getSupabaseConfig.js';
 import { handleRepPunchRpcLite } from '../../api/_shared/repPunchRpcLite.js';
 import { noCache } from '../../api/_shared/cache.js';
+import {
+  readBlobWithLimit,
+  validateAfdUpload,
+} from '../../src/shared/upload/fileValidation.js';
+import { UPLOAD_LIMITS } from '../../src/shared/upload/limits.js';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
@@ -543,6 +548,26 @@ async function handleImportAfd(request: Request): Promise<Response> {
       } catch {
         fileContent = body.content as string;
       }
+      const byteLen = new TextEncoder().encode(fileContent).length;
+      if (byteLen > UPLOAD_LIMITS.afdImport) {
+        return repJson(
+          { error: 'Arquivo excede o limite de 10 MB.', code: 'FILE_TOO_LARGE' },
+          { status: 413, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+        );
+      }
+      const head = new TextEncoder().encode(fileContent.slice(0, 2048));
+      const afdCheck = validateAfdUpload({
+        filename: body.filename || 'import.txt',
+        declaredMime: 'text/plain',
+        size: byteLen,
+        head,
+      });
+      if (afdCheck.ok === false) {
+        return repJson(
+          { error: afdCheck.message, code: afdCheck.code },
+          { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+        );
+      }
     } else {
       return repJson({ error: 'content obrigatório no body JSON' }, { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } });
     }
@@ -556,7 +581,27 @@ async function handleImportAfd(request: Request): Promise<Response> {
     if (!companyId || !file) {
       return repJson({ error: 'company_id e file obrigatórios' }, { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } });
     }
-    fileContent = await file.text();
+    const head = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
+    const afdCheck = validateAfdUpload({
+      filename: file.name || 'import.txt',
+      declaredMime: file.type || '',
+      size: file.size,
+      head,
+    });
+    if (afdCheck.ok === false) {
+      return repJson(
+        { error: afdCheck.message, code: afdCheck.code },
+        { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+      );
+    }
+    try {
+      fileContent = await readBlobWithLimit(file, UPLOAD_LIMITS.afdImport);
+    } catch {
+      return repJson(
+        { error: 'Arquivo excede o limite de 10 MB.', code: 'FILE_TOO_LARGE' },
+        { status: 413, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+      );
+    }
   } else {
     return repJson(
       { error: 'Content-Type deve ser application/json ou multipart/form-data' },

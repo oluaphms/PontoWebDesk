@@ -73,7 +73,13 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
 
     const result = await insertPunchSafe(merged);
     if (!result.success) {
-      res.status(400).json({ ok: false, error: 'invalid_punch', result });
+      const hasPhoto = merged.photo_url != null || merged.photoUrl != null;
+      res.status(400).json({
+        ok: false,
+        error: hasPhoto ? 'invalid_photo_url' : 'invalid_punch',
+        message: hasPhoto ? 'URL da foto inválida ou não permitida.' : undefined,
+        result,
+      });
       return;
     }
     res.json({ ok: true, result });

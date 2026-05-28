@@ -1,5 +1,6 @@
 import { pool } from '../db/index.js';
 import { getPunchColumns } from './punchSchema.js';
+import { validatePhotoUrl } from '../upload/fileValidation.js';
 
 type PunchInput = {
   client_id?: string;
@@ -34,6 +35,13 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
     return { success: false, punch_hash: punchHash };
   }
 
+  const rawPhoto = punch.photo_url ?? punch.photoUrl;
+  const photoCheck = validatePhotoUrl(rawPhoto == null ? null : String(rawPhoto));
+  if (!photoCheck.ok) {
+    return { success: false, punch_hash: punchHash };
+  }
+  const photoUrl = 'url' in photoCheck ? photoCheck.url || null : null;
+
   const cols = await getPunchColumns();
   const client = await pool.connect();
   try {
@@ -48,11 +56,31 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
     }
 
     if (cols.mode === 'api_legacy') {
+      const payload = { ...punch, punch_hash: punchHash, photo_url: photoUrl };
       const inserted = await client.query(
         `insert into punches (company_id, user_id, type, timestamp, punch_hash, payload)
          values ($1, $2, $3, $4, $5, $6)
          returning id`,
-        [companyId, userId, type, timestamp, punchHash, JSON.stringify(punch)],
+        [companyId, userId, type, timestamp, punchHash, JSON.stringify(payload)],
+      );
+      return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
+    }
+
+    if (cols.hasPhotoUrl) {
+      const inserted = await client.query(
+        `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data, photo_url)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
+         returning id`,
+        [
+          userId,
+          companyId,
+          type,
+          String(punch.method || 'api').trim() || 'api',
+          timestamp,
+          String(punch.source || 'web').trim() || 'web',
+          JSON.stringify({ ...punch, punch_hash: punchHash }),
+          photoUrl,
+        ],
       );
       return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
     }
@@ -61,7 +89,15 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
       `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data)
        values ($1, $2, $3, $4, $5, $6, $7)
        returning id`,
-      [userId, companyId, type, 'api', timestamp, 'web', JSON.stringify({ ...punch, punch_hash: punchHash })],
+      [
+        userId,
+        companyId,
+        type,
+        String(punch.method || 'api').trim() || 'api',
+        timestamp,
+        String(punch.source || 'web').trim() || 'web',
+        JSON.stringify({ ...punch, punch_hash: punchHash, photo_url: photoUrl }),
+      ],
     );
     return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
   } finally {

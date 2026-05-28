@@ -2,6 +2,7 @@
  * Camada db → API HTTP (VPS). Substitui PostgREST/Supabase no frontend.
  */
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './api';
+import { uploadPhotoViaApi } from './uploadPhotoApi';
 
 export type FilterOperator =
   | 'eq'
@@ -221,17 +222,48 @@ export const db = {
 
 type DbInterface = typeof db;
 
+const uploadedPhotoUrls = new Map<string, string>();
+
+function photoUploadKey(bucket: string, path: string): string {
+  return `${bucket}/${path}`;
+}
+
+async function uploadToPhotosApi(
+  bucket: string,
+  path: string,
+  file: File | Blob,
+): Promise<string> {
+  if (bucket !== 'photos') {
+    throw new ApiError('bucket_not_supported', 400, null);
+  }
+  const kind = path.includes('avatar') ? 'avatar' : 'punch';
+  const f = file instanceof File ? file : new File([file], path.split('/').pop() || 'photo.jpg', { type: 'image/jpeg' });
+  const result = await uploadPhotoViaApi({ file: f, kind });
+  if (!result.ok) {
+    throw new ApiError(result.error, 400, null);
+  }
+  uploadedPhotoUrls.set(photoUploadKey(bucket, path), result.url);
+  return result.url;
+}
+
 export const storage = {
-  from: (_bucket: string) => ({
-    upload: async () => {
-      throw new ApiError('storage_upload_not_available_use_api', 501, null);
+  from: (bucket: string) => ({
+    upload: async (path: string, file: File | Blob) => {
+      await uploadToPhotosApi(bucket, path, file);
     },
-    getPublicUrl: () => ({ data: { publicUrl: '' } }),
+    getPublicUrl: (path: string) => ({
+      data: {
+        publicUrl:
+          uploadedPhotoUrls.get(photoUploadKey(bucket, path)) ||
+          (path.startsWith('http') ? path : ''),
+      },
+    }),
   }),
-  upload: async () => {
-    throw new ApiError('storage_upload_not_available_use_api', 501, null);
+  upload: async (bucket: string, path: string, file: File | Blob) => {
+    await uploadToPhotosApi(bucket, path, file);
   },
-  getPublicUrl: () => '',
+  getPublicUrl: (bucket: string, path: string) =>
+    uploadedPhotoUrls.get(photoUploadKey(bucket, path)) || (path.startsWith('http') ? path : ''),
 };
 
 export const auth = {

@@ -546,8 +546,11 @@ const AdminEmployees: React.FC = () => {
     delete cfg.perifericos;
     delete cfg.dados_web;
 
-    if (form.photo_preview) cfg.photo_url = form.photo_preview;
-    else delete cfg.photo_url;
+    if (form.photo_preview && !form.photo_preview.startsWith('data:')) {
+      cfg.photo_url = form.photo_preview;
+    } else {
+      delete cfg.photo_url;
+    }
 
     if (form.afastamento_inicio && form.afastamento_fim) {
       cfg.afastamentos = [{
@@ -1042,8 +1045,13 @@ const AdminEmployees: React.FC = () => {
   const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
+    if (file.size > 2 * 1024 * 1024) return;
     const reader = new FileReader();
-    reader.onload = () => setForm((f) => ({ ...f, photo_preview: reader.result as string }));
+    reader.onload = () => {
+      const result = reader.result as string;
+      if (!result.startsWith('data:image/')) return;
+      setForm((f) => ({ ...f, photo_preview: result }));
+    };
     reader.readAsDataURL(file);
     e.target.value = '';
   };

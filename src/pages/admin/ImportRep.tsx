@@ -5,6 +5,8 @@ import PageHeader from '../../components/PageHeader';
 import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { buscarFiltrosEspelhoAdmin } from '../../../services/api';
 import { buildApiUrl } from '../../services/api';
+import { readFileHead, validateAfdUpload } from '../../shared/upload/fileValidation';
+import { UPLOAD_LIMITS } from '../../shared/upload/limits';
 import { LoadingState, Button } from '../../../components/UI';
 import { Upload, FileText, X } from 'lucide-react';
 
@@ -68,14 +70,40 @@ const AdminImportRep: React.FC = () => {
     };
   }, [user?.companyId]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    setFile(f || null);
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    const head = await readFileHead(f);
+    const check = validateAfdUpload({
+      filename: f.name,
+      declaredMime: f.type,
+      size: f.size,
+      head,
+    });
+    if (check.ok === false) {
+      setResult({ imported: 0, duplicated: 0, user_not_found: 0, errors: [check.message] });
+      setFile(null);
+      e.target.value = '';
+      return;
+    }
+    setFile(f);
     setResult(null);
   };
 
   const handleUpload = async () => {
     if (!file || !user?.companyId) return;
+    if (file.size > UPLOAD_LIMITS.afdImport) {
+      setResult({
+        imported: 0,
+        duplicated: 0,
+        user_not_found: 0,
+        errors: ['Arquivo excede o limite de 10 MB.'],
+      });
+      return;
+    }
     setUploading(true);
     setResult(null);
     try {

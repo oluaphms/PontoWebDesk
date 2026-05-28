@@ -3,8 +3,8 @@
  */
 
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { ClockAdapter, DeviceConfig, NormalizedRecord } from './types';
+import { safeResolveAfdFile } from '../../agent/utils/safeResolvePath.js';
 import { normalizeAfdTextToRecords } from './dimep/afd-parser';
 
 const DEFAULT_TZ = 'America/Sao_Paulo';
@@ -29,8 +29,8 @@ function readAfdContent(device: DeviceConfig): string | null {
   }
   const filePath = typeof ex.afd_file === 'string' ? ex.afd_file.trim() : '';
   if (filePath) {
-    const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
-    if (fs.existsSync(resolved)) {
+    const resolved = safeResolveAfdFile(filePath);
+    if (resolved && fs.existsSync(resolved)) {
       return fs.readFileSync(resolved, 'utf8');
     }
   }

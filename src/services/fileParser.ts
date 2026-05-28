@@ -6,6 +6,7 @@
 
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { readFileHead, validateImportDocument } from '../shared/upload/fileValidation';
 
 export type ParsedRow = Record<string, string>;
 
@@ -215,6 +216,17 @@ async function parseDOC(file: File): Promise<ParsedRow[]> {
  * Aceita arquivos mesmo quando o navegador envia type vazio ou application/octet-stream.
  */
 export async function parseFile(file: File): Promise<ParsedRow[]> {
+  const head = await readFileHead(file, 16);
+  const docCheck = validateImportDocument({
+    filename: file.name,
+    declaredMime: file.type,
+    size: file.size,
+    head,
+  });
+  if (docCheck.ok === false) {
+    throw new Error(docCheck.message);
+  }
+
   const parts = file.name.split('.');
   const ext = (parts.length > 1 ? parts[parts.length - 1] : '').toLowerCase();
   const mime = (file.type || '').toLowerCase();

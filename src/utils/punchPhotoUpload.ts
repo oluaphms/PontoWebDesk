@@ -3,6 +3,7 @@
  */
 
 import { messageFromUnknown } from './messageFromUnknown';
+import { uploadPhotoViaApi } from '../services/uploadPhotoApi';
 
 export type PunchStorage = {
   upload: (bucket: string, path: string, file: File) => Promise<unknown>;
@@ -71,6 +72,14 @@ export async function uploadPunchPhotoWithRetry(
   const validation = validatePunchImageDataUrl(dataUrl);
   if (validation.ok === false) {
     return { publicUrl: null, error: validation.message, transientFailure: false };
+  }
+
+  const apiUpload = await uploadPhotoViaApi({ dataUrl, kind: 'punch' });
+  if (apiUpload.ok) {
+    return { publicUrl: apiUpload.url, error: null, transientFailure: false };
+  }
+  if (!isTransientUploadError(new Error(apiUpload.error))) {
+    return { publicUrl: null, error: apiUpload.error, transientFailure: false };
   }
 
   const maxRetries = opts?.maxRetries ?? 3;

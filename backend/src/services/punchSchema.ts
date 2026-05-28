@@ -3,6 +3,7 @@ import { pool } from '../db/index.js';
 type PunchColumns = {
   mode: 'api_legacy' | 'supabase';
   hasPunchHash: boolean;
+  hasPhotoUrl: boolean;
 };
 
 let cached: PunchColumns | null = null;
@@ -18,6 +19,7 @@ export async function getPunchColumns(): Promise<PunchColumns> {
   cached = {
     mode: hasEmployeeId ? 'supabase' : 'api_legacy',
     hasPunchHash: names.has('punch_hash'),
+    hasPhotoUrl: names.has('photo_url'),
   };
   return cached;
 }

@@ -20,6 +20,7 @@ import {
   type ValidatedRow,
   TEMPLATE_HEADERS,
 } from '../../services/importEmployeesService';
+import { readFileHead, validateImportDocument } from '../../shared/upload/fileValidation';
 
 function normalizeHeader(h: string): string {
   return h
@@ -127,6 +128,18 @@ const ImportEmployeesPage: React.FC = () => {
     const f = e.target.files?.[0];
     if (!f || !user?.companyId) return;
     setError(null);
+    const head = await readFileHead(f);
+    const docCheck = validateImportDocument({
+      filename: f.name,
+      declaredMime: f.type,
+      size: f.size,
+      head,
+    });
+    if (docCheck.ok === false) {
+      setError(docCheck.message);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setFile(f);
     setLoadingParse(true);
     try {

@@ -4,6 +4,7 @@ import employeeRoutes from './employeeRoutes.js';
 import punchRoutes from './punchRoutes.js';
 import dataRoutes from './dataRoutes.js';
 import adminRoutes from './adminRoutes.js';
+import uploadRoutes from './uploadRoutes.js';
 import { pool } from '../db/index.js';
 
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
@@ -34,5 +35,6 @@ apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/employees', employeeRoutes);
 apiRouter.use('/punches', punchRoutes);
 apiRouter.use('/data', dataRoutes);
+apiRouter.use('/uploads', uploadRoutes);
 
 export default apiRouter;

@@ -6,6 +6,7 @@ import { getSupabaseConfig } from './getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
 import { PUNCH_SOURCE_WEB } from '../../src/constants/punchSource.js';
+import { validatePhotoUrl } from '../../src/shared/upload/fileValidation.js';
 
 const RPC_SECURE = 'rep_register_punch_secure';
 const MAX_BATCH = 25;
@@ -103,6 +104,13 @@ export async function handleWebPunchesBatch(request: Request): Promise<Response>
       continue;
     }
 
+    const rawPhoto = row.photoUrl ?? row.photo_url ?? null;
+    const photoCheck = validatePhotoUrl(rawPhoto == null ? null : String(rawPhoto));
+    if (photoCheck.ok === false) {
+      results.push({ client_id: clientId, success: false, error: photoCheck.message });
+      continue;
+    }
+
     try {
       const { data, error } = await supabase.rpc(RPC_SECURE, {
         p_user_id: userId,
@@ -111,7 +119,7 @@ export async function handleWebPunchesBatch(request: Request): Promise<Response>
         p_method: method,
         p_record_id: (row.recordId as string) || null,
         p_location: row.location ?? null,
-        p_photo_url: row.photoUrl ?? null,
+        p_photo_url: photoCheck.url || null,
         p_source: row.source || PUNCH_SOURCE_WEB,
         p_latitude: row.latitude ?? null,
         p_longitude: row.longitude ?? null,

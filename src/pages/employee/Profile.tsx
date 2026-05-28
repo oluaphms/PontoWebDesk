@@ -59,6 +59,11 @@ const EmployeeProfile: React.FC = () => {
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !storage || !isSupabaseConfigured()) return;
+    if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
+      console.warn('Avatar: tipo ou tamanho inválido (máx. 2 MB, imagem).');
+      e.target.value = '';
+      return;
+    }
     setUploadingPhoto(true);
     try {
       const path = `${user.id}/avatar-${Date.now()}.jpg`;
