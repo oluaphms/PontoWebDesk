@@ -20,6 +20,7 @@
     "db:data:validate": "node scripts/data-migration/validate-migration.mjs",
     "db:data:count": "node scripts/data-migration/count-vps-tables.mjs",
     "db:inspect-dump": "node scripts/data-migration/inspect-dump.mjs",
+    "db:align-dump-schema": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=0 -f scripts/data-migration/align-schema-for-supabase-dump.sql",
     "test": "vitest run",
     "test:employees": "vitest run src/utils/employeeValidation.test.ts"
   },
