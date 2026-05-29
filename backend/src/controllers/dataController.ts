@@ -5,13 +5,15 @@ import { normalizeRole, requireCompanyId } from '../utils/authContext.js';
 import { logAuthDenied } from '../services/authAuditService.js';
 import {
   ALLOWED_TABLES,
-  applyTenantToRow,
   isTableReadable,
   isTableWritable,
   tableHasTenantScope,
-  tenantScopeSql,
 } from '../utils/dataTablePolicy.js';
-import { filterRowToTableSchema } from '../utils/dataRowSchema.js';
+import {
+  applyTenantToRowAsync,
+  filterRowToTableSchema,
+  tenantScopeSqlForTable,
+} from '../utils/dataRowSchema.js';
 
 const ALLOWED_OPS = new Set([
   'eq',
@@ -44,11 +46,11 @@ function parseFilters(raw: string | undefined): FilterInput[] {
   }
 }
 
-function buildWhere(
+async function buildWhere(
   table: string,
   filters: FilterInput[],
   companyId: string,
-): { clause: string; params: unknown[] } {
+): Promise<{ clause: string; params: unknown[] }> {
   const parts: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
@@ -58,9 +60,12 @@ function buildWhere(
       (f) => f.column === 'company_id' || f.column === 'tenant_id',
     );
     if (!hasCompanyFilter) {
-      parts.push(tenantScopeSql(idx));
-      params.push(companyId);
-      idx += 1;
+      const tenantClause = await tenantScopeSqlForTable(table, idx);
+      if (tenantClause) {
+        parts.push(tenantClause);
+        params.push(companyId);
+        idx += 1;
+      }
     }
   }
 
@@ -154,7 +159,7 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
   const orderCol = safeIdent(String(req.query.orderColumn || 'created_at'));
   const orderAsc = req.query.orderAsc !== 'false';
 
-  const { clause, params } = buildWhere(table, filters, companyId);
+  const { clause, params } = await buildWhere(table, filters, companyId);
   const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
 
   try {
@@ -179,7 +184,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const scoped = applyTenantToRow(table, raw, companyId);
+  const scoped = await applyTenantToRowAsync(table, raw, companyId);
   const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k));
   if (!keys.length) {
@@ -194,8 +199,9 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     const result = await pool.query(sql, values);
     res.json({ ok: true, data: result.rows[0] });
   } catch (e) {
-    console.error('[DATA INSERT]', table, e);
-    res.status(500).json({ ok: false, error: 'insert_failed' });
+    const pgMsg = e instanceof Error ? e.message : String(e);
+    console.error('[DATA INSERT]', table, pgMsg, e);
+    res.status(500).json({ ok: false, error: 'insert_failed', message: pgMsg });
   }
 }
 
@@ -212,7 +218,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const scoped = applyTenantToRow(table, raw, companyId);
+  const scoped = await applyTenantToRowAsync(table, raw, companyId);
   const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
   if (!keys.length) {
@@ -224,8 +230,10 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
 
   const tenantIdx = keys.length + 1;
   const idIdx = keys.length + 2;
-  const tenantClause = tableHasTenantScope(table) ? ` AND ${tenantScopeSql(tenantIdx)}` : '';
-  const params = [...values, ...(tableHasTenantScope(table) ? [companyId] : []), id];
+  const tenantScope =
+    tableHasTenantScope(table) ? await tenantScopeSqlForTable(table, tenantIdx) : null;
+  const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
+  const params = [...values, ...(tenantScope ? [companyId] : []), id];
 
   try {
     const sql = `UPDATE public.${table} SET ${sets} WHERE id = $${idIdx}${tenantClause} RETURNING *`;
@@ -254,8 +262,10 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   try {
-    const tenantClause = tableHasTenantScope(table) ? ` AND ${tenantScopeSql(2)}` : '';
-    const params = tableHasTenantScope(table) ? [id, companyId] : [id];
+    const tenantScope =
+      tableHasTenantScope(table) ? await tenantScopeSqlForTable(table, 2) : null;
+    const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
+    const params = tenantScope ? [id, companyId] : [id];
     const result = await pool.query(
       `DELETE FROM public.${table} WHERE id = $1${tenantClause} RETURNING id`,
       params,
@@ -283,7 +293,7 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
   if (companyId === null) return;
 
   const filters = parseFilters(typeof req.query.filters === 'string' ? req.query.filters : undefined);
-  const { clause, params } = buildWhere(table, filters, companyId);
+  const { clause, params } = await buildWhere(table, filters, companyId);
   try {
     const sql = `SELECT count(*)::int AS c FROM public.${table} ${clause}`;
     const result = await pool.query(sql, params);

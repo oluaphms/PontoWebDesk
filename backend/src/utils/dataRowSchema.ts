@@ -1,8 +1,41 @@
 import { pool } from '../db/index.js';
+import { tableHasTenantScope } from './dataTablePolicy.js';
 
 type ColumnMeta = { name: string; dataType: string };
 
 const tableColumnsCache = new Map<string, ColumnMeta[]>();
+
+export async function tableHasColumn(table: string, column: string): Promise<boolean> {
+  const cols = await loadTableColumns(table);
+  return cols.some((c) => c.name === column);
+}
+
+/** WHERE tenant: só colunas que existem na tabela (evita erro em rep_devices sem tenant_id). */
+export async function tenantScopeSqlForTable(
+  table: string,
+  paramIndex: number,
+): Promise<string | null> {
+  const hasCompany = await tableHasColumn(table, 'company_id');
+  const hasTenant = await tableHasColumn(table, 'tenant_id');
+  if (hasCompany && hasTenant) {
+    return `(company_id = $${paramIndex} OR tenant_id = $${paramIndex})`;
+  }
+  if (hasCompany) return `company_id = $${paramIndex}`;
+  if (hasTenant) return `tenant_id = $${paramIndex}`;
+  return null;
+}
+
+export async function applyTenantToRowAsync(
+  table: string,
+  row: Record<string, unknown>,
+  companyId: string,
+): Promise<Record<string, unknown>> {
+  if (!tableHasTenantScope(table) || !companyId) return row;
+  const next = { ...row };
+  if (await tableHasColumn(table, 'company_id')) next.company_id = companyId;
+  if (await tableHasColumn(table, 'tenant_id')) next.tenant_id = companyId;
+  return next;
+}
 
 async function loadTableColumns(table: string): Promise<ColumnMeta[]> {
   const cached = tableColumnsCache.get(table);
@@ -42,7 +75,10 @@ export async function filterRowToTableSchema(
   row: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const columns = await loadTableColumns(table);
-  if (!columns.length) return row;
+  if (!columns.length) {
+    console.error('[dataRowSchema] no columns found for table', table);
+    return {};
+  }
 
   const byName = new Map(columns.map((c) => [c.name, c.dataType]));
   const out: Record<string, unknown> = {};

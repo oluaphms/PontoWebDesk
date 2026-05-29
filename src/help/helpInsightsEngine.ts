@@ -35,40 +35,41 @@ export function buildHelpInsightsFromContext(ctx: HelpInsightsContext): HelpInsi
 }
 
 /**
- * Consultas leves no Supabase para sugestões baseadas na documentação.
+ * Consultas leves para sugestões baseadas na documentação (API VPS ou Supabase).
  */
 export async function fetchHelpInsights(companyId: string): Promise<HelpInsight[]> {
   const insights: HelpInsight[] = [];
   if (!companyId || !isSupabaseConfigured()) return insights;
 
   try {
-    const { data: users, error: usersErr } = await db
-      .from('users')
-      .select('id, schedule_id, shift_id, ativo')
-      .eq('company_id', companyId)
-      .eq('ativo', true);
+    const users = await db.select<{ schedule_id?: string; shift_id?: string }>(
+      'users',
+      [
+        { column: 'company_id', operator: 'eq', value: companyId },
+        { column: 'ativo', operator: 'eq', value: true },
+      ],
+      undefined,
+      500,
+    );
 
-    if (!usersErr && users) {
-      const withoutJourney = users.filter((u) => !u.schedule_id && !u.shift_id);
-      if (withoutJourney.length > 0) {
-        insights.push({
-          id: 'employees-no-schedule',
-          severity: 'warning',
-          message: `${withoutJourney.length} colaborador(es) sem escala ou horário definido`,
-          doc: 'jornada',
-          section: 'erros-comuns',
-          count: withoutJourney.length,
-        });
-      }
+    const withoutJourney = users.filter((u) => !u.schedule_id && !u.shift_id);
+    if (withoutJourney.length > 0) {
+      insights.push({
+        id: 'employees-no-schedule',
+        severity: 'warning',
+        message: `${withoutJourney.length} colaborador(es) sem escala ou horário definido`,
+        doc: 'jornada',
+        section: 'erros-comuns',
+        count: withoutJourney.length,
+      });
     }
 
-    const { count: repPending, error: repErr } = await db
-      .from('rep_punch_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('company_id', companyId)
-      .is('time_record_id', null);
+    const repPending = await db.count('rep_punch_logs', [
+      { column: 'company_id', operator: 'eq', value: companyId },
+      { column: 'time_record_id', operator: 'is', value: null },
+    ]);
 
-    if (!repErr && repPending && repPending > 0) {
+    if (repPending > 0) {
       insights.push({
         id: 'rep-pending',
         severity: 'warning',
@@ -79,14 +80,17 @@ export async function fetchHelpInsights(companyId: string): Promise<HelpInsight[
       });
     }
 
-    const { data: balances, error: bhErr } = await db
-      .from('time_balance')
-      .select('user_id, balance_minutes')
-      .eq('company_id', companyId)
-      .lt('balance_minutes', 0)
-      .limit(100);
+    const balances = await db.select<{ user_id?: string }>(
+      'time_balance',
+      [
+        { column: 'company_id', operator: 'eq', value: companyId },
+        { column: 'balance_minutes', operator: 'lt', value: 0 },
+      ],
+      undefined,
+      100,
+    );
 
-    if (!bhErr && balances && balances.length > 0) {
+    if (balances.length > 0) {
       insights.push({
         id: 'bank-negative',
         severity: 'warning',

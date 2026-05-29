@@ -61,14 +61,20 @@ export const TENANT_TABLES = new Set([
   'timesheet_daily_snapshots',
   'employee_invites',
   'clock_event_logs',
-  'notifications',
   'user_schedules',
 ]);
+
+/** Escopo por user_id (sem company_id/tenant_id automático). */
+export const USER_SCOPED_TABLES = new Set(['notifications']);
 
 /** Somente admin/hr — sem filtro tenant automático ou dados globais sensíveis. */
 export const ADMIN_ONLY_TABLES = new Set(['companies', 'global_settings', 'devices']);
 
-export const ALLOWED_TABLES = new Set([...TENANT_TABLES, ...ADMIN_ONLY_TABLES]);
+export const ALLOWED_TABLES = new Set([
+  ...TENANT_TABLES,
+  ...USER_SCOPED_TABLES,
+  ...ADMIN_ONLY_TABLES,
+]);
 
 const WRITE_REQUIRES_ADMIN_HR = new Set([
   'users',
@@ -108,26 +114,20 @@ export function tableHasTenantScope(table: string): boolean {
   return TENANT_TABLES.has(table);
 }
 
-/** Força company_id/tenant_id do JWT em inserts/updates de tabelas tenant. */
+/**
+ * Força company_id do JWT em inserts/updates de tabelas tenant.
+ * tenant_id só é aplicado em applyTenantToRowAsync (dataRowSchema), se a coluna existir.
+ */
 export function applyTenantToRow(
   table: string,
   row: Record<string, unknown>,
   companyId: string,
 ): Record<string, unknown> {
   if (!tableHasTenantScope(table) || !companyId) return row;
-  const next = { ...row };
-  next.company_id = companyId;
-  if ('tenant_id' in next || tableHasTenantColumnAlias(table)) {
-    next.tenant_id = companyId;
-  }
-  return next;
+  return { ...row, company_id: companyId };
 }
 
-function tableHasTenantColumnAlias(table: string): boolean {
-  return TENANT_TABLES.has(table);
-}
-
-/** Cláusula SQL `(company_id = $n OR tenant_id = $n)` para WHERE. */
+/** @deprecated Use tenantScopeSqlForTable — evita referenciar tenant_id inexistente. */
 export function tenantScopeSql(paramIndex: number): string {
   return `(company_id = $${paramIndex} OR tenant_id = $${paramIndex})`;
 }

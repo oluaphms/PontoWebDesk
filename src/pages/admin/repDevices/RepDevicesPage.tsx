@@ -1,4 +1,4 @@
-// ⚠️ TOKEN-ONLY UI RULE
+﻿// ⚠️ TOKEN-ONLY UI RULE
 // Não utilizar classes visuais hardcoded (padding, radius, font, shadow).
 // Sempre utilizar uiTokens ou helpers centralizados.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -2264,8 +2264,11 @@ const AdminRepDevices: React.FC = () => {
   };
 
   const saveDevice = async () => {
-    if (!isSupabaseConfigured() || !getSupabaseClient()) {
-      setMessage({ type: 'error', text: 'Supabase não está configurado. Não é possível salvar o relógio.' });
+    if (!isSupabaseConfigured()) {
+      setMessage({
+        type: 'error',
+        text: 'Camada de dados não configurada (VITE_API_URL). Não é possível salvar o relógio.',
+      });
       return;
     }
     if (!user?.companyId) {
