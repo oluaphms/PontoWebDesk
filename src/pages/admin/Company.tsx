@@ -10,7 +10,7 @@ import { firestoreService } from '../../../services/firestoreService';
 import { clearTenantMetadataSyncCache } from '../../../services/authService';
 import { getUserProfileStorage } from '../../../services/supabase';
 import type { Company } from '../../../types';
-import { SYSTEM_CONFIG } from '../../config/system';
+import { isLocalApiDataProvider } from '../../config/system';
 
 /** Campos obrigatórios pela Portaria 1510 */
 const PORTARIA_1510_FIELDS = ['name', 'cnpj', 'endereco', 'bairro', 'cidade', 'estado', 'cei'] as const;
@@ -76,7 +76,6 @@ const AdminCompany: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   /** Exibir seção "Configuração do Módulo Web na Nuvem" (quando permitir inclusão de ponto manual) */
   const [showWebModuleConfig, setShowWebModuleConfig] = useState(true);
-  const offlineMode = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
 
   useEffect(() => {
     if (!user) return;
@@ -260,70 +259,45 @@ const AdminCompany: React.FC = () => {
           updated_at: new Date().toISOString(),
         };
         try {
-          if (supabase) {
-            const { error: updateError } = await supabase
-              .from('companies')
-              .update({
-                name: payload.name,
-                nome: payload.nome,
-                cnpj: payload.cnpj,
-                inscricao_estadual: payload.inscricao_estadual,
-                responsavel_nome: payload.responsavel_nome,
-                responsavel_cargo: payload.responsavel_cargo,
-                responsavel_email: payload.responsavel_email,
-                address: payload.address,
-                endereco: payload.endereco,
-                bairro: payload.bairro,
-                cidade: payload.cidade,
-                cep: payload.cep,
-                estado: payload.estado,
-                pais: payload.pais,
-                phone: payload.phone,
-                telefone: payload.telefone,
-                fax: payload.fax,
-                cei: payload.cei,
-                numero_folha: payload.numero_folha,
-                receipt_fields: payload.receipt_fields,
-                use_default_timezone: payload.use_default_timezone,
-                timezone: payload.timezone,
-                cartao_ponto_footer: payload.cartao_ponto_footer,
-                updated_at: payload.updated_at,
-              })
-              .eq('id', idToUse);
-            if (updateError) {
-              console.error('Erro ao salvar empresa:', updateError);
-              setMessage({
-                type: 'error',
-                text: updateError.message?.includes('cartao_ponto_footer')
-                  ? 'Não foi possível salvar. Execute a migration que adiciona a coluna cartao_ponto_footer na tabela companies (supabase/migrations) e tente novamente.'
-                  : 'Não foi possível salvar as alterações da empresa.',
-              });
-              return;
-            }
-          } else {
-            await db.update('companies', idToUse, payload);
-          }
-        } catch (err: any) {
-          console.error('Erro ao salvar empresa:', err);
-          setMessage({
-            type: 'error',
-            text: err?.message?.includes('cartao_ponto_footer')
-              ? 'Não foi possível salvar. Execute a migration que adiciona a coluna cartao_ponto_footer na tabela companies (supabase/migrations) e tente novamente.'
-              : (err?.message || 'Não foi possível salvar as alterações da empresa.'),
-          });
-          return;
-        }
-        try {
           const existing = await db.select('companies', [{ column: 'id', operator: 'eq', value: idToUse }]);
-          if (!existing?.length) {
+          if (existing?.length) {
+            await db.update('companies', idToUse, payload);
+          } else {
             await db.insert('companies', {
               id: idToUse,
+              slug: (form.name || 'empresa')
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, ''),
               ...payload,
               created_at: new Date().toISOString(),
             });
           }
-        } catch (insertErr) {
-          console.error('Erro ao criar empresa:', insertErr);
+        } catch (err: unknown) {
+          console.error('Erro ao salvar empresa:', err);
+          const msg = err instanceof Error ? err.message : String(err);
+          setMessage({
+            type: 'error',
+            text: msg.includes('cartao_ponto_footer')
+              ? 'Não foi possível salvar. Execute a migration que adiciona a coluna cartao_ponto_footer na tabela companies e tente novamente.'
+              : msg || 'Não foi possível salvar as alterações da empresa.',
+          });
+          return;
+        }
+        if (isLocalApiDataProvider()) {
+          try {
+            localStorage.setItem(
+              `company_${idToUse}`,
+              JSON.stringify({
+                id: idToUse,
+                name: form.name,
+                nome: form.name,
+                ...payload,
+              }),
+            );
+          } catch (err) {
+            console.warn('[Company] Falha ao cachear empresa localmente:', err);
+          }
         }
 
         if (!user.companyId) {
@@ -377,16 +351,6 @@ const AdminCompany: React.FC = () => {
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
-  if (offlineMode) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Empresa" helpSlug="empresa" />
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-          Funcionalidade disponível apenas online
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">

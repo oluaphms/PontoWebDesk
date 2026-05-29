@@ -6,7 +6,6 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
-import { SYSTEM_CONFIG } from '../../config/system';
 
 interface EstruturaRow {
   id: string;
@@ -38,8 +37,6 @@ const AdminEstruturas: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
-  const offlineMode = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
-
   const loadUsers = async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     try {
@@ -244,23 +241,6 @@ const AdminEstruturas: React.FC = () => {
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
-  if (offlineMode) {
-    return (
-      <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
-        <div className="space-y-6">
-          <PageHeader
-            helpSlug="estruturas"
-            title="Estruturas"
-            subtitle="Cadastro do organograma (cadeia de comando)."
-            icon={<GitBranch size={24} />}
-          />
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-            Funcionalidade disponível apenas online
-          </div>
-        </div>
-      </RoleGuard>
-    );
-  }
 
   return (
     <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
