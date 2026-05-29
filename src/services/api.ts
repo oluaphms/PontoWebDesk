@@ -1,3 +1,4 @@
+import { normalizeApiBase as normalizeApiBaseFromEnv } from '../config/env';
 import { clearToken, getToken, setToken } from './authToken';
 
 type UnauthorizedHandler = () => void;
@@ -8,25 +9,12 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
   unauthorizedHandler = handler;
 }
 
-const DEFAULT_API_BASE = 'http://177.7.51.209/api';
-
-function readEnvApiUrl(): string {
-  return (
-    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
-    (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim() ||
-    ''
-  );
-}
-
 /**
  * Base da API VPS — derivada de `VITE_API_URL` (deve terminar em `/api`).
  * Se o env vier só com o host (ex.: `https://api.phmsdev.com.br`), acrescenta `/api`.
  */
 export function normalizeApiBase(raw?: string): string {
-  const trimmed = (raw ?? readEnvApiUrl()).replace(/\/+$/, '');
-  if (!trimmed) return DEFAULT_API_BASE;
-  if (trimmed.endsWith('/api')) return trimmed;
-  return `${trimmed}/api`;
+  return normalizeApiBaseFromEnv(raw);
 }
 
 /** Base normalizada usada por todas as funções HTTP do frontend. */

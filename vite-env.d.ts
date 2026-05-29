@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** LOCAL_API (padrão) | SUPABASE (futuro) */
+  readonly VITE_DATA_PROVIDER?: string;
+  readonly VITE_API_URL?: string;
+  readonly VITE_LOCAL_API_BASE_URL?: string;
   readonly VITE_APP_URL?: string;
   readonly VITE_SUPABASE_REDIRECT?: string;
   readonly VITE_SUPABASE_URL?: string;

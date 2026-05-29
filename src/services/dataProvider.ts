@@ -1,7 +1,9 @@
-import { SYSTEM_CONFIG } from '../config/system';
+import { getDataProviderMode } from '../config/system';
 
 export const DATA_PROVIDER = {
-  mode: 'LOCAL_API' as const,
+  get mode() {
+    return getDataProviderMode();
+  },
 };
 
 export type ProviderLoginParams = {

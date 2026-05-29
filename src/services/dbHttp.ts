@@ -319,13 +319,16 @@ export const supabase = {
   rpc: (fn: string, args?: DbRow) => db.rpc(fn, args),
 };
 
-/** API VPS configurada — dados via HTTP (nome legado “Supabase”). */
+import { isDataLayerConfigured } from '../config/system';
+
+export { isApiConfigured, isSupabaseCloudEnvConfigured } from '../config/env';
+
+/**
+ * Camada de dados disponível (legado: nome “Supabase”).
+ * LOCAL_API → API VPS; SUPABASE → credenciais cloud (futuro).
+ */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(
-    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
-      (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim() ||
-      'http://177.7.51.209/api',
-  );
+  return isDataLayerConfigured();
 }
 
 export const checkSupabaseConfigured = isSupabaseConfigured;
