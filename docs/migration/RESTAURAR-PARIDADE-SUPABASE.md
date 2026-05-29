@@ -66,12 +66,17 @@ Copie o dump para a VPS (se ainda não estiver):
 scp backend\data\supabase-data.dump root@SEU_IP:/root/PontoWebDesk/backend/data/
 ```
 
-Na VPS:
+Na VPS (dump **1.16** exige **postgresql-client-17**; PG 16 não basta):
 
 ```bash
+sudo apt install -y postgresql-client-17
+export PGRESTORE=/usr/lib/postgresql/17/bin/pg_restore
 cd /root/PontoWebDesk/backend
+export DATABASE_URL='postgresql://...'
 bash scripts/data-migration/import-to-vps.sh data/supabase-data.dump
 ```
+
+Erro `unsupported version (1.16)` = `pg_restore` antigo. O script valida isso **antes** da limpeza nas versões recentes.
 
 ### 5. Senha de login (API JWT)
 

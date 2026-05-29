@@ -32,6 +32,38 @@ load_database_url() {
 load_database_url
 TARGET="${DATABASE_URL}"
 
+# Dump com pg_dump 17 usa formato custom 1.16 — só pg_restore 17+ lê (PG 16 não basta).
+pick_pg_restore() {
+  local candidate list_log
+  list_log="$(mktemp)"
+  for candidate in \
+    "${PGRESTORE:-}" \
+    /usr/lib/postgresql/17/bin/pg_restore \
+    /usr/lib/postgresql/16/bin/pg_restore \
+    pg_restore; do
+    [ -n "$candidate" ] || continue
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    if "$candidate" --list "$DUMP" >"$list_log" 2>&1; then
+      rm -f "$list_log"
+      echo "$candidate"
+      return 0
+    fi
+  done
+  if grep -q 'unsupported version' "$list_log" 2>/dev/null; then
+    echo "[import] ERRO: nenhum pg_restore lê este dump (formato 1.16 = pg_dump PostgreSQL 17)."
+    echo "[import] Na VPS: apt install -y postgresql-client-17"
+    echo "[import] Depois: export PGRESTORE=/usr/lib/postgresql/17/bin/pg_restore"
+    if command -v pg_restore >/dev/null 2>&1; then
+      echo "[import] pg_restore no PATH: $(pg_restore --version)"
+    fi
+  else
+    echo "[import] ERRO: pg_restore não conseguiu listar o dump:"
+    tail -n 5 "$list_log"
+  fi
+  rm -f "$list_log"
+  return 1
+}
+
 if [ ! -f "$DUMP" ]; then
   echo "[import] ERRO: ficheiro não encontrado: $DUMP"
   exit 1
@@ -47,6 +79,11 @@ fi
 echo "[import] Dump: $DUMP ($DUMP_SIZE bytes)"
 echo "[import] DB: $(echo "$TARGET" | sed -E 's#(postgresql://[^:]+:)[^@]+#\1***#')"
 
+if ! PG_RESTORE_BIN="$(pick_pg_restore)"; then
+  exit 1
+fi
+echo "[import] pg_restore: $PG_RESTORE_BIN ($("$PG_RESTORE_BIN" --version))"
+
 BACKUP="vps-pre-import-$(date +%Y%m%d-%H%M%S).dump"
 echo "[import] Backup VPS -> $BACKUP"
 if ! pg_dump "$TARGET" --format=custom --file="$BACKUP"; then
@@ -60,17 +97,28 @@ echo "[import] Limpeza pré-import..."
 psql "$TARGET" -v ON_ERROR_STOP=1 -f "$SCRIPT_DIR/pre-import-cleanup.sql"
 
 echo "[import] Restaurando dados (schema public apenas — ignora auth Supabase Cloud)..."
-pg_restore \
+set +e
+"$PG_RESTORE_BIN" \
   --data-only \
   --disable-triggers \
   --no-owner \
   --no-privileges \
   --schema=public \
   --dbname="$TARGET" \
-  "$DUMP" 2>&1 | tee /tmp/pg_restore-public.log || true
+  "$DUMP" 2>&1 | tee /tmp/pg_restore-public.log
+RESTORE_EXIT=$?
+set -e
 
-RESTORE_ERRORS=$(grep -c "pg_restore: error:" /tmp/pg_restore-public.log 2>/dev/null || echo 0)
-echo "[import] pg_restore terminou (erros reportados: $RESTORE_ERRORS — alguns em tabelas opcionais são normais)"
+if grep -q 'unsupported version' /tmp/pg_restore-public.log 2>/dev/null; then
+  echo "[import] ERRO FATAL: formato do dump incompatível com $PG_RESTORE_BIN"
+  exit 1
+fi
+if [ "$RESTORE_EXIT" -ne 0 ]; then
+  RESTORE_ERRORS=$(grep -c "pg_restore: error:" /tmp/pg_restore-public.log 2>/dev/null || echo 0)
+  echo "[import] AVISO: pg_restore saiu com código $RESTORE_EXIT (erros: $RESTORE_ERRORS — alguns em tabelas opcionais são normais)"
+else
+  echo "[import] pg_restore concluído sem erro fatal"
+fi
 
 echo "[import] Compatibilidade pós-import..."
 psql "$TARGET" -v ON_ERROR_STOP=0 -f "$SCRIPT_DIR/post-import-compat.sql"

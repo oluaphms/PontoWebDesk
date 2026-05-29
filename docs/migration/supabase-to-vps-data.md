@@ -10,7 +10,7 @@ Guia para copiar **todos os dados** do Supabase para a VPS, com schema já aplic
 |------|------------|
 | `SUPABASE_DATABASE_URL` | Supabase → Project Settings → Database → **Connection string** → **Direct** (porta **5432**) |
 | `DATABASE_URL` | VPS → `backend/.env` |
-| `pg_dump` / `pg_restore` / `psql` | PostgreSQL client 15+ (Windows: instalar PostgreSQL ou usar WSL) |
+| `pg_dump` / `pg_restore` / `psql` | **pg_restore 17+** se o dump foi criado com **pg_dump 17** (formato custom **1.16**). `pg_restore` 16 **não** lê 1.16. |
 
 Em `backend/.env`:
 
@@ -76,12 +76,24 @@ scp backend\data\supabase-data.dump root@177.7.51.209:/root/
 
 ## 4. Importar na VPS
 
+**Cliente PostgreSQL 17** (obrigatório para dumps com header **1.16**):
+
+```bash
+pg_restore --version
+# Se 16.x ainda falhar com "unsupported version (1.16)":
+sudo apt update && sudo apt install -y postgresql-client-17
+export PGRESTORE=/usr/lib/postgresql/17/bin/pg_restore
+$PGRESTORE --list /root/PontoWebDesk/backend/data/supabase-data.dump | head
+```
+
 ```bash
 cd /caminho/PontoWebDesk/backend
 export DATABASE_URL='postgresql://...'
 
 bash scripts/data-migration/import-to-vps.sh /root/supabase-data.dump
 ```
+
+Se o import falhou com `unsupported version` **depois** do `pre-import-cleanup`, o banco ficou vazio. Corrija o `pg_restore` e **rode o script de novo** (não precisa novo dump). Opcional: recuperar estado anterior com `vps-pre-import-*.dump` gerado no mesmo diretório.
 
 O script:
 
