@@ -69,57 +69,69 @@ async function companiesTableExists(client) {
   return (r.rowCount ?? 0) > 0;
 }
 
-async function companiesIdIsUuid(client) {
+/** 'uuid' | 'text' — companies.id sem DEFAULT exige valor explícito no INSERT. */
+async function companiesIdKind(client) {
   const r = await client.query(
-    `select data_type from information_schema.columns
+    `select data_type, udt_name from information_schema.columns
      where table_schema = 'public' and table_name = 'companies' and column_name = 'id'
      limit 1`,
   );
-  return r.rows[0]?.data_type === 'uuid';
+  const dataType = String(r.rows[0]?.data_type || '').toLowerCase();
+  const udtName = String(r.rows[0]?.udt_name || '').toLowerCase();
+  if (dataType === 'uuid' || udtName === 'uuid') return 'uuid';
+  return 'text';
 }
 
 /** Cria empresa demo quando o schema exige company_id UUID e a tabela está vazia. */
 async function createBootstrapCompany(client) {
   if (!(await companiesTableExists(client))) return null;
+  if (!(await tableHasColumn(client, 'companies', 'id'))) {
+    throw new Error('[seed-admin] Tabela companies sem coluna id.');
+  }
 
   const nome = (process.env.SEED_COMPANY_NAME || 'Empresa Demo').trim();
   const slugBase = (process.env.SEED_COMPANY_SLUG || 'empresa-demo').trim();
   const slug = `${slugBase}-${Date.now().toString(36)}`;
+  const idKind = await companiesIdKind(client);
 
-  const cols = [];
+  const cols = ['id'];
   const vals = [];
-  const idIsUuid = await companiesIdIsUuid(client);
+  const valueSql = [];
 
-  if (!idIsUuid && (await tableHasColumn(client, 'companies', 'id'))) {
-    cols.push('id');
+  if (idKind === 'uuid') {
+    valueSql.push('gen_random_uuid()');
+  } else {
     vals.push(`tnt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`);
+    valueSql.push(`$${vals.length}`);
   }
+
   if (await tableHasColumn(client, 'companies', 'nome')) {
     cols.push('nome');
     vals.push(nome);
+    valueSql.push(`$${vals.length}`);
   }
   if (await tableHasColumn(client, 'companies', 'name')) {
     cols.push('name');
     vals.push(nome);
+    valueSql.push(`$${vals.length}`);
   }
   if (await tableHasColumn(client, 'companies', 'slug')) {
     cols.push('slug');
     vals.push(slug);
+    valueSql.push(`$${vals.length}`);
   }
 
-  if (cols.length === 0) {
+  if (cols.length < 2) {
     throw new Error('[seed-admin] Tabela companies sem colunas reconhecidas (nome/name/slug).');
   }
 
-  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
-  const returning = (await tableHasColumn(client, 'companies', 'id')) ? ' returning id::text as id' : '';
   const ins = await client.query(
-    `insert into companies (${cols.join(', ')}) values (${placeholders})${returning}`,
+    `insert into companies (${cols.join(', ')}) values (${valueSql.join(', ')}) returning id::text as id`,
     vals,
   );
-  const id = ins.rows[0]?.id ?? vals[cols.indexOf('id')];
+  const id = ins.rows[0]?.id;
   if (!id) throw new Error('[seed-admin] INSERT em companies não devolveu id.');
-  console.log('[seed-admin] Empresa bootstrap criada:', id, `(${nome})`);
+  console.log('[seed-admin] Empresa bootstrap criada:', id, `(${nome})`, `[id.${idKind}]`);
   return String(id).trim();
 }
 
