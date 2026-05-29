@@ -14,12 +14,6 @@
     "paths": {
       "@/*": [
         "./src/*"
-      ],
-      "@supabase/supabase-js": [
-        "./src/types/supabaseShim.ts"
-      ],
-      "@supabase/auth-js": [
-        "./src/types/supabaseShim.ts"
       ]
     },
     "types": [

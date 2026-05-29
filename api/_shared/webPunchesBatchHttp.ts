@@ -119,7 +119,7 @@ export async function handleWebPunchesBatch(request: Request): Promise<Response>
         p_method: method,
         p_record_id: (row.recordId as string) || null,
         p_location: row.location ?? null,
-        p_photo_url: photoCheck.url || null,
+        p_photo_url: 'url' in photoCheck ? (photoCheck.url || null) : null,
         p_source: row.source || PUNCH_SOURCE_WEB,
         p_latitude: row.latitude ?? null,
         p_longitude: row.longitude ?? null,

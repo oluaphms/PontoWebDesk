@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/process-daily-time",
+      "destination": "/api/jobs/process-daily-time"
+    },
+    {
       "source": "/api/rep/devices/:id/sync-status",
       "destination": "/api/rep/sync-status?device_id=:id&lite=1"
     },
@@ -17,6 +21,10 @@
     }
   ],
   "routes": [
+    {
+      "src": "^/api/process-daily-time/?$",
+      "dest": "/api/jobs/process-daily-time"
+    },
     {
       "src": "^/api/lgpd(?:/(.*))?$",
       "dest": "/api/operational/lgpd/$1"

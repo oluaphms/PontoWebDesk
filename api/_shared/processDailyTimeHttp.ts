@@ -1,17 +1,15 @@
 /**
- * POST /api/process-daily-time
+ * POST /api/jobs/process-daily-time (legado: /api/process-daily-time)
  * Job diário (ex.: cron 23:59) para processar o ponto do dia.
- * Header: X-Cron-Secret: <CRON_SECRET>
- * Variáveis: SUPABASE_URL, URL_SUPABASE ou VITE_SUPABASE_URL (ver `getSupabaseUrlForServer`), SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET
  */
+import { createClient } from '@supabase/supabase-js';
+import { messageFromUnknown } from '../../src/utils/messageFromUnknown.js';
+import { getSupabaseConfig } from './getSupabaseConfig.js';
+import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
+import { noCache } from './cache.js';
 
-import { messageFromUnknown } from '../src/utils/messageFromUnknown';
-import { getSupabaseConfig } from './_shared/getSupabaseConfig.js';
-import { getSecureCorsHeaders, requireTrustedOrigin } from './_shared/security.js';
-import { noCache } from './_shared/cache.js';
-
-async function handler(request: Request): Promise<Response> {
-  const route = '/api/process-daily-time';
+export async function handleProcessDailyTime(request: Request): Promise<Response> {
+  const route = '/api/jobs/process-daily-time';
   const corsHeaders = getSecureCorsHeaders(request, {
     allowMethods: 'POST, OPTIONS',
     allowHeaders: 'Content-Type, Authorization, X-Cron-Secret',
@@ -49,7 +47,6 @@ async function handler(request: Request): Promise<Response> {
   }
 
   try {
-    const { createClient } = await import('@supabase/supabase-js');
     const sup = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -76,7 +73,6 @@ async function handler(request: Request): Promise<Response> {
         const dayRecords = records || [];
         let totalMs = 0;
         let lastIn: string | null = null;
-        const types = { entrada: 'entrada', saida: 'saída', pausa: 'pausa' };
         for (const r of dayRecords) {
           const t = r.created_at;
           const type = (r.type || '').toLowerCase();
@@ -141,5 +137,3 @@ async function handler(request: Request): Promise<Response> {
     ));
   }
 }
-
-export default { fetch: handler };

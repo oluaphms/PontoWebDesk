@@ -2,6 +2,7 @@
  * Rota unificada /api/jobs/* (Hobby: 1 função em vez de 3).
  * - POST /api/jobs/calc-period
  * - POST /api/jobs/process
+ * - POST /api/jobs/process-daily-time (legado: /api/process-daily-time)
  * - GET  /api/jobs/:id
  */
 
@@ -17,9 +18,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 import { noCache } from '../_shared/cache.js';
+import { handleProcessDailyTime } from '../_shared/processDailyTimeHttp.js';
 
 const MAX_DAYS = 120;
-const RESERVED = new Set(['calc-period', 'process']);
+const RESERVED = new Set(['calc-period', 'process', 'process-daily-time']);
 const CalcPeriodSchema = z.object({
   employee_id: z.string().min(1),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -435,6 +437,9 @@ async function handler(request: Request): Promise<Response> {
   }
   if (slug.length === 1 && slug[0] === 'process') {
     return handleProcess(request);
+  }
+  if (slug.length === 1 && slug[0] === 'process-daily-time') {
+    return handleProcessDailyTime(request);
   }
   if (slug.length === 1 && isJobIdSegment(slug[0])) {
     return handleJobGet(request, slug[0]);

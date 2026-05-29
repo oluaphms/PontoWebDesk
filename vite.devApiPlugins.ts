@@ -43,14 +43,19 @@ export function devApiPlugins(): Plugin[] {
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
           const pathname = req.url?.split('?')[0] ?? '';
-          if (!pathname.startsWith('/api/jobs')) {
+          const jobsPath =
+            pathname === '/api/process-daily-time'
+              ? '/api/jobs/process-daily-time'
+              : pathname;
+          if (!jobsPath.startsWith('/api/jobs')) {
             next();
             return;
           }
           try {
             const { default: handler } = await import('./dev/jobsDevEntry.ts');
             const host = (req.headers.host as string) || 'localhost:3010';
-            const fullUrl = `http://${host}${req.url ?? ''}`;
+            const query = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+            const fullUrl = `http://${host}${jobsPath}${query}`;
             const jobsRequestBody = await readConnectRequestBody(req as IncomingMessage);
             const response = await handler(
               new Request(fullUrl, {
