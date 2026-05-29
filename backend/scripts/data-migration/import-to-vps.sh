@@ -4,13 +4,18 @@ set -euo pipefail
 
 DUMP="${1:-./data/supabase-data.dump}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+# scripts/data-migration/import-to-vps.sh → backend/ é dois níveis acima
+BACKEND_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="$BACKEND_DIR/.env"
 
 # Carrega DATABASE_URL sem `source .env` (falha com set -u / % na senha / CRLF).
 load_database_url() {
+  if [ -n "${DATABASE_URL:-}" ]; then
+    export DATABASE_URL
+    return 0
+  fi
   if [ ! -f "$ENV_FILE" ]; then
-    echo "[import] ERRO: ficheiro não encontrado: $ENV_FILE"
+    echo "[import] ERRO: ficheiro não encontrado: $ENV_FILE (ou exporte DATABASE_URL)"
     return 1
   fi
   DATABASE_URL="$(
