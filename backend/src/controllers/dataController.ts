@@ -12,6 +12,7 @@ import {
 import {
   applyTenantToRowAsync,
   filterRowToTableSchema,
+  tableHasColumn,
   tenantScopeSqlForTable,
 } from '../utils/dataRowSchema.js';
 
@@ -156,7 +157,13 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
           .join(', ') || '*';
   const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 200));
   const offset = Math.max(0, Number(req.query.offset) || 0);
-  const orderCol = safeIdent(String(req.query.orderColumn || 'created_at'));
+  const requestedOrder = safeIdent(String(req.query.orderColumn || ''));
+  let orderCol = requestedOrder;
+  if (!orderCol) {
+    if (await tableHasColumn(table, 'created_at')) orderCol = 'created_at';
+    else if (await tableHasColumn(table, 'id')) orderCol = 'id';
+    else orderCol = null;
+  }
   const orderAsc = req.query.orderAsc !== 'false';
 
   const { clause, params } = await buildWhere(table, filters, companyId);
@@ -167,8 +174,9 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     const result = await pool.query(sql, [...params, limit, offset]);
     res.json({ ok: true, data: result.rows });
   } catch (e) {
-    console.error('[DATA LIST]', table, e);
-    res.status(500).json({ ok: false, error: 'query_failed' });
+    const pgMsg = e instanceof Error ? e.message : String(e);
+    console.error('[DATA LIST]', table, pgMsg, e);
+    res.status(500).json({ ok: false, error: 'query_failed', message: pgMsg });
   }
 }
 

@@ -65,6 +65,17 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   };
 }
 
+function extractApiErrorMessage(body: unknown, status: number): string {
+  if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    const message = record.message;
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    const error = record.error;
+    if (typeof error === 'string' && error.trim()) return error.trim();
+  }
+  return `HTTP ${status}`;
+}
+
 async function parseResponse<T>(res: Response): Promise<T> {
   const text = await res.text();
   let body: unknown = null;
@@ -80,10 +91,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
       clearToken();
       unauthorizedHandler?.();
     }
-    const errMsg =
-      body && typeof body === 'object' && 'error' in body
-        ? String((body as ApiResult).error)
-        : `HTTP ${res.status}`;
+    const errMsg = extractApiErrorMessage(body, res.status);
     throw new ApiError(errMsg, res.status, body);
   }
   return body as T;

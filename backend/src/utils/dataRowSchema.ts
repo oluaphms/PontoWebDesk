@@ -92,6 +92,15 @@ export async function filterRowToTableSchema(
       out[key] = coerceJsonbValue(value);
       continue;
     }
+    if (
+      (dataType === 'integer' || dataType === 'bigint' || dataType === 'smallint') &&
+      value !== null &&
+      value !== ''
+    ) {
+      const n = Number(value);
+      out[key] = Number.isFinite(n) ? n : null;
+      continue;
+    }
     if ((dataType === 'ARRAY' || dataType.endsWith('[]')) && Array.isArray(value)) {
       out[key] = value;
       continue;

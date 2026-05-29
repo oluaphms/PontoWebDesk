@@ -14,6 +14,7 @@
     "db:test": "node scripts/test-db-connection.mjs",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:full": "node scripts/apply-full-database.mjs",
+    "db:ensure-rep": "node scripts/ensure-rep-devices.mjs",
     "db:data:export": "node scripts/data-migration/export-supabase.mjs",
     "db:data:validate": "node scripts/data-migration/validate-migration.mjs",
     "db:data:count": "node scripts/data-migration/count-vps-tables.mjs",
