@@ -244,7 +244,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   const params = [...values, ...(tenantScope ? [companyId] : []), id];
 
   try {
-    const sql = `UPDATE public.${table} SET ${sets} WHERE id = $${idIdx}${tenantClause} RETURNING *`;
+    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = $${idIdx}${tenantClause} RETURNING *`;
     const result = await pool.query(sql, params);
     if (!result.rows[0]) {
       res.status(404).json({ ok: false, error: 'not_found' });
@@ -252,8 +252,9 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     }
     res.json({ ok: true, data: result.rows[0] });
   } catch (e) {
-    console.error('[DATA UPDATE]', table, e);
-    res.status(500).json({ ok: false, error: 'update_failed' });
+    const pgMsg = e instanceof Error ? e.message : String(e);
+    console.error('[DATA UPDATE]', table, pgMsg, e);
+    res.status(500).json({ ok: false, error: 'update_failed', message: pgMsg });
   }
 }
 

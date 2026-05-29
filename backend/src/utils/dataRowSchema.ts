@@ -56,6 +56,7 @@ async function loadTableColumns(table: string): Promise<ColumnMeta[]> {
 
 function coerceJsonbValue(value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value;
   if (typeof value === 'object') return value;
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -67,6 +68,26 @@ function coerceJsonbValue(value: unknown): unknown {
     }
   }
   return value;
+}
+
+function coerceTextValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === 'string') return record.text;
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function coerceBooleanValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === 1 || value === '1') return true;
+  if (value === 'false' || value === 0 || value === '0') return false;
+  return Boolean(value);
 }
 
 /** Remove colunas inexistentes e ajusta tipos (ex.: string → jsonb). */
@@ -90,6 +111,14 @@ export async function filterRowToTableSchema(
 
     if (dataType === 'jsonb' || dataType === 'json') {
       out[key] = coerceJsonbValue(value);
+      continue;
+    }
+    if (dataType === 'boolean') {
+      out[key] = coerceBooleanValue(value);
+      continue;
+    }
+    if (dataType === 'text' || dataType === 'character varying') {
+      out[key] = coerceTextValue(value);
       continue;
     }
     if (
