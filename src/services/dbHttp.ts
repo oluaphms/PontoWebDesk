@@ -2,6 +2,7 @@
  * Camada db → API HTTP (VPS). Substitui PostgREST/Supabase no frontend.
  */
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './api';
+import { getToken } from './authToken';
 import { uploadPhotoViaApi } from './uploadPhotoApi';
 
 export type FilterOperator =
@@ -281,7 +282,19 @@ export const auth = {
     throw new ApiError('auth_use_api_login', 400, null);
   },
   signOut: async () => ({ error: null }),
-  getSession: async () => ({ data: { session: null }, error: null }),
+  getSession: async () => {
+    const token = getToken();
+    if (!token) return { data: { session: null }, error: null };
+    return {
+      data: {
+        session: {
+          access_token: token,
+          refresh_token: null,
+        },
+      },
+      error: null,
+    };
+  },
   getUser: async () => ({ data: { user: null }, error: null }),
   updatePassword: async () => {
     throw new ApiError('auth_use_api_login', 400, null);
@@ -300,10 +313,14 @@ type QueryState = {
   filters: Filter[];
   order?: OrderBy;
   limit?: number;
+  countOnly?: boolean;
 };
 
 function createTableQuery(table: string): {
-  select: (columns?: string) => ReturnType<typeof createTableQuery>;
+  select: (
+    columns?: string,
+    options?: { count?: 'exact'; head?: boolean },
+  ) => ReturnType<typeof createTableQuery>;
   eq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
   neq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
   not: (column: string, operator: 'is', value: null) => ReturnType<typeof createTableQuery>;
@@ -315,6 +332,7 @@ function createTableQuery(table: string): {
   in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableQuery>;
   order: (column: string, options?: { ascending?: boolean }) => ReturnType<typeof createTableQuery>;
   limit: (n: number) => Promise<{ data: DbRow[] | null; error: { message: string } | null; count?: number | null }>;
+  maybeSingle: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
   single: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
   then: (
     onfulfilled?: (value: { data: DbRow[] | null; error: { message: string } | null }) => unknown,
@@ -323,8 +341,16 @@ function createTableQuery(table: string): {
 } {
   const state: QueryState = { table, filters: [] };
 
-  const runSelect = async (): Promise<{ data: DbRow[] | null; error: { message: string } | null }> => {
+  const runSelect = async (): Promise<{
+    data: DbRow[] | null;
+    error: { message: string } | null;
+    count?: number | null;
+  }> => {
     try {
+      if (state.countOnly) {
+        const count = await db.count(state.table, state.filters);
+        return { data: null, count, error: null };
+      }
       const rows = await db.select(
         state.table,
         state.filters,
@@ -342,8 +368,12 @@ function createTableQuery(table: string): {
   };
 
   const builder = {
-    select(columns?: string) {
-      state.columns = columns;
+    select(columns?: string, options?: { count?: 'exact'; head?: boolean }) {
+      if (options?.count === 'exact' && options?.head) {
+        state.countOnly = true;
+      } else if (typeof columns === 'string') {
+        state.columns = columns;
+      }
       return builder;
     },
     eq(column: string, value: FilterValue) {
@@ -394,6 +424,12 @@ function createTableQuery(table: string): {
       state.limit = n;
       return runSelect();
     },
+    async maybeSingle() {
+      state.limit = 1;
+      const res = await runSelect();
+      if (res.error) return { data: null, error: res.error };
+      return { data: res.data?.[0] ?? null, error: null };
+    },
     async single() {
       state.limit = 1;
       const res = await runSelect();
@@ -403,7 +439,11 @@ function createTableQuery(table: string): {
       return { data: row, error: null };
     },
     then(
-      onfulfilled?: (value: { data: DbRow[] | null; error: { message: string } | null }) => unknown,
+      onfulfilled?: (value: {
+        data: DbRow[] | null;
+        error: { message: string } | null;
+        count?: number | null;
+      }) => unknown,
       onrejected?: (reason: unknown) => unknown,
     ) {
       return runSelect().then(onfulfilled, onrejected);
@@ -417,7 +457,8 @@ export const supabase = {
   auth,
   storage,
   from: (table: string) => ({
-    select: (columns?: string) => createTableQuery(table).select(columns),
+    select: (columns?: string, options?: { count?: 'exact'; head?: boolean }) =>
+      createTableQuery(table).select(columns, options),
     insert: (data: DbRow) => ({
       select: () => ({
         single: async () => {
@@ -466,14 +507,20 @@ export function isSupabaseConfigured(): boolean {
 
 export const checkSupabaseConfigured = isSupabaseConfigured;
 
-export function getSupabaseClient(): never {
-  throw new Error('Supabase removido. Use apiClient, dbHttp ou services dedicados (employeesApi, punchesApi).');
+/** Cliente compatível com código legado Supabase (API VPS via dbHttp). */
+export function getSupabaseClient(): typeof supabase | null {
+  if (!isDataLayerConfigured()) return null;
+  return supabase;
 }
 
 export const getSupabase = getSupabaseClient;
 
-export function getSupabaseClientOrThrow(): never {
-  throw new Error('Supabase removido — use src/services/api.ts');
+export function getSupabaseClientOrThrow(): typeof supabase {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error('Camada de dados não configurada — defina VITE_API_URL.');
+  }
+  return client;
 }
 
 export const DB_SELECT_TIMEOUT_MS = 28000;
