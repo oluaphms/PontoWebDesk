@@ -41,6 +41,23 @@ function parseEnderecoField(value: unknown): string {
   return '';
 }
 
+/** API/JSONB pode devolver array, string JSON ou objeto — o formulário exige string[]. */
+function normalizeReceiptFields(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      return normalizeReceiptFields(JSON.parse(trimmed));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 type CompanyFormState = {
   name: string;
   cnpj: string;
@@ -184,7 +201,9 @@ const AdminCompany: React.FC = () => {
                 fax: (company as any).fax ?? '',
                 cei: (company as any).cei ?? '',
                 numeroFolha: (company as any).numeroFolha ?? '',
-                receiptFields: (company as any).receiptFields ?? [],
+                receiptFields: normalizeReceiptFields(
+                  (company as any).receiptFields ?? (company as any).receipt_fields,
+                ),
                 useDefaultTimezone: (company as any).useDefaultTimezone !== false,
                 timezone: (company as any).timezone ?? 'America/Sao_Paulo',
                 cartaoPontoFooter: (company as any).cartaoPontoFooter ?? '',
@@ -219,7 +238,7 @@ const AdminCompany: React.FC = () => {
               fax: c.fax ?? '',
               cei: c.cei ?? '',
               numeroFolha: c.numero_folha ?? '',
-              receiptFields: c.receipt_fields ?? [],
+              receiptFields: normalizeReceiptFields(c.receipt_fields ?? c.receiptFields),
               useDefaultTimezone: c.use_default_timezone !== false,
               timezone: c.timezone ?? 'America/Sao_Paulo',
               cartaoPontoFooter: c.cartao_ponto_footer ?? '',
@@ -385,13 +404,18 @@ const AdminCompany: React.FC = () => {
   };
 
   const toggleReceiptField = (id: string) => {
-    setForm((f) => ({
-      ...f,
-      receiptFields: f.receiptFields.includes(id)
-        ? f.receiptFields.filter((x) => x !== id)
-        : [...f.receiptFields, id],
-    }));
+    setForm((f) => {
+      const current = normalizeReceiptFields(f.receiptFields);
+      return {
+        ...f,
+        receiptFields: current.includes(id)
+          ? current.filter((x) => x !== id)
+          : [...current, id],
+      };
+    });
   };
+
+  const receiptFieldsSelected = normalizeReceiptFields(form.receiptFields);
 
   const inputClass = 'w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white';
 
@@ -652,7 +676,7 @@ const AdminCompany: React.FC = () => {
                   <label key={opt.id} className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={form.receiptFields.includes(opt.id)}
+                      checked={receiptFieldsSelected.includes(opt.id)}
                       onChange={() => toggleReceiptField(opt.id)}
                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
