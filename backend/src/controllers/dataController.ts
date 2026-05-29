@@ -12,6 +12,8 @@ import {
 import {
   applyTenantToRowAsync,
   filterRowToTableSchema,
+  getTableColumnTypes,
+  sqlParamRef,
   tableHasColumn,
   tenantScopeSqlForTable,
 } from '../utils/dataRowSchema.js';
@@ -199,8 +201,11 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     res.status(400).json({ ok: false, error: 'empty_payload' });
     return;
   }
+  const colTypes = await getTableColumnTypes(table);
   const cols = keys.join(', ');
-  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+  const placeholders = keys
+    .map((k, i) => sqlParamRef(i + 1, colTypes.get(k) ?? 'text'))
+    .join(', ');
   const values = keys.map((k) => row[k]);
   try {
     const sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders}) RETURNING *`;
@@ -233,18 +238,22 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     res.status(400).json({ ok: false, error: 'empty_payload' });
     return;
   }
-  const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const colTypes = await getTableColumnTypes(table);
+  const sets = keys
+    .map((k, i) => `${k} = ${sqlParamRef(i + 1, colTypes.get(k) ?? 'text')}`)
+    .join(', ');
   const values = keys.map((k) => row[k]);
 
   const tenantIdx = keys.length + 1;
-  const idIdx = keys.length + 2;
+  const idIdx = keys.length + (tableHasTenantScope(table) ? 2 : 1);
   const tenantScope =
     tableHasTenantScope(table) ? await tenantScopeSqlForTable(table, tenantIdx) : null;
   const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
   const params = [...values, ...(tenantScope ? [companyId] : []), id];
 
   try {
-    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = $${idIdx}${tenantClause} RETURNING *`;
+    const idCast = sqlParamRef(idIdx, colTypes.get('id') ?? 'text');
+    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause} RETURNING *`;
     const result = await pool.query(sql, params);
     if (!result.rows[0]) {
       res.status(404).json({ ok: false, error: 'not_found' });
@@ -276,7 +285,7 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
     const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
     const params = tenantScope ? [id, companyId] : [id];
     const result = await pool.query(
-      `DELETE FROM public.${table} WHERE id = $1${tenantClause} RETURNING id`,
+      `DELETE FROM public.${table} WHERE id::text = ${sqlParamRef(1, 'text')}${tenantClause} RETURNING id`,
       params,
     );
     if (!result.rows[0]) {

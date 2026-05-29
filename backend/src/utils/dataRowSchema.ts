@@ -10,6 +10,55 @@ export async function tableHasColumn(table: string, column: string): Promise<boo
   return cols.some((c) => c.name === column);
 }
 
+export async function getTableColumnTypes(table: string): Promise<Map<string, string>> {
+  const columns = await loadTableColumns(table);
+  return new Map(columns.map((c) => [c.name, c.dataType]));
+}
+
+/** Sufixo PG para cast explícito — evita "could not determine data type of parameter $N" com NULL. */
+function pgCastSuffix(dataType: string): string {
+  switch (dataType) {
+    case 'jsonb':
+      return 'jsonb';
+    case 'json':
+      return 'json';
+    case 'boolean':
+      return 'boolean';
+    case 'integer':
+      return 'integer';
+    case 'bigint':
+      return 'bigint';
+    case 'smallint':
+      return 'smallint';
+    case 'double precision':
+      return 'double precision';
+    case 'real':
+      return 'real';
+    case 'numeric':
+      return 'numeric';
+    case 'uuid':
+      return 'uuid';
+    case 'timestamp with time zone':
+      return 'timestamptz';
+    case 'timestamp without time zone':
+      return 'timestamp';
+    case 'date':
+      return 'date';
+    case 'time without time zone':
+      return 'time';
+    case 'text':
+    case 'character varying':
+    case 'character':
+      return 'text';
+    default:
+      return 'text';
+  }
+}
+
+export function sqlParamRef(paramIndex: number, dataType: string): string {
+  return `$${paramIndex}::${pgCastSuffix(dataType)}`;
+}
+
 /** WHERE tenant: só colunas que existem na tabela (evita erro em rep_devices sem tenant_id). */
 export async function tenantScopeSqlForTable(
   table: string,
@@ -17,11 +66,12 @@ export async function tenantScopeSqlForTable(
 ): Promise<string | null> {
   const hasCompany = await tableHasColumn(table, 'company_id');
   const hasTenant = await tableHasColumn(table, 'tenant_id');
+  const p = sqlParamRef(paramIndex, 'text');
   if (hasCompany && hasTenant) {
-    return `(company_id = $${paramIndex} OR tenant_id = $${paramIndex})`;
+    return `(company_id::text = ${p} OR tenant_id::text = ${p})`;
   }
-  if (hasCompany) return `company_id = $${paramIndex}`;
-  if (hasTenant) return `tenant_id = $${paramIndex}`;
+  if (hasCompany) return `company_id::text = ${p}`;
+  if (hasTenant) return `tenant_id::text = ${p}`;
   return null;
 }
 
