@@ -19,6 +19,7 @@
     "db:data:export": "node scripts/data-migration/export-supabase.mjs",
     "db:data:validate": "node scripts/data-migration/validate-migration.mjs",
     "db:data:count": "node scripts/data-migration/count-vps-tables.mjs",
+    "db:inspect-dump": "node scripts/data-migration/inspect-dump.mjs",
     "test": "vitest run",
     "test:employees": "vitest run src/utils/employeeValidation.test.ts"
   },
