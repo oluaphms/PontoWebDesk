@@ -31,6 +31,77 @@ const TIMEZONES = [
   { value: 'America/Recife', label: 'America/Recife' },
 ];
 
+function parseEnderecoField(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null) {
+    const o = value as Record<string, unknown>;
+    return String(o.text ?? o.line1 ?? o.endereco ?? '');
+  }
+  return '';
+}
+
+type CompanyFormState = {
+  name: string;
+  cnpj: string;
+  inscricaoEstadual: string;
+  responsavelNome: string;
+  responsavelCargo: string;
+  responsavelEmail: string;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  cep: string;
+  estado: string;
+  pais: string;
+  telefone: string;
+  fax: string;
+  cei: string;
+  numeroFolha: string;
+  receiptFields: string[];
+  useDefaultTimezone: boolean;
+  timezone: string;
+  cartaoPontoFooter: string;
+};
+
+function buildCompanyDbPayload(form: CompanyFormState): Record<string, unknown> {
+  return {
+    name: form.name || null,
+    nome: form.name || null,
+    cnpj: form.cnpj || null,
+    inscricao_estadual: form.inscricaoEstadual || null,
+    responsavel_nome: form.responsavelNome || null,
+    responsavel_cargo: form.responsavelCargo || null,
+    responsavel_email: form.responsavelEmail || null,
+    endereco: form.endereco || null,
+    bairro: form.bairro || null,
+    cidade: form.cidade || null,
+    cep: form.cep || null,
+    estado: form.estado || null,
+    pais: form.pais || null,
+    telefone: form.telefone || null,
+    fax: form.fax || null,
+    cei: form.cei || null,
+    numero_folha: form.numeroFolha || null,
+    receipt_fields: form.receiptFields,
+    use_default_timezone: form.useDefaultTimezone,
+    timezone: form.timezone,
+    cartao_ponto_footer: form.cartaoPontoFooter || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function resolveCompanyRecordId(
+  companyIdState: string | null,
+  userCompanyId: string | undefined,
+): string {
+  const fromState = companyIdState?.trim();
+  if (fromState) return fromState;
+  const fromUser = userCompanyId?.trim();
+  if (fromUser) return fromUser;
+  return crypto.randomUUID();
+}
+
 function Label({
   children,
   portaria1510,
@@ -81,7 +152,7 @@ const AdminCompany: React.FC = () => {
     if (!user) return;
 
     if (!user.companyId) {
-      setCompanyId(user.id);
+      setCompanyId(null);
       setForm((f) => ({ ...f, name: f.name || 'Nova Empresa' }));
       setLoadingData(false);
       return;
@@ -137,7 +208,7 @@ const AdminCompany: React.FC = () => {
               responsavelNome: c.responsavel_nome ?? '',
               responsavelCargo: c.responsavel_cargo ?? '',
               responsavelEmail: c.responsavel_email ?? '',
-              endereco: c.address ?? c.endereco ?? '',
+              endereco: parseEnderecoField(c.endereco ?? c.address),
               bairro: c.bairro ?? '',
               cidade: c.cidade ?? '',
               cep: c.cep ?? '',
@@ -160,7 +231,7 @@ const AdminCompany: React.FC = () => {
         }
       } catch (e) {
         console.error(e);
-        setCompanyId(user.companyId || user.id);
+        setCompanyId(user.companyId ?? null);
       } finally {
         setLoadingData(false);
       }
@@ -173,9 +244,9 @@ const AdminCompany: React.FC = () => {
     setSaving(true);
     setMessage(null);
     try {
-      const idToUse = companyId || user.companyId || user.id;
+      const idToUse = resolveCompanyRecordId(companyId, user.companyId);
 
-      if (!isSupabaseConfigured()) {
+      if (!isLocalApiDataProvider() && !isSupabaseConfigured()) {
         const existing = await firestoreService.getCompany(idToUse);
         const baseSettings: Company['settings'] =
           (existing as any)?.settings ||
@@ -232,32 +303,7 @@ const AdminCompany: React.FC = () => {
           console.warn('[Company] Falha ao salvar empresa no storage:', err);
         }
       } else {
-        const payload: Record<string, any> = {
-          name: form.name,
-          nome: form.name,
-          cnpj: form.cnpj || null,
-          inscricao_estadual: form.inscricaoEstadual || null,
-          responsavel_nome: form.responsavelNome || null,
-          responsavel_cargo: form.responsavelCargo || null,
-          responsavel_email: form.responsavelEmail || null,
-          address: form.endereco || null,
-          endereco: form.endereco || null,
-          bairro: form.bairro || null,
-          cidade: form.cidade || null,
-          cep: form.cep || null,
-          estado: form.estado || null,
-          pais: form.pais || null,
-          phone: form.telefone || null,
-          telefone: form.telefone || null,
-          fax: form.fax || null,
-          cei: form.cei || null,
-          numero_folha: form.numeroFolha || null,
-          receipt_fields: form.receiptFields,
-          use_default_timezone: form.useDefaultTimezone,
-          timezone: form.timezone,
-          cartao_ponto_footer: form.cartaoPontoFooter || null,
-          updated_at: new Date().toISOString(),
-        };
+        const payload = buildCompanyDbPayload(form);
         try {
           const existing = await db.select('companies', [{ column: 'id', operator: 'eq', value: idToUse }]);
           if (existing?.length) {

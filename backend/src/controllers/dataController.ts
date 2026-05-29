@@ -11,8 +11,21 @@ import {
   tableHasTenantScope,
   tenantScopeSql,
 } from '../utils/dataTablePolicy.js';
+import { filterRowToTableSchema } from '../utils/dataRowSchema.js';
 
-const ALLOWED_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is']);
+const ALLOWED_OPS = new Set([
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'like',
+  'ilike',
+  'in',
+  'is',
+  'not_is',
+]);
 
 type FilterInput = { column: string; operator: string; value: unknown };
 
@@ -67,6 +80,10 @@ function buildWhere(
       parts.push(`${col} IS ${f.value === null ? 'NULL' : `$${idx}`}`);
       if (f.value !== null) params.push(f.value);
       idx += 1;
+      continue;
+    }
+    if (op === 'not_is') {
+      parts.push(`${col} IS NOT NULL`);
       continue;
     }
     const sqlOp =
@@ -162,7 +179,8 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const row = applyTenantToRow(table, raw, companyId);
+  const scoped = applyTenantToRow(table, raw, companyId);
+  const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k));
   if (!keys.length) {
     res.status(400).json({ ok: false, error: 'empty_payload' });
@@ -194,7 +212,8 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const row = applyTenantToRow(table, raw, companyId);
+  const scoped = applyTenantToRow(table, raw, companyId);
+  const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
   if (!keys.length) {
     res.status(400).json({ ok: false, error: 'empty_payload' });

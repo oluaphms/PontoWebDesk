@@ -15,6 +15,7 @@ export type FilterOperator =
   | 'ilike'
   | 'in'
   | 'is'
+  | 'not_is'
   | 'contains';
 
 export type FilterValue =
@@ -293,24 +294,156 @@ export const auth = {
   }),
 };
 
+type QueryState = {
+  table: string;
+  columns?: string;
+  filters: Filter[];
+  order?: OrderBy;
+  limit?: number;
+};
+
+function createTableQuery(table: string): {
+  select: (columns?: string) => ReturnType<typeof createTableQuery>;
+  eq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  neq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  not: (column: string, operator: 'is', value: null) => ReturnType<typeof createTableQuery>;
+  is: (column: string, operator: 'null', value: null) => ReturnType<typeof createTableQuery>;
+  gte: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  lte: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  gt: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  lt: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
+  in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableQuery>;
+  order: (column: string, options?: { ascending?: boolean }) => ReturnType<typeof createTableQuery>;
+  limit: (n: number) => Promise<{ data: DbRow[] | null; error: { message: string } | null; count?: number | null }>;
+  single: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
+  then: (
+    onfulfilled?: (value: { data: DbRow[] | null; error: { message: string } | null }) => unknown,
+    onrejected?: (reason: unknown) => unknown,
+  ) => Promise<unknown>;
+} {
+  const state: QueryState = { table, filters: [] };
+
+  const runSelect = async (): Promise<{ data: DbRow[] | null; error: { message: string } | null }> => {
+    try {
+      const rows = await db.select(
+        state.table,
+        state.filters,
+        {
+          columns: state.columns,
+          limit: state.limit,
+          orderBy: state.order,
+        },
+      );
+      return { data: rows, error: null };
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'query_failed';
+      return { data: null, error: { message: msg } };
+    }
+  };
+
+  const builder = {
+    select(columns?: string) {
+      state.columns = columns;
+      return builder;
+    },
+    eq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'eq', value });
+      return builder;
+    },
+    neq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'neq', value });
+      return builder;
+    },
+    not(column: string, operator: 'is', value: null) {
+      if (operator === 'is' && value === null) {
+        state.filters.push({ column, operator: 'not_is', value: null });
+      }
+      return builder;
+    },
+    is(column: string, _operator: 'null', value: null) {
+      if (value === null) {
+        state.filters.push({ column, operator: 'is', value: null });
+      }
+      return builder;
+    },
+    gte(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'gte', value });
+      return builder;
+    },
+    lte(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'lte', value });
+      return builder;
+    },
+    gt(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'gt', value });
+      return builder;
+    },
+    lt(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'lt', value });
+      return builder;
+    },
+    in(column: string, value: readonly unknown[]) {
+      state.filters.push({ column, operator: 'in', value });
+      return builder;
+    },
+    order(column: string, options?: { ascending?: boolean }) {
+      state.order = { column, ascending: options?.ascending !== false };
+      return builder;
+    },
+    limit(n: number) {
+      state.limit = n;
+      return runSelect();
+    },
+    async single() {
+      state.limit = 1;
+      const res = await runSelect();
+      if (res.error) return { data: null, error: res.error };
+      const row = res.data?.[0] ?? null;
+      if (!row) return { data: null, error: { message: 'PGRST116' } };
+      return { data: row, error: null };
+    },
+    then(
+      onfulfilled?: (value: { data: DbRow[] | null; error: { message: string } | null }) => unknown,
+      onrejected?: (reason: unknown) => unknown,
+    ) {
+      return runSelect().then(onfulfilled, onrejected);
+    },
+  };
+
+  return builder;
+}
+
 export const supabase = {
   auth,
   storage,
   from: (table: string) => ({
-    select: () => ({
-      eq: () => ({
-        limit: async () => ({ data: await db.select(table), error: null }),
-      }),
-    }),
-    insert: () => ({
+    select: (columns?: string) => createTableQuery(table).select(columns),
+    insert: (data: DbRow) => ({
       select: () => ({
         single: async () => {
-          throw new ApiError('use_db_insert', 400, null);
+          try {
+            const row = await db.insert(table, data);
+            return { data: row, error: null };
+          } catch (e) {
+            const msg = e instanceof ApiError ? e.message : 'insert_failed';
+            return { data: null, error: { message: msg } };
+          }
         },
       }),
     }),
-    update: () => ({
-      eq: async () => ({ data: null, error: null }),
+    update: (data: DbRow) => ({
+      eq: async (column: string, value: FilterValue) => {
+        try {
+          const rows = await db.select(table, [{ column, operator: 'eq', value }], undefined, 1);
+          const id = rows[0]?.id;
+          if (!id) return { data: null, error: { message: 'not_found' } };
+          const row = await db.update(table, String(id), data);
+          return { data: [row], error: null };
+        } catch (e) {
+          const msg = e instanceof ApiError ? e.message : 'update_failed';
+          return { data: null, error: { message: msg } };
+        }
+      },
     }),
     delete: () => ({
       eq: async () => ({ data: null, error: null }),
