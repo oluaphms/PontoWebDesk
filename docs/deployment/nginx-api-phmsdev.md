@@ -102,10 +102,14 @@ Deve incluir `Access-Control-Allow-Origin: https://pontowebdesk.vercel.app`.
 
 1. Teste direto (sem browser): `curl -sS https://api.phmsdev.com.br/api/health` — deve ser JSON, **não** HTML `502`.
 2. Se for **502 Bad Gateway**, o Nginx está no ar mas o **Node (PM2) na porta 3000 está parado** — o browser mostra CORS porque a resposta de erro do proxy não traz os headers.
-3. Atualize o Nginx com `deploy/nginx/api.phmsdev.com.br.conf` (CORS com `map` + `always`, inclusive em 502).
+3. Atualize o Nginx com `deploy/nginx/api.phmsdev.com.br.conf` (**sem** headers CORS no Nginx — só no Express; duplicar `Access-Control-Allow-Origin` quebra o login no browser).
 4. Suba o backend: `cd backend && npm run build && pm2 restart pontoweb-api --update-env`.
 
-Se o preflight devolver **204 sem** `Access-Control-Allow-Origin`, atualize o site Nginx e recarregue:
+Se o browser disser que `Access-Control-Allow-Origin` tem **valores duplicados**, o Nginx e o Express estão ambos enviando CORS — use o `api.phmsdev.com.br.conf` atual (proxy só) e recarregue o Nginx.
+
+Se o preflight devolver **204 sem** `Access-Control-Allow-Origin`, confira `CORS_ORIGINS` no `backend/.env` e reinicie o PM2.
+
+Se o preflight falhar após corrigir duplicata, atualize o site Nginx e recarregue:
 
 ```bash
 cd /root/PontoWebDesk
