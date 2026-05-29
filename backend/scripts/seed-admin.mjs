@@ -4,6 +4,7 @@
  *
  * Uso: cd backend && node scripts/seed-admin.mjs
  */
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +61,68 @@ async function usersCompanyIdIsUuid(client) {
   return r.rows[0]?.data_type === 'uuid';
 }
 
+async function companiesTableExists(client) {
+  const r = await client.query(
+    `select 1 from information_schema.tables
+     where table_schema = 'public' and table_name = 'companies' limit 1`,
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+async function companiesIdIsUuid(client) {
+  const r = await client.query(
+    `select data_type from information_schema.columns
+     where table_schema = 'public' and table_name = 'companies' and column_name = 'id'
+     limit 1`,
+  );
+  return r.rows[0]?.data_type === 'uuid';
+}
+
+/** Cria empresa demo quando o schema exige company_id UUID e a tabela está vazia. */
+async function createBootstrapCompany(client) {
+  if (!(await companiesTableExists(client))) return null;
+
+  const nome = (process.env.SEED_COMPANY_NAME || 'Empresa Demo').trim();
+  const slugBase = (process.env.SEED_COMPANY_SLUG || 'empresa-demo').trim();
+  const slug = `${slugBase}-${Date.now().toString(36)}`;
+
+  const cols = [];
+  const vals = [];
+  const idIsUuid = await companiesIdIsUuid(client);
+
+  if (!idIsUuid && (await tableHasColumn(client, 'companies', 'id'))) {
+    cols.push('id');
+    vals.push(`tnt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`);
+  }
+  if (await tableHasColumn(client, 'companies', 'nome')) {
+    cols.push('nome');
+    vals.push(nome);
+  }
+  if (await tableHasColumn(client, 'companies', 'name')) {
+    cols.push('name');
+    vals.push(nome);
+  }
+  if (await tableHasColumn(client, 'companies', 'slug')) {
+    cols.push('slug');
+    vals.push(slug);
+  }
+
+  if (cols.length === 0) {
+    throw new Error('[seed-admin] Tabela companies sem colunas reconhecidas (nome/name/slug).');
+  }
+
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+  const returning = (await tableHasColumn(client, 'companies', 'id')) ? ' returning id::text as id' : '';
+  const ins = await client.query(
+    `insert into companies (${cols.join(', ')}) values (${placeholders})${returning}`,
+    vals,
+  );
+  const id = ins.rows[0]?.id ?? vals[cols.indexOf('id')];
+  if (!id) throw new Error('[seed-admin] INSERT em companies não devolveu id.');
+  console.log('[seed-admin] Empresa bootstrap criada:', id, `(${nome})`);
+  return String(id).trim();
+}
+
 /** Schema completo (Supabase/VPS) usa UUID; schema mínimo aceita texto (demo-company). */
 async function resolveCompanyId(client) {
   if (companyIdEnv) return companyIdEnv;
@@ -87,8 +150,10 @@ async function resolveCompanyId(client) {
 
   const needsUuid = await usersCompanyIdIsUuid(client);
   if (needsUuid) {
+    const bootId = await createBootstrapCompany(client);
+    if (bootId) return bootId;
     throw new Error(
-      'Nenhuma empresa em public.companies. Importe dados ou defina SEED_COMPANY_ID=<uuid da empresa>.',
+      'Nenhuma empresa em public.companies e falha ao criar bootstrap. Defina SEED_COMPANY_ID=<uuid>.',
     );
   }
   console.warn('[seed-admin] Sem companies — usando demo-company (schema mínimo)');
