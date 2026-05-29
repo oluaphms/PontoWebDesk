@@ -5,19 +5,27 @@ set -euo pipefail
 DUMP="${1:-./data/supabase-data.dump}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$BACKEND_DIR/.env"
 
-if [ -f "$BACKEND_DIR/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$BACKEND_DIR/.env"
-  set +a
-fi
+# Carrega DATABASE_URL sem `source .env` (falha com set -u / % na senha / CRLF).
+load_database_url() {
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "[import] ERRO: ficheiro não encontrado: $ENV_FILE"
+    return 1
+  fi
+  DATABASE_URL="$(
+    grep -E '^[[:space:]]*DATABASE_URL=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+  )"
+  export DATABASE_URL
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "[import] ERRO: DATABASE_URL vazio em $ENV_FILE"
+    echo "[import] Confira: grep DATABASE_URL $ENV_FILE"
+    return 1
+  fi
+}
 
-TARGET="${DATABASE_URL:-}"
-if [ -z "$TARGET" ]; then
-  echo "[import] ERRO: DATABASE_URL vazio em backend/.env"
-  exit 1
-fi
+load_database_url
+TARGET="${DATABASE_URL}"
 
 if [ ! -f "$DUMP" ]; then
   echo "[import] ERRO: ficheiro não encontrado: $DUMP"
