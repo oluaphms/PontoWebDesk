@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isLocalApiDataProvider } from '../config/system';
 import { getSupabaseClient } from './supabaseClient';
 import { operationalNowUtcIso } from '../utils/operationalDateHardLock';
 import { getOperationalMonitoringIdentity } from '../performance/operationalMonitoringContext';
@@ -128,7 +129,15 @@ export async function recordDeviceOperationalReputationSignal(
   },
   clientOverride?: SupabaseClient | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const client = clientOverride ?? getSupabaseClient();
+  if (isLocalApiDataProvider() && !clientOverride) return { ok: true };
+  let client: SupabaseClient | null = clientOverride ?? null;
+  if (!client) {
+    try {
+      client = getSupabaseClient() as SupabaseClient;
+    } catch {
+      return { ok: false, error: 'no_client' };
+    }
+  }
   if (!client) return { ok: false, error: 'no_client' };
   const deviceKey = getOperationalDeviceKey();
 

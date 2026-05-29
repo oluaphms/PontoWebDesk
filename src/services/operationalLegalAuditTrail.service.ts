@@ -3,6 +3,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isLocalApiDataProvider } from '../config/system';
 import { apiPost } from './api';
 import { getSupabaseClient } from './supabaseClient';
 import { getOperationalDeviceKey } from './deviceOperationalReputation.service';
@@ -164,6 +165,7 @@ export function scheduleOperationalLegalAudit(
 ): void {
   void (async () => {
     if (isAuditTrailCircuitOpen()) return;
+    if (isLocalApiDataProvider()) return;
     const client = getSupabaseClient();
     if (!client) return;
     const { data } = await client.auth.getUser();

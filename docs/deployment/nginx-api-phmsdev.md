@@ -98,6 +98,13 @@ curl -i -X OPTIONS "https://api.phmsdev.com.br/api/auth/login" \
 
 Deve incluir `Access-Control-Allow-Origin: https://pontowebdesk.vercel.app`.
 
+### `Failed to fetch` / CORS no browser mas a API “parece” certa
+
+1. Teste direto (sem browser): `curl -sS https://api.phmsdev.com.br/api/health` — deve ser JSON, **não** HTML `502`.
+2. Se for **502 Bad Gateway**, o Nginx está no ar mas o **Node (PM2) na porta 3000 está parado** — o browser mostra CORS porque a resposta de erro do proxy não traz os headers.
+3. Atualize o Nginx com `deploy/nginx/api.phmsdev.com.br.conf` (CORS com `map` + `always`, inclusive em 502).
+4. Suba o backend: `cd backend && npm run build && pm2 restart pontoweb-api --update-env`.
+
 Se o preflight devolver **204 sem** `Access-Control-Allow-Origin`, atualize o site Nginx e recarregue:
 
 ```bash

@@ -7,3 +7,7 @@ export const API_VPS_BASE = getApiBaseUrl();
 export const SYSTEM_CONFIG = {
   DATA_PROVIDER_MODE: 'LOCAL_API' as const,
 } as const;
+
+export function isLocalApiDataProvider(): boolean {
+  return SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
+}

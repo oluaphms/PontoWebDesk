@@ -18,8 +18,8 @@ import { noCache } from './cache.js';
 
 /** Origens permitidas para CORS em produção */
 const PRODUCTION_ORIGINS = [
-  // Adicione seus domínios de produção aqui
-  // Exemplo: 'https://app.seudominio.com'
+  'https://pontowebdesk.vercel.app',
+  'https://api.phmsdev.com.br',
 ];
 
 /** Origens permitidas para desenvolvimento */
@@ -115,6 +115,11 @@ function validateOrigin(origin: string | null): string | null {
         return origin;
       }
     }
+  }
+
+  // Previews Vercel: pontowebdesk-xxx.vercel.app
+  if (/^https:\/\/pontowebdesk-[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+    return origin;
   }
 
   return null;

@@ -29,7 +29,12 @@ export async function checkApiConnection(): Promise<ApiConnectionCheckResult> {
   } catch (e) {
     const msg = String(e instanceof Error ? e.message : e).toLowerCase();
     if (msg.includes('failed to fetch') || msg.includes('network')) {
-      return { ok: false, status: 'network', message: 'Falha de rede ao acessar a API.' };
+      return {
+        ok: false,
+        status: 'network',
+        message:
+          'Falha de rede ou API indisponível (verifique CORS na VPS e se o Node em :3000 está ativo — GET /api/health).',
+      };
     }
     return { ok: false, status: 'unknown', message: 'Não foi possível conectar à API.' };
   }

@@ -2,6 +2,7 @@
  * Alinha relógio operacional ao servidor (Supabase) e expõe confiança temporal.
  */
 
+import { isLocalApiDataProvider } from '../config/system';
 import { getSupabaseClient } from './supabaseClient';
 import {
   getOperationalWallClockOffsetMs,
@@ -20,6 +21,7 @@ export function wasOperationalServerClockSyncedRecently(withinMs: number = 120_0
 
 /** Offset aplicado em `operationalClockMs()` após sync bem-sucedido. */
 export async function syncServerOperationalClockOffset(): Promise<void> {
+  if (isLocalApiDataProvider()) return;
   const client = getSupabaseClient();
   if (!client) return;
   const t0 = Date.now();
