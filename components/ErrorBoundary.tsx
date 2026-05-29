@@ -3,18 +3,22 @@
  * Captura erros na árvore, envia ao Sentry e exibe fallback.
  */
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ErrorBoundary, FallbackProps } from 'react-error-boundary';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import { Button } from './UI';
 import { captureException } from '../lib/sentry';
+import {
+  attemptChunkAutoRecover,
+  clearChunkRecoverFlags,
+  isLikelyChunkLoadFailure,
+} from '../src/utils/chunkLoadRecovery';
 
 interface AppErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
 }
-
-const CHUNK_ERROR_AUTO_RECOVER_FLAG = '__pwb_chunk_error_auto_recover_once';
 
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
@@ -39,13 +43,6 @@ function isDevUiEnv(): boolean {
   );
 }
 
-function isLikelyChunkLoadFailure(error: unknown): boolean {
-  const raw = `${error instanceof Error ? error.message : String(error)}\n${error instanceof Error && error.stack ? error.stack : ''}`;
-  return /Failed to fetch dynamically imported module|Loading chunk \d+ failed|Importing a module script failed/i.test(
-    raw,
-  );
-}
-
 function DefaultFallback({
   error,
   resetErrorBoundary,
@@ -53,6 +50,7 @@ function DefaultFallback({
   const err = toError(error);
   const isDevUi = isDevUiEnv();
   const deadViteHint = isDevUi && isLikelyViteDevServerGone(err);
+  const chunkStale = isLikelyChunkLoadFailure(err);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-6">
@@ -66,9 +64,20 @@ function DefaultFallback({
         <div className="text-center space-y-4">
           <h1 className="text-3xl font-black text-slate-900 dark:text-white">Ops! Algo deu errado</h1>
           <p className="text-slate-600 dark:text-slate-400 text-lg">
-            Ocorreu um erro inesperado. Nossa equipe foi notificada.
+            {chunkStale
+              ? 'Uma atualização do sistema ficou pendente no navegador. Recarregue a página para continuar.'
+              : 'Ocorreu um erro inesperado. Nossa equipe foi notificada.'}
           </p>
         </div>
+
+        {chunkStale && !deadViteHint && (
+          <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 p-5 text-left">
+            <p className="text-sm text-indigo-900 dark:text-indigo-100 leading-relaxed">
+              Isso costuma acontecer após um deploy ou com a aba aberta há muito tempo. O atalho{' '}
+              <strong>F5</strong> ou o botão abaixo costuma resolver sem perder a sessão.
+            </p>
+          </div>
+        )}
 
         {deadViteHint && (
           <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-5 text-left space-y-2">
@@ -122,33 +131,62 @@ function DefaultFallback({
   );
 }
 
-export default function AppErrorBoundary({ children, fallback }: AppErrorBoundaryProps) {
-  const onError = (error: unknown, info: ErrorInfo) => {
-    const err = toError(error);
-    console.error('ErrorBoundary capturou um erro:', err.message, err.stack, info);
-    captureException(err, { react: { componentStack: info.componentStack } });
+function useBoundaryResetKeys(): string[] {
+  const location = useLocation();
+  return [location.pathname, location.search];
+}
 
-    // Recuperação resiliente de chunk lazy quebrado (deploy/HMR): tenta 1 reload e evita loop.
-    if (typeof window !== 'undefined' && isLikelyChunkLoadFailure(err)) {
-      const alreadyRetried = sessionStorage.getItem(CHUNK_ERROR_AUTO_RECOVER_FLAG) === '1';
-      if (!alreadyRetried) {
-        sessionStorage.setItem(CHUNK_ERROR_AUTO_RECOVER_FLAG, '1');
-        window.location.reload();
-        return;
-      }
-    }
-  };
+function useClearChunkFlagsOnNavigate(): void {
+  const location = useLocation();
+  useEffect(() => {
+    clearChunkRecoverFlags();
+  }, [location.pathname, location.search]);
+}
+
+function handleBoundaryError(error: unknown, info: ErrorInfo): void {
+  const err = toError(error);
+  console.error('ErrorBoundary capturou um erro:', err.message, err.stack, info);
+  captureException(err, { react: { componentStack: info.componentStack } });
+
+  if (isLikelyChunkLoadFailure(err)) {
+    attemptChunkAutoRecover();
+  }
+}
+
+export default function AppErrorBoundary({ children, fallback }: AppErrorBoundaryProps) {
+  const resetKeys = useBoundaryResetKeys();
+  useClearChunkFlagsOnNavigate();
 
   if (fallback) {
     return (
-      <ErrorBoundary fallback={fallback} onError={onError}>
+      <ErrorBoundary fallback={fallback} onError={handleBoundaryError} resetKeys={resetKeys}>
         {children}
       </ErrorBoundary>
     );
   }
 
   return (
-    <ErrorBoundary FallbackComponent={DefaultFallback} onError={onError}>
+    <ErrorBoundary
+      FallbackComponent={DefaultFallback}
+      onError={handleBoundaryError}
+      resetKeys={resetKeys}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+
+/** Error boundary na raiz — deve ficar dentro de BrowserRouter. */
+export function RootErrorBoundary({ children }: { children: ReactNode }) {
+  const resetKeys = useBoundaryResetKeys();
+  useClearChunkFlagsOnNavigate();
+
+  return (
+    <ErrorBoundary
+      FallbackComponent={DefaultFallback}
+      onError={handleBoundaryError}
+      resetKeys={resetKeys}
+    >
       {children}
     </ErrorBoundary>
   );

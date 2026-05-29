@@ -2,22 +2,22 @@
  * Mapa path → mesmo `import()` usado em React.lazy (portal).
  * Permite prefetch no hover/foco do menu antes do clique.
  */
+import { attemptChunkAutoRecover, isLikelyChunkLoadFailure } from '../utils/chunkLoadRecovery';
+
 type RouteLoader = () => Promise<unknown>;
 
-function isTransientDynamicImportError(error: unknown): boolean {
-  const message = String((error as { message?: string })?.message || error || '').toLowerCase();
-  return (
-    message.includes('failed to fetch dynamically imported module') ||
-    message.includes('error loading dynamically imported module')
-  );
-}
-
-function withTransientRetry(loader: RouteLoader, retries = 2, delayMs = 350): RouteLoader {
+function withTransientRetry(loader: RouteLoader, retries = 2, delayMs = 400): RouteLoader {
   return async () => {
     try {
       return await loader();
     } catch (error) {
-      if (!isTransientDynamicImportError(error) || retries <= 0) {
+      if (isLikelyChunkLoadFailure(error) && retries <= 0) {
+        if (attemptChunkAutoRecover()) {
+          return new Promise(() => {});
+        }
+        throw error;
+      }
+      if (!isLikelyChunkLoadFailure(error) || retries <= 0) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs));

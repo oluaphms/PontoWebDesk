@@ -7,7 +7,8 @@ import { ThemeService } from './services/themeService';
 import { i18n } from './lib/i18n';
 import App from './App';
 import { ToastProvider } from './src/components/ToastProvider';
-import ErrorBoundary from './components/ErrorBoundary';
+import { RootErrorBoundary } from './components/ErrorBoundary';
+import { CHUNK_RELOAD_LEGACY_KEY, CHUNK_RELOAD_SESSION_KEY } from './src/utils/chunkLoadRecovery';
 import { LanguageProvider } from './src/contexts/LanguageContext';
 import { AppInitializer } from './src/components/AppInitializer';
 import { startLongTaskMonitor } from './src/performance/longTaskMonitor';
@@ -21,8 +22,6 @@ try {
 }
 
 // Após deploy, chunks antigos podem 404; um reload recupera. Evita loop com sessionStorage.
-const CHUNK_RELOAD_FLAG = '__cd_chunk_reload_once';
-const CHUNK_ERROR_AUTO_RECOVER_FLAG = '__pwb_chunk_error_auto_recover_once';
 if (typeof window !== 'undefined') {
   window.addEventListener(
     'unhandledrejection',
@@ -33,25 +32,28 @@ if (typeof window !== 'undefined') {
           ? String((r as Error).message)
           : String(r);
       if (
-        !/Failed to fetch dynamically imported module|Loading chunk \d+ failed|Importing a module script failed/i.test(
-          msg
+        !/Failed to fetch dynamically imported module|error loading dynamically imported module|Loading chunk [\da-f]+ failed|Importing a module script failed|Failed to load module script|ChunkLoadError/i.test(
+          msg,
         )
       ) {
         return;
       }
-      if (sessionStorage.getItem(CHUNK_RELOAD_FLAG) === '1') {
-        sessionStorage.removeItem(CHUNK_RELOAD_FLAG);
+      if (sessionStorage.getItem(CHUNK_RELOAD_LEGACY_KEY) === '1') {
+        sessionStorage.removeItem(CHUNK_RELOAD_LEGACY_KEY);
         return;
       }
-      sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+      if (sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY) === '1') {
+        return;
+      }
+      sessionStorage.setItem(CHUNK_RELOAD_LEGACY_KEY, '1');
       event.preventDefault();
       window.location.reload();
     },
-    { passive: false }
+    { passive: false },
   );
   window.addEventListener('load', function () {
-    sessionStorage.removeItem(CHUNK_RELOAD_FLAG);
-    sessionStorage.removeItem(CHUNK_ERROR_AUTO_RECOVER_FLAG);
+    sessionStorage.removeItem(CHUNK_RELOAD_LEGACY_KEY);
+    sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
   });
 }
 
@@ -104,9 +106,9 @@ root.render(
       <BrowserRouter>
         <LanguageProvider>
           <ToastProvider>
-            <ErrorBoundary>
+            <RootErrorBoundary>
               <App />
-            </ErrorBoundary>
+            </RootErrorBoundary>
           </ToastProvider>
         </LanguageProvider>
       </BrowserRouter>
