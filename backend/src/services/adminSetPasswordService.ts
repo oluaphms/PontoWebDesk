@@ -47,6 +47,14 @@ export async function setUserPasswordForTenant(params: {
     [hash, email, companyId],
   );
   if ((userUpd.rowCount ?? 0) > 0) {
+    if (await employeesHasPasswordHash()) {
+      await pool.query(
+        `update public.employees
+         set password_hash = $1
+         where lower(trim(email)) = $2 and company_id::text = $3`,
+        [hash, email, companyId],
+      );
+    }
     return { ok: true, email, table: 'users' };
   }
 
@@ -60,6 +68,15 @@ export async function setUserPasswordForTenant(params: {
       [hash, email, companyId],
     );
     if ((empUpd.rowCount ?? 0) > 0) {
+      await pool.query(
+        `update public.users u
+         set password_hash = $1
+         from public.employees e
+         where lower(trim(e.email)) = $2
+           and e.company_id::text = $3
+           and u.id::text = e.id::text`,
+        [hash, email, companyId],
+      );
       return { ok: true, email, table: 'employees' };
     }
   }

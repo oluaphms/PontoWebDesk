@@ -8,15 +8,31 @@ import {
   type NormalizedEmployeeInput,
 } from '../utils/employeeValidation.js';
 import { rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
+import {
+  ensureUserForEmployee,
+  syncUserFieldsFromEmployeeBody,
+} from '../services/employeeUserSync.js';
 
 function mapRow(row: Record<string, unknown>) {
+  const pis = row.pis ?? row.pis_pasep;
+  const telefone = row.telefone ?? row.phone;
+  const dataAdmissao = row.data_admissao ?? row.admissao;
+  let employeeConfig = row.employee_config;
+  if (typeof employeeConfig === 'string') {
+    try {
+      employeeConfig = JSON.parse(employeeConfig);
+    } catch {
+      employeeConfig = {};
+    }
+  }
   return {
     ...row,
-    data_admissao: row.data_admissao
-      ? String(row.data_admissao).slice(0, 10)
-      : null,
+    pis,
+    telefone,
+    data_admissao: dataAdmissao ? String(dataAdmissao).slice(0, 10) : null,
     salario: row.salario != null ? Number(row.salario) : null,
     carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
+    employee_config: employeeConfig ?? {},
   };
 }
 
@@ -27,7 +43,19 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
 
   try {
     const result = await pool.query(
-      `select ${EMPLOYEE_SELECT_COLUMNS} from employees where company_id = $1 order by created_at desc limit 1000`,
+      `select
+         e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
+         e.cpf,
+         coalesce(e.pis, u.pis_pasep) as pis,
+         coalesce(e.telefone, u.phone) as telefone,
+         coalesce(e.data_admissao, u.admissao) as data_admissao,
+         e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
+         u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+       from employees e
+       left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+       where e.company_id = $1
+       order by e.created_at desc
+       limit 1000`,
       [companyId],
     );
     res.json({ ok: true, employees: result.rows.map(mapRow) });
@@ -77,7 +105,19 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
         d.endereco,
       ],
     );
-    res.status(201).json({ ok: true, employee: mapRow(result.rows[0]) });
+    const raw = result.rows[0] as Record<string, unknown>;
+    const body =
+      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    await ensureUserForEmployee({
+      id: String(raw.id),
+      company_id: companyId,
+      nome: String(raw.nome),
+      email: String(raw.email || d.email),
+      role: String(raw.role || d.role),
+      status: String(raw.status || d.status),
+    });
+    await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
+    res.status(201).json({ ok: true, employee: mapRow(raw) });
   } catch (e: unknown) {
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
@@ -150,7 +190,25 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       res.status(404).json({ ok: false, error: 'not_found' });
       return;
     }
-    res.json({ ok: true, employee: mapRow(result.rows[0]) });
+    const body =
+      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    await syncUserFieldsFromEmployeeBody(id, companyId, body, result.rows[0]);
+    const refreshed = await pool.query(
+      `select
+         e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
+         e.cpf,
+         coalesce(e.pis, u.pis_pasep) as pis,
+         coalesce(e.telefone, u.phone) as telefone,
+         coalesce(e.data_admissao, u.admissao) as data_admissao,
+         e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
+         u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+       from employees e
+       left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+       where e.id = $1 and e.company_id = $2
+       limit 1`,
+      [id, companyId],
+    );
+    res.json({ ok: true, employee: mapRow(refreshed.rows[0] ?? result.rows[0]) });
   } catch (e: unknown) {
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
