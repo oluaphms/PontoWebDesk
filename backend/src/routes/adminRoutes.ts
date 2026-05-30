@@ -5,12 +5,16 @@ import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import type { Response } from 'express';
 import { requireCompanyId } from '../utils/authContext.js';
+import { adminSetPasswordController } from '../controllers/adminSetPasswordController.js';
 
 /** Rotas administrativas isoladas — não passam pelo CRUD genérico /data. */
 const router = Router();
 
 router.use(authMiddleware);
 router.use(requireAdminOrHr);
+
+/** Login LOCAL_API: bcrypt em public.users (substitui Supabase Auth na VPS). */
+router.post('/set-password', adminSetPasswordController);
 
 router.get('/health-scope', async (req: AuthedRequest, res: Response) => {
   const companyId = requireCompanyId(req, res);

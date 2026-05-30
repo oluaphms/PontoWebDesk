@@ -36,7 +36,11 @@ function resolveRoleFromAuthUser(authUser: {
       role = r as User['role'];
     }
   }
-  if (email === 'admin@smartponto.com' || email === 'desenvolvedor@smartponto.com') {
+  if (
+    email === 'admin@pontowebdesk.com' ||
+    email === 'admin@smartponto.com' ||
+    email === 'desenvolvedor@smartponto.com'
+  ) {
     role = 'admin';
   }
   if (email === 'funcionario@smartponto.com') {

@@ -303,8 +303,11 @@ class AuthService {
     const lower = rawNormalized.toLowerCase();
 
     // Atalhos antes de RPC/Supabase (modo API VPS não depende do GoTrue)
+    if (lower === 'admin@smartponto.com') {
+      return 'admin@pontowebdesk.com';
+    }
     if (lower === 'admin' || lower === 'administrador') {
-      return 'admin@smartponto.com';
+      return 'admin@pontowebdesk.com';
     }
     if (lower === 'desenvolvedor' || lower === 'dev') {
       return 'desenvolvedor@smartponto.com';
@@ -460,7 +463,11 @@ class AuthService {
         fallbackRole = r as User['role'];
       }
     }
-    if (email === 'admin@smartponto.com' || email === 'desenvolvedor@smartponto.com') {
+    if (
+      email === 'admin@pontowebdesk.com' ||
+      email === 'admin@smartponto.com' ||
+      email === 'desenvolvedor@smartponto.com'
+    ) {
       fallbackRole = 'admin';
     }
     if (email === 'funcionario@smartponto.com') {
@@ -498,7 +505,11 @@ class AuthService {
         fallbackRole = r as User['role'];
       }
     }
-    if (email === 'admin@smartponto.com' || email === 'desenvolvedor@smartponto.com') {
+    if (
+      email === 'admin@pontowebdesk.com' ||
+      email === 'admin@smartponto.com' ||
+      email === 'desenvolvedor@smartponto.com'
+    ) {
       fallbackRole = 'admin';
     }
     if (email === 'funcionario@smartponto.com') {
@@ -783,6 +794,7 @@ class AuthService {
             : parseDbUserRole(user.role, 'employee');
         const emailLower = email.toLowerCase();
         if (
+          emailLower === 'admin@pontowebdesk.com' ||
           emailLower === 'admin@smartponto.com' ||
           emailLower === 'desenvolvedor@smartponto.com'
         ) {
@@ -834,7 +846,11 @@ class AuthService {
         }
       }
       const emailLower = email.toLowerCase();
-      if (emailLower === 'admin@smartponto.com' || emailLower === 'desenvolvedor@smartponto.com') {
+      if (
+        emailLower === 'admin@pontowebdesk.com' ||
+        emailLower === 'admin@smartponto.com' ||
+        emailLower === 'desenvolvedor@smartponto.com'
+      ) {
         resolvedRole = 'admin';
       }
       if (emailLower === 'funcionario@smartponto.com') {
@@ -971,7 +987,11 @@ class AuthService {
         }
       }
       const emailLower = email.toLowerCase();
-      if (emailLower === 'admin@smartponto.com' || emailLower === 'desenvolvedor@smartponto.com') {
+      if (
+        emailLower === 'admin@pontowebdesk.com' ||
+        emailLower === 'admin@smartponto.com' ||
+        emailLower === 'desenvolvedor@smartponto.com'
+      ) {
         resolvedRole = 'admin';
       }
       if (emailLower === 'funcionario@smartponto.com') {

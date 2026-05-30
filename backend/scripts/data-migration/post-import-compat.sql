@@ -33,7 +33,16 @@ WHERE cargo IS NULL OR trim(cargo) = '';
 
 -- ─── Login API (JWT): password_hash em public.users ─────────────────────────
 -- Utilizadores importados do Supabase não trazem password_hash.
--- Defina senhas com: npm run db:seed (admin) ou UPDATE manual por email.
+-- Defina senhas com: npm run db:seed, POST /api/admin/set-password ou db:set-password.
+
+-- E-mail admin canónico (atalho "admin" no login)
+UPDATE public.users
+SET email = 'admin@pontowebdesk.com'
+WHERE lower(trim(email)) = 'admin@smartponto.com'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.users u2
+    WHERE lower(trim(u2.email)) = 'admin@pontowebdesk.com'
+  );
 
 -- ─── punches: compatibilidade API Node (schema Supabase usa employee_id) ───
 ALTER TABLE public.punches ADD COLUMN IF NOT EXISTS user_id text;

@@ -34,13 +34,14 @@ function normalizeIdentifier(body: Record<string, unknown>): string {
   return resolveLoginIdentifier(String(raw ?? ''));
 }
 
-/** Atalhos de login (ex.: "admin" → admin@smartponto.com) — alinhado ao frontend legado. */
+/** Atalhos de login (ex.: "admin" → admin@pontowebdesk.com) — alinhado ao frontend legado. */
 export function resolveLoginIdentifier(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
   const lower = trimmed.toLowerCase();
+  if (lower === 'admin@smartponto.com') return 'admin@pontowebdesk.com';
   if (lower.includes('@')) return lower;
-  if (lower === 'admin' || lower === 'administrador') return 'admin@smartponto.com';
+  if (lower === 'admin' || lower === 'administrador') return 'admin@pontowebdesk.com';
   if (lower === 'desenvolvedor' || lower === 'dev') return 'desenvolvedor@smartponto.com';
   if (lower === 'funcionario' || lower === 'funcionário') return 'funcionario@smartponto.com';
   return lower;

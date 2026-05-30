@@ -37,13 +37,14 @@ const pool = new pg.Pool({ connectionString, ssl });
 
 async function listUsers(client) {
   const r = await client.query(
-    `select id::text, email, role, company_id::text as company_id
+    `select id::text, email, role, company_id::text as company_id,
+            case when password_hash is null or password_hash = '' then 'SEM_SENHA' else 'OK' end as senha_api
      from users
      order by case when role in ('admin','hr') then 0 else 1 end, email
      limit 25`,
   );
   if (!r.rowCount) {
-    console.log('[set-password] Tabela public.users está vazia.');
+    console.log('[set-password] Tabela public.users está vazia — importe o dump ou rode db:seed.');
     const auth = await client.query(
       `select id::text, email from auth.users order by email limit 15`,
     ).catch(() => ({ rows: [] }));
@@ -53,10 +54,11 @@ async function listUsers(client) {
     }
     return;
   }
-  console.log('[set-password] Utilizadores em public.users:');
+  console.log('[set-password] Utilizadores em public.users (senha_api = login VPS):');
   for (const row of r.rows) {
-    console.log(`  - ${row.email} | role=${row.role} | company=${row.company_id}`);
+    console.log(`  - ${row.email} | role=${row.role} | senha=${row.senha_api} | company=${row.company_id}`);
   }
+  console.log('[set-password] Senha do Supabase Auth NÃO migra — use este script ou db:seed.');
 }
 
 try {

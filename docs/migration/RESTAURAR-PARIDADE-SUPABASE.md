@@ -80,10 +80,27 @@ Erro `unsupported version (1.16)` = `pg_restore` antigo. O script valida isso **
 
 ### 5. Senha de login (API JWT)
 
+**A senha do Supabase não funciona na VPS.** O dump não traz `password_hash` em `public.users` — o login local usa bcrypt na API (`/api/auth/login`).
+
 Utilizadores do Supabase não trazem `password_hash`. Para o admin:
 
 ```bash
-SEED_ADMIN_EMAIL=seu@email.com SEED_ADMIN_PASSWORD='sua-senha' npm run db:seed
+# Listar e-mails importados:
+psql "$DATABASE_URL" -c "SELECT email, role FROM users ORDER BY email LIMIT 20;"
+
+# Definir senha para um e-mail que já existe no dump:
+EMAIL='admin@pontowebdesk.com' PASSWORD='sua-senha-forte' npm run db:set-password
+
+# Renomear admin legado (se ainda existir admin@smartponto.com):
+psql "$DATABASE_URL" -f scripts/data-migration/rename-admin-email.sql
+
+# No painel: Colaboradores → editar → "Definir senha provisória 123456" (LOCAL_API → POST /api/admin/set-password)
+
+# Testar login na API:
+curl -sS -X POST https://api.phmsdev.com.br/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"seu@email.com","password":"sua-senha-forte"}'
+# Resposta esperada: {"ok":true,"token":"...","user":{...}}
 ```
 
 ### 6. Validar contagens

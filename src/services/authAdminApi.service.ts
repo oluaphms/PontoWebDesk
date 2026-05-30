@@ -1,5 +1,7 @@
 import { auth } from './supabaseClient';
 import { apiPost } from './api';
+import { getToken } from './authToken';
+import { isLocalApiMode } from '../config/system';
 
 const AUTH_ERROR_CODES: Record<string, string> = {
   USER_ALREADY_EXISTS: 'E-mail já cadastrado.',
@@ -10,7 +12,12 @@ const AUTH_ERROR_CODES: Record<string, string> = {
   CREATE_FAILED: 'Falha ao criar usuário no Auth.',
 };
 
-async function getAdminAccessToken(): Promise<string> {
+async function getAdminBearerToken(): Promise<string> {
+  if (isLocalApiMode()) {
+    const token = getToken();
+    if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+    return token;
+  }
   const {
     data: { session },
   } = await auth.getSession();
@@ -20,8 +27,9 @@ async function getAdminAccessToken(): Promise<string> {
 }
 
 export async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
+  if (isLocalApiMode()) return;
   try {
-    const token = await getAdminAccessToken();
+    const token = await getAdminBearerToken();
     await apiPost(
       '/auth/admin',
       { action: 'confirm-email', email: email.trim().toLowerCase() },
@@ -36,11 +44,21 @@ export async function setEmployeePasswordInAuth(
   email: string,
   newPassword: string,
 ): Promise<{ success: boolean; error?: string }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const password = newPassword.trim() || '123456';
   try {
-    const token = await getAdminAccessToken();
+    const token = await getAdminBearerToken();
+    if (isLocalApiMode()) {
+      await apiPost(
+        '/admin/set-password',
+        { email: normalizedEmail, newPassword: password },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      return { success: true };
+    }
     await apiPost(
       '/auth/admin',
-      { action: 'set-password', email: email.trim().toLowerCase(), newPassword: newPassword.trim() },
+      { action: 'set-password', email: normalizedEmail, newPassword: password },
       { headers: { Authorization: `Bearer ${token}` } },
     );
     return { success: true };
@@ -102,7 +120,7 @@ export async function createEmployeeAuthUser(params: {
 }
 
 export async function rollbackEmployeeAuthUser(params: { userId?: string; email?: string }): Promise<void> {
-  const token = await getAdminAccessToken();
+  const token = await getAdminBearerToken();
   const userId = String(params.userId || '').trim();
   const email = String(params.email || '').trim().toLowerCase();
   if (!userId && !email) throw new Error('Rollback requer userId ou email.');
