@@ -88,8 +88,25 @@ export async function handlePhotoUpload(request: Request): Promise<Response> {
     declaredMime,
   });
 
-  if (!outcome.ok) {
-    if ('result' in outcome) return fail(request, outcome.result);
+  if (outcome.ok === true) {
+    return noCache(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          url: outcome.url,
+          path: outcome.path,
+          mime: outcome.mime,
+        }),
+        { status: 200, headers: { ...h, 'Content-Type': 'application/json' } },
+      ),
+    );
+  }
+
+  if (outcome.ok === false && 'result' in outcome) {
+    return fail(request, outcome.result);
+  }
+
+  if (outcome.ok === false && 'error' in outcome) {
     return noCache(
       new Response(JSON.stringify({ ok: false, error: outcome.error }), {
         status: outcome.status,
@@ -99,14 +116,9 @@ export async function handlePhotoUpload(request: Request): Promise<Response> {
   }
 
   return noCache(
-    new Response(
-      JSON.stringify({
-        ok: true,
-        url: outcome.url,
-        path: outcome.path,
-        mime: outcome.mime,
-      }),
-      { status: 200, headers: { ...h, 'Content-Type': 'application/json' } },
-    ),
+    new Response(JSON.stringify({ ok: false, error: 'upload_failed' }), {
+      status: 500,
+      headers: { ...h, 'Content-Type': 'application/json' },
+    }),
   );
 }
