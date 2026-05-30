@@ -1,6 +1,7 @@
 /**
  * Camada db → API HTTP (VPS). Substitui PostgREST/Supabase no frontend.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './api';
 import { getToken } from './authToken';
 import { uploadPhotoViaApi } from './uploadPhotoApi';
@@ -532,7 +533,11 @@ export async function testSupabaseConnection(): Promise<{ ok: boolean; message?:
 
 export function resetSessionAuthWarmup(): void {}
 
-export async function safeUserSelectColumns(_client: null, requested?: string[]): Promise<string[]> {
+/** Compatível com Supabase real (serverless REP) e shim dbHttp (frontend LOCAL_API). */
+export async function safeUserSelectColumns(
+  _client: SupabaseClient | null,
+  requested?: string[],
+): Promise<string[]> {
   return requested?.length ? requested : ['id', 'company_id', 'nome', 'email', 'role'];
 }
 
