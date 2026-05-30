@@ -19,6 +19,11 @@ export type ApiEmployee = {
   jornada_tipo?: string | null;
   carga_horaria?: number | null;
   endereco?: string | null;
+  numero_folha?: string | null;
+  numero_identificador?: string | null;
+  demissao?: string | null;
+  invisivel?: boolean;
+  employee_config?: Record<string, unknown>;
 };
 
 export type EmployeeWriteInput = {
@@ -37,6 +42,11 @@ export type EmployeeWriteInput = {
   jornada_tipo?: string | null;
   carga_horaria?: number | null;
   endereco?: string | null;
+  numero_folha?: string | null;
+  numero_identificador?: string | null;
+  demissao?: string | null;
+  invisivel?: boolean;
+  employee_config?: Record<string, unknown>;
 };
 
 export type EmployeeUpdateInput = Partial<EmployeeWriteInput>;
@@ -66,6 +76,13 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   if (input.jornada_tipo !== undefined) body.jornada_tipo = input.jornada_tipo?.trim() || null;
   if (input.carga_horaria !== undefined) body.carga_horaria = input.carga_horaria;
   if (input.endereco !== undefined) body.endereco = input.endereco?.trim() || null;
+  if (input.numero_folha !== undefined) body.numero_folha = input.numero_folha?.trim() || null;
+  if (input.numero_identificador !== undefined) {
+    body.numero_identificador = input.numero_identificador?.trim() || null;
+  }
+  if (input.demissao !== undefined) body.demissao = input.demissao || null;
+  if (input.invisivel !== undefined) body.invisivel = input.invisivel;
+  if (input.employee_config !== undefined) body.employee_config = input.employee_config;
   return body;
 }
 
@@ -170,5 +187,13 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     jornada_tipo: row.jornada_tipo != null ? String(row.jornada_tipo) : null,
     carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
     endereco: row.endereco != null ? String(row.endereco) : null,
+    numero_folha: row.numero_folha != null ? String(row.numero_folha) : null,
+    numero_identificador: row.numero_identificador != null ? String(row.numero_identificador) : null,
+    demissao: row.demissao != null ? String(row.demissao).slice(0, 10) : null,
+    invisivel: row.invisivel === true,
+    employee_config:
+      row.employee_config && typeof row.employee_config === 'object'
+        ? (row.employee_config as Record<string, unknown>)
+        : {},
   };
 }

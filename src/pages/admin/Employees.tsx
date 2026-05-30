@@ -30,6 +30,7 @@ import {
   type ApiEmployee,
   type EmployeeWriteInput,
 } from '../../services/employeesApi.service';
+import { setEmployeePasswordInAuth } from '../../services/authAdminApi.service';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { resolveTenantId } from '../../services/tenantScope';
 import { invalidateCompanyListCaches } from '../../services/queryCache';
@@ -177,8 +178,11 @@ function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
     jornada_tipo: e.jornada_tipo ?? undefined,
     carga_horaria: e.carga_horaria ?? undefined,
     endereco: e.endereco ?? undefined,
-    invisivel: false,
-    employee_config: {},
+    numero_folha: e.numero_folha ?? undefined,
+    numero_identificador: e.numero_identificador ?? undefined,
+    demissao: e.demissao ?? undefined,
+    invisivel: e.invisivel === true,
+    employee_config: e.employee_config ?? {},
     reliability_score: calcularScoreConfiabilidade({
       atrasos: 0,
       faltas: 0,
@@ -518,6 +522,9 @@ const AdminEmployees: React.FC = () => {
     setForm({
       ...defaultForm(),
       numero_folha: row.numero_folha || '',
+      numero_identificador: row.numero_identificador || '',
+      photo_preview:
+        typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '',
       salario_base:
         row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
       nome: row.nome,
@@ -633,6 +640,10 @@ const AdminEmployees: React.FC = () => {
       jornada_tipo: form.jornada_tipo || null,
       carga_horaria: cargaParsed,
       endereco: buildEnderecoFromForm(form),
+      numero_folha: form.numero_folha?.trim() || null,
+      numero_identificador: form.numero_identificador?.trim() || null,
+      demissao: form.demissao?.trim() || null,
+      employee_config: buildEmployeeConfig(),
     };
 
     setSaving(true);
@@ -650,8 +661,20 @@ const AdminEmployees: React.FC = () => {
           loadData();
         }
       } else {
-        await createEmployee(apiPayload);
-        setSuccess('Colaborador cadastrado na API.');
+        const created = await createEmployee(apiPayload);
+        const pwd = form.password?.trim() || '123456';
+        if (created.email) {
+          const pw = await setEmployeePasswordInAuth(created.email, pwd);
+          if (!pw.success) {
+            setSuccess(
+              'Colaborador cadastrado. Defina a senha em Editar → “Definir senha provisória 123456”.',
+            );
+          } else {
+            setSuccess('Colaborador cadastrado. Senha provisória definida para login.');
+          }
+        } else {
+          setSuccess('Colaborador cadastrado na API.');
+        }
         setModalOpen(false);
         setForm({ ...form, password: '' });
         invalidateCompanyListCaches(effectiveCompanyId);
