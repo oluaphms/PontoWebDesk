@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../logger/observabilityConsole.js';
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
@@ -56,7 +57,7 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       },
     });
   } catch (e) {
-    console.error('[AUTH ME]', e);
+    observabilityConsole.error('[AUTH ME]', e);
     res.status(500).json({ ok: false, error: 'auth_me_failed' });
   }
 }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Modal — reconciliação assistida para batidas REP com invalid_sequence (sem auto-promote).
  */
@@ -133,7 +134,7 @@ export const RepPendingSequenceResolutionModal: React.FC<RepPendingSequenceResol
       reviewedBy: reviewedByUserId,
       supabaseClient: supabase,
     }).catch((err) => {
-      console.warn('[REP SEQ] falha ao marcar investigating:', err);
+      observabilityConsole.warn('[REP SEQ] falha ao marcar investigating:', err);
       setError((prev) => prev ?? 'Falha ao marcar a batida como em investigação.');
     });
   }, [open, selectedLogId, reviewedByUserId, companyId]);

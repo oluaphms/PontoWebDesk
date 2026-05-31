@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Circuit breaker GEO: protege CPU mobile e reduz pressão sob rajadas.
  */
@@ -24,13 +25,13 @@ function refreshPhase(t: number): void {
   if (state === 'OPEN' && t >= phaseUntil) {
     state = 'HALF_OPEN';
     phaseUntil = t + HALF_OPEN_MS;
-    console.info('[GEO CIRCUIT HALF OPEN]', { until: phaseUntil });
+    observabilityConsole.info('[GEO CIRCUIT HALF OPEN]', { until: phaseUntil });
     void import('../../../services/operational/operationalAutoRecoveryRunner').then((m) =>
       m.runOperationalAutoRecovery('geo_circuit_half_open'),
     );
   } else if (state === 'HALF_OPEN' && t >= phaseUntil) {
     state = 'CLOSED';
-    console.info('[GEO CIRCUIT CLOSED]', { reason: 'half_open_elapsed' });
+    observabilityConsole.info('[GEO CIRCUIT CLOSED]', { reason: 'half_open_elapsed' });
   }
 }
 
@@ -53,7 +54,7 @@ export function reportGeoCircuitSignal(
     state = 'OPEN';
     phaseUntil = t + OPEN_MS;
     signalsInWindow = 0;
-    console.warn('[GEO CIRCUIT OPEN]', { until: phaseUntil, kind });
+    observabilityConsole.warn('[GEO CIRCUIT OPEN]', { until: phaseUntil, kind });
   }
 }
 
@@ -79,6 +80,6 @@ export function notifyGeoCircuitSuccess(): void {
     state = 'CLOSED';
     phaseUntil = 0;
     signalsInWindow = 0;
-    console.info('[GEO CIRCUIT CLOSED]', { reason: 'success' });
+    observabilityConsole.info('[GEO CIRCUIT CLOSED]', { reason: 'success' });
   }
 }

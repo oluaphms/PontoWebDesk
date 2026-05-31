@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { distanceMeters } from './geoDistance.service';
 import type { NativeGpsAcceptedPoint } from './nativeGpsPrecision.service';
 
@@ -102,7 +103,7 @@ export function resolveGeoConsensus(input: GeoConsensusInput): GeoConsensusResul
     );
     if (dist > DIVERGENCE_M) {
       rejected.push(s.source);
-      console.warn('[GEO OUTLIER REJECTED]', {
+      observabilityConsole.warn('[GEO OUTLIER REJECTED]', {
         employee_id: input.employeeId,
         source: s.source,
         distance_m: dist,
@@ -149,7 +150,7 @@ export function resolveGeoConsensus(input: GeoConsensusInput): GeoConsensusResul
     if (d > CLUSTER_RADIUS_M) diverged += 1;
   }
   if (diverged > 0) {
-    console.warn('[GEO SOURCE DIVERGENCE]', {
+    observabilityConsole.warn('[GEO SOURCE DIVERGENCE]', {
       employee_id: input.employeeId,
       diverged_sources: diverged,
       accepted_sources: accepted.length,
@@ -172,8 +173,8 @@ export function resolveGeoConsensus(input: GeoConsensusInput): GeoConsensusResul
     latitude: lat,
     longitude: lng,
   };
-  console.info('[GEO CONSENSUS]', payload);
-  if (stable) console.info('[GEO CONSENSUS STABLE]', payload);
+  observabilityConsole.info('[GEO CONSENSUS]', payload);
+  if (stable) observabilityConsole.info('[GEO CONSENSUS STABLE]', payload);
 
   return {
     stable,

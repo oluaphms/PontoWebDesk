@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Calendar, Plus, Pencil, Trash2, Sparkles } from 'lucide-react';
@@ -56,7 +57,7 @@ const AdminFeriados: React.FC = () => {
         created_at: r.created_at,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar feriados.' });
     } finally {
       setLoadingData(false);

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import { operationalLog } from '../observability';
 import { recordOperationalMetric } from '../metrics/operationalMetrics';
 
@@ -59,7 +60,7 @@ export const retryBudget = {
           retry_key: key,
           retries_in_window: current.count,
         });
-        console.warn('[RETRY STORM]', { key, retries_in_window: current.count });
+        observabilityConsole.warn('[RETRY STORM]', { key, retries_in_window: current.count });
         recordOperationalMetric('retry_storm_rate', current.count, { source: 'retryBudget' });
       }
       return false;
@@ -80,7 +81,7 @@ export const degradedMode = {
       lifecycle: 'degraded',
       event_type: 'tenant_marked_degraded',
     });
-    console.warn('[DEGRADED MODE]', { company_id: companyId });
+    observabilityConsole.warn('[DEGRADED MODE]', { company_id: companyId });
   },
   clearTenant(companyId: string): void {
     if (!companyId) return;
@@ -113,12 +114,12 @@ export const operationalCircuitBreaker = {
     if (circuit.state === 'OPEN') {
       const elapsed = now - (circuit.opened_at ?? now);
       if (elapsed < resetTimeoutMs) {
-        console.warn('[CIRCUIT OPEN]', { key, remaining_ms: resetTimeoutMs - elapsed });
+        observabilityConsole.warn('[CIRCUIT OPEN]', { key, remaining_ms: resetTimeoutMs - elapsed });
         throw new Error(`Circuito aberto para ${key}`);
       }
       circuit.state = 'HALF_OPEN';
       circuit.half_open_trials = 0;
-      console.info('[CIRCUIT HALF_OPEN]', { key });
+      observabilityConsole.info('[CIRCUIT HALF_OPEN]', { key });
     }
 
     try {
@@ -139,7 +140,7 @@ export const operationalCircuitBreaker = {
       if (circuit.failures >= failureThreshold) {
         circuit.state = 'OPEN';
         circuit.opened_at = Date.now();
-        console.warn('[CIRCUIT OPEN]', { key, failures: circuit.failures });
+        observabilityConsole.warn('[CIRCUIT OPEN]', { key, failures: circuit.failures });
         operationalLog('RECOVERY', {
           company_id: input.companyId ?? null,
           severity: 'error',

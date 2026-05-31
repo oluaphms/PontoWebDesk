@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Aplica arquivos SQL em backend/db/migrations/ em ordem.
  * Uso: cd backend && node scripts/apply-migrations.mjs
@@ -13,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[apply-migrations] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[apply-migrations] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -33,12 +34,12 @@ const pool = new pg.Pool({ connectionString, ssl });
 try {
   for (const file of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    console.log('[apply-migrations]', file);
+    observabilityConsole.log('[apply-migrations]', file);
     await pool.query(sql);
   }
-  console.log('[apply-migrations] OK —', files.length, 'arquivo(s)');
+  observabilityConsole.log('[apply-migrations] OK —', files.length, 'arquivo(s)');
 } catch (err) {
-  console.error('[apply-migrations] Falhou:', err);
+  observabilityConsole.error('[apply-migrations] Falhou:', err);
   process.exit(1);
 } finally {
   await pool.end();

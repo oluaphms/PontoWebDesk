@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db, type DbRow } from '../../services/supabaseClient';
 import { queryCache, TTL } from './queryCache';
 import { runSingleFlight } from '../performance/fetchSingleFlight';
@@ -274,7 +275,7 @@ function resolveDashboardDisplayInstant(record: any): {
   }
 
   if (primary && Math.abs(primaryDeltaHours ?? 0) > 24) {
-    console.info('[TIME DISPLAY BUG]', {
+    observabilityConsole.info('[TIME DISPLAY BUG]', {
       reason: 'timestamp_delta_gt_24h',
       source_record_id: String(record?.id ?? ''),
       user_id: String(record?.user_id ?? ''),
@@ -303,7 +304,7 @@ function resolveDashboardDisplayInstant(record: any): {
 
   if (fallback) {
     if (Math.abs(fallbackDeltaHours ?? 0) > 24) {
-      console.info('[TIME DISPLAY BUG]', {
+      observabilityConsole.info('[TIME DISPLAY BUG]', {
         reason: 'created_at_delta_gt_24h',
         source_record_id: String(record?.id ?? ''),
         user_id: String(record?.user_id ?? ''),
@@ -324,7 +325,7 @@ function resolveDashboardDisplayInstant(record: any): {
     return { instant: fallback, hasAnomaly: false, anomalyReason: null };
   }
 
-  console.info('[TIME DISPLAY BUG]', {
+  observabilityConsole.info('[TIME DISPLAY BUG]', {
     reason: 'invalid_timestamp_and_created_at',
     source_record_id: String(record?.id ?? ''),
     user_id: String(record?.user_id ?? ''),
@@ -581,7 +582,7 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
     } catch (e) {
       if (isSupabaseBlocked(e)) {
         enableDegradedMode();
-        console.warn('[MODO LOCAL] dashboard cards');
+        observabilityConsole.warn('[MODO LOCAL] dashboard cards');
         return await localFallback();
       }
       handleError(e, 'getAdminDashboardCardsQuick');
@@ -647,7 +648,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
     } catch (e) {
       if (isSupabaseBlocked(e)) {
         enableDegradedMode();
-        console.warn('[MODO LOCAL] dashboard last records');
+        observabilityConsole.warn('[MODO LOCAL] dashboard last records');
         return await localFallback();
       }
       handleError(e, 'getAdminDashboardLastRecordsOnly');

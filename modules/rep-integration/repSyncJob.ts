@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Job de sincronização automática dos relógios REP
  * Fluxo: conectar → baixar marcações → converter → rep_punch_logs + time_records → atualizar ultima_sincronizacao
@@ -167,7 +168,7 @@ export async function syncRepDevice(
       const before = punches.length;
       punches = filterPunchesByDateRange(punches, ingestOptions.collectStartDate, ingestOptions.collectEndDate);
       if (before !== punches.length) {
-        console.log(
+        observabilityConsole.log(
           `[REP SYNC] Filtro date_range ${ingestOptions.collectStartDate}..${ingestOptions.collectEndDate}: ${before} → ${punches.length}`
         );
       }
@@ -251,7 +252,7 @@ export function startRepSyncInterval(
 ): () => void {
   const run = () =>
     syncRepDevices(supabase, companyId).catch((err) => {
-      console.warn('[repSyncJob] Falha ao sincronizar REP:', err);
+      observabilityConsole.warn('[repSyncJob] Falha ao sincronizar REP:', err);
     });
   const id = setInterval(run, SYNC_INTERVAL_MS);
   run(); // primeira execução imediata

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { appendTimeAttendanceTimelineEventOrThrow } from '../../../services/timeAttendanceTimeline.service';
 import { insertIncidentResolutionOrThrow } from '../../../services/timeAttendanceIncidentReviews.service';
@@ -26,7 +27,7 @@ function enrichPayload(ctx: OperationalTransactionContext, payload: Record<strin
 
 function emitOperationalTransactionLog(payload: Record<string, unknown>): void {
   if (typeof console === 'undefined') return;
-  console.info('[OPERATIONAL_TRANSACTION]', payload);
+  observabilityConsole.info('[OPERATIONAL_TRANSACTION]', payload);
 }
 
 function transactionLogBase(

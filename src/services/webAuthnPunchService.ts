@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * WebAuthn para comprovação de ponto no mesmo dispositivo (passkey de plataforma).
  * Credencial armazenada em localStorage por usuário — adequado para prova local;
@@ -37,7 +38,7 @@ export function hasStoredPasskey(userId: string): boolean {
   try {
     return !!localStorage.getItem(STORAGE_KEY(userId));
   } catch (err) {
-    console.warn('[webAuthn] Falha ao ler passkey:', err);
+    observabilityConsole.warn('[webAuthn] Falha ao ler passkey:', err);
     return false;
   }
 }
@@ -46,7 +47,7 @@ export function clearStoredPasskey(userId: string): void {
   try {
     localStorage.removeItem(STORAGE_KEY(userId));
   } catch (err) {
-    console.warn('[webAuthn] Falha ao remover passkey:', err);
+    observabilityConsole.warn('[webAuthn] Falha ao remover passkey:', err);
   }
 }
 
@@ -90,7 +91,7 @@ export async function registerPlatformPasskey(
   try {
     localStorage.setItem(STORAGE_KEY(userId), base64UrlEncode(cred.rawId));
   } catch (err) {
-    console.warn('[webAuthn] Falha ao salvar passkey:', err);
+    observabilityConsole.warn('[webAuthn] Falha ao salvar passkey:', err);
     return false;
   }
   return true;
@@ -105,7 +106,7 @@ export async function verifyPlatformPasskey(userId: string): Promise<boolean> {
   try {
     stored = localStorage.getItem(STORAGE_KEY(userId));
   } catch (err) {
-    console.warn('[webAuthn] Falha ao ler passkey para verificação:', err);
+    observabilityConsole.warn('[webAuthn] Falha ao ler passkey para verificação:', err);
     return false;
   }
   if (!stored) return false;

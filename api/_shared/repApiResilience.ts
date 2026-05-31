@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Logs e respostas degradadas para APIs REP (Vercel serverless).
  */
@@ -10,9 +11,9 @@ export function logRepApi(
   fields: Record<string, unknown>,
 ): void {
   const payload = { route, ...fields, ts: new Date().toISOString() };
-  if (level === 'error') console.error('[REP API]', payload);
-  else if (level === 'warn') console.warn('[REP API]', payload);
-  else console.log('[REP API]', payload);
+  if (level === 'error') observabilityConsole.error('[REP API]', payload);
+  else if (level === 'warn') observabilityConsole.warn('[REP API]', payload);
+  else observabilityConsole.log('[REP API]', payload);
 }
 
 export function emptyCommandsResponse(headers: Record<string, string>, reason?: string): Response {

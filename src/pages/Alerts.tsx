@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2 } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -80,7 +81,7 @@ const AlertsPage: React.FC = () => {
 
         setAlerts(mapped);
       } catch (e) {
-        console.error('Erro ao carregar alerts:', e);
+        observabilityConsole.error('Erro ao carregar alerts:', e);
         setError('Não foi possível carregar os alertas.');
       } finally {
         setIsLoadingData(false);
@@ -106,7 +107,7 @@ const AlertsPage: React.FC = () => {
       });
       setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, resolved } : a)));
     } catch (e) {
-      console.error('Erro ao atualizar alerta:', e);
+      observabilityConsole.error('Erro ao atualizar alerta:', e);
     }
   };
 

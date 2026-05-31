@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 // ============================================================
 // Relatório de Inconsistências - Padrão Profissional
 // ============================================================
@@ -314,12 +315,12 @@ const ReportInconsistencies: React.FC = () => {
 
   // Handlers
   const handleCorrect = useCallback((row: InconsistencyRow) => {
-    console.log('Corrigir:', row);
+    observabilityConsole.log('Corrigir:', row);
     // Abrir modal de correção
   }, []);
 
   const handleJustify = useCallback((row: InconsistencyRow) => {
-    console.log('Justificar:', row);
+    observabilityConsole.log('Justificar:', row);
     // Abrir modal de justificativa
   }, []);
 
@@ -328,7 +329,7 @@ const ReportInconsistencies: React.FC = () => {
       await db.update('time_inconsistencies', { resolved: true }, [{ column: 'id', operator: 'eq', value: row.id }]);
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, resolved: true } : r)));
     } catch (e) {
-      console.error('Erro ao resolver:', e);
+      observabilityConsole.error('Erro ao resolver:', e);
     }
   }, []);
 
@@ -341,11 +342,11 @@ const ReportInconsistencies: React.FC = () => {
 
   const handleExportPDF = useCallback(() => {
     // Implementar exportação
-    console.log('Exportar PDF');
+    observabilityConsole.log('Exportar PDF');
   }, []);
 
   const handleExportExcel = useCallback(() => {
-    console.log('Exportar Excel');
+    observabilityConsole.log('Exportar Excel');
   }, []);
 
   if (loading) return <LoadingState message="Carregando..." />;

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-audit?company_id=...&entity_type=&entity_id=
  */
@@ -53,14 +54,14 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const reqUrl = resolveRequestUrl(request);
-    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(reqUrl.searchParams.entries()) });
+    observabilityConsole.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(reqUrl.searchParams.entries()) });
     const companyId = reqUrl.searchParams.get('company_id')?.trim() || '';
     if (!companyId) {
       return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      observabilityConsole.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
       return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
@@ -115,7 +116,7 @@ async function handler(request: Request): Promise<Response> {
     const { data: rows, error } = await withQueryTimeout(q, `${ROUTE}.list`);
 
     if (error) {
-      console.error('[api/operational-audit]', error);
+      observabilityConsole.error('[api/operational-audit]', error);
       return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useState } from 'react';
 import { fetchEmployees } from '../services/employeesApi.service';
 import { queryCache, TTL } from '../services/queryCache';
@@ -46,7 +47,7 @@ export function useCompanyEmployees(companyId: string | undefined): {
           })),
         );
       } catch (e) {
-        console.warn('[useCompanyEmployees] API:', e);
+        observabilityConsole.warn('[useCompanyEmployees] API:', e);
         if (!isCancelled()) setEmployees([]);
       } finally {
         if (!isCancelled()) setLoadingEmployees(false);

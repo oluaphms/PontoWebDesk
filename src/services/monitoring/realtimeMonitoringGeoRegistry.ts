@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Evita que eventos Postgres atrasados disparem refresh que competem com estado mais novo (monotonicidade por colaborador).
  */
@@ -80,13 +81,13 @@ export function shouldProcessRealtimeCosPayload(
   );
 
   if (snap.ok === false) {
-    console.info('[REALTIME STALE EVENT IGNORED]', {
+    observabilityConsole.info('[REALTIME STALE EVENT IGNORED]', {
       table: 'current_operational_state',
       company_id: companyId,
       employee_id: employeeId,
       reason: snap.reason,
     });
-    console.warn('[REALTIME REGRESSION BLOCKED]', {
+    observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', {
       table: 'current_operational_state',
       company_id: companyId,
       employee_id: employeeId,
@@ -95,7 +96,7 @@ export function shouldProcessRealtimeCosPayload(
     return false;
   }
   if (prev.checksum && incoming.checksum && prev.checksum !== incoming.checksum && incoming.state_version <= prev.state_version) {
-    console.warn('[REALTIME REGRESSION BLOCKED]', {
+    observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', {
       table: 'current_operational_state',
       company_id: companyId,
       employee_id: employeeId,
@@ -104,7 +105,7 @@ export function shouldProcessRealtimeCosPayload(
     return false;
   }
   if (prev.lineage && incoming.lineage && incoming.lineage < prev.lineage) {
-    console.warn('[REALTIME STALE EVENT DROPPED]', {
+    observabilityConsole.warn('[REALTIME STALE EVENT DROPPED]', {
       table: 'current_operational_state',
       company_id: companyId,
       employee_id: employeeId,
@@ -146,13 +147,13 @@ export function shouldProcessRealtimeLivePayload(
   const cOld = normalizeOperationalDate(prev.captured_at, { quiet: true, source: 'liveRealtime' });
 
   if (uNew && uOld && uNew.instantMs + 500 < uOld.instantMs) {
-    console.info('[REALTIME STALE EVENT IGNORED]', {
+    observabilityConsole.info('[REALTIME STALE EVENT IGNORED]', {
       table: 'live_employee_location',
       company_id: companyId,
       employee_id: employeeId,
       reason: 'updated_at_regression',
     });
-    console.warn('[REALTIME REGRESSION BLOCKED]', {
+    observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', {
       table: 'live_employee_location',
       company_id: companyId,
       employee_id: employeeId,
@@ -161,13 +162,13 @@ export function shouldProcessRealtimeLivePayload(
     return false;
   }
   if (cNew && cOld && cNew.instantMs + 500 < cOld.instantMs && uNew && uOld && uNew.instantMs <= uOld.instantMs) {
-    console.info('[REALTIME STALE EVENT IGNORED]', {
+    observabilityConsole.info('[REALTIME STALE EVENT IGNORED]', {
       table: 'live_employee_location',
       company_id: companyId,
       employee_id: employeeId,
       reason: 'captured_at_regression',
     });
-    console.warn('[REALTIME STALE EVENT DROPPED]', {
+    observabilityConsole.warn('[REALTIME STALE EVENT DROPPED]', {
       table: 'live_employee_location',
       company_id: companyId,
       employee_id: employeeId,
@@ -176,7 +177,7 @@ export function shouldProcessRealtimeLivePayload(
     return false;
   }
   if (prev.checksum && checksum && prev.checksum !== checksum && uNew && uOld && uNew.instantMs <= uOld.instantMs) {
-    console.warn('[REALTIME REGRESSION BLOCKED]', {
+    observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', {
       table: 'live_employee_location',
       company_id: companyId,
       employee_id: employeeId,

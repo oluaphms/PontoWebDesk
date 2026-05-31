@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
@@ -130,7 +131,7 @@ const AdminCartaoPonto: React.FC = () => {
         }))
       );
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     }
   }, [user?.companyId]);
 
@@ -186,7 +187,7 @@ const AdminCartaoPonto: React.FC = () => {
       setLocalMeta({});
       setDirty(new Set());
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar dados.' });
     } finally {
       setLoadingData(false);

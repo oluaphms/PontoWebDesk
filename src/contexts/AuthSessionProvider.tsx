@@ -18,7 +18,7 @@ import React, {
 import type { User } from '../../types';
 import { authService } from '../../services/authService';
 import { fetchAuthMe } from '../services/authMe.service';
-import { getToken, clearToken } from '../services/authToken';
+import { clearToken } from '../services/authToken';
 import { setUnauthorizedHandler } from '../services/api';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from '../app/appShellBootstrap';
 import {
@@ -68,10 +68,6 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) {
-      clearSession();
-      return;
-    }
     setLoading(true);
     try {
       const current = await fetchAuthMe();

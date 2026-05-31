@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Recuperação automática coordenada após degradação (circuit half-open / reconexão).
  */
@@ -23,7 +24,7 @@ export async function coordinateOperationalAutoRecovery(
   if (recoveryInflight || t - lastRecoveryAt < COOLDOWN_MS) return;
   recoveryInflight = true;
   lastRecoveryAt = t;
-  console.info('[AUTO RECOVERY START]', { reason });
+  observabilityConsole.info('[AUTO RECOVERY START]', { reason });
   operationalBusEmit('recovery:started', { reason });
   try {
     invalidateOperationalGeoCaches(`auto_recovery:${reason}`);
@@ -37,9 +38,9 @@ export async function coordinateOperationalAutoRecovery(
       await replayOfflineGeoOperationalBuffer({ companyId: id.companyId, employeeId: id.employeeId, client });
     }
     notifyGeoCircuitSuccess();
-    console.info('[AUTO RECOVERY SUCCESS]', { reason });
+    observabilityConsole.info('[AUTO RECOVERY SUCCESS]', { reason });
   } catch (e) {
-    console.error('[AUTO RECOVERY FAILED]', { reason, error: String(e) });
+    observabilityConsole.error('[AUTO RECOVERY FAILED]', { reason, error: String(e) });
   } finally {
     recoveryInflight = false;
   }

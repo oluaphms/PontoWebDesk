@@ -26,6 +26,7 @@ import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, unlinkSync 
 import { resolve, join }                                                            from 'node:path';
 import { createHash }                                                               from 'node:crypto';
 import { LOG_LEVEL }                                                                from './syncQueue.js';
+import { observabilityConsole }                                                     from './observabilityConsole.js';
 
 const DR_ENABLED       = (process.env.DR_ENABLED       || '1').trim() !== '0';
 const CHECKPOINT_MS    = parseInt(process.env.DR_CHECKPOINT_MS || String(5 * 60_000), 10);
@@ -130,7 +131,9 @@ export class DRManager {
       for (const file of files.slice(MAX_LOCAL_WAL)) {
         unlinkSync(join(DR_LOCAL_DIR, file.name));
       }
-    } catch { /* best-effort */ }
+    } catch (error) {
+      observabilityConsole.warn('[drManager] Falha ao limpar checkpoints locais:', error);
+    }
   }
 
   // ── Restore Test ──────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Adapter Henry — implementação para comunicação com relógios Henry.
  * 
@@ -143,7 +144,7 @@ function generateDedupeHash(punch: Punch): string {
  */
 async function fetchViaTcp(device: DeviceConfig): Promise<Punch[]> {
   // Placeholder para futura implementação TCP
-  console.log(`[Henry] TCP fetch não implementado para ${device.ip}:${device.port || 4370}`);
+  observabilityConsole.log(`[Henry] TCP fetch não implementado para ${device.ip}:${device.port || 4370}`);
   return [];
 }
 
@@ -152,7 +153,7 @@ async function fetchViaTcp(device: DeviceConfig): Promise<Punch[]> {
  */
 async function fetchViaHttp(device: DeviceConfig): Promise<Punch[]> {
   // Placeholder para futura implementação HTTP
-  console.log(`[Henry] HTTP API não implementada para ${device.ip}`);
+  observabilityConsole.log(`[Henry] HTTP API não implementada para ${device.ip}`);
   return [];
 }
 

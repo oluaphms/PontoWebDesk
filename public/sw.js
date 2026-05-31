@@ -1,3 +1,30 @@
+const observabilityConsole = globalThis.__observabilityConsole || (() => {
+  const sink = globalThis['console'];
+  const emit = (level, args) => {
+    const first = args[0];
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: level === 'log' || level === 'debug' ? 'info' : level,
+      service: 'pontowebdesk-public',
+      module: 'legacy.console',
+      action: `PUBLIC_CONSOLE_${String(level).toUpperCase()}`,
+      requestId: 'unknown-request',
+      correlationId: 'unknown-correlation',
+      userId: null,
+      companyId: null,
+      message: typeof first === 'string' && first.trim() ? first.trim() : 'Public runtime event',
+      meta: { args },
+    };
+    sink?.[level === 'debug' ? 'info' : level]?.(JSON.stringify(payload));
+  };
+  return {
+    log: (...args) => emit('log', args),
+    info: (...args) => emit('info', args),
+    warn: (...args) => emit('warn', args),
+    error: (...args) => emit('error', args),
+    debug: (...args) => emit('debug', args),
+  };
+})();
 /**
  * Service Worker para SmartPonto
  * 
@@ -19,17 +46,17 @@ const STATIC_ASSETS = [
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing service worker...');
+  observabilityConsole.log('[SW] Installing service worker...');
   
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Caching static assets');
+        observabilityConsole.log('[SW] Caching static assets');
         // Tentar adicionar assets, mas não falhar se algum não existir
         return Promise.allSettled(
           STATIC_ASSETS.map(asset => 
             cache.add(asset).catch(err => {
-              console.warn(`[SW] Failed to cache ${asset}:`, err);
+              observabilityConsole.warn(`[SW] Failed to cache ${asset}:`, err);
               return null;
             })
           )
@@ -41,7 +68,7 @@ self.addEventListener('install', (event) => {
 
 // Ativação do Service Worker
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating service worker...');
+  observabilityConsole.log('[SW] Activating service worker...');
   
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -49,7 +76,7 @@ self.addEventListener('activate', (event) => {
         cacheNames
           .filter((name) => name !== CACHE_NAME && name !== RUNTIME_CACHE)
           .map((name) => {
-            console.log('[SW] Deleting old cache:', name);
+            observabilityConsole.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
           })
       );
@@ -95,7 +122,7 @@ self.addEventListener('fetch', (event) => {
             if (!response || response.status !== 200 || response.type !== 'basic') {
               // Se for 404, não cachear e não propagar erro
               if (response && response.status === 404) {
-                console.warn(`[SW] 404 for ${request.url}`);
+                observabilityConsole.warn(`[SW] 404 for ${request.url}`);
                 return response;
               }
               return response;
@@ -110,7 +137,7 @@ self.addEventListener('fetch', (event) => {
               caches.open(CACHE_NAME)
                 .then((cache) => {
                   cache.put(request, responseToCache).catch(err => {
-                    console.warn(`[SW] Failed to cache ${request.url}:`, err);
+                    observabilityConsole.warn(`[SW] Failed to cache ${request.url}:`, err);
                   });
                 });
             } else {
@@ -118,7 +145,7 @@ self.addEventListener('fetch', (event) => {
               caches.open(RUNTIME_CACHE)
                 .then((cache) => {
                   cache.put(request, responseToCache).catch(err => {
-                    console.warn(`[SW] Failed to cache ${request.url}:`, err);
+                    observabilityConsole.warn(`[SW] Failed to cache ${request.url}:`, err);
                   });
                 });
             }
@@ -126,7 +153,7 @@ self.addEventListener('fetch', (event) => {
             return response;
           })
           .catch((error) => {
-            console.warn(`[SW] Fetch failed for ${request.url}:`, error);
+            observabilityConsole.warn(`[SW] Fetch failed for ${request.url}:`, error);
             // Se offline e for uma página, retornar index.html
             if (request.mode === 'navigate') {
               return caches.match('/index.html');
@@ -149,7 +176,7 @@ async function syncPunchRecords() {
   try {
     // Buscar registros pendentes do IndexedDB ou localStorage
     if (typeof localStorage === 'undefined') {
-      console.warn('[SW] localStorage indisponível no service worker.');
+      observabilityConsole.warn('[SW] localStorage indisponível no service worker.');
       return;
     }
     let pendingRecords = [];
@@ -158,7 +185,7 @@ async function syncPunchRecords() {
         localStorage.getItem('pending_punch_records') || '[]'
       );
     } catch (error) {
-      console.warn('[SW] Falha ao ler pendentes:', error);
+      observabilityConsole.warn('[SW] Falha ao ler pendentes:', error);
       return;
     }
 
@@ -177,14 +204,14 @@ async function syncPunchRecords() {
         try {
           localStorage.setItem('pending_punch_records', JSON.stringify(updated));
         } catch (error) {
-          console.warn('[SW] Falha ao salvar pendentes:', error);
+          observabilityConsole.warn('[SW] Falha ao salvar pendentes:', error);
         }
       } catch (error) {
-        console.error('[SW] Erro ao sincronizar registro:', error);
+        observabilityConsole.error('[SW] Erro ao sincronizar registro:', error);
       }
     }
   } catch (error) {
-    console.error('[SW] Erro no background sync:', error);
+    observabilityConsole.error('[SW] Erro no background sync:', error);
   }
 }
 

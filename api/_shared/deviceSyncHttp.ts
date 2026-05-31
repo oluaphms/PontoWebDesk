@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { cachePrivate, noCache, varyAuthorization } from './cache.js';
 import { getSecureCorsHeaders, extractBearerToken, secureCompare } from './security.js';
@@ -249,7 +250,7 @@ async function handleHeartbeat(request: Request, supabase: AnySupabase, deviceId
     updated_at: now,
   });
   if (hbErr) {
-    console.warn('[rep/heartbeat] rep_device_heartbeats upsert:', hbErr.message);
+    observabilityConsole.warn('[rep/heartbeat] rep_device_heartbeats upsert:', hbErr.message);
   }
 
   return noCache(Response.json({ success: true, last_seen_at: now, agent_version: agentVersion }, { status: 200, headers }));

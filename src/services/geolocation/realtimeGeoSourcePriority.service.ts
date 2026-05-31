@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Prioridade de fonte para GEO em tempo real: live_employee_location > current_operational_state > time_record.
  *
@@ -89,7 +90,7 @@ export type ResolveBestRealtimeLocationInput = {
  */
 export function resolveBestRealtimeLocation(input: ResolveBestRealtimeLocationInput): ResolvedRealtimeLocation | null {
   if (typeof console !== 'undefined') {
-    console.warn('[LEGACY GEO RESOLVER DETECTED]', {
+    observabilityConsole.warn('[LEGACY GEO RESOLVER DETECTED]', {
       employee_id: input.employeeId,
       resolver: 'resolveBestRealtimeLocation',
     });
@@ -182,7 +183,7 @@ export function resolveBestRealtimeLocation(input: ResolveBestRealtimeLocationIn
   }
 
   if (candidates.length === 0) {
-    if (log) console.info('[GEO SOURCE PRIORITY]', { employee_id: input.employeeId, selected: null });
+    if (log) observabilityConsole.info('[GEO SOURCE PRIORITY]', { employee_id: input.employeeId, selected: null });
     return null;
   }
 
@@ -197,12 +198,12 @@ export function resolveBestRealtimeLocation(input: ResolveBestRealtimeLocationIn
 
   const best = candidates[0]!;
   if (log) {
-    console.info('[GEO SOURCE PRIORITY]', {
+    observabilityConsole.info('[GEO SOURCE PRIORITY]', {
       employee_id: input.employeeId,
       candidates: candidates.length,
       order: candidates.map((c) => c.source),
     });
-    console.info('[GEO SOURCE SELECTED]', {
+    observabilityConsole.info('[GEO SOURCE SELECTED]', {
       employee_id: input.employeeId,
       source: best.source,
       age_ms: best.ageMs,

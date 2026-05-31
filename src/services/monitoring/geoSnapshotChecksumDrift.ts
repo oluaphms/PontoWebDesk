@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Entre dois fetches: se o checksum do snapshot GEO mudar, invalida caches e força refresh do monitoramento.
  */
@@ -44,7 +45,7 @@ export function trackGeoSnapshotChecksumDrift(companyId: string, cos: CurrentOpe
   }
 
   if (changed) {
-    console.info('[GEO SNAPSHOT CHECKSUM CHANGED]', { company_id: companyId });
+    observabilityConsole.info('[GEO SNAPSHOT CHECKSUM CHANGED]', { company_id: companyId });
     operationalReliabilitySLO.recordDriftEventCount(changedEmployees.size);
     if (changedEmployees.size >= 4) {
       reportGeoCircuitSignal('drift_storm');

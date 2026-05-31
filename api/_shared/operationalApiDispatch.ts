@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Despacho único para rotas /api/operational/* (plano Hobby Vercel: menos Serverless Functions).
  * Replica URLs legadas /api/operational-foo antes de delegar aos handlers.
@@ -21,7 +22,7 @@ async function forward(
     if (!mod?.fetch) throw new Error(`INVALID_HANDLER_MODULE:${modulePath}`);
     return mod.fetch(withPathname(request, legacyPath));
   } catch (error) {
-    console.error('[OPERATIONAL DISPATCH ERROR]', {
+    observabilityConsole.error('[OPERATIONAL DISPATCH ERROR]', {
       route,
       requestUrl: request.url,
       modulePath,

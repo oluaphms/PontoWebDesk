@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Executa uma função que retorna uma promise com retry automático.
  * Útil para chamadas Supabase em redes instáveis ou projeto free tier pausado.
@@ -12,7 +13,7 @@ export async function supabaseRetry<T>(
   } catch (error) {
     if (retries <= 0) throw error;
 
-    console.warn('[SmartPonto] Supabase retry...', retries, error);
+    observabilityConsole.warn('[SmartPonto] Supabase retry...', retries, error);
 
     await new Promise((r) => setTimeout(r, 2000));
 

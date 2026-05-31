@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { isTokenRevoked } from '../services/tokenRevocationService.js';
 import { resolveCallerFromDb } from '../services/callerContextService.js';
+import { updateRequestContext } from '../logger/logger.context.js';
+import { getAuthCookie } from '../security/authCookies.js';
 
 export type JwtPayload = {
   sub: string;
@@ -17,7 +19,8 @@ export type AuthedRequest = Request & {
 
 export async function authMiddleware(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const token = bearerToken || getAuthCookie(req);
   if (!token) {
     res.status(401).json({ ok: false, error: 'missing_token' });
     return;
@@ -54,8 +57,13 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
         companyId: caller.companyId,
         role: caller.role,
       };
+      updateRequestContext({ userId: caller.userId, companyId: caller.companyId });
     } else {
       req.auth = decoded;
+      updateRequestContext({
+        userId: decoded.userId ?? decoded.sub ?? null,
+        companyId: decoded.companyId ?? null,
+      });
     }
 
     next();

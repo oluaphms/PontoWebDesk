@@ -1,5 +1,6 @@
 import { normalizeApiBase as normalizeApiBaseFromEnv } from '../config/env';
-import { clearToken, getToken, setToken } from './authToken';
+import { clearToken, getToken, isCookieSessionToken, setToken } from './authToken';
+import { logger } from '../shared/logger/logger';
 
 type UnauthorizedHandler = () => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
@@ -19,6 +20,7 @@ export function normalizeApiBase(raw?: string): string {
 
 /** Base normalizada usada por todas as funções HTTP do frontend. */
 export const API_BASE = normalizeApiBase();
+let currentCorrelationId: string | null = null;
 
 function normalizeApiPath(path: string): string {
   let p = path.trim();
@@ -36,6 +38,10 @@ export function buildApiUrl(path: string): string {
 
 export function getApiBaseUrl(): string {
   return API_BASE;
+}
+
+export function getCorrelationId(): string | null {
+  return currentCorrelationId;
 }
 
 export type ApiResult<T = unknown> = {
@@ -60,7 +66,7 @@ export class ApiError extends Error {
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const token = getToken();
   return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
     ...(extra || {}),
   };
 }
@@ -77,7 +83,23 @@ function extractApiErrorMessage(body: unknown, status: number): string {
 }
 
 async function parseResponse<T>(res: Response): Promise<T> {
-  const text = await res.text();
+  const resLike = res as unknown as {
+    ok?: boolean;
+    status?: number;
+    headers?: { get?: (name: string) => string | null };
+    text?: () => Promise<string>;
+    json?: () => Promise<unknown>;
+  };
+  const headerCorrelationId =
+    resLike && typeof resLike.headers?.get === 'function'
+      ? resLike.headers.get('x-correlation-id')
+      : null;
+  if (headerCorrelationId) currentCorrelationId = headerCorrelationId;
+
+  let text = '';
+  if (typeof resLike.text === 'function') {
+    text = await resLike.text();
+  }
   let body: unknown = null;
   if (text) {
     try {
@@ -85,24 +107,44 @@ async function parseResponse<T>(res: Response): Promise<T> {
     } catch {
       body = { error: text };
     }
+  } else if (typeof resLike.json === 'function') {
+    try {
+      body = await resLike.json();
+    } catch {
+      body = null;
+    }
   }
-  if (!res.ok) {
-    if (res.status === 401) {
+  const status = typeof resLike.status === 'number' ? resLike.status : 200;
+  const ok = typeof resLike.ok === 'boolean' ? resLike.ok : status >= 200 && status < 300;
+  if (!ok) {
+    if (status === 401) {
       clearToken();
       unauthorizedHandler?.();
     }
-    const errMsg = extractApiErrorMessage(body, res.status);
-    throw new ApiError(errMsg, res.status, body);
+    const errMsg = extractApiErrorMessage(body, status);
+    logger.error({
+      module: 'frontend.api',
+      action: 'API_REQUEST_FAILED',
+      message: errMsg,
+      correlationId: currentCorrelationId || undefined,
+      meta: {
+        status,
+      },
+    });
+    throw new ApiError(errMsg, status, body);
   }
   return body as T;
 }
 
 export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
+  const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'GET',
+    credentials: 'include',
     headers: {
       ...authHeaders(),
+      'x-correlation-id': requestCorrelationId,
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
@@ -110,12 +152,15 @@ export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): P
 }
 
 export async function apiPost<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(),
+      'x-correlation-id': requestCorrelationId,
       ...(init?.headers as Record<string, string> | undefined),
     },
     body: JSON.stringify(body),
@@ -124,12 +169,15 @@ export async function apiPost<T = ApiResult>(path: string, body: unknown, init?:
 }
 
 export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'PATCH',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(),
+      'x-correlation-id': requestCorrelationId,
       ...(init?.headers as Record<string, string> | undefined),
     },
     body: JSON.stringify(body),
@@ -138,11 +186,14 @@ export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?
 }
 
 export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
+  const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const res = await fetch(buildApiUrl(path), {
     ...init,
     method: 'DELETE',
+    credentials: 'include',
     headers: {
       ...authHeaders(),
+      'x-correlation-id': requestCorrelationId,
       ...(init?.headers as Record<string, string> | undefined),
     },
   });

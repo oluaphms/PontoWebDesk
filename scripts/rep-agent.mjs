@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Agente local (rede da empresa): lê o relógio na LAN e envia marcações ao SaaS.
  * Fluxo: Relógio → SQLite (fila) → lote POST /api/rep/punches → Supabase
@@ -130,7 +131,7 @@ const repAgentSkipDotenv =
 if (!repAgentSkipDotenv) {
   loadEnvFilesFromProjectRoot();
 } else if (bootResult.source !== 'config.json') {
-  console.warn(
+  observabilityConsole.warn(
     '[rep-agent] REP_AGENT_SKIP_DOTENV=1 — .env e .env.local ignorados (apenas variáveis já no ambiente do processo).'
   );
 }
@@ -255,11 +256,11 @@ const ENABLE_HEARTBEAT_LOOP = !REP_ULTRA_LOW_COST;
 const REP_DEBUG = /^(1|true|yes)$/i.test((process.env.REP_DEBUG || '').trim());
 
 function log(...args) {
-  if (REP_DEBUG) console.log(...args);
+  if (REP_DEBUG) observabilityConsole.log(...args);
 }
 
 function logWarn(...args) {
-  if (REP_DEBUG) console.warn(...args);
+  if (REP_DEBUG) observabilityConsole.warn(...args);
 }
 
 function markHeartbeat() {
@@ -291,7 +292,7 @@ const REP_SYNC_MAX_ATTEMPTS = 5;
 
 const TZ_OFFSET_RE = /^([+-])(\d{2}):(\d{2})$/;
 if (!TZ_OFFSET_RE.test(REP_DEVICE_TIMEZONE_OFFSET)) {
-  console.error(
+  observabilityConsole.error(
     `[rep-agent] REP_DEVICE_TIMEZONE_OFFSET inválido: "${REP_DEVICE_TIMEZONE_OFFSET}" (esperado +HH:MM ou -HH:MM)`
   );
   process.exit(1);
@@ -303,20 +304,20 @@ if (
   repReceiveScopeEnv !== 'today_only' &&
   repReceiveScopeEnv !== 'date_range'
 ) {
-  console.warn(
+  observabilityConsole.warn(
     `[rep-agent] REP_RECEIVE_SCOPE="${repReceiveScopeEnv}" desconhecido — incremental será usado se REP_FORCE_MODE=1.`
   );
 }
 
 if (scheme === 'https' && insecureTls) {
-  console.log('[rep-agent] TLS self-signed habilitado apenas para requisições ao relógio (LAN).');
+  observabilityConsole.log('[rep-agent] TLS self-signed habilitado apenas para requisições ao relógio (LAN).');
 }
 if (isPackagedAgent()) {
-  console.log(`[rep-agent] build=${REP_AGENT_BUILD_ID} | login_win=curl-first`);
+  observabilityConsole.log(`[rep-agent] build=${REP_AGENT_BUILD_ID} | login_win=curl-first`);
 }
 
 function fail(msg) {
-  console.error(`[rep-agent] ${msg}`);
+  observabilityConsole.error(`[rep-agent] ${msg}`);
   process.exit(1);
 }
 
@@ -374,7 +375,7 @@ async function initializeAgentPolicy() {
 function logStartupConfig() {
   const keyHint =
     apiKey.length > 10 ? `${apiKey.slice(0, 4)}…${apiKey.slice(-3)}` : apiKey.length > 0 ? '(definida)' : '';
-  console.log(
+  observabilityConsole.log(
     '[rep-agent] Config efetiva:',
     `relógio=${scheme}://${ip}:${port}`,
     `| SaaS=${saas}`,
@@ -398,21 +399,21 @@ function logStartupConfig() {
     `| pending=${countPendingPunches()}`
   );
   if (scheme === 'http' && (port === '443' || port === '442')) {
-    console.warn(
+    observabilityConsole.warn(
       '[rep-agent] AVISO: porta ' +
         port +
         ' com HTTP — use REP_DEVICE_SCHEME=https (não confunda com REP_SAAS_URL).'
     );
   }
   if (companyId.includes('....') || companyId.length < 32) {
-    console.warn(
+    observabilityConsole.warn(
       '[rep-agent] AVISO: REP_COMPANY_ID parece placeholder ("a145b0cd-...."). Use o UUID completo de public.companies.'
     );
   }
   const isLoopback =
     ip === '127.0.0.1' || ip === '::1' || ip.toLowerCase() === 'localhost';
   if (isLoopback) {
-    console.warn(
+    observabilityConsole.warn(
       '[rep-agent] AVISO: alvo é loopback (mock). Para relógio na LAN, ajuste .env.local ou use PowerShell:\n' +
         '  $env:REP_AGENT_SKIP_DOTENV="1"\n' +
         '  $env:REP_DEVICE_IP="192.168.1.19"\n' +
@@ -870,13 +871,13 @@ async function fetchPunchesFromClock() {
       } catch (e) {
         lastErr = e;
         if (e && e.code === 'ECONNREFUSED') connectionRefusedHits += 1;
-        console.error('[REP ERROR]', e?.message || String(e));
+        observabilityConsole.error('[REP ERROR]', e?.message || String(e));
       }
     }
   }
 
   if (lastErr) {
-    console.error('[rep-agent] Último erro antes do fallback esgotado:', lastErr.message || lastErr);
+    observabilityConsole.error('[rep-agent] Último erro antes do fallback esgotado:', lastErr.message || lastErr);
   }
 
   if (attempts > 0 && invalidCommandHits === 0 && connectionRefusedHits === attempts) {
@@ -1000,15 +1001,15 @@ async function loginControlIdViaCurl(url, login, password) {
     const data = parseJsonSafe(stdout);
     const sid = typeof data?.session === 'string' ? data.session.trim() : '';
     if (!sid) {
-      console.error('[REP LOGIN CURL ERROR]', 'sem session', afdHttpSnippet(stdout));
+      observabilityConsole.error('[REP LOGIN CURL ERROR]', 'sem session', afdHttpSnippet(stdout));
       return null;
     }
-    console.log('[REP LOGIN SUCCESS] via curl');
+    observabilityConsole.log('[REP LOGIN SUCCESS] via curl');
     const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
-    console.log('[REP SESSION]', sessLog);
+    observabilityConsole.log('[REP SESSION]', sessLog);
     return sid;
   } catch (e) {
-    console.error('[REP LOGIN CURL ERROR]', e?.message || String(e));
+    observabilityConsole.error('[REP LOGIN CURL ERROR]', e?.message || String(e));
     return null;
   }
 }
@@ -1020,49 +1021,49 @@ async function loginControlIdViaCurl(url, login, password) {
 async function loginControlId(base) {
   const password = (process.env.REP_DEVICE_PASSWORD || '').trim();
   if (!password) {
-    console.warn('[REP LOGIN] REP_DEVICE_PASSWORD vazio — login.fcgi ignorado');
+    observabilityConsole.warn('[REP LOGIN] REP_DEVICE_PASSWORD vazio — login.fcgi ignorado');
     return null;
   }
   const login = (process.env.REP_DEVICE_LOGIN || 'admin').trim() || 'admin';
   const url = `${base}/login.fcgi`;
-  console.log(`[REP LOGIN] POST ${url} (usuário=${login})`);
+  observabilityConsole.log(`[REP LOGIN] POST ${url} (usuário=${login})`);
 
   if (process.platform === 'win32' && !/^(0|false|no)$/i.test((process.env.REP_LOGIN_USE_CURL || '1').trim())) {
-    console.log('[REP LOGIN] Windows — curl primeiro (evita timeout Node 20s)');
+    observabilityConsole.log('[REP LOGIN] Windows — curl primeiro (evita timeout Node 20s)');
     const sidCurl = await loginControlIdViaCurl(url, login, password);
     if (sidCurl) return sidCurl;
-    console.log('[REP LOGIN] curl falhou — tentando https Node');
+    observabilityConsole.log('[REP LOGIN] curl falhou — tentando https Node');
   }
 
   try {
     const res = await clockPostJson(url, { login, password });
     if (res.status < 200 || res.status >= 300) {
-      console.error('[REP LOGIN ERROR]', `HTTP ${res.status}`, afdHttpSnippet(res.text));
+      observabilityConsole.error('[REP LOGIN ERROR]', `HTTP ${res.status}`, afdHttpSnippet(res.text));
       return null;
     }
     const data = parseJsonSafe(res.text);
     if (!data || typeof data !== 'object') {
-      console.error('[REP LOGIN ERROR]', 'resposta não-JSON', afdHttpSnippet(res.text));
+      observabilityConsole.error('[REP LOGIN ERROR]', 'resposta não-JSON', afdHttpSnippet(res.text));
       return null;
     }
     if (data.error) {
-      console.error('[REP LOGIN ERROR]', String(data.error));
+      observabilityConsole.error('[REP LOGIN ERROR]', String(data.error));
       return null;
     }
     const sid = typeof data.session === 'string' ? data.session.trim() : '';
     if (!sid) {
-      console.error('[REP LOGIN ERROR]', 'sem campo session', afdHttpSnippet(res.text));
+      observabilityConsole.error('[REP LOGIN ERROR]', 'sem campo session', afdHttpSnippet(res.text));
       return null;
     }
-    console.log('[REP LOGIN SUCCESS]');
+    observabilityConsole.log('[REP LOGIN SUCCESS]');
     const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
-    console.log('[REP SESSION]', sessLog);
+    observabilityConsole.log('[REP SESSION]', sessLog);
     return sid;
   } catch (e) {
     const msg = e?.message || String(e);
-    console.error('[REP LOGIN ERROR]', msg);
+    observabilityConsole.error('[REP LOGIN ERROR]', msg);
     if (/timeout/i.test(msg)) {
-      console.log('[REP LOGIN] fallback curl (Windows)…');
+      observabilityConsole.log('[REP LOGIN] fallback curl (Windows)…');
       const sid = await loginControlIdViaCurl(url, login, password);
       if (sid) return sid;
     }
@@ -1110,13 +1111,13 @@ async function fetchAfdWithSessionViaCurl(base, session, { lastNsr = 0, use671 =
     );
     const text = extractAfdFileText(stdout);
     if (isPlausibleAfdText(text)) {
-      console.log('[REP AFD] download via curl OK', use671 ? '(mode=671)' : '');
+      observabilityConsole.log('[REP AFD] download via curl OK', use671 ? '(mode=671)' : '');
       return text;
     }
-    console.log('[REP AFD CURL] corpo não reconhecido como AFD:', afdHttpSnippet(stdout));
+    observabilityConsole.log('[REP AFD CURL] corpo não reconhecido como AFD:', afdHttpSnippet(stdout));
     return null;
   } catch (e) {
-    console.error('[REP AFD CURL]', e?.message || String(e));
+    observabilityConsole.error('[REP AFD CURL]', e?.message || String(e));
     return null;
   }
 }
@@ -1131,7 +1132,7 @@ async function fetchAfdWithSession(base, session, { lastNsr = 0 } = {}) {
       const raw = await fetchAfdWithSessionViaCurl(base, session, { lastNsr, use671 });
       if (raw) return raw;
     }
-    console.log('[REP AFD] curl get_afd falhou — tentando https Node');
+    observabilityConsole.log('[REP AFD] curl get_afd falhou — tentando https Node');
   }
 
   for (const use671 of modeAttempts) {
@@ -1141,7 +1142,7 @@ async function fetchAfdWithSession(base, session, { lastNsr = 0 } = {}) {
       try {
         const res = await clockPostAfdBinary(url, body);
         if (res.status < 200 || res.status >= 300) {
-          console.log(
+          observabilityConsole.log(
             '[REP AFD SESSION]',
             url.split('?')[0],
             use671 ? '(mode=671)' : '',
@@ -1154,9 +1155,9 @@ async function fetchAfdWithSession(base, session, { lastNsr = 0 } = {}) {
         }
         const text = extractAfdFileText(res.text || '');
         if (isPlausibleAfdText(text)) return text;
-        console.log('[REP AFD SESSION] corpo não reconhecido como AFD:', afdHttpSnippet(text));
+        observabilityConsole.log('[REP AFD SESSION] corpo não reconhecido como AFD:', afdHttpSnippet(text));
       } catch (e) {
-        console.error('[REP AFD SESSION]', e?.message || String(e));
+        observabilityConsole.error('[REP AFD SESSION]', e?.message || String(e));
       }
     }
   }
@@ -1171,7 +1172,7 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   let postExpected = false;
   const hasCredentials = !!(repDeviceSession || repDevicePassword);
   if (hasCredentials) {
-    console.log('[REP AFD] credenciais configuradas — login.fcgi direto (sem probe /api/punches)');
+    observabilityConsole.log('[REP AFD] credenciais configuradas — login.fcgi direto (sem probe /api/punches)');
   } else {
     try {
       postExpected = await probeDeviceWantsPostForApi(base);
@@ -1184,7 +1185,7 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
 
   let session = repDeviceSession;
   if (session) {
-    console.log('[REP AFD] usando device_session do config (sem login.fcgi)');
+    observabilityConsole.log('[REP AFD] usando device_session do config (sem login.fcgi)');
   } else if (repDevicePassword) {
     session = await loginControlId(base);
     if (!session) return null;
@@ -1195,7 +1196,7 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   const raw = await fetchAfdWithSession(base, session, { lastNsr });
   if (!raw || !isPlausibleAfdText(raw)) return null;
 
-  console.log('[REP AFD DOWNLOAD SESSION MODE]');
+  observabilityConsole.log('[REP AFD DOWNLOAD SESSION MODE]');
   return { url: `${base}/get_afd.fcgi`, content: raw };
 }
 
@@ -1205,7 +1206,7 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
  */
 async function downloadAFD({ lastNsr = 0 } = {}) {
   const base = `${scheme}://${ip}:${port}`;
-  console.log(`[REP AFD] iniciando download (Control iD sessão → rotas GET) em ${base}`);
+  observabilityConsole.log(`[REP AFD] iniciando download (Control iD sessão → rotas GET) em ${base}`);
 
   const sessionMode = await tryAfdControlIdSessionDownload(base, { lastNsr });
   if (sessionMode) return sessionMode;
@@ -1228,32 +1229,32 @@ async function downloadAFD({ lastNsr = 0 } = {}) {
         if (!okHttp) {
           lastErr = new Error(`HTTP ${res.status} em ${url}`);
           const snip = attempt === 1 && res.text ? ` | ${afdHttpSnippet(res.text)}` : '';
-          console.log(`[REP AFD TRY] ${url} (tentativa ${attempt}/${REP_AFD_RETRY}) → HTTP ${res.status}${snip}`);
+          observabilityConsole.log(`[REP AFD TRY] ${url} (tentativa ${attempt}/${REP_AFD_RETRY}) → HTTP ${res.status}${snip}`);
           continue;
         }
         const content = res.text || '';
         if (isPlausibleAfdText(content)) {
-          console.log(`[REP AFD DOWNLOAD] sucesso (${content.length} bytes) via ${url}`);
+          observabilityConsole.log(`[REP AFD DOWNLOAD] sucesso (${content.length} bytes) via ${url}`);
           return { url, content };
         }
         // Verificação mínima de plausibilidade (legado): precisa conter pelo menos 1 linha "ASCII numérica" longa.
         if (!content || content.length < 16) {
           lastErr = new Error(`Conteúdo vazio/curto em ${url} (${content.length} bytes)`);
-          console.log(`[REP AFD TRY] ${url} → conteúdo curto (${content.length} bytes)`);
+          observabilityConsole.log(`[REP AFD TRY] ${url} → conteúdo curto (${content.length} bytes)`);
           continue;
         }
         // Se vier HTML (página de login etc.), descarta.
         const head = content.slice(0, 256).toLowerCase();
         if (head.includes('<html') || head.includes('<!doctype')) {
           lastErr = new Error(`Resposta HTML em ${url} — provavelmente página de login/erro`);
-          console.log(`[REP AFD TRY] ${url} → resposta HTML, ignorando`);
+          observabilityConsole.log(`[REP AFD TRY] ${url} → resposta HTML, ignorando`);
           continue;
         }
         lastErr = new Error(`Resposta em ${url} não parece AFD (linhas numéricas esperadas)`);
-        console.log(`[REP AFD TRY] ${url} → corpo não reconhecido como AFD (${afdHttpSnippet(content)})`);
+        observabilityConsole.log(`[REP AFD TRY] ${url} → corpo não reconhecido como AFD (${afdHttpSnippet(content)})`);
       } catch (e) {
         lastErr = e;
-        console.error(
+        observabilityConsole.error(
           `[REP AFD ERROR] ${url} (tentativa ${attempt}/${REP_AFD_RETRY}): ${e?.message || String(e)}`
         );
         // backoff curto entre retries
@@ -1265,11 +1266,11 @@ async function downloadAFD({ lastNsr = 0 } = {}) {
   }
 
   if (!repDeviceSession && !repDevicePassword && !repDeviceControlIdFcgi) {
-    console.warn(
+    observabilityConsole.warn(
       '[rep-agent] Dica Control iD iDClass: o AFD obtém-se com POST /get_afd.fcgi?session=… (após POST /login.fcgi). Defina REP_DEVICE_PASSWORD e opcionalmente REP_DEVICE_LOGIN (default admin), ou REP_DEVICE_SESSION. Para formato Portaria 671: REP_AFD_PORTARIA_671=1.'
     );
   } else if (repDevicePassword || repDeviceSession) {
-    console.warn(
+    observabilityConsole.warn(
       '[rep-agent] login/get_afd.fcgi não devolveram AFD reconhecível; verifique credenciais, firmware ou tente REP_AFD_PORTARIA_671=1.'
     );
   }
@@ -1461,7 +1462,7 @@ function syncLog(tag, info = {}) {
     latency_ms: info.latency_ms ?? null,
     detail: info.detail || undefined,
   };
-  console.log(tag, JSON.stringify(safe));
+  observabilityConsole.log(tag, JSON.stringify(safe));
 }
 
 function classifySyncError(err) {
@@ -1733,7 +1734,7 @@ async function executeCollectPunchesCommand(cmd) {
   if (!startDate || !endDate) {
     throw new Error('collect_punches: start_date e end_date são obrigatórios');
   }
-  console.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
+  observabilityConsole.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
   const saved = applyDateRangePolicy(startDate, endDate);
   try {
     const cycle = await runCycle();
@@ -1862,7 +1863,7 @@ async function pollAndExecuteRepCommands() {
           await sleep(800 * attempt);
           continue;
         }
-        console.warn('[REP COMMANDS] resposta inválida', res.status, errBody || '');
+        observabilityConsole.warn('[REP COMMANDS] resposta inválida', res.status, errBody || '');
         return false;
       }
       const data =
@@ -1887,7 +1888,7 @@ async function pollAndExecuteRepCommands() {
         try {
           await executeRepCommand(cmd);
         } catch (cmdErr) {
-          console.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
+          observabilityConsole.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
         }
         if (cmdId) rememberExecutedCommand(cmdId, executedCommandsPersistent);
       }
@@ -1897,7 +1898,7 @@ async function pollAndExecuteRepCommands() {
         await sleep(800 * attempt);
         continue;
       }
-      console.warn('[REP COMMANDS]', e?.message || e);
+      observabilityConsole.warn('[REP COMMANDS]', e?.message || e);
       return false;
     }
   }
@@ -1909,7 +1910,7 @@ async function runCommandPollOnce() {
   repCommandPollBusy = true;
   try {
     if (!isAgentOnline()) {
-      console.log('[REP POLL] pulado — agente offline (sem heartbeat recente)');
+      observabilityConsole.log('[REP POLL] pulado — agente offline (sem heartbeat recente)');
       commandPollDelayMs = REP_COMMAND_POLL_MAX_MS;
       return;
     }
@@ -1920,7 +1921,7 @@ async function runCommandPollOnce() {
       bumpCommandPollBackoff();
     }
   } catch (err) {
-    console.error('[REP POLL ERROR]', err?.message || err);
+    observabilityConsole.error('[REP POLL ERROR]', err?.message || err);
     bumpCommandPollBackoff();
   } finally {
     repCommandPollBusy = false;
@@ -1939,14 +1940,14 @@ function scheduleNextCommandPoll() {
 
 function startRepCommandPollLoop() {
   if (!ENABLE_COMMAND_POLL) {
-    console.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_LOW_COST_MODE=1)');
+    observabilityConsole.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_LOW_COST_MODE=1)');
     return;
   }
   if (!companyId || !apiKey || !saas) return;
   commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
   if (repCommandPollTimer) return;
   void runCommandPollOnce().finally(() => scheduleNextCommandPoll());
-  console.log(
+  observabilityConsole.log(
     `[REP COMMAND POLL] ativo (mín ${REP_COMMAND_POLL_MIN_MS}ms, máx ${REP_COMMAND_POLL_MAX_MS}ms, backoff após erro)`,
   );
 }
@@ -2007,7 +2008,7 @@ async function sendHeartbeat() {
     markHeartbeat();
     log('[HEARTBEAT OK]');
   } catch (err) {
-    console.warn('[HEARTBEAT FAIL]', err?.message || err);
+    observabilityConsole.warn('[HEARTBEAT FAIL]', err?.message || err);
   }
 }
 
@@ -2023,14 +2024,14 @@ function scheduleNextHeartbeat() {
 
 function startRepHeartbeatLoop() {
   if (!ENABLE_HEARTBEAT_LOOP) {
-    console.log('[REP HEARTBEAT LOOP] desativado (REP_ULTRA_LOW_COST=1)');
+    observabilityConsole.log('[REP HEARTBEAT LOOP] desativado (REP_ULTRA_LOW_COST=1)');
     return;
   }
   if (!deviceId || !apiKey || !saas) return;
   if (repHeartbeatTimer) return;
   void sendHeartbeat();
   scheduleNextHeartbeat();
-  console.log(`[REP HEARTBEAT LOOP] ativo a cada ${REP_HEARTBEAT_INTERVAL_MS}ms (setTimeout)`);
+  observabilityConsole.log(`[REP HEARTBEAT LOOP] ativo a cada ${REP_HEARTBEAT_INTERVAL_MS}ms (setTimeout)`);
 }
 
 function stopRepHeartbeatLoop() {
@@ -2154,7 +2155,7 @@ async function loadProcessedNsrCache() {
     return new Set(list.map((v) => String(v)));
   } catch (e) {
     if (e && e.code !== 'ENOENT') {
-      console.error('[REP AFD CACHE] Falha ao ler cache, iniciando vazio:', e.message || e);
+      observabilityConsole.error('[REP AFD CACHE] Falha ao ler cache, iniciando vazio:', e.message || e);
     }
     return new Set();
   }
@@ -2170,7 +2171,7 @@ async function saveProcessedNsrCache(set) {
     };
     await fs.writeFile(REP_AFD_CACHE_FILE, JSON.stringify(payload, null, 2), 'utf8');
   } catch (e) {
-    console.error('[REP AFD CACHE] Falha ao persistir cache:', e?.message || e);
+    observabilityConsole.error('[REP AFD CACHE] Falha ao persistir cache:', e?.message || e);
   }
 }
 
@@ -2248,7 +2249,7 @@ function logAfdParsedDateStats(parsedAll) {
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
   };
-  console.log(
+  observabilityConsole.log(
     `[REP AFD STATS] ${parsedAll.length} parseadas | datas ${fmt(minMs)} → ${fmt(maxMs)} | últimos 7 dias: ${inLast7}`
   );
 }
@@ -2269,7 +2270,7 @@ function filterAfdRecordsByScope(records) {
     if (agentPolicy.scope === 'date_range') hints.push('date_range');
     if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
     if (Number.isFinite(agentPolicy.toDateMs)) hints.push(`até ${agentPolicy.toDateStr}`);
-    console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
+    observabilityConsole.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
   }
   return out;
 }
@@ -2299,7 +2300,7 @@ function filterApiPunchesByScope(list) {
     if (agentPolicy.scope === 'date_range') hints.push('date_range');
     if (Number.isFinite(agentPolicy.fromDateMs)) hints.push(`desde ${agentPolicy.fromDateStr}`);
     if (Number.isFinite(agentPolicy.toDateMs)) hints.push(`até ${agentPolicy.toDateStr}`);
-    console.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
+    observabilityConsole.log(`[REP SCOPE FILTER] ${skipped} marcação(ões) fora do escopo (${hints.join(', ')}) ignoradas.`);
   }
   return out;
 }
@@ -2308,7 +2309,7 @@ function applyVolumeAirbagAfd(parsedAll) {
   if (parsedAll.length <= VOLUME_AIRBAG_THRESHOLD || !agentPolicy.isFirstRun) {
     return filterAfdRecordsByScope(parsedAll);
   }
-  console.warn('[BOOT] Volume alto detectado — aplicando corte automático');
+  observabilityConsole.warn('[BOOT] Volume alto detectado — aplicando corte automático');
   const cut = filterAfdRecordsTodayOnly(parsedAll);
   logSyncCounts(parsedAll.length, cut.length);
   return cut;
@@ -2333,7 +2334,7 @@ async function loadLastNsrMap() {
     return out;
   } catch (e) {
     if (e && e.code !== 'ENOENT') {
-      console.error('[REP LAST NSR] Falha ao ler arquivo, iniciando vazio:', e.message || e);
+      observabilityConsole.error('[REP LAST NSR] Falha ao ler arquivo, iniciando vazio:', e.message || e);
     }
     return {};
   }
@@ -2344,7 +2345,7 @@ async function saveLastNsrMap(map) {
     await fs.mkdir(path.dirname(REP_LAST_NSR_FILE), { recursive: true });
     await fs.writeFile(REP_LAST_NSR_FILE, JSON.stringify(map, null, 2), 'utf8');
   } catch (e) {
-    console.error('[REP LAST NSR] Falha ao persistir:', e?.message || e);
+    observabilityConsole.error('[REP LAST NSR] Falha ao persistir:', e?.message || e);
   }
 }
 
@@ -2360,7 +2361,7 @@ function runExclusiveRepAfdIngest(task) {
 
 async function ingestViaAFD() {
   return runExclusiveRepAfdIngest(async () => {
-  console.log('[REP MODE] AFD ativado');
+  observabilityConsole.log('[REP MODE] AFD ativado');
 
   const lastNsrMap = await loadLastNsrMap();
   const devKey = deviceKey();
@@ -2368,7 +2369,7 @@ async function ingestViaAFD() {
   /** Coleta manual / catch-up: AFD completo no relógio (initial_nsr omitido). */
   const lastNsrForDownload = agentPolicy.bypassNsrFilter ? 0 : storedNsr;
   if (agentPolicy.bypassNsrFilter && storedNsr > 0) {
-    console.log(`[REP AFD] coleta com intervalo de datas — download AFD completo (ignora lastNSR=${storedNsr})`);
+    observabilityConsole.log(`[REP AFD] coleta com intervalo de datas — download AFD completo (ignora lastNSR=${storedNsr})`);
   }
 
   let downloaded;
@@ -2378,8 +2379,8 @@ async function ingestViaAFD() {
     // Fallback final: relógio NÃO expõe AFD via HTTP (modelos que só exportam por USB
     // ou software do fabricante). Não derrubamos o agente — sinalizamos modo manual
     // para o operador e seguimos esperando o próximo ciclo / upload manual futuro.
-    console.error('[REP AFD NOT AVAILABLE]', e?.message || e);
-    console.log('[REP DEVICE STATE] mode=MANUAL_IMPORT_REQUIRED — aguardando upload manual de AFD ou integração com software do fabricante.');
+    observabilityConsole.error('[REP AFD NOT AVAILABLE]', e?.message || e);
+    observabilityConsole.log('[REP DEVICE STATE] mode=MANUAL_IMPORT_REQUIRED — aguardando upload manual de AFD ou integração com software do fabricante.');
     return {
       mode: 'MANUAL_IMPORT_REQUIRED',
       ok: 0,
@@ -2398,7 +2399,7 @@ async function ingestViaAFD() {
   logAfdParsedDateStats(parsedAll);
   const records = applyVolumeAirbagAfd(parsedAll);
   logSyncCounts(parsedAll.length, records.length);
-  console.log(
+  observabilityConsole.log(
     '[REP AFD PARSED]',
     `${records.length} registros no escopo`,
     parsedAll.length !== records.length ? `(de ${parsedAll.length} no arquivo)` : '',
@@ -2409,24 +2410,24 @@ async function ingestViaAFD() {
   if (records.length === 0) {
     const lineCount = rawText.split(/\r?\n/).filter((l) => l.trim()).length;
     if (parsedAll.length > 0) {
-      console.log(
+      observabilityConsole.log(
         `[rep-agent] AFD: ${parsedAll.length} marcação(ões) no arquivo, 0 no escopo atual (${agentPolicy.scope}` +
           `${agentPolicy.fromDateStr ? `, desde ${agentPolicy.fromDateStr}` : ''}` +
           `${agentPolicy.toDateStr ? `, até ${agentPolicy.toDateStr}` : ''}).`
       );
-      console.log(
+      observabilityConsole.log(
         '[rep-agent] Use Coletar agora no painel (intervalo de datas), REP_INGEST_FROM_DATE/END_DATE, ou apague state/agent-meta.json se ficou preso em today_only.'
       );
     } else {
-      console.log(
+      observabilityConsole.log(
         `[rep-agent] AFD sem marcações parseadas (${rawText.length} bytes, ${lineCount} linhas brutas).`
       );
     }
     if (lineCount > 0) {
       const sample = rawText.split(/\r?\n/).find((l) => l.trim()) || rawText;
-      console.log('[rep-agent] Amostra de linha:', afdHttpSnippet(sample, 120));
+      observabilityConsole.log('[rep-agent] Amostra de linha:', afdHttpSnippet(sample, 120));
     }
-    console.log(
+    observabilityConsole.log(
       '[rep-agent] Dicas: batida de teste no relógio; $env:REP_AFD_PORTARIA_671="1"; coleta manual 2026-05-19..2026-05-19 no painel.'
     );
     return { mode: 'AFD', ok: 0, skip: 0, duplicate: 0, preSkipped: 0, total: 0, sendErrors: 0, fatal: false };
@@ -2485,7 +2486,7 @@ async function ingestViaAFD() {
     } catch (e) {
       skip += 1;
       sendErrors += 1;
-      console.error(`[REP PUNCH ERROR] nsr=${nsrKey}: ${e?.message || e}`);
+      observabilityConsole.error(`[REP PUNCH ERROR] nsr=${nsrKey}: ${e?.message || e}`);
     }
   }
 
@@ -2493,19 +2494,19 @@ async function ingestViaAFD() {
 
   if (dupLocal > 0) {
     const extra = dupLocal > dupLocalSamples.length ? ` (+${dupLocal - dupLocalSamples.length} outros)` : '';
-    console.log(
+    observabilityConsole.log(
       `[REP DUPLICATE] ${dupLocal} NSR(s) já em cache local (${path.basename(REP_AFD_CACHE_FILE)}): ${dupLocalSamples.join(', ')}${extra}`
     );
   }
   if (dupServer > 0) {
     const extra = dupServer > dupServerSamples.length ? ` (+${dupServer - dupServerSamples.length} outros)` : '';
-    console.log(
+    observabilityConsole.log(
       `[REP DUPLICATE] ${dupServer} NSR(s) já existentes no servidor (API): ${dupServerSamples.join(', ')}${extra}`
     );
   }
 
   if (ok === 0 && skip === 0 && records.length > 0 && duplicate === records.length && preSkipped === 0) {
-    console.log(
+    observabilityConsole.log(
       '[rep-agent] Nenhum envio novo: todos os registos do AFD já tinham sido tratados. Para repetir teste com o mesmo ficheiro/mock: apague a pasta data\\rep-agent (ou só processed-nsr.json + last-nsr.json).'
     );
   }
@@ -2513,7 +2514,7 @@ async function ingestViaAFD() {
   await saveProcessedNsrCache(processed);
 
   if (preSkipped > 0) {
-    console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
+    observabilityConsole.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
 
   await flushPunchQueue();
@@ -2526,7 +2527,7 @@ async function handlePostCycleBoot(cycleResult) {
   if (!agentPolicy.autoMode || repForceMode) return;
   if (!agentPolicy.isFirstRun) return;
   if (!isFirstRunPromotionEligible(cycleResult)) {
-    console.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
+    observabilityConsole.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
     return;
   }
   const nextMeta = await promoteAgentAfterFirstSuccess(REP_AGENT_META_FILE, agentPolicy.meta, () => {
@@ -2554,10 +2555,10 @@ function shouldUseControlIdAfdFastPath() {
 
 function logAfdCycleResult(r) {
   if (r.mode === 'MANUAL_IMPORT_REQUIRED') {
-    console.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
+    observabilityConsole.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
     return;
   }
-  console.log(
+  observabilityConsole.log(
     `[rep-agent] AFD concluído. Enviados OK: ${r.ok} | duplicados: ${r.duplicate} | erros: ${r.skip} | filtrados (lastNSR): ${r.preSkipped} | total parseado: ${r.total}`
   );
 }
@@ -2576,7 +2577,7 @@ function shouldFallbackToAfd(err) {
 }
 
 async function ingestViaApiDirect() {
-  console.log(
+  observabilityConsole.log(
     '[rep-agent] Varrendo relógio',
     `${scheme}://${ip}:${port}`,
     `| ${DEVICE_ENDPOINT_PATHS.length} rotas × ${buildCommandPayloads().length} payloads`
@@ -2584,7 +2585,7 @@ async function ingestViaApiDirect() {
   const { list: rawList, url } = await fetchPunchesFromClock();
   let list = filterApiPunchesByScope(rawList);
   if (rawList.length > VOLUME_AIRBAG_THRESHOLD && agentPolicy.isFirstRun) {
-    console.warn('[BOOT] Volume alto detectado — aplicando corte automático');
+    observabilityConsole.warn('[BOOT] Volume alto detectado — aplicando corte automático');
     const { start, end } = getLocalCalendarDayBounds();
     list = rawList.filter((p) => {
       const iso = pickDataHora(p);
@@ -2594,7 +2595,7 @@ async function ingestViaApiDirect() {
     });
   }
   logSyncCounts(rawList.length, list.length);
-  console.log(
+  observabilityConsole.log(
     '[rep-agent] Endpoint OK:',
     url,
     '| registros:',
@@ -2661,14 +2662,14 @@ async function ingestViaApiDirect() {
     } catch (e) {
       skip += 1;
       sendErrors += 1;
-      console.error('[rep-agent] Erro ao enviar marcação:', e.message, body);
+      observabilityConsole.error('[rep-agent] Erro ao enviar marcação:', e.message, body);
     }
   }
   if (preSkipped > 0) {
-    console.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
+    observabilityConsole.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
   await flushPunchQueue();
-  console.log('[rep-agent] Concluído. Enfileirados OK:', ok, '| ignorados/duplicados:', skip);
+  observabilityConsole.log('[rep-agent] Concluído. Enfileirados OK:', ok, '| ignorados/duplicados:', skip);
   return { ok, skip, preSkipped, sendErrors, fatal: false, mode: 'API' };
 }
 
@@ -2679,7 +2680,7 @@ async function runCycleWithBoot() {
     return r;
   } catch (e) {
     if (agentPolicy.isFirstRun && agentPolicy.autoMode && !repForceMode) {
-      console.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
+      observabilityConsole.error('[BOOT] Erro na primeira sincronização — mantendo modo seguro');
     }
     throw e;
   }
@@ -2687,14 +2688,14 @@ async function runCycleWithBoot() {
 
 async function runCycle() {
   if (shouldForceAfdMode()) {
-    console.log('[REP MODE] AFD ativado (REP_MODE=AFD)');
+    observabilityConsole.log('[REP MODE] AFD ativado (REP_MODE=AFD)');
     const r = await ingestViaAFD();
     logAfdCycleResult(r);
     return r;
   }
 
   if (shouldUseControlIdAfdFastPath()) {
-    console.log(
+    observabilityConsole.log(
       '[rep-agent] Control iD (.fcgi) — ingestão AFD direta (sem varrer /api; REP_AGENT_PROBE_API=1 para forçar varredura).'
     );
     const r = await ingestViaAFD();
@@ -2706,7 +2707,7 @@ async function runCycle() {
     return await ingestViaApiDirect();
   } catch (e) {
     if (shouldFallbackToAfd(e)) {
-      console.log('[REP MODE] AFD ativado (fallback: dispositivo retornou "Invalid command: none")');
+      observabilityConsole.log('[REP MODE] AFD ativado (fallback: dispositivo retornou "Invalid command: none")');
       const r = await ingestViaAFD();
       logAfdCycleResult(r);
       return r;
@@ -2716,11 +2717,11 @@ async function runCycle() {
 }
 
 process.on('unhandledRejection', (err) => {
-  console.error('[UNHANDLED]', err);
+  observabilityConsole.error('[UNHANDLED]', err);
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT]', err);
+  observabilityConsole.error('[UNCAUGHT]', err);
 });
 
 async function main() {
@@ -2730,7 +2731,7 @@ async function main() {
 
   if (CLI_SYNC_USERS) {
     const result = await runSyncUsersCommand();
-    console.log(`[rep-agent] sync-users concluído. sent=${result.sent} errors=${result.errors}`);
+    observabilityConsole.log(`[rep-agent] sync-users concluído. sent=${result.sent} errors=${result.errors}`);
     return;
   }
 
@@ -2744,11 +2745,11 @@ async function main() {
   const loopEnabled = REP_AGENT_LOOP && !CLI_ONCE;
 
   if (REP_ULTRA_LOW_COST) {
-    console.log(
+    observabilityConsole.log(
       '[rep-agent] REP_ULTRA_LOW_COST=1 — sem heartbeat, sem commands, sync só lote cheio (≥REP_MIN_SEND_BATCH).',
     );
   } else if (REP_LOW_COST_MODE) {
-    console.log(
+    observabilityConsole.log(
       '[rep-agent] REP_LOW_COST_MODE=1 — commands off, heartbeat 5min, sync lote sob demanda (≥10 ou flush).',
     );
   }
@@ -2773,12 +2774,12 @@ async function main() {
     stopRepCommandPollLoop();
     stopRepHeartbeatLoop();
     stopPunchSyncLoop();
-    console.log(`[REP AGENT LOOP] sinal ${sig} recebido, encerrando após o ciclo atual.`);
+    observabilityConsole.log(`[REP AGENT LOOP] sinal ${sig} recebido, encerrando após o ciclo atual.`);
   };
   process.on('SIGINT', () => stopOn('SIGINT'));
   process.on('SIGTERM', () => stopOn('SIGTERM'));
 
-  console.log(
+  observabilityConsole.log(
     `[REP AGENT LOOP] iniciado. intervalo=${REP_AGENT_INTERVAL_MS}ms tz=${REP_DEVICE_TIMEZONE_OFFSET} device=${deviceKey()}`
   );
 
@@ -2788,21 +2789,21 @@ async function main() {
       await runCycleWithBoot();
     } catch (e) {
       // Loop é resiliente: nenhum erro pontual derruba o serviço.
-      console.error('[REP AGENT LOOP] ciclo falhou:', e?.message || e);
+      observabilityConsole.error('[REP AGENT LOOP] ciclo falhou:', e?.message || e);
     }
     if (stopping) break;
     const elapsed = Date.now() - t0;
     const wait = Math.max(1000, REP_AGENT_INTERVAL_MS - elapsed);
-    console.log(`[REP AGENT LOOP] aguardando próximo ciclo (${wait}ms)`);
+    observabilityConsole.log(`[REP AGENT LOOP] aguardando próximo ciclo (${wait}ms)`);
     await sleep(wait);
   }
 
   await flushPunchQueue();
   closeAgentDb();
-  console.log('[REP AGENT LOOP] encerrado.');
+  observabilityConsole.log('[REP AGENT LOOP] encerrado.');
 }
 
 main().catch((e) => {
-  console.error('[rep-agent]', e);
+  observabilityConsole.error('[rep-agent]', e);
   process.exit(1);
 });

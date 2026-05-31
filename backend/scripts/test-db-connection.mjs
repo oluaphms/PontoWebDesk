@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Testa DATABASE_URL do backend/.env (útil na VPS após migrar do Supabase).
  * Uso: cd backend && node scripts/test-db-connection.mjs
@@ -12,7 +13,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL?.trim();
 if (!connectionString) {
-  console.error('[test-db] DATABASE_URL ausente em backend/.env');
+  observabilityConsole.error('[test-db] DATABASE_URL ausente em backend/.env');
   process.exit(1);
 }
 
@@ -32,18 +33,18 @@ const ssl =
     ? { rejectUnauthorized: false }
     : undefined;
 
-console.log('[test-db] Tentando:', maskUrl(connectionString));
+observabilityConsole.log('[test-db] Tentando:', maskUrl(connectionString));
 
 const pool = new pg.Pool({ connectionString, ssl });
 
 try {
   const r = await pool.query('select current_database() as db, current_user as usr');
-  console.log('[test-db] OK — conectado:', r.rows[0]);
+  observabilityConsole.log('[test-db] OK — conectado:', r.rows[0]);
   process.exit(0);
 } catch (err) {
-  console.error('[test-db] FALHOU:', err.message || err);
+  observabilityConsole.error('[test-db] FALHOU:', err.message || err);
   if (String(connectionString).includes('@') && !connectionString.includes('%40')) {
-    console.error(
+    observabilityConsole.error(
       '[test-db] Dica: se a senha contém "@", codifique na URL (ex.: Admin@123 → Admin%402123).',
     );
   }

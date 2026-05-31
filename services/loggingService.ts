@@ -1,5 +1,6 @@
 import { AuditLog, LogSeverity } from '../types';
 import { isSupabaseConfigured, db } from './supabaseClient';
+import { logger } from '../src/shared/logger/logger';
 
 type AlertListener = (log: AuditLog) => void;
 const listeners = new Set<AlertListener>();
@@ -81,25 +82,30 @@ export const LoggingService = {
           user_agent: logEntry.userAgent,
         });
       } catch (e) {
-        console.error('Audit log Supabase failed:', e);
+        logger.error({
+          module: 'audit.logging-service',
+          action: 'AUDIT_SUPABASE_WRITE_FAILED',
+          message: 'Falha ao gravar log de auditoria no Supabase',
+          error: e,
+        });
         this.persistLocal(logEntry);
       }
     } else {
       this.persistLocal(logEntry);
     }
 
-    const colors: Record<string, string> = {
-      [LogSeverity.INFO]: 'color: #6366f1',
-      [LogSeverity.WARN]: 'color: #f59e0b',
-      [LogSeverity.ERROR]: 'color: #ef4444; font-weight: bold',
-      [LogSeverity.SECURITY]: 'color: #fff; background: #ef4444; padding: 2px 5px; border-radius: 4px',
-    };
-    if (AUDIT_CONSOLE_VERBOSE && typeof console !== 'undefined' && console.log) {
-      console.log(
-        `%c[${logEntry.severity.toUpperCase()}] ${logEntry.action}`,
-        colors[logEntry.severity] ?? '',
-        logEntry.details
-      );
+    if (AUDIT_CONSOLE_VERBOSE) {
+      logger.info({
+        module: 'audit.logging-service',
+        action: 'AUDIT_VERBOSE_EVENT',
+        message: logEntry.action,
+        userId: logEntry.userId ?? null,
+        companyId: logEntry.companyId ?? null,
+        meta: {
+          severity: logEntry.severity,
+          details: logEntry.details ?? {},
+        },
+      });
     }
 
     const securityNeedsAlert =
@@ -119,7 +125,12 @@ export const LoggingService = {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       }
     } catch (err) {
-      console.warn('[loggingService] Falha ao persistir log local:', err);
+      logger.warn({
+        module: 'audit.logging-service',
+        action: 'AUDIT_LOCAL_PERSIST_FAILED',
+        message: 'Falha ao persistir log local',
+        error: err,
+      });
     }
   },
 
@@ -145,7 +156,12 @@ export const LoggingService = {
           userAgent: r.user_agent ?? '',
         }));
       } catch (e) {
-        console.error('Audit getLogs Supabase failed:', e);
+        logger.error({
+          module: 'audit.logging-service',
+          action: 'AUDIT_SUPABASE_READ_FAILED',
+          message: 'Falha ao ler logs de auditoria no Supabase',
+          error: e,
+        });
       }
     }
     try {
@@ -166,8 +182,16 @@ export const LoggingService = {
       return;
     }
     listeners.forEach((l) => l(log));
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn(`CRITICAL ALERT: ${log.action}`, log.details);
-    }
+    logger.warn({
+      module: 'audit.logging-service',
+      action: 'AUDIT_CRITICAL_ALERT',
+      message: log.action,
+      userId: log.userId ?? null,
+      companyId: log.companyId ?? null,
+      meta: {
+        severity: log.severity,
+        details: log.details ?? {},
+      },
+    });
   },
 };

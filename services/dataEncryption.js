@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Criptografia de dados sensíveis (AES-256-GCM).
  *
@@ -15,7 +16,7 @@
  *
  * CONFIGURAÇÃO:
  * - DATA_ENCRYPTION_KEY: hex de 32 bytes (64 chars hex)
- *   Gerar: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ *   Gerar: node -e "observabilityConsole.log(require('crypto').randomBytes(32).toString('hex'))"
  *
  * AVISO:
  * - Se DATA_ENCRYPTION_KEY não estiver configurada, os dados são armazenados em claro

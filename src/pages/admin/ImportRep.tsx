@@ -7,6 +7,7 @@ import { buscarFiltrosEspelhoAdmin } from '../../../services/api';
 import { buildApiUrl } from '../../services/api';
 import { readFileHead, validateAfdUpload } from '../../shared/upload/fileValidation';
 import { UPLOAD_LIMITS } from '../../shared/upload/limits';
+import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { LoadingState, Button } from '../../../components/UI';
 import { Upload, FileText, X } from 'lucide-react';
 
@@ -76,6 +77,18 @@ const AdminImportRep: React.FC = () => {
       setFile(null);
       return;
     }
+    const policy = validateUploadByPolicy({
+      policy: 'afdImport',
+      fileName: f.name || 'import.txt',
+      mimeType: f.type || '',
+      size: f.size,
+    });
+    if (!policy.ok) {
+      setResult({ imported: 0, duplicated: 0, user_not_found: 0, errors: ['Arquivo inválido para importação AFD.'] });
+      setFile(null);
+      e.target.value = '';
+      return;
+    }
     const head = await readFileHead(f);
     const check = validateAfdUpload({
       filename: f.name,
@@ -95,7 +108,13 @@ const AdminImportRep: React.FC = () => {
 
   const handleUpload = async () => {
     if (!file || !user?.companyId) return;
-    if (file.size > UPLOAD_LIMITS.afdImport) {
+    const policy = validateUploadByPolicy({
+      policy: 'afdImport',
+      fileName: file.name || 'import.txt',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!policy.ok || file.size > UPLOAD_LIMITS.afdImport) {
       setResult({
         imported: 0,
         duplicated: 0,

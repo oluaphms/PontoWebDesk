@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Auditoria GEO para disputa trabalhista / fraude — somente leitura e score;
  * não bloqueia operações.
@@ -91,7 +92,7 @@ export function computeGeoForensicsScore(points: GeoForensicsPoint[], nowMs?: nu
 
   const geo_forensics_score = Math.max(0, Math.min(100, Math.round(100 - penalty)));
   if (geo_forensics_score < 72) {
-    console.warn('[GEO FORENSICS ALERT]', { geo_forensics_score, flags });
+    observabilityConsole.warn('[GEO FORENSICS ALERT]', { geo_forensics_score, flags });
   }
   return { geo_forensics_score, flags };
 }

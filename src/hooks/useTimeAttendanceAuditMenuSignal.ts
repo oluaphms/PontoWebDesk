@@ -24,14 +24,27 @@ export function useTimeAttendanceAuditMenuSignal(
       return;
     }
     let cancelled = false;
+    let inFlight = false;
     const run = async () => {
-      const s = await getTimeAttendanceAuditSummary(companyId);
-      if (!cancelled) setSummary(s);
+      if (inFlight) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const s = await getTimeAttendanceAuditSummary(companyId);
+        if (!cancelled) setSummary(s);
+      } finally {
+        inFlight = false;
+      }
     };
     void run();
     const id = window.setInterval(() => void run(), POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void run();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(id);
     };
   }, [companyId, enabled]);

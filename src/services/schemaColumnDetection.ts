@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * ⚠️ IMPORTANTE:
  * Em produção, o uso de detecção dinâmica de schema é PROIBIDO.
@@ -117,7 +118,7 @@ export async function getAuditLogsSelectColumns(): Promise<string> {
 
   if (IS_PRODUCTION) {
     const current = getSchemaGuardError();
-    console.error('[SCHEMA GUARD FAIL-SAFE ACTIVATED]');
+    observabilityConsole.error('[SCHEMA GUARD FAIL-SAFE ACTIVATED]');
     void reportSchemaGuardState({
       mode: 'production-error',
       env: 'VITE_HAS_AUDIT_LOGS_TENANT_ID',
@@ -125,7 +126,7 @@ export async function getAuditLogsSelectColumns(): Promise<string> {
       message: '[SCHEMA GUARD FAIL-SAFE ACTIVATED]',
       correlation_id: current?.correlation_id,
     });
-    console.error(
+    observabilityConsole.error(
       '[SCHEMA GUARD] FALHA CRÍTICA: caminho automático de schema bloqueado em produção — assumindo audit_logs sem tenant_id',
     );
     return auditLogsProjection(false);
@@ -135,11 +136,11 @@ export async function getAuditLogsSelectColumns(): Promise<string> {
   const hasTid = await hasColumn('audit_logs', 'tenant_id');
   if (!loggedSchemaAuto) {
     loggedSchemaAuto = true;
-    console.log('[SCHEMA AUTO] tenant_id detectado automaticamente');
+    observabilityConsole.log('[SCHEMA AUTO] tenant_id detectado automaticamente');
   }
   if (!hasTid && !warnedAuditLogsNoTenantId) {
     warnedAuditLogsNoTenantId = true;
-    console.warn('[SCHEMA WARNING] audit_logs sem tenant_id — usando fallback');
+    observabilityConsole.warn('[SCHEMA WARNING] audit_logs sem tenant_id — usando fallback');
   }
   return auditLogsProjection(hasTid);
 }

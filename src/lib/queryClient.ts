@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { QueryClient } from '@tanstack/react-query';
 import { patchQueryClientInvalidationAudit } from '../performance/queryInvalidationAudit';
 import { patchQueryCostGuard } from '../performance/queryCostGuard';
@@ -22,7 +23,7 @@ function patchQueryClientDevCacheHitLogger(queryClient: QueryClient): void {
     const now = Date.now();
     if ((lastHitLog.get(id) ?? 0) + 500 > now) return;
     lastHitLog.set(id, now);
-    console.info('[CACHE HIT]', { queryKey: q.queryKey });
+    observabilityConsole.info('[CACHE HIT]', { queryKey: q.queryKey });
   });
 }
 

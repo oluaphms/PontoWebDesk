@@ -39,15 +39,14 @@ const Layout: React.FC<LayoutProps> = ({
   user: userProp,
   children,
   onLogout,
-  layoutVariant,
+  layoutVariant: _layoutVariant,
   operationalChromeReady = true,
 }) => {
   const navigate = useNavigate();
   const { user: sessionUser } = useAuth();
   const user = userProp ?? sessionUser;
-  if (!user) return null;
 
-  const tenantId = resolveTenantId(user);
+  const tenantId = user ? resolveTenantId(user) : null;
   const auditNavEnabled =
     operationalChromeReady && (user?.role === 'admin' || user?.role === 'hr');
   const { signal: auditHeaderSignal } = useTimeAttendanceAuditMenuSignal(tenantId || null, auditNavEnabled);
@@ -68,6 +67,7 @@ const Layout: React.FC<LayoutProps> = ({
   }, [user?.preferences?.theme]);
 
   useEffect(() => {
+    if (!user) return;
     if (!operationalChromeReady) return;
     // HARD LOCK egress: intervalo adaptativo + pausa com aba oculta (evita polling duplicado agressivo).
     const pollMs = getAdaptiveRefetchIntervalMs(90_000);
@@ -79,13 +79,15 @@ const Layout: React.FC<LayoutProps> = ({
     void loadUnread();
     const interval = setInterval(() => void loadUnread(), pollMs);
     return () => clearInterval(interval);
-  }, [user.id, operationalChromeReady]);
+  }, [user, operationalChromeReady]);
 
   const toggleTheme = useCallback(() => {
     const nextTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(nextTheme);
     ThemeService.applyTheme(nextTheme);
   }, [theme]);
+
+  if (!user) return null;
 
   return (
     <SmartNavigationProvider user={user} onLogout={onLogout}>

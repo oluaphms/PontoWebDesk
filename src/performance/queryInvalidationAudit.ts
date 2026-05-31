@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import type { QueryClient, InvalidateQueryFilters } from '@tanstack/react-query';
 import { isPostLoginQueryCooldownActive, isCriticalReactQueryKey } from '../app/postLoginQueryGate';
 import { reportDeviceOperationalReputationFromMonitoringContext } from '../services/deviceOperationalReputation.service';
@@ -23,7 +24,7 @@ function bump(kind: string, detail: string): void {
   recent.push({ t, kind, detail });
   trim(t);
   if (INVALIDATION_AUDIT_VERBOSE && recent.length >= STORM_THRESHOLD && typeof console !== 'undefined') {
-    console.warn('[QUERY INVALIDATION STORM]', {
+    observabilityConsole.warn('[QUERY INVALIDATION STORM]', {
       count: recent.length,
       windowMs: WINDOW_MS,
       threshold: STORM_THRESHOLD,
@@ -57,7 +58,7 @@ export function patchQueryClientInvalidationAudit(queryClient: QueryClient): voi
       const key = filters?.queryKey as readonly unknown[] | undefined;
       if (!isCriticalReactQueryKey(key)) {
         if (INVALIDATION_AUDIT_VERBOSE && typeof console !== 'undefined') {
-          console.info('[QUERY INVALIDATION COOLDOWN SKIP]', {
+          observabilityConsole.info('[QUERY INVALIDATION COOLDOWN SKIP]', {
             queryKey: key !== undefined ? JSON.stringify(key).slice(0, 200) : undefined,
           });
         }

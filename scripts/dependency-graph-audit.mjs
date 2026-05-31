@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -35,7 +36,7 @@ const nodes = Array.from(graph.keys());
 let edgeCount = 0;
 for (const deps of graph.values()) edgeCount += deps.length;
 
-console.info('[DEPENDENCY GRAPH AUDIT]');
-console.info(`nodes=${nodes.length}`);
-console.info(`edges=${edgeCount}`);
-console.info('status=inconclusive_for_cycles_without_resolver');
+observabilityConsole.info('[DEPENDENCY GRAPH AUDIT]');
+observabilityConsole.info(`nodes=${nodes.length}`);
+observabilityConsole.info(`edges=${edgeCount}`);
+observabilityConsole.info('status=inconclusive_for_cycles_without_resolver');

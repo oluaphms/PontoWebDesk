@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, FileDown, MapPin, RefreshCw } from 'lucide-react';
@@ -257,7 +258,7 @@ const EmployeeTimesheet: React.FC = () => {
           setHolidayDates(holSet);
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
         if (!cancelled) {
           setRecords([]);
           setHolidayDates(new Set());
@@ -295,7 +296,7 @@ const EmployeeTimesheet: React.FC = () => {
         .order('data_hora', { ascending: true });
       if (cancelled) return;
       if (error) {
-        console.warn('[Espelho colaborador] rep_punch_logs pendentes:', error.message);
+        observabilityConsole.warn('[Espelho colaborador] rep_punch_logs pendentes:', error.message);
         setRepPendingByDate(new Map());
         return;
       }

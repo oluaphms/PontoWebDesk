@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Trilha de auditoria imutável.
  *
@@ -81,7 +82,11 @@ export class AuditTrail {
   }
 
   _ensureSchema() {
-    try { this._db.exec(AUDIT_SCHEMA); } catch { /* ignore */ }
+    try {
+      this._db.exec(AUDIT_SCHEMA);
+    } catch (error) {
+      observabilityConsole.warn('[auditTrail] Falha ao garantir schema:', error);
+    }
   }
 
   _loadLastHash() {
@@ -130,7 +135,9 @@ export class AuditTrail {
     let signature = null;
     try {
       signature = signRecord({ integrityHash: hash, createdAt: now, companyId: entry.companyId, action: entry.action });
-    } catch { /* best-effort */ }
+    } catch (error) {
+      observabilityConsole.warn('[auditTrail] Falha ao assinar registro:', error);
+    }
 
     try {
       this._db.prepare(`
@@ -151,13 +158,13 @@ export class AuditTrail {
         now,
       );
     } catch (err) {
-      console.error('[AUDIT] Falha ao gravar localmente:', err instanceof Error ? err.message : err);
+      observabilityConsole.error('[AUDIT] Falha ao gravar localmente:', err instanceof Error ? err.message : err);
     }
 
     // Replicar para Supabase de forma assíncrona (best-effort)
     if (this._supabase) {
       this._replicateToCloud(id, entry, hash, now).catch((err) => {
-        console.warn('[AUDIT] Falha ao replicar para cloud:', err instanceof Error ? err.message : err);
+        observabilityConsole.warn('[AUDIT] Falha ao replicar para cloud:', err instanceof Error ? err.message : err);
       });
     }
 

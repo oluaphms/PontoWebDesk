@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -321,7 +322,7 @@ const SmartDock: React.FC = () => {
                         await Promise.resolve(onLogout());
                         openDockGroup(null);
                       } catch (e) {
-                        console.error(e);
+                        observabilityConsole.error(e);
                       } finally {
                         setLogoutBusy(false);
                       }

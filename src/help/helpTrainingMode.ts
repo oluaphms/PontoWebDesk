@@ -27,7 +27,8 @@ function readDone(): Partial<Record<HelpDocSlug, boolean>> {
     return JSON.parse(window.localStorage.getItem(TRAINING_DONE_KEY) || '{}') as Partial<
       Record<HelpDocSlug, boolean>
     >;
-  } catch {
+  } catch (error) {
+    void error;
     return {};
   }
 }
@@ -57,8 +58,8 @@ export function markTrainingModuleDone(slug: HelpDocSlug, userId?: string): void
       const userMap = JSON.parse(window.localStorage.getItem(key) || '{}') as Partial<Record<HelpDocSlug, boolean>>;
       userMap[slug] = true;
       window.localStorage.setItem(key, JSON.stringify(userMap));
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
   }
 }

@@ -1,10 +1,11 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
 const name = process.argv[2];
 if (!name) {
-  console.error('Uso: node scripts/generate-context.mjs <context-name>');
+  observabilityConsole.error('Uso: node scripts/generate-context.mjs <context-name>');
   process.exit(1);
 }
 
@@ -39,4 +40,4 @@ writeIfMissing(
   `# ${ctx.toUpperCase()} CONTEXT\n\n- ownership: definir time responsável\n- boundaries: documentar imports permitidos\n- contratos: referenciar src/contracts/${ctx}.contract.ts\n- tracing/metrics/watchdog: obrigatório\n`,
 );
 
-console.info(`[SCAFFOLD] context generated: ${ctx}`);
+observabilityConsole.info(`[SCAFFOLD] context generated: ${ctx}`);

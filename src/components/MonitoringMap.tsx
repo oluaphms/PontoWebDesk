@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import { isDegradedMobileRuntime } from '../performance/mobileCpuBudget';
@@ -113,12 +114,12 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
     if (!mapRef.current) return;
     const now = performance.now();
     if (now - lastBatchRef.current < MIN_FRAME_MS) {
-      console.info('[MAP BATCH UPDATE]', { deferred: true });
-      console.warn('[MAP LOAD SHEDDING]', { reason: 'fps_cap', target_fps: 60 });
+      observabilityConsole.info('[MAP BATCH UPDATE]', { deferred: true });
+      observabilityConsole.warn('[MAP LOAD SHEDDING]', { reason: 'fps_cap', target_fps: 60 });
       return;
     }
     if (isDegradedMobileRuntime()) {
-      console.warn('[MAP PERFORMANCE DEGRADED]', { reason: 'mobile_runtime_degraded' });
+      observabilityConsole.warn('[MAP PERFORMANCE DEGRADED]', { reason: 'mobile_runtime_degraded' });
     }
     lastBatchRef.current = now;
 
@@ -150,13 +151,13 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         markersByUserRef.current.delete(userId);
         lastPinSnapRef.current.delete(userId);
         stateCoordinatorRef.current.clearVersionLock(userId);
-        console.info('[MAP MARKER EVICTED]', { userId, reason: 'removed_from_feed' });
+        observabilityConsole.info('[MAP MARKER EVICTED]', { userId, reason: 'removed_from_feed' });
       }
     }
 
     for (const emp of withLocation) {
       if ((emp.lat != null || emp.lng != null) && !emp.markerVersionKey) {
-        console.error('[MAP DIRECT GEO ACCESS DETECTED]', { employee_id: emp.userId });
+        observabilityConsole.error('[MAP DIRECT GEO ACCESS DETECTED]', { employee_id: emp.userId });
         continue;
       }
       const snap = pinSnapshot(emp);
@@ -179,7 +180,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
 
       const capturedAtMs = emp.lastRecordAt ? Date.parse(emp.lastRecordAt) : Number.NaN;
       if (Number.isFinite(capturedAtMs) && Date.now() - capturedAtMs > MAX_MARKER_AGE_MS) {
-        console.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, age_ms: Date.now() - capturedAtMs });
+        observabilityConsole.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, age_ms: Date.now() - capturedAtMs });
         if (existing) {
           existing.remove();
           markersByUserRef.current.delete(emp.userId);
@@ -192,8 +193,8 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         Number.isFinite(capturedAtMs) &&
         stateCoordinatorRef.current.shouldHideAsStale(emp.userId, Date.now());
       if (isSnapshotStale) {
-        console.info('[MAP RENDER REJECTED]', { employee_id: emp.userId, reason: 'snapshot_stale' });
-        console.info('[MAP STALE PIN REMOVED]', { employee_id: emp.userId, reason: 'snapshot_stale' });
+        observabilityConsole.info('[MAP RENDER REJECTED]', { employee_id: emp.userId, reason: 'snapshot_stale' });
+        observabilityConsole.info('[MAP STALE PIN REMOVED]', { employee_id: emp.userId, reason: 'snapshot_stale' });
         if (existing) {
           existing.remove();
           markersByUserRef.current.delete(emp.userId);
@@ -207,7 +208,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         capturedAtMs: Number.isFinite(capturedAtMs) ? capturedAtMs : Date.now(),
       });
       if (!canRender) {
-        console.info('[MAP VERSION CONFLICT]', { employee_id: emp.userId, marker_version: emp.markerVersionKey ?? null });
+        observabilityConsole.info('[MAP VERSION CONFLICT]', { employee_id: emp.userId, marker_version: emp.markerVersionKey ?? null });
         continue;
       }
 
@@ -256,20 +257,20 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       lastPinSnapRef.current.set(emp.userId, snap);
       const renderLatencyMs = Date.now() - (Number.isFinite(capturedAtMs) ? capturedAtMs : Date.now());
       if (renderLatencyMs > MAX_RENDER_LATENCY_MS) {
-        console.info('[MAP RENDER LATENCY BLOCKED]', { employee_id: emp.userId, render_latency_ms: renderLatencyMs });
+        observabilityConsole.info('[MAP RENDER LATENCY BLOCKED]', { employee_id: emp.userId, render_latency_ms: renderLatencyMs });
         newMarker.remove();
         markersByUserRef.current.delete(emp.userId);
         lastPinSnapRef.current.delete(emp.userId);
         continue;
       }
       if (renderLatencyMs > MAX_REALTIME_DRIFT_MS) {
-        console.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, reason: 'realtime_drift', drift_ms: renderLatencyMs });
+        observabilityConsole.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, reason: 'realtime_drift', drift_ms: renderLatencyMs });
         newMarker.remove();
         markersByUserRef.current.delete(emp.userId);
         lastPinSnapRef.current.delete(emp.userId);
         continue;
       }
-      console.info('[MAP MARKER RECONCILED]', { userId: emp.userId, kind: hadExisting ? 'replace' : 'create' });
+      observabilityConsole.info('[MAP MARKER RECONCILED]', { userId: emp.userId, kind: hadExisting ? 'replace' : 'create' });
     }
 
     if (withLocation.length > 0) {
@@ -283,13 +284,13 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     }
 
-    console.info('[MAP BATCH UPDATE]', { count: withLocation.length });
-    console.info('[MAP PERFORMANCE]', { markers: withLocation.length, debounce_ms: VISUAL_UPDATE_DEBOUNCE_MS });
+    observabilityConsole.info('[MAP BATCH UPDATE]', { count: withLocation.length });
+    observabilityConsole.info('[MAP PERFORMANCE]', { markers: withLocation.length, debounce_ms: VISUAL_UPDATE_DEBOUNCE_MS });
     const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; jsHeapSizeLimit?: number } };
     const used = perf.memory?.usedJSHeapSize;
     const limit = perf.memory?.jsHeapSizeLimit;
     if (used && limit && used / limit > 0.8) {
-      console.warn('[MAP MEMORY PRESSURE]', { used_heap: used, heap_limit: limit, ratio: Number((used / limit).toFixed(3)) });
+      observabilityConsole.warn('[MAP MEMORY PRESSURE]', { used_heap: used, heap_limit: limit, ratio: Number((used / limit).toFixed(3)) });
     }
     window.setTimeout(() => map.invalidateSize(), 100);
     window.setTimeout(() => map.invalidateSize(), 350);
@@ -313,7 +314,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         lastPinSnapRef.current.clear();
         markersByUserRef.current.forEach((m) => m.remove());
         markersByUserRef.current.clear();
-        console.info('[MAP FOREGROUND RESYNC]', { action: 'clear_marker_snapshots' });
+        observabilityConsole.info('[MAP FOREGROUND RESYNC]', { action: 'clear_marker_snapshots' });
         runReconcile();
       }
     };
@@ -321,7 +322,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       lastPinSnapRef.current.clear();
       markersByUserRef.current.forEach((m) => m.remove());
       markersByUserRef.current.clear();
-      console.info('[MAP REALTIME RESYNC]', { action: 'smartponto_force' });
+      observabilityConsole.info('[MAP REALTIME RESYNC]', { action: 'smartponto_force' });
       runReconcile();
     };
     document.addEventListener('visibilitychange', onVis);
@@ -338,7 +339,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       const obs = new PerformanceObserver((list) => {
         for (const e of list.getEntries()) {
           if (e.duration > 120) {
-            console.warn('[LONG TASK DETECTED]', { duration_ms: e.duration, name: e.name });
+            observabilityConsole.warn('[LONG TASK DETECTED]', { duration_ms: e.duration, name: e.name });
           }
         }
       });

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Fila local → envio em lote POST /api/rep/punches (anti-egress).
  */
@@ -188,7 +189,7 @@ export async function sendPunchBatch(opts = {}) {
 
     if (data?.degraded === true) {
       const retryAfter = Math.max(15_000, Number(data.retry_after) || 60_000);
-      console.warn('[BATCH DEGRADED]', data?.error || 'backend degradado', `retry=${retryAfter}ms`);
+      observabilityConsole.warn('[BATCH DEGRADED]', data?.error || 'backend degradado', `retry=${retryAfter}ms`);
       scheduleSyncDelay(retryAfter);
       return {
         sent: 0,
@@ -201,7 +202,7 @@ export async function sendPunchBatch(opts = {}) {
     }
 
     if (!res.ok || !data || data.ok === false) {
-      console.warn('[BATCH ERROR]', res.status, data?.error || text.slice(0, 200));
+      observabilityConsole.warn('[BATCH ERROR]', res.status, data?.error || text.slice(0, 200));
       bumpSyncBackoff();
       return { sent: 0, duplicate: 0, failed: punches.length, pendingLeft: countPendingPunches() };
     }
@@ -247,11 +248,11 @@ export async function sendPunchBatch(opts = {}) {
       processed: data.processed ?? punches.length,
     };
     if (sent > 0 || duplicate > 0) {
-      console.log('[REP BATCH]', JSON.stringify(summary));
+      observabilityConsole.log('[REP BATCH]', JSON.stringify(summary));
     }
     return summary;
   } catch (err) {
-    console.warn('[BATCH ERROR]', err?.message || err);
+    observabilityConsole.warn('[BATCH ERROR]', err?.message || err);
     bumpSyncBackoff();
     return { sent: 0, duplicate: 0, failed: 0, pendingLeft: countPendingPunches() };
   } finally {
@@ -267,7 +268,7 @@ function scheduleNextBatchSync() {
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
     void sendPunchBatch()
-      .catch((e) => console.warn('[SYNC ERROR]', e?.message || e))
+      .catch((e) => observabilityConsole.warn('[SYNC ERROR]', e?.message || e))
       .finally(() => scheduleNextBatchSync());
   }, syncDelayMs);
 }
@@ -276,7 +277,7 @@ export function startPunchSyncLoop() {
   if (syncTimer) return;
   scheduleNextBatchSync();
   const mode = REP_LOW_COST_MODE ? 'low-cost' : 'normal';
-  console.log(
+  observabilityConsole.log(
     `[REP PUNCH QUEUE] sync sob demanda (${mode}, envia≥${MIN_SEND_BATCH}, lote≤${BATCH_SIZE}, intervalo=${REP_BATCH_SYNC_MIN_MS}–${REP_BATCH_SYNC_MAX_MS}ms)`,
   );
 }

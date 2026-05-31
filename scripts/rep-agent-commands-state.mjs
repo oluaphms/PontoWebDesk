@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * IDs de comandos REP já executados (persistência em disco).
  */
@@ -32,7 +33,7 @@ export function saveExecutedCommandIds(set) {
     const arr = [...set].slice(-MAX_IDS);
     writeFileSync(FILE, JSON.stringify(arr), 'utf8');
   } catch (e) {
-    console.warn('[REP COMMANDS STATE] falha ao gravar:', e?.message || e);
+    observabilityConsole.warn('[REP COMMANDS STATE] falha ao gravar:', e?.message || e);
   }
 }
 

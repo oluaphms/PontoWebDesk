@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Colunas seguras para `users.select` em API/workers REP sem importar `services/supabaseClient`
  * (evita puxar `services/supabase` + cliente browser no arranque de funções serverless).
@@ -31,7 +32,7 @@ export async function repUsersSelectColListForServer(
     const sel = cols.join(',');
     const { error } = await client.from('users').select(sel).limit(1);
     if (error) {
-      console.error('[USERS QUERY ERROR]', error);
+      observabilityConsole.error('[USERS QUERY ERROR]', error);
       return false;
     }
     return true;

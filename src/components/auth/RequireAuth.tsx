@@ -1,9 +1,9 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { useAuth } from '../../hooks/useAuth';
-import { getToken } from '../../services/authToken';
 
 export type RequireAuthProps = {
   /** @deprecated Perfil vem de `useAuth()` — mantido para compatibilidade. */
@@ -18,7 +18,7 @@ export type RequireAuthProps = {
 const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user: sessionUser, loading, refresh, clearSession } = useAuth();
+  const { user: sessionUser, loading, refresh } = useAuth();
   const appUser = appUserProp ?? sessionUser;
   const [tokenChecked, setTokenChecked] = useState(false);
 
@@ -29,7 +29,7 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
       if (loginNavigationIssuedRef.current) return;
       loginNavigationIssuedRef.current = true;
       if (import.meta.env?.DEV) {
-        console.info('[AUTH REDIRECT]', { reason, to: '/login' });
+        observabilityConsole.info('[AUTH REDIRECT]', { reason, to: '/login' });
       }
       navigate('/login', { replace: true, state: { from: location.pathname } });
     },
@@ -39,14 +39,6 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const token = getToken();
-      if (!token) {
-        if (!cancelled) {
-          clearSession();
-          setTokenChecked(true);
-        }
-        return;
-      }
       if (!appUser && !loading) {
         await refresh();
       }
@@ -55,12 +47,12 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
     return () => {
       cancelled = true;
     };
-  }, [appUser, loading, refresh, clearSession]);
+  }, [appUser, loading, refresh]);
 
   useEffect(() => {
     if (!tokenChecked || loading) return;
-    if (!getToken() || !appUser) {
-      redirectToLogin(!getToken() ? 'no_token' : 'no_session_user');
+    if (!appUser) {
+      redirectToLogin('no_session_user');
     }
   }, [appUser, tokenChecked, loading, redirectToLogin]);
 
@@ -72,7 +64,7 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
     );
   }
 
-  if (appUser && getToken()) {
+  if (appUser) {
     return <>{children}</>;
   }
 

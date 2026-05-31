@@ -1,0 +1,9 @@
+[33mcommit 8971430087be574228489a6c97661620e60005ce[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: morais705412 <morais705412@gmail.com>
+Date:   Fri May 29 22:09:03 2026 -0300
+
+    correções
+
+ src/pages/admin/Employees.tsx        | 31 [32m+++++++++++++++++++++++++++[m[31m----[m
+ src/services/employeesApi.service.ts | 25 [32m+++++++++++++++++++++++++[m
+ 2 files changed, 52 insertions(+), 4 deletions(-)

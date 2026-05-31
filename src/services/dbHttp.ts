@@ -123,10 +123,30 @@ export const db = {
     return res.data as T;
   },
 
-  upsert: async (table: string, data: DbRow, _onConflict: string): Promise<void> => {
+  upsert: async (table: string, data: DbRow, onConflict: string): Promise<void> => {
+    const conflictColumns = onConflict
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const conflictFilters =
+      conflictColumns.length > 0 && conflictColumns.every((c) => data[c] !== undefined)
+        ? conflictColumns.map((column) => ({ column, operator: 'eq' as const, value: data[column] as FilterValue }))
+        : [];
+
+    async function patchExistingByConflict(): Promise<boolean> {
+      if (!conflictFilters.length) return false;
+      const rows = await db.select<{ id?: unknown }>(table, conflictFilters, { columns: 'id', limit: 1 });
+      const id = rows[0]?.id;
+      if (!id) return false;
+      await apiPatch(`/data/${table}/${String(id)}`, data);
+      return true;
+    }
+
     try {
+      if (await patchExistingByConflict()) return;
       await apiPost(`/data/${table}`, data);
     } catch (e) {
+      if (await patchExistingByConflict()) return;
       if (data.id) {
         await apiPatch(`/data/${table}/${String(data.id)}`, data);
         return;

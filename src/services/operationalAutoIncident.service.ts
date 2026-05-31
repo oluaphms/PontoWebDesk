@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { getSupabaseClient } from './supabaseClient';
 import { openOperationalIncident } from '../domain/operational/incidents/operationalIncidentEngine';
 
@@ -34,10 +35,10 @@ export function openAutoOperationalIncident(input: {
   if (entry.count >= 3) {
     entry.severity = escalate(entry.severity);
     entry.count = 0;
-    console.warn('[AUTO INCIDENT ESCALATED]', { key: input.key, severity: entry.severity });
+    observabilityConsole.warn('[AUTO INCIDENT ESCALATED]', { key: input.key, severity: entry.severity });
   }
   counters.set(input.key, entry);
-  console.warn('[AUTO INCIDENT OPENED]', { key: input.key, severity: entry.severity });
+  observabilityConsole.warn('[AUTO INCIDENT OPENED]', { key: input.key, severity: entry.severity });
   const client = getSupabaseClient();
   void openOperationalIncident(client, {
     companyId: input.companyId,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { reverseGeocode } from '../utils/reverseGeocode';
@@ -147,7 +148,7 @@ export function ExpandableStreetCell({
         }
       })
       .catch((error) => {
-        console.warn('[ExpandableStreetCell] reverse geocode falhou:', error);
+        observabilityConsole.warn('[ExpandableStreetCell] reverse geocode falhou:', error);
         if (!cancelled) {
           setLine('Endereço indisponível');
           setLoading(false);

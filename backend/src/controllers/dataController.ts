@@ -12,11 +12,14 @@ import {
 import {
   applyTenantToRowAsync,
   filterRowToTableSchema,
+  getReadableTableColumns,
   getTableColumnTypes,
+  isSensitiveColumnName,
   sqlParamRef,
   tableHasColumn,
   tenantScopeSqlForTable,
 } from '../utils/dataRowSchema.js';
+import { logger } from '../logger/logger.js';
 
 const ALLOWED_OPS = new Set([
   'eq',
@@ -75,7 +78,7 @@ async function buildWhere(
   for (const f of filters) {
     const col = safeIdent(f.column);
     const op = ALLOWED_OPS.has(f.operator) ? f.operator : 'eq';
-    if (!col) continue;
+    if (!col || isSensitiveColumnName(col)) continue;
 
     if (op === 'in') {
       const arr = Array.isArray(f.value) ? f.value : [f.value];
@@ -149,18 +152,28 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
 
   const filters = parseFilters(typeof req.query.filters === 'string' ? req.query.filters : undefined);
   const rawCols = String(req.query.columns || '*').trim();
-  const columns =
+  const readableColumns = await getReadableTableColumns(table);
+  const readableSet = new Set(readableColumns);
+  if (!readableColumns.length) {
+    res.status(400).json({ ok: false, error: 'columns_not_allowed' });
+    return;
+  }
+  const selectedColumns =
     rawCols === '*'
-      ? '*'
+      ? readableColumns
       : rawCols
           .split(',')
           .map((c) => safeIdent(c.trim()))
-          .filter(Boolean)
-          .join(', ') || '*';
+          .filter((c): c is string => c !== null && readableSet.has(c) && !isSensitiveColumnName(c));
+  if (rawCols !== '*' && !selectedColumns.length) {
+    res.status(400).json({ ok: false, error: 'columns_not_allowed' });
+    return;
+  }
+  const columns = selectedColumns.join(', ');
   const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 200));
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const requestedOrder = safeIdent(String(req.query.orderColumn || ''));
-  let orderCol = requestedOrder;
+  let orderCol = requestedOrder && !isSensitiveColumnName(requestedOrder) ? requestedOrder : null;
   if (!orderCol) {
     if (await tableHasColumn(table, 'created_at')) orderCol = 'created_at';
     else if (await tableHasColumn(table, 'id')) orderCol = 'id';
@@ -172,12 +185,20 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
   const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
 
   try {
-    const sql = `SELECT ${columns === '*' ? '*' : columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    const sql = `SELECT ${columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const result = await pool.query(sql, [...params, limit, offset]);
     res.json({ ok: true, data: result.rows });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
-    console.error('[DATA LIST]', table, pgMsg, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_LIST_FAILED',
+      message: 'Falha ao listar dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { table, pgMsg },
+    });
     res.status(500).json({ ok: false, error: 'query_failed', message: pgMsg });
   }
 }
@@ -202,18 +223,28 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     return;
   }
   const colTypes = await getTableColumnTypes(table);
+  const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
   const cols = keys.join(', ');
   const placeholders = keys
     .map((k, i) => sqlParamRef(i + 1, colTypes.get(k) ?? 'text'))
     .join(', ');
   const values = keys.map((k) => row[k]);
   try {
-    const sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders}) RETURNING *`;
+    const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
+    const sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
     const result = await pool.query(sql, values);
-    res.json({ ok: true, data: result.rows[0] });
+    res.json({ ok: true, data: result.rows[0] ?? null });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
-    console.error('[DATA INSERT]', table, pgMsg, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_INSERT_FAILED',
+      message: 'Falha ao inserir dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { table, pgMsg },
+    });
     res.status(500).json({ ok: false, error: 'insert_failed', message: pgMsg });
   }
 }
@@ -239,6 +270,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     return;
   }
   const colTypes = await getTableColumnTypes(table);
+  const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
   const sets = keys
     .map((k, i) => `${k} = ${sqlParamRef(i + 1, colTypes.get(k) ?? 'text')}`)
     .join(', ');
@@ -253,16 +285,25 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
 
   try {
     const idCast = sqlParamRef(idIdx, colTypes.get('id') ?? 'text');
-    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause} RETURNING *`;
+    const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
+    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause}${returningSql}`;
     const result = await pool.query(sql, params);
-    if (!result.rows[0]) {
+    if (returningSql && !result.rows[0]) {
       res.status(404).json({ ok: false, error: 'not_found' });
       return;
     }
-    res.json({ ok: true, data: result.rows[0] });
+    res.json({ ok: true, data: result.rows[0] ?? null });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
-    console.error('[DATA UPDATE]', table, pgMsg, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_UPDATE_FAILED',
+      message: 'Falha ao atualizar dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { table, pgMsg, id },
+    });
     res.status(500).json({ ok: false, error: 'update_failed', message: pgMsg });
   }
 }
@@ -294,7 +335,15 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error('[DATA DELETE]', table, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_DELETE_FAILED',
+      message: 'Falha ao excluir dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { table, id },
+    });
     res.status(500).json({ ok: false, error: 'delete_failed' });
   }
 }
@@ -317,7 +366,15 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
     const result = await pool.query(sql, params);
     res.json({ ok: true, count: result.rows[0]?.c ?? 0 });
   } catch (e) {
-    console.error('[DATA COUNT]', table, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_COUNT_FAILED',
+      message: 'Falha ao contar dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { table },
+    });
     res.status(500).json({ ok: false, error: 'count_failed' });
   }
 }
@@ -370,7 +427,15 @@ export async function rpcDataController(req: AuthedRequest, res: Response): Prom
     const data = result.rows[0]?.result ?? null;
     res.json({ ok: true, data, error: null });
   } catch (e) {
-    console.error('[DATA RPC]', fn, e);
+    logger.error({
+      module: 'data.controller',
+      action: 'DATA_RPC_FAILED',
+      message: 'Falha em RPC de dados',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { fn },
+    });
     res.status(500).json({ ok: false, data: null, error: 'rpc_failed' });
   }
 }

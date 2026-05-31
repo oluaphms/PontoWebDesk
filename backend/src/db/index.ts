@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../logger/observabilityConsole.js';
 import '../loadEnv.js';
 import { Pool } from 'pg';
 import { buildPgPoolConfig } from './pgConfig.js';
@@ -21,7 +22,7 @@ export async function checkDatabaseConnection(): Promise<boolean> {
       client.release();
     }
   } catch (err) {
-    console.error('[DB] conexão falhou:', err);
+    observabilityConsole.error('[DB] conexão falhou:', err);
     return false;
   }
 }

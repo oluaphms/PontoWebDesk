@@ -1,11 +1,12 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
+import { generateTemporaryPassword } from '../security/passwords/generateTemporaryPassword.js';
+import { BCRYPT_COST, validateStrongPassword } from '../security/passwords/passwordPolicy.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LEN = 6;
 
 export type SetPasswordResult =
-  | { ok: true; email: string; table: 'users' | 'employees' }
+  | { ok: true; email: string; table: 'users' | 'employees'; temporaryPassword?: string; expiresAt?: string }
   | { ok: false; status: number; error: string };
 
 async function employeesHasPasswordHash(): Promise<boolean> {
@@ -24,7 +25,9 @@ export async function setUserPasswordForTenant(params: {
 }): Promise<SetPasswordResult> {
   const companyId = String(params.companyId || '').trim();
   const email = String(params.email || '').trim().toLowerCase();
-  const newPassword = String(params.newPassword || '');
+  const requestedPassword = String(params.newPassword || '');
+  const generatedTemporary = !requestedPassword.trim();
+  const newPassword = generatedTemporary ? generateTemporaryPassword() : requestedPassword;
 
   if (!companyId) {
     return { ok: false, status: 403, error: 'Empresa não identificada.' };
@@ -32,11 +35,15 @@ export async function setUserPasswordForTenant(params: {
   if (!email || !EMAIL_RE.test(email)) {
     return { ok: false, status: 400, error: 'E-mail inválido.' };
   }
-  if (newPassword.length < MIN_PASSWORD_LEN) {
-    return { ok: false, status: 400, error: `Senha inválida (mínimo ${MIN_PASSWORD_LEN} caracteres).` };
+  const passwordIssue = validateStrongPassword(newPassword);
+  if (passwordIssue) {
+    return { ok: false, status: 400, error: passwordIssue };
   }
 
-  const hash = await bcrypt.hash(newPassword, 10);
+  const hash = await bcrypt.hash(newPassword, BCRYPT_COST);
+  const expiresAt = generatedTemporary
+    ? new Date(Date.now() + Number(process.env.TEMP_PASSWORD_TTL_HOURS || 24) * 60 * 60 * 1000).toISOString()
+    : undefined;
 
   const userUpd = await pool.query(
     `update public.users
@@ -55,7 +62,13 @@ export async function setUserPasswordForTenant(params: {
         [hash, email, companyId],
       );
     }
-    return { ok: true, email, table: 'users' };
+    return {
+      ok: true,
+      email,
+      table: 'users',
+      temporaryPassword: generatedTemporary ? newPassword : undefined,
+      expiresAt,
+    };
   }
 
   if (await employeesHasPasswordHash()) {
@@ -77,7 +90,13 @@ export async function setUserPasswordForTenant(params: {
            and u.id::text = e.id::text`,
         [hash, email, companyId],
       );
-      return { ok: true, email, table: 'employees' };
+      return {
+        ok: true,
+        email,
+        table: 'employees',
+        temporaryPassword: generatedTemporary ? newPassword : undefined,
+        expiresAt,
+      };
     }
   }
 

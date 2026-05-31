@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Monitoramento: presença e mapa consomem `current_operational_state` (fonte única).
  * Fallback para derivação local só se a tabela ainda não tiver linhas na empresa.
@@ -115,7 +116,7 @@ const AdminMonitoring: React.FC = () => {
       setPipelineRows(unified.pipelineRows);
       setPresenceList(unified.presenceList);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     } finally {
       if (gen === refreshGenerationRef.current) {
         setLoadingData(false);
@@ -142,7 +143,7 @@ const AdminMonitoring: React.FC = () => {
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'visible') {
-        console.info('[MAP FOREGROUND RESYNC]', { scope: 'admin_monitoring' });
+        observabilityConsole.info('[MAP FOREGROUND RESYNC]', { scope: 'admin_monitoring' });
         void refresh();
       }
     };
@@ -176,7 +177,7 @@ const AdminMonitoring: React.FC = () => {
     if (!s) return '—';
     const hm = formatOperationalTimeHmFromIso(s);
     if (!hm) {
-      console.info('[TIME DISPLAY BUG]', { reason: 'invalid_time_only', raw: s });
+      observabilityConsole.info('[TIME DISPLAY BUG]', { reason: 'invalid_time_only', raw: s });
       return '—';
     }
     return hm;

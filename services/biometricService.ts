@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * BiometricService - Autenticação biométrica via Web Authentication API (WebAuthn)
  * 
@@ -112,7 +113,7 @@ export const BiometricService = {
         try {
             return !!localStorage.getItem(key);
         } catch (err) {
-            console.warn('[biometricService] Falha ao ler credencial biométrica:', err);
+            observabilityConsole.warn('[biometricService] Falha ao ler credencial biométrica:', err);
             return false;
         }
     },
@@ -126,13 +127,13 @@ export const BiometricService = {
         try {
             stored = localStorage.getItem(key);
         } catch (err) {
-            console.warn('[biometricService] Falha ao ler info biométrica:', err);
+            observabilityConsole.warn('[biometricService] Falha ao ler info biométrica:', err);
         }
         if (!stored) return null;
         try {
             return JSON.parse(stored);
         } catch (err) {
-            console.warn('[biometricService] Falha ao parsear info biométrica:', err);
+            observabilityConsole.warn('[biometricService] Falha ao parsear info biométrica:', err);
             return null;
         }
     },
@@ -216,10 +217,10 @@ export const BiometricService = {
             try {
                 localStorage.setItem(`smartponto_biometric_${userId}`, JSON.stringify(credInfo));
             } catch (err) {
-                console.warn('[biometricService] Falha ao salvar credencial biométrica:', err);
+                observabilityConsole.warn('[biometricService] Falha ao salvar credencial biométrica:', err);
             }
 
-            console.log('✅ Biometria registrada com sucesso:', deviceName);
+            observabilityConsole.log('✅ Biometria registrada com sucesso:', deviceName);
 
             return {
                 success: true,
@@ -230,7 +231,7 @@ export const BiometricService = {
             };
 
         } catch (error: any) {
-            console.error('❌ Erro ao registrar biometria:', error);
+            observabilityConsole.error('❌ Erro ao registrar biometria:', error);
 
             let errorMessage = 'Erro ao registrar biometria.';
             if (error.name === 'NotAllowedError') {
@@ -321,7 +322,7 @@ export const BiometricService = {
                 };
             }
 
-            console.log('✅ Autenticação biométrica validada:', {
+            observabilityConsole.log('✅ Autenticação biométrica validada:', {
                 credentialId: credInfo.credentialId.substring(0, 20) + '...',
                 userPresent,
                 userVerified,
@@ -337,7 +338,7 @@ export const BiometricService = {
             };
 
         } catch (error: any) {
-            console.error('❌ Erro na autenticação biométrica:', error);
+            observabilityConsole.error('❌ Erro na autenticação biométrica:', error);
 
             let errorMessage = 'Erro na autenticação biométrica.';
             if (error.name === 'NotAllowedError') {
@@ -362,6 +363,6 @@ export const BiometricService = {
      */
     removeCredential(userId: string): void {
         localStorage.removeItem(`smartponto_biometric_${userId}`);
-        console.log('🗑️ Credencial biométrica removida para:', userId);
+        observabilityConsole.log('🗑️ Credencial biométrica removida para:', userId);
     }
 };

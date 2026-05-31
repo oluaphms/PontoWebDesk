@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, MapPin, Clock, Settings } from 'lucide-react';
@@ -23,7 +24,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ user }) => {
         const data = await PontoService.getCompany(user.companyId);
         if (!cancelled && data) setCompany(data);
       } catch (e) {
-        console.error('Erro ao carregar empresa:', e);
+        observabilityConsole.error('Erro ao carregar empresa:', e);
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Normalização defensiva de endereços operacionais (reverse geocode / exibição).
  */
@@ -52,10 +53,10 @@ export function normalizeOperationalAddressShape(input: OperationalAddressShape)
   formatted_address = formatted_address.replace(/\bRua:\s*Rua\b/gi, 'Rua');
 
   if (!street && (city || district)) {
-    console.info('[ADDRESS PARTIAL RESULT]', { reason: 'no_street', city, district });
+    observabilityConsole.info('[ADDRESS PARTIAL RESULT]', { reason: 'no_street', city, district });
   }
   if (!postal_code && city) {
-    console.info('[ADDRESS PARTIAL RESULT]', { reason: 'no_postal', city });
+    observabilityConsole.info('[ADDRESS PARTIAL RESULT]', { reason: 'no_postal', city });
   }
 
   const out: OperationalAddressShape = {
@@ -87,7 +88,7 @@ export function normalizeOperationalAddressCached(cacheKey: string, input: Opera
   try {
     v = normalizeOperationalAddressShape(input);
   } catch (e) {
-    console.warn('[ADDRESS PARSE FAILED]', { cacheKey: cacheKey.slice(0, 80), error: String(e) });
+    observabilityConsole.warn('[ADDRESS PARSE FAILED]', { cacheKey: cacheKey.slice(0, 80), error: String(e) });
     v = input;
   }
   ADDRESS_CACHE.set(cacheKey, { at: now, value: v });

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de configurações globais do SmartPonto.
  * Lê e atualiza a tabela global_settings (uma única linha).
@@ -86,10 +87,10 @@ export async function getSettings(): Promise<GlobalSettings | null> {
         if (error) {
           if (isSupabaseBlocked(error)) {
             enableDegradedMode();
-            console.warn('[MODO LOCAL] settings');
+            observabilityConsole.warn('[MODO LOCAL] settings');
             return await localFallback();
           }
-          console.warn('[settingsService] getSettings:', error);
+          observabilityConsole.warn('[settingsService] getSettings:', error);
           return await localFallback();
         }
         const mapped = mapRow(data) ?? DEFAULT_SETTINGS;
@@ -121,7 +122,7 @@ export async function updateSettings(
     .select(GLOBAL_SETTINGS_COLUMNS)
     .single();
   if (error) {
-    console.error('[settingsService] updateSettings error:', error);
+    observabilityConsole.error('[settingsService] updateSettings error:', error);
     return { data: null, error };
   }
   queryCache.invalidate('global_settings:');
@@ -142,7 +143,7 @@ export async function getCompanyLocations(companyId: string): Promise<CompanyLoc
     .order('is_default', { ascending: false })
     .limit(100);
   if (error) {
-    console.error('[settingsService] getCompanyLocations error:', error);
+    observabilityConsole.error('[settingsService] getCompanyLocations error:', error);
     return [];
   }
   return (data ?? []).map((row: any) => ({

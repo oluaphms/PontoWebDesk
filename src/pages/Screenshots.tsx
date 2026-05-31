@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Camera, Eye, EyeOff, Trash2, Download } from 'lucide-react';
@@ -94,7 +95,7 @@ const ScreenshotsPage: React.FC = () => {
 
         setScreenshots(mapped);
       } catch (e) {
-        console.error('Erro ao carregar screenshots:', e);
+        observabilityConsole.error('Erro ao carregar screenshots:', e);
         setError('Não foi possível carregar as screenshots.');
       } finally {
         setIsLoadingData(false);
@@ -140,7 +141,7 @@ const ScreenshotsPage: React.FC = () => {
           );
         },
         onError: (e) => {
-          console.error('Erro ao atualizar blur:', e);
+          observabilityConsole.error('Erro ao atualizar blur:', e);
           setError('Não foi possível atualizar a visibilidade da screenshot.');
         },
       },
@@ -157,7 +158,7 @@ const ScreenshotsPage: React.FC = () => {
           setScreenshots((prev) => prev.filter((s) => s.id !== screenshot.id));
         },
         onError: (e) => {
-          console.error('Erro ao excluir screenshot:', e);
+          observabilityConsole.error('Erro ao excluir screenshot:', e);
           setError('Não foi possível excluir a screenshot.');
         },
       },

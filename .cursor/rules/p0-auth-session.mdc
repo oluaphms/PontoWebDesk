@@ -1,36 +1,14 @@
 ---
-description: Regras P0 de sessão — AuthSessionProvider e useAuth (obrigatório)
+description: 
 alwaysApply: true
 ---
 
-# AUTH RULE — Sessão unificada (P0)
+Antes de modificar autenticação:
 
-## Nunca fazer
-
-```ts
-// ❌ PROIBIDO
-const user = JSON.parse(localStorage.getItem('current_user')!);
-const raw = getUserProfileStorage().getItem('current_user');
-const [user, setUser] = useState<User | null>(...); // estado de sessão fora do provider
-```
-
-## Sempre fazer
-
-```ts
-// ✅ Em componentes e páginas
-import { useAuth } from '@/hooks/useAuth';
-const { user, companyId, role, loading, setSessionUser, clearSession } = useAuth();
-
-// ✅ Em serviços sem React (geo, workers, etc.)
-import { getAuthUserOutsideReact, getSessionTenantScope } from '@/auth/sessionAccess';
-```
-
-## Fonte única
-
-- Estado e hidratação: `src/contexts/AuthSessionProvider.tsx`
-- Leitura de storage `current_user`: apenas `src/contexts/authSessionInternals.ts`
-- Login/listener legado no `App.tsx` deve chamar `setSessionUser` / `clearSession` do contexto — nunca `useState(user)` local
-
-## ESLint
-
-O projeto falha o lint se `getItem('current_user')` for usado fora da allowlist de auth (`eslint/p0-guardrails.mjs`).
+- Analisar login.
+- Analisar sessão.
+- Analisar permissões.
+- Analisar companyId.
+- Analisar role.
+- Verificar impactos em AuthSessionProvider.
+- Não quebrar compatibilidade existente.

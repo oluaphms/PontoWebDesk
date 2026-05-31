@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Reconciliação GEO/COS agendada por tenant (chunked, com orçamento — usar a partir de job operacional).
  */
@@ -29,25 +30,25 @@ export async function scheduledOperationalGeoReconciliation(input: {
   const { client, companyId, correlationId = createOperationalCorrelationId() } = input;
 
   if (!retryBudget.allow(`${BUDGET_KEY}:${companyId}`, 8)) {
-    console.info('[GEO RECONCILIATION COMPLETE]', { company_id: companyId, skipped: true, reason: 'budget' });
+    observabilityConsole.info('[GEO RECONCILIATION COMPLETE]', { company_id: companyId, skipped: true, reason: 'budget' });
     operationalReliabilitySLO.recordReconciliationSuccess(false);
     return { company_id: companyId, drift_count: 0, repaired_count: 0, skipped: true };
   }
 
-  console.info('[GEO RECONCILIATION START]', { company_id: companyId, correlation_id: correlationId, at: operationalNowUtcIso() });
+  observabilityConsole.info('[GEO RECONCILIATION START]', { company_id: companyId, correlation_id: correlationId, at: operationalNowUtcIso() });
 
   const audit = await auditCurrentOperationalStateIntegrity(client, companyId);
   if (audit.drift_count === 0) {
-    console.info('[GEO RECONCILIATION COMPLETE]', { company_id: companyId, drift_count: 0, repaired_count: 0 });
+    observabilityConsole.info('[GEO RECONCILIATION COMPLETE]', { company_id: companyId, drift_count: 0, repaired_count: 0 });
     operationalReliabilitySLO.recordReconciliationSuccess(true);
     return { company_id: companyId, drift_count: 0, repaired_count: 0, skipped: false };
   }
 
   const { repaired_count } = await repairOperationalStateDrift(client, companyId, correlationId);
   if (repaired_count > 0) {
-    console.info('[GEO RECONCILIATION FIX]', { company_id: companyId, repaired_count });
+    observabilityConsole.info('[GEO RECONCILIATION FIX]', { company_id: companyId, repaired_count });
   }
-  console.info('[GEO RECONCILIATION COMPLETE]', {
+  observabilityConsole.info('[GEO RECONCILIATION COMPLETE]', {
     company_id: companyId,
     drift_count: audit.drift_count,
     repaired_count,

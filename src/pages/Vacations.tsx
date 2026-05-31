@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { PlaneTakeoff } from 'lucide-react';
@@ -63,7 +64,7 @@ const VacationsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar férias:', e);
+        observabilityConsole.error('Erro ao carregar férias:', e);
       } finally {
         setIsLoadingData(false);
       }
@@ -125,7 +126,7 @@ const VacationsPage: React.FC = () => {
 
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Erro ao criar férias:', err);
+      observabilityConsole.error('Erro ao criar férias:', err);
     }
   };
 
@@ -160,7 +161,7 @@ const VacationsPage: React.FC = () => {
         details: { vacationId: row.id, status },
       });
     } catch (err) {
-      console.error('Erro ao atualizar férias:', err);
+      observabilityConsole.error('Erro ao atualizar férias:', err);
     }
   };
 

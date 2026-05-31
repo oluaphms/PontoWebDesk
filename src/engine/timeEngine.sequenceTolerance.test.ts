@@ -5,10 +5,11 @@ import {
   parseTimeRecords,
 } from './timeEngine';
 import type { RawTimeRecord } from '../services/timeProcessingService';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 describe('sequência tolerante (entrada duplicada → saída)', () => {
   it('converte segunda entrada em saída quando intervalo > 5 minutos', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(observabilityConsole, 'warn').mockImplementation(() => {});
     const base = '2026-05-05T';
     const r: RawTimeRecord[] = [
       {
@@ -54,7 +55,7 @@ describe('sequência tolerante (entrada duplicada → saída)', () => {
   });
 
   it('parseTimeRecords usa tolerância antes dos segmentos', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(observabilityConsole, 'warn').mockImplementation(() => {});
     const base = '2026-05-05T';
     const r: RawTimeRecord[] = [
       {

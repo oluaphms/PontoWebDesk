@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Hard lock de datas operacionais: fuso fixo America/Sao_Paulo (Luxon).
  * Evita mistura UTC/local e horários futuros espúrios em pipelines de monitoramento.
@@ -69,7 +70,7 @@ export function normalizeOperationalDate(
   }
   const instantMs = dt.toMillis();
   if (opts?.log) {
-    console.info('[OPERATIONAL DATE NORMALIZED]', {
+    observabilityConsole.info('[OPERATIONAL DATE NORMALIZED]', {
       utc_iso: utcIso,
       timezone: OPERATIONAL_TIMEZONE,
       source: opts.source ?? 'unknown',
@@ -83,7 +84,7 @@ export function logInvalidOperationalDateSource(
   source?: string,
   extra: Record<string, unknown> = {},
 ): void {
-  console.warn('[INVALID OPERATIONAL DATE SOURCE]', { reason, caller: source ?? 'unknown', ...extra });
+  observabilityConsole.warn('[INVALID OPERATIONAL DATE SOURCE]', { reason, caller: source ?? 'unknown', ...extra });
 }
 
 /** Ajuste opcional alinhado ao `operational_server_epoch_ms()` (Supabase); 0 = relógio local bruto. */
@@ -134,7 +135,7 @@ export function logFutureOperationalDateBlocked(
   diffMs: number,
   context: Record<string, unknown> = {},
 ): void {
-  console.warn('[FUTURE DATE BLOCKED]', {
+  observabilityConsole.warn('[FUTURE DATE BLOCKED]', {
     iso: isoInput,
     now_ms: nowMs,
     diff_ms: diffMs,

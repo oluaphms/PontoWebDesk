@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de fluxo de Ajuste de Ponto
  *
@@ -109,7 +110,7 @@ export const AdjustmentFlowService = {
         await updateTimeRecordPunchInstant(request.time_record_id, newTimestamp, now);
       } catch (recErr: unknown) {
         const msg = recErr instanceof Error ? recErr.message : String(recErr);
-        console.error('[AdjustmentFlow] Falha ao atualizar time_record:', msg);
+        observabilityConsole.error('[AdjustmentFlow] Falha ao atualizar time_record:', msg);
       }
     }
 
@@ -150,7 +151,7 @@ export const AdjustmentFlowService = {
           },
         });
     } catch (histError) {
-      console.warn('[AdjustmentFlow] Falha ao registrar histórico:', histError);
+      observabilityConsole.warn('[AdjustmentFlow] Falha ao registrar histórico:', histError);
     }
 
     // 5) Resolver notificações pendentes e criar nova
@@ -218,7 +219,7 @@ export const AdjustmentFlowService = {
           },
         });
     } catch (histError) {
-      console.warn('[AdjustmentFlow] Falha ao registrar histórico:', histError);
+      observabilityConsole.warn('[AdjustmentFlow] Falha ao registrar histórico:', histError);
     }
 
     await NotificationService.resolveByReference(request.user_id, request.id, 'adjustment');

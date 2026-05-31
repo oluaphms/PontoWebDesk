@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Playback forense / RH: reconstrói trilha a partir de operational_state_history (append-only).
  */
@@ -45,7 +46,7 @@ export async function fetchOperationalStateHistoryRange(
   if (opts?.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
   if (error) {
-    console.warn('[operational_state_history]', error.message);
+    observabilityConsole.warn('[operational_state_history]', error.message);
     return [];
   }
   return (data ?? []) as OperationalStateHistoryRow[];

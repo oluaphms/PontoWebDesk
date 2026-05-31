@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Resiliência das APIs operacionais (produção / Vercel): timeout, degraded, service role.
  */
@@ -43,7 +44,7 @@ export async function withQueryTimeout<T>(
 }
 
 export function logOperationalApiError(route: string, err: unknown): void {
-  console.error('[API ERROR]', {
+  observabilityConsole.error('[API ERROR]', {
     route,
     message: (err as { message?: string } | null)?.message,
     stack: (err as { stack?: string } | null)?.stack,
@@ -56,7 +57,7 @@ export function degradedListResponse(
   reason?: string,
 ): Response {
   if (reason) {
-    console.warn('[API DEGRADED]', { route, reason });
+    observabilityConsole.warn('[API DEGRADED]', { route, reason });
   }
   return noCache(
     Response.json(
@@ -78,7 +79,7 @@ export function degradedObjectResponse(
   reason?: string,
 ): Response {
   if (reason) {
-    console.warn('[API DEGRADED]', { route, reason });
+    observabilityConsole.warn('[API DEGRADED]', { route, reason });
   }
   return noCache(
     Response.json(
@@ -99,7 +100,7 @@ export function degradedMutationResponse(
   error: string,
   detail?: string,
 ): Response {
-  console.warn('[API DEGRADED]', { route, error, detail });
+  observabilityConsole.warn('[API DEGRADED]', { route, error, detail });
   return noCache(
     Response.json(
       {

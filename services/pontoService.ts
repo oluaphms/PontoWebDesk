@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 
 import { TimeRecord, LogType, User, GeoLocation, EmployeeSummary, PunchMethod, Company, Adjustment, FraudFlag, Department, CompanyKPIs, LogSeverity } from '../types';
 
@@ -58,14 +59,14 @@ export const PontoService = {
     try {
       id = localStorage.getItem('smartponto_device_id');
     } catch (err) {
-      console.warn('[PontoService] Falha ao ler device_id do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao ler device_id do storage:', err);
     }
     if (!id) {
       id = 'dev_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
       try {
         localStorage.setItem('smartponto_device_id', id);
       } catch (err) {
-        console.warn('[PontoService] Falha ao salvar device_id no storage:', err);
+        observabilityConsole.warn('[PontoService] Falha ao salvar device_id no storage:', err);
       }
     }
     return id;
@@ -86,14 +87,14 @@ export const PontoService = {
     try {
       stored = localStorage.getItem(`company_${companyId}`);
     } catch (err) {
-      console.warn('[PontoService] Falha ao ler empresa do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao ler empresa do storage:', err);
     }
     let company: Company | undefined;
     if (stored) {
       try {
         company = JSON.parse(stored);
       } catch (err) {
-        console.warn('[PontoService] Falha ao parsear empresa do storage:', err);
+        observabilityConsole.warn('[PontoService] Falha ao parsear empresa do storage:', err);
       }
     }
     if (!company) {
@@ -105,11 +106,11 @@ export const PontoService = {
         try {
           localStorage.setItem(`company_${companyId}`, JSON.stringify(company));
         } catch (err) {
-          console.warn('[PontoService] Falha ao salvar empresa no storage:', err);
+          observabilityConsole.warn('[PontoService] Falha ao salvar empresa no storage:', err);
         }
         // Salvar no Firestore também (se configurado)
         await firestoreService.saveCompany(company).catch((err) => {
-          console.warn('[PontoService] Falha ao salvar empresa no Firestore:', err);
+          observabilityConsole.warn('[PontoService] Falha ao salvar empresa no Firestore:', err);
         });
       }
     }
@@ -144,10 +145,10 @@ export const PontoService = {
           }
         }
       } catch (err) {
-        console.warn('[PontoService] Falha ao atualizar cache local de usuário:', err);
+        observabilityConsole.warn('[PontoService] Falha ao atualizar cache local de usuário:', err);
       }
     } catch (error) {
-      console.error('Erro ao atualizar perfil:', error);
+      observabilityConsole.error('Erro ao atualizar perfil:', error);
       throw error;
     }
   },
@@ -162,7 +163,7 @@ export const PontoService = {
 
     // Salvar no Firestore também
     await firestoreService.saveCompany(updated).catch((err) => {
-      console.warn('[PontoService] Falha ao atualizar empresa no Firestore:', err);
+      observabilityConsole.warn('[PontoService] Falha ao atualizar empresa no Firestore:', err);
     });
 
     // Monitoramento: Log de alteração de configuração
@@ -214,7 +215,7 @@ export const PontoService = {
 
     // Atualizar no Firestore também
     await firestoreService.updateTimeRecord(recordId, updatedRecord).catch((err) => {
-      console.warn('[PontoService] Falha ao atualizar registro no Firestore:', err);
+      observabilityConsole.warn('[PontoService] Falha ao atualizar registro no Firestore:', err);
     });
 
     // Monitoramento: Log de ação administrativa sensível
@@ -269,7 +270,7 @@ export const PontoService = {
       try {
         photoUrl = await firestoreService.uploadPhoto(userId, photoBase64);
       } catch (error) {
-        console.warn('Erro ao fazer upload da foto, usando base64:', error);
+        observabilityConsole.warn('Erro ao fazer upload da foto, usando base64:', error);
       }
     }
 
@@ -315,7 +316,7 @@ export const PontoService = {
     try {
       localStorage.setItem(`records_${userId}`, JSON.stringify(updatedUserRecords));
     } catch (err) {
-      console.warn('[PontoService] Falha ao salvar registros no storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao salvar registros no storage:', err);
     }
 
     const allRecords = await this.loadAllRecords();
@@ -337,7 +338,7 @@ export const PontoService = {
         return firestoreRecords;
       }
     } catch (error) {
-      console.warn('Erro ao buscar do Firestore, usando localStorage:', error);
+      observabilityConsole.warn('Erro ao buscar do Firestore, usando localStorage:', error);
     }
 
     // Fallback para localStorage
@@ -345,7 +346,7 @@ export const PontoService = {
     try {
       storedRecords = localStorage.getItem(`records_${userId}`);
     } catch (err) {
-      console.warn('[PontoService] Falha ao ler registros do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao ler registros do storage:', err);
     }
     if (!storedRecords) return [];
     try {
@@ -357,7 +358,7 @@ export const PontoService = {
       cache.records.set(userId, records);
       return records;
     } catch (err) {
-      console.warn('[PontoService] Falha ao parsear registros do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao parsear registros do storage:', err);
       return [];
     }
   },
@@ -371,7 +372,7 @@ export const PontoService = {
     try {
       storedAll = localStorage.getItem('all_time_records');
     } catch (err) {
-      console.warn('[PontoService] Falha ao ler registros globais do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao ler registros globais do storage:', err);
     }
     if (!storedAll) return [];
     try {
@@ -379,7 +380,7 @@ export const PontoService = {
       cache.allRecords = records;
       return records;
     } catch (err) {
-      console.warn('[PontoService] Falha ao parsear registros globais do storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao parsear registros globais do storage:', err);
       return [];
     }
   },
@@ -389,7 +390,7 @@ export const PontoService = {
     try {
       localStorage.setItem('all_time_records', JSON.stringify(records));
     } catch (err) {
-      console.warn('[PontoService] Falha ao salvar registros globais no storage:', err);
+      observabilityConsole.warn('[PontoService] Falha ao salvar registros globais no storage:', err);
     }
   },
 
@@ -421,7 +422,7 @@ export const PontoService = {
         })) as User[];
       }
     } catch (error) {
-      console.warn('Erro ao buscar usuários do Supabase, usando mock:', error);
+      observabilityConsole.warn('Erro ao buscar usuários do Supabase, usando mock:', error);
     }
 
     // Fallback para dados mock se Firestore não retornar nada
@@ -582,7 +583,7 @@ export const PontoService = {
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (error) {
-      console.error('Excel export failed:', error);
+      observabilityConsole.error('Excel export failed:', error);
       // Fallback to CSV
       this.exportToCSV(data, filename);
     }

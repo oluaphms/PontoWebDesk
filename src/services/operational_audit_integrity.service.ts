@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import SHA256 from 'crypto-js/sha256';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from './supabaseClient';
@@ -58,14 +59,14 @@ export async function verifyAndPersistOperationalLegalIntegrity(
     },
   });
   if (error) {
-    console.error('[LEGAL INTEGRITY VIOLATION]', {
+    observabilityConsole.error('[LEGAL INTEGRITY VIOLATION]', {
       company_id: input.companyId,
       correlation_id: input.correlationId,
       error: error.message,
     });
     return { ok: false, error: error.message };
   }
-  console.info('[LEGAL INTEGRITY VERIFIED]', {
+  observabilityConsole.info('[LEGAL INTEGRITY VERIFIED]', {
     company_id: input.companyId,
     correlation_id: input.correlationId,
     chain_hash: computed.chainHash,

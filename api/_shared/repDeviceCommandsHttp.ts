@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * /api/rep/commands e /api/rep/command-result — teste LAN via agente.
  */
@@ -72,7 +73,7 @@ async function loadDevice(
     .eq('id', deviceId)
     .maybeSingle();
   if (error) {
-    console.error('[REP COMMANDS] loadDevice:', error.message, { device_id: deviceId });
+    observabilityConsole.error('[REP COMMANDS] loadDevice:', error.message, { device_id: deviceId });
     return null;
   }
   if (!data?.id) return null;
@@ -112,7 +113,7 @@ async function reclaimStuckProcessingCommands(
     .not('execution_id', 'is', null)
     .lt('updated_at', cutoff);
   if (error) {
-    console.error('[REP COMMANDS ERROR] reclaim stuck:', error.message, { company_id: companyId });
+    observabilityConsole.error('[REP COMMANDS ERROR] reclaim stuck:', error.message, { company_id: companyId });
   }
 }
 
@@ -187,7 +188,7 @@ async function claimPendingCommands(
       .maybeSingle();
 
     if (claimErr) {
-      console.error('[REP COMMANDS ERROR] claim:', claimErr.message, {
+      observabilityConsole.error('[REP COMMANDS ERROR] claim:', claimErr.message, {
         command_id: row.id,
         company_id: companyId,
       });

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 // Validação de datas
@@ -68,7 +69,7 @@ const AdminPreFolha: React.FC = () => {
       const summaries = await getPayrollSummaries(user.companyId, dataInicio, dataFim);
       setResultados(summaries);
     } catch (e: any) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: e?.message || 'Erro ao carregar pré-folha.' });
     } finally {
       setLoadingData(false);
@@ -111,7 +112,7 @@ const AdminPreFolha: React.FC = () => {
       );
 
       if (errors.length > 0) {
-        console.warn('Erros parciais:', errors);
+        observabilityConsole.warn('Erros parciais:', errors);
       }
 
       setResultados(
@@ -132,7 +133,7 @@ const AdminPreFolha: React.FC = () => {
       const successMsg = `Pré-folha calculada: ${summaries.length} funcionário(s)${errors.length > 0 ? ` (${errors.length} erros)` : ''}`;
       setMessage({ type: 'success', text: successMsg });
     } catch (e: any) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: e?.message || 'Erro ao calcular pré-folha.' });
     } finally {
       setCalculando(false);
@@ -222,7 +223,7 @@ const AdminPreFolha: React.FC = () => {
       doc.save(filename);
       setMessage({ type: 'success', text: 'PDF exportado com sucesso!' });
     } catch (e: any) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao exportar PDF. Tente novamente.' });
     } finally {
       setExportandoPdf(false);

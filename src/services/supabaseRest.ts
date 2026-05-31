@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Cliente REST mínimo para o agente (service role) — PostgREST.
  */
@@ -34,7 +35,7 @@ export async function restGet<T>(cfg: SupabaseRestConfig, path: string): Promise
   const base = cfg.url.replace(/\/$/, '');
   const res = await withRetry(async () => {
     const url = `${base}/rest/v1/${path}`;
-    console.log('[UI FETCH]', url, new Date().toISOString());
+    observabilityConsole.log('[UI FETCH]', url, new Date().toISOString());
     const r = await fetch(url, buildNoStoreRequestInit({
       method: 'GET',
       headers: headers(cfg),
@@ -54,7 +55,7 @@ export async function restPatch(cfg: SupabaseRestConfig, path: string, body: unk
   const base = cfg.url.replace(/\/$/, '');
   await withRetry(async () => {
     const url = `${base}/rest/v1/${path}`;
-    console.log('[UI FETCH]', url, new Date().toISOString());
+    observabilityConsole.log('[UI FETCH]', url, new Date().toISOString());
     const r = await fetch(url, buildNoStoreRequestInit({
       method: 'PATCH',
       headers: headers(cfg, { Prefer: 'return=minimal' }),
@@ -79,7 +80,7 @@ export async function restRpc<T = unknown>(
   const path = `rpc/${rpcName}`;
   const res = await withRetry(async () => {
     const url = `${base}/rest/v1/${path}`;
-    console.log('[UI FETCH]', url, new Date().toISOString());
+    observabilityConsole.log('[UI FETCH]', url, new Date().toISOString());
     const r = await fetch(url, buildNoStoreRequestInit({
       method: 'POST',
       headers: headers(cfg, { Prefer: 'return=representation' }),
@@ -111,7 +112,7 @@ export async function restPostBulk(
   const base = cfg.url.replace(/\/$/, '');
   await withRetry(async () => {
     const url = `${base}/rest/v1/${table}`;
-    console.log('[UI FETCH]', url, new Date().toISOString());
+    observabilityConsole.log('[UI FETCH]', url, new Date().toISOString());
     const r = await fetch(url, buildNoStoreRequestInit({
       method: 'POST',
       headers: headers(cfg, {

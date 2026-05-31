@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import {
   listReadySyncQueueItems,
   markLocalPunchSynced,
@@ -131,7 +132,7 @@ async function syncLoop(): Promise<void> {
 export function startSyncEngine(): void {
   if (running || typeof window === 'undefined') return;
   running = true;
-  console.log('[SYNC] fila local ativa');
+  observabilityConsole.log('[SYNC] fila local ativa');
   schedule(1_000);
 }
 

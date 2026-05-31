@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Dados agregados para o Centro operacional REP (cockpit) — filtros server-side, contagens e fila priorizada.
  */
@@ -318,7 +319,7 @@ export async function fetchRepOpsQueuePage(
 
   const { data, error } = await q;
   if (error) {
-    console.error('[REP OPS CENTER]', { context: 'queue', message: error.message });
+    observabilityConsole.error('[REP OPS CENTER]', { context: 'queue', message: error.message });
     return { rows: [], totalScanned: 0, hasMore: false, heatmap: [], heatmapEmployees: [] };
   }
 

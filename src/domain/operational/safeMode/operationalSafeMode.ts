@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 type SafeModeReason =
   | 'incident_spike'
   | 'reconnect_storm'
@@ -28,8 +29,8 @@ export function enableOperationalSafeMode(reason: SafeModeReason): void {
   state.enabled = true;
   state.reason = reason;
   state.enabledAt = Date.now();
-  console.warn('[SAFE MODE ENABLED]', { reason });
-  console.warn('[SAFE MODE DEGRADED RUNTIME]', {
+  observabilityConsole.warn('[SAFE MODE ENABLED]', { reason });
+  observabilityConsole.warn('[SAFE MODE DEGRADED RUNTIME]', {
     reduce_realtime: true,
     reduce_refresh: true,
     freeze_heavy_enrich: true,
@@ -45,6 +46,6 @@ export function disableOperationalSafeMode(): void {
   const reason = state.reason;
   state.reason = null;
   state.enabledAt = null;
-  console.info('[SAFE MODE DISABLED]', { reason });
+  observabilityConsole.info('[SAFE MODE DISABLED]', { reason });
 }
 

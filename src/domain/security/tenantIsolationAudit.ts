@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Auditoria estática de isolamento multi-tenant (cache, realtime, query keys).
  */
@@ -22,7 +23,7 @@ export function auditTenantIsolationIntegrity(input?: {
   if (!mem.ok) {
     for (const issue of mem.issues) {
       violations.push(`cache: ${issue}`);
-      console.warn('[TENANT CACHE LEAK]', { issue });
+      observabilityConsole.warn('[TENANT CACHE LEAK]', { issue });
     }
   }
 
@@ -36,7 +37,7 @@ export function auditTenantIsolationIntegrity(input?: {
     })();
     if (serialized.includes('no-company') || serialized.includes('no-user')) {
       violations.push(`query_key_placeholder_tenant: ${serialized.slice(0, 160)}`);
-      console.warn('[TENANT ISOLATION VIOLATION]', { kind: 'query_key', sample: serialized.slice(0, 200) });
+      observabilityConsole.warn('[TENANT ISOLATION VIOLATION]', { kind: 'query_key', sample: serialized.slice(0, 200) });
     }
   }
 
@@ -44,7 +45,7 @@ export function auditTenantIsolationIntegrity(input?: {
     const f = String(filter);
     if (f.includes('eq.') && !f.includes('company_id') && (f.includes('time_records') || f.includes('current_operational_state'))) {
       violations.push(`realtime_filter_without_company: ${f.slice(0, 160)}`);
-      console.warn('[TENANT REALTIME LEAK]', { filter: f.slice(0, 200) });
+      observabilityConsole.warn('[TENANT REALTIME LEAK]', { filter: f.slice(0, 200) });
     }
   }
 
@@ -54,7 +55,7 @@ export function auditTenantIsolationIntegrity(input?: {
 /** Apenas observabilidade — não interrompe fluxos existentes. */
 export function warnIfMissingCompanyId(companyId: string | null | undefined, source: string): boolean {
   if (companyId == null || String(companyId).trim() === '') {
-    console.warn('[TENANT ISOLATION VIOLATION]', { reason: 'company_id_required', source });
+    observabilityConsole.warn('[TENANT ISOLATION VIOLATION]', { reason: 'company_id_required', source });
     return false;
   }
   return true;

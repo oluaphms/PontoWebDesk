@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Ingestão REP via RPC — handler leve (sem `repIngestPunchCore`, sem import dinâmico).
  * `api/rep/[slug].ts` (slug `punch`) → esta função.
@@ -124,14 +125,14 @@ function repLog(
 ): void {
   const payload = { scope: 'rep_punch_lite', event, ...data };
   if (level === 'error') {
-    console.error('[REP PUNCH]', payload);
+    observabilityConsole.error('[REP PUNCH]', payload);
     return;
   }
   if (level === 'warn') {
-    console.warn('[REP PUNCH]', payload);
+    observabilityConsole.warn('[REP PUNCH]', payload);
     return;
   }
-  console.info('[REP PUNCH]', payload);
+  observabilityConsole.info('[REP PUNCH]', payload);
 }
 
 function normalizeEmployeeId(value: unknown): string | null {

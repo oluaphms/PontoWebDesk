@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Logs estruturados para o agente local.
  *
@@ -58,9 +59,9 @@ export class AgentLogger {
 
     if (this.jsonLogs) {
       const line = JSON.stringify(rec);
-      if (level === 'error') console.error(line);
-      else if (level === 'warn') console.warn(line);
-      else console.log(line);
+      if (level === 'error') observabilityConsole.error(line);
+      else if (level === 'warn') observabilityConsole.warn(line);
+      else observabilityConsole.log(line);
       return;
     }
 
@@ -79,9 +80,9 @@ export class AgentLogger {
     const line = parts.join(' ');
     const tail = meta && Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
 
-    if (level === 'error') console.error(line + tail);
-    else if (level === 'warn') console.warn(line + tail);
-    else console.log(line + tail);
+    if (level === 'error') observabilityConsole.error(line + tail);
+    else if (level === 'warn') observabilityConsole.warn(line + tail);
+    else observabilityConsole.log(line + tail);
   }
 
   // ===== CONEXÃO =====

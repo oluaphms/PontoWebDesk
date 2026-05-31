@@ -1,4 +1,5 @@
-﻿// ⚠️ TOKEN-ONLY UI RULE
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
+// ⚠️ TOKEN-ONLY UI RULE
 // Não utilizar classes visuais hardcoded (padding, radius, font, shadow).
 // Sempre utilizar uiTokens ou helpers centralizados.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -248,7 +249,7 @@ const AdminRepDevices: React.FC = () => {
     } catch (e) {
       const technical = e instanceof Error ? e.message : String(e);
       if (isDevVerboseLogsEnabled()) {
-        console.warn('[rep_devices]', technical);
+        observabilityConsole.warn('[rep_devices]', technical);
       }
       setDevicesQueryError({
         technical,
@@ -281,8 +282,8 @@ const AdminRepDevices: React.FC = () => {
       const next: Record<string, DeviceSyncStatusSnapshot | undefined> = {};
       for (const [id, snap] of entries) next[id] = snap;
       setSyncStatusByDeviceId(next);
-    } catch {
-      // Não bloquear a tela principal por falhas de observabilidade.
+    } catch (error) {
+      void error;
     }
   };
 
@@ -408,7 +409,8 @@ const AdminRepDevices: React.FC = () => {
         .filter((r) => !!r.id)
         .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
       setEmployees(list);
-    } catch {
+    } catch (error) {
+      void error;
       setEmployees([]);
     }
   };
@@ -460,7 +462,8 @@ const AdminRepDevices: React.FC = () => {
           appPunchesLast24h: Number(appCountRes.count || 0),
           failuresLast24h: Number(repFailRes.count || 0),
         });
-      } catch {
+      } catch (error) {
+        void error;
         if (!cancelled) {
           setPipelineSnapshot((prev) => ({ ...prev }));
         }
@@ -518,7 +521,8 @@ const AdminRepDevices: React.FC = () => {
     try {
       await navigator.clipboard.writeText(command);
       setMessage({ type: 'success', text: 'Comando copiado com sucesso.' });
-    } catch {
+    } catch (error) {
+      void error;
       setMessage({ type: 'success', text: `Execute no terminal: ${command}` });
     }
   };
@@ -716,7 +720,7 @@ const AdminRepDevices: React.FC = () => {
         });
 
         const latencyMs = Math.round(performance.now() - t0);
-        console.info('[REP TEST]', {
+        observabilityConsole.info('[REP TEST]', {
           device_id: id,
           success: outcome.ok,
           latency_ms: latencyMs,
@@ -845,7 +849,7 @@ const AdminRepDevices: React.FC = () => {
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error('[rep_devices] Erro ao excluir dispositivo:', e);
+        observabilityConsole.error('[rep_devices] Erro ao excluir dispositivo:', e);
         setMessage({ type: 'error', text: msg });
       } finally {
         setDeletingId(null);
@@ -869,7 +873,7 @@ const AdminRepDevices: React.FC = () => {
       setDeleteModal({ deviceId: id, deviceName: nome, historyCount });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[rep_devices] Erro ao preparar exclusão:', e);
+      observabilityConsole.error('[rep_devices] Erro ao preparar exclusão:', e);
       setMessage({ type: 'error', text: msg });
     }
   };
@@ -892,7 +896,7 @@ const AdminRepDevices: React.FC = () => {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[rep_devices] Erro ao desativar dispositivo:', e);
+      observabilityConsole.error('[rep_devices] Erro ao desativar dispositivo:', e);
       setMessage({ type: 'error', text: msg });
     } finally {
       setDeletingId(null);
@@ -1210,8 +1214,8 @@ const AdminRepDevices: React.FC = () => {
           status: 'erro',
           updated_at: new Date().toISOString(),
         });
-      } catch {
-        /* ignore */
+      } catch (error) {
+        void error;
       }
       await loadDevices();
     } finally {
@@ -1554,11 +1558,11 @@ const AdminRepDevices: React.FC = () => {
         p_raw_data: rawPayload,
       });
       if (error) {
-        console.warn('[REP] rep_match_user_id_for_rep_punch_row:', error.message, error);
+        observabilityConsole.warn('[REP] rep_match_user_id_for_rep_punch_row:', error.message, error);
         return { emp: null };
       }
       if (data && typeof data === 'object' && data !== null && 'debug' in data) {
-        console.warn('[REP MATCH DEBUG]', (data as { debug?: unknown }).debug);
+        observabilityConsole.warn('[REP MATCH DEBUG]', (data as { debug?: unknown }).debug);
       }
       const m = parseRepRpcUserRow(data);
       if (m) return { emp: mergeEmployeeFromRepRpcRow(usersForMatch, m) };
@@ -1580,11 +1584,11 @@ const AdminRepDevices: React.FC = () => {
         raw_data: rawPayload,
       });
       if (!weak) return { emp: null };
-      console.warn('[REP MATCH FALLBACK] weak_match_applied', {
+      observabilityConsole.warn('[REP MATCH FALLBACK] weak_match_applied', {
         userId: weak.userId,
         exampleWindow: weak.exampleWindow,
       });
-      console.warn('[REP AUTO MATCH] fallback aplicado', {
+      observabilityConsole.warn('[REP AUTO MATCH] fallback aplicado', {
         userId: weak.userId,
         match_strategy: 'fallback',
       });
@@ -1600,7 +1604,8 @@ const AdminRepDevices: React.FC = () => {
         }),
         lowConfidence: true,
       };
-    } catch {
+    } catch (error) {
+      void error;
       return { emp: null };
     }
   };
@@ -1816,8 +1821,8 @@ const AdminRepDevices: React.FC = () => {
         try {
           const existingId = await findTimeRecordIdByCompanySourceNsr(companyId, row.nsr);
           if (existingId) targetTimeRecordId = existingId;
-        } catch {
-          /* ignora e tenta insert */
+        } catch (error) {
+          void error;
         }
       }
 
@@ -1861,7 +1866,8 @@ const AdminRepDevices: React.FC = () => {
             is_late: false,
           });
           targetTimeRecordId = newId;
-        } catch {
+        } catch (error) {
+          void error;
           continue;
         }
       }
@@ -1951,13 +1957,13 @@ const AdminRepDevices: React.FC = () => {
         });
 
         if (error) {
-          console.error('Erro ao reatribuir batida NSR', row.nsr, error);
+          observabilityConsole.error('Erro ao reatribuir batida NSR', row.nsr, error);
           errorCount++;
         } else {
           successCount++;
         }
       } catch (e) {
-        console.error('Exceção ao reatribuir batida NSR', row.nsr, e);
+        observabilityConsole.error('Exceção ao reatribuir batida NSR', row.nsr, e);
         errorCount++;
       }
     }
@@ -2325,7 +2331,7 @@ const AdminRepDevices: React.FC = () => {
           try {
             await upsertTimeClockDeviceMirror(supabase, mirrorRow);
           } catch (mirrorErr) {
-            console.warn(mirrorErr);
+            observabilityConsole.warn(mirrorErr);
             setMessage({
               type: 'success',
               text: `Dispositivo atualizado. Aviso: cadastro hub (timeclock_devices) não sincronizou: ${(mirrorErr as Error).message}`,
@@ -2387,7 +2393,7 @@ const AdminRepDevices: React.FC = () => {
           try {
             await upsertTimeClockDeviceMirror(supabase, mirrorRow);
           } catch (mirrorErr) {
-            console.warn(mirrorErr);
+            observabilityConsole.warn(mirrorErr);
             setMessage({
               type: 'success',
               text: `Dispositivo cadastrado. Aviso: cadastro hub (timeclock_devices) não sincronizou: ${(mirrorErr as Error).message}`,
@@ -2415,7 +2421,8 @@ const AdminRepDevices: React.FC = () => {
     if (!s) return '—';
     try {
       return new Date(s).toLocaleString('pt-BR');
-    } catch {
+    } catch (error) {
+      void error;
       return s;
     }
   };
@@ -2739,7 +2746,7 @@ const AdminRepDevices: React.FC = () => {
                       try {
                         localStorage.setItem(LS_REP_ALLOCATE, v ? '1' : '0');
                       } catch (err) {
-                        console.warn('[RepDevices] Falha ao salvar alocacao:', err);
+                        observabilityConsole.warn('[RepDevices] Falha ao salvar alocacao:', err);
                       }
                     }}
                     className={repPageUi.c029}
@@ -2762,7 +2769,7 @@ const AdminRepDevices: React.FC = () => {
                       try {
                         localStorage.setItem(LS_REP_SKIP_BLOCKED, v ? '1' : '0');
                       } catch (err) {
-                        console.warn('[RepDevices] Falha ao salvar opcao de bloqueados:', err);
+                        observabilityConsole.warn('[RepDevices] Falha ao salvar opcao de bloqueados:', err);
                       }
                     }}
                     className={repPageUi.c029}
@@ -2786,7 +2793,7 @@ const AdminRepDevices: React.FC = () => {
                         localStorage.setItem(LS_TIMESHEET_SPECIAL_BARS, v ? '1' : '0');
                         window.dispatchEvent(new Event(SPECIAL_BARS_CHANGED));
                       } catch (err) {
-                        console.warn('[RepDevices] Falha ao salvar barras especiais:', err);
+                        observabilityConsole.warn('[RepDevices] Falha ao salvar barras especiais:', err);
                       }
                     }}
                     className={repPageUi.c029}

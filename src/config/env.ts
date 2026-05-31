@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { DEFAULT_PROVIDER, type DataProviderMode } from './providers';
 
 /** Fallback quando `VITE_API_URL` / `VITE_LOCAL_API_BASE_URL` estão ausentes. */
@@ -9,7 +10,7 @@ export function parseDataProviderMode(raw: string | undefined): DataProviderMode
     .toUpperCase();
   if (normalized === 'SUPABASE') return 'SUPABASE';
   if (normalized && normalized !== 'LOCAL_API' && import.meta.env.DEV) {
-    console.warn(
+    observabilityConsole.warn(
       `[env] VITE_DATA_PROVIDER="${raw}" inválido — usando ${DEFAULT_PROVIDER}. Valores aceitos: LOCAL_API, SUPABASE.`,
     );
   }
@@ -61,14 +62,14 @@ function logDevEnvWarnings(mode: DataProviderMode): void {
   if (!import.meta.env.DEV) return;
 
   if (mode === 'LOCAL_API' && !readEnvApiUrl()) {
-    console.warn(
+    observabilityConsole.warn(
       `[env] VITE_API_URL ausente — usando fallback ${DEFAULT_API_BASE}. Defina em .env.local para apontar à VPS.`,
     );
   }
 
   if (mode === 'SUPABASE') {
     if (!readSupabaseUrl() || !readSupabaseAnonKey()) {
-      console.warn(
+      observabilityConsole.warn(
         '[env] VITE_DATA_PROVIDER=SUPABASE mas VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY incompletos (provider ainda não implementado).',
       );
     }

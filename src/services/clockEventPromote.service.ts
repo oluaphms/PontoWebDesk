@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Promove linhas de `clock_event_logs` para o espelho (`time_records`) via RPC `rep_ingest_punch`.
  * Identificação do colaborador: employee_id (PIS/CPF 11 dígitos ou matrícula) + company_id.
@@ -168,7 +169,7 @@ export async function promoteClockEventsToEspelho(
         weakUsersCache = (await restGet<RepWeakPisMatchUser[]>(cfg, path)) ?? [];
         return weakUsersCache;
       } catch (e) {
-        console.error('[USERS QUERY ERROR]', e);
+        observabilityConsole.error('[USERS QUERY ERROR]', e);
       }
     }
     weakUsersCache = [];
@@ -253,8 +254,8 @@ export async function promoteClockEventsToEspelho(
             match_strategy: 'fallback',
           };
           if (typeof globalThis !== 'undefined' && globalThis.console) {
-            globalThis.console.warn('[REP MATCH FALLBACK] weak_match_applied', { userId: identity.userId });
-            globalThis.console.warn('[REP AUTO FIX] pis corrigido via fallback', { userId: identity.userId });
+            observabilityConsole.warn('[REP MATCH FALLBACK] weak_match_applied', { userId: identity.userId });
+            observabilityConsole.warn('[REP AUTO FIX] pis corrigido via fallback', { userId: identity.userId });
           }
         }
       } else {
@@ -302,7 +303,7 @@ export async function promoteClockEventsToEspelho(
 
       if (!duplicate && typeof globalThis !== 'undefined' && globalThis.console) {
         const status = forceUserId ? 'resolved' : 'unresolved';
-        globalThis.console.warn('[REP INGEST]', {
+        observabilityConsole.warn('[REP INGEST]', {
           nsr,
           resolved_user_id: forceUserId,
           status,
@@ -316,7 +317,7 @@ export async function promoteClockEventsToEspelho(
         out.promoteMirrorFailed += 1;
         const code = promotionCodeRaw || classifyRepPromoteError(errMsg);
         if (typeof globalThis !== 'undefined' && globalThis.console) {
-          globalThis.console.warn('[REP PROMOTE FAILED]', {
+          observabilityConsole.warn('[REP PROMOTE FAILED]', {
             nsr,
             error_code: code,
             employee_id: forceUserId ?? null,

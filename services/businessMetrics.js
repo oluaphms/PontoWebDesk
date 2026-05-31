@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Métricas de negócio — observabilidade comercial.
  *
@@ -51,7 +52,7 @@ export class BusinessMetrics {
     try {
       this._db.exec(SCHEMA);
     } catch (err) {
-      console.warn('[businessMetrics] Falha ao garantir schema:', err);
+      observabilityConsole.warn('[businessMetrics] Falha ao garantir schema:', err);
     }
   }
 
@@ -72,7 +73,7 @@ export class BusinessMetrics {
     if (next <= now) next.setDate(next.getDate() + 1);
     this._timer = setTimeout(() => {
       this._aggregateDaily().catch((err) => {
-        console.warn('[businessMetrics] Falha ao agregar métricas diárias:', err);
+        observabilityConsole.warn('[businessMetrics] Falha ao agregar métricas diárias:', err);
       });
       this._scheduleDaily();
     }, next.getTime() - now.getTime());
@@ -107,7 +108,9 @@ export class BusinessMetrics {
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET value = value + excluded.value
       `).run(id, date, companyId ?? null, metric, increment);
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[businessMetrics] Falha ao gravar métrica:', error);
+    }
   }
 
   // ── Agregação diária ──────────────────────────────────────────────────────
@@ -132,12 +135,16 @@ export class BusinessMetrics {
             value:      r.total,
           })),
           { onConflict: 'date,company_id,metric', ignoreDuplicates: false }
-        ).catch(() => {});
+        ).catch((error) => {
+          observabilityConsole.warn('[businessMetrics] Falha ao sincronizar métricas diárias:', error);
+        });
       }
 
       this._queue.log(LOG_LEVEL.INFO, 'business_metrics',
         `Métricas diárias agregadas para ${yesterday}: ${rows.length} registros`);
-    } catch { /* best-effort */ }
+    } catch (error) {
+      observabilityConsole.warn('[businessMetrics] Falha na agregação diária:', error);
+    }
   }
 
   // ── Consultas ─────────────────────────────────────────────────────────────

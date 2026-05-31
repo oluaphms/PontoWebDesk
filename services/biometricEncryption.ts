@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Criptografia para dados biométricos.
  *
@@ -91,7 +92,7 @@ export function encryptBiometricData(plaintext: string): EncryptedData {
       version: 1,
     };
   } catch (error) {
-    console.error('[BiometricEncryption] Erro ao criptografar:', error);
+    observabilityConsole.error('[BiometricEncryption] Erro ao criptografar:', error);
     throw new Error('Falha na criptografia de dados biométricos');
   }
 }
@@ -124,7 +125,7 @@ export function decryptBiometricData(encryptedData: EncryptedData): string {
     return decrypted;
   } catch (error) {
     // Não expõe detalhes do erro para evitar leaking de informações
-    console.error('[BiometricEncryption] Erro ao descriptografar (possível adulteração):', error);
+    observabilityConsole.error('[BiometricEncryption] Erro ao descriptografar (possível adulteração):', error);
     throw new Error('Falha na descriptografia - dados podem ter sido adulterados');
   }
 }
@@ -178,7 +179,7 @@ export async function rotateEncryptionKey(
 
       results.push(reencrypted);
     } catch (error) {
-      console.error('[BiometricEncryption] Falha na rotação de chave:', error);
+      observabilityConsole.error('[BiometricEncryption] Falha na rotação de chave:', error);
       throw new Error('Falha ao rotacionar chave de criptografia');
     }
   }

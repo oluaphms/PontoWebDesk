@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../logger/observabilityConsole.js';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { requireAdminOrHr } from '../middlewares/requireRole.js';
@@ -6,6 +7,7 @@ import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import type { Response } from 'express';
 import { requireCompanyId } from '../utils/authContext.js';
 import { adminSetPasswordController } from '../controllers/adminSetPasswordController.js';
+import { rateLimit } from '../middlewares/rateLimit.js';
 
 /** Rotas administrativas isoladas — não passam pelo CRUD genérico /data. */
 const router = Router();
@@ -14,7 +16,15 @@ router.use(authMiddleware);
 router.use(requireAdminOrHr);
 
 /** Login LOCAL_API: bcrypt em public.users (substitui Supabase Auth na VPS). */
-router.post('/set-password', adminSetPasswordController);
+router.post('/set-password', rateLimit({
+  keyPrefix: 'auth:set-password',
+  maxRequests: 10,
+  windowMs: 15 * 60 * 1000,
+  key: (req) => {
+    const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    return String(body.email ?? body.Email ?? '');
+  },
+}), adminSetPasswordController);
 
 router.get('/health-scope', async (req: AuthedRequest, res: Response) => {
   const companyId = requireCompanyId(req, res);
@@ -33,7 +43,7 @@ router.get('/health-scope', async (req: AuthedRequest, res: Response) => {
       },
     });
   } catch (e) {
-    console.error('[ADMIN health-scope]', e);
+    observabilityConsole.error('[ADMIN health-scope]', e);
     res.status(500).json({ ok: false, error: 'admin_scope_failed' });
   }
 });

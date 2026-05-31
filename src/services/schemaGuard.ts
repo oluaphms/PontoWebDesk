@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { IS_PRODUCTION, getEnvBoolean } from '@/config/runtimeEnv';
 
 let hasWarned = false;
@@ -16,7 +17,7 @@ let debugSimulateMissingEnv = false;
 
 function logDebugAction(action: string): void {
   if (!IS_PRODUCTION) {
-    console.info('[SCHEMA GUARD DEBUG] ação executada:', action);
+    observabilityConsole.info('[SCHEMA GUARD DEBUG] ação executada:', action);
   }
 }
 
@@ -37,7 +38,7 @@ export function clearSchemaGuardError(): void {
   );
 
   if (import.meta.env.MODE !== 'production') {
-    console.info('[SCHEMA GUARD] estado resetado com sucesso');
+    observabilityConsole.info('[SCHEMA GUARD] estado resetado com sucesso');
   }
 }
 
@@ -60,7 +61,7 @@ export function enforceEnvSchemaFlag(envVar: unknown, envName: string): boolean 
         debugSimulateMissingEnv = false;
         clearSchemaGuardError();
         if (!IS_PRODUCTION) {
-          console.info('[SCHEMA GUARD DEBUG] reset completo executado');
+          observabilityConsole.info('[SCHEMA GUARD DEBUG] reset completo executado');
         }
         logDebugAction('resetAll');
       },
@@ -79,7 +80,7 @@ export function enforceEnvSchemaFlag(envVar: unknown, envName: string): boolean 
     const correlationId = crypto.randomUUID();
     const message = `[SCHEMA GUARD] FALHA CRÍTICA: ${envName} não definido corretamente em produção`;
 
-    console.error(message);
+    observabilityConsole.error(message);
 
     if (typeof window !== 'undefined') {
       (window as unknown as { __SCHEMA_GUARD_ERROR__: SchemaGuardErrorState }).__SCHEMA_GUARD_ERROR__ = {
@@ -103,7 +104,7 @@ export function enforceEnvSchemaFlag(envVar: unknown, envName: string): boolean 
   if (!isProduction && parsed === undefined && !hasWarned) {
     const message = `[SCHEMA GUARD] modo automático ativo — ${envName} não definido`;
     /** Evita aparecer como "erro" no console/mobile; nível verbose (DevTools → Verbose/Debug). */
-    console.debug(message);
+    observabilityConsole.debug(message);
     /** Não gravar em `window` nem disparar evento: evita badge fixo na UI em dev (detalhe só no console). */
     hasWarned = true;
   }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Reconciliação do snapshot `current_operational_state` vs `time_records` (auditoria + repair).
  */
@@ -86,7 +87,7 @@ export async function reconcileCurrentOperationalState(
     if (r.ok) refreshed += 1;
   }
   const cleanup_removed = await runLiveLocationCleanup(client);
-  console.info('[CURRENT STATE RECONCILIATION]', {
+  observabilityConsole.info('[CURRENT STATE RECONCILIATION]', {
     company_id: companyId,
     correlation_id: correlationId,
     refreshed,
@@ -207,7 +208,7 @@ export async function auditCurrentOperationalStateIntegrity(
   const drift_count = details.filter((d) => d.kind === 'status' || d.kind === 'geo').length;
 
   if (details.length > 0) {
-    console.warn('[CURRENT STATE DRIFT DETECTED]', {
+    observabilityConsole.warn('[CURRENT STATE DRIFT DETECTED]', {
       company_id: companyId,
       drift_count,
       stale_snapshot_count,
@@ -250,8 +251,8 @@ export async function repairOperationalStateDrift(
     if (r.ok) repaired_count += 1;
   }
   if (repaired_count > 0) {
-    console.info('[STATE AUTO RECOVERED]', { company_id: companyId, correlation_id: correlationId, repaired_count });
-    console.info('[CURRENT STATE REPAIRED]', {
+    observabilityConsole.info('[STATE AUTO RECOVERED]', { company_id: companyId, correlation_id: correlationId, repaired_count });
+    observabilityConsole.info('[CURRENT STATE REPAIRED]', {
       company_id: companyId,
       correlation_id: correlationId,
       repaired_count,

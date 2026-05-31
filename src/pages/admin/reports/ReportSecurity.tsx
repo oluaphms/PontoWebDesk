@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 // ============================================================
 // Relatório de Segurança / Antifraude - Padrão Profissional
 // ============================================================
@@ -367,7 +368,7 @@ export default function ReportSecurity() {
           {
             type: 'view',
             label: 'Detalhe',
-            onClick: () => console.log('Ver detalhe:', row),
+            onClick: () => observabilityConsole.log('Ver detalhe:', row),
             variant: 'ghost',
           },
         ];
@@ -376,7 +377,7 @@ export default function ReportSecurity() {
           actions.push({
             type: 'audit',
             label: 'Auditar',
-            onClick: () => console.log('Auditar:', row),
+            onClick: () => observabilityConsole.log('Auditar:', row),
             variant: 'danger',
           });
         }
@@ -392,11 +393,11 @@ export default function ReportSecurity() {
   };
 
   const handleExportPDF = () => {
-    console.log('Exportar PDF');
+    observabilityConsole.log('Exportar PDF');
   };
 
   const handleExportExcel = () => {
-    console.log('Exportar Excel');
+    observabilityConsole.log('Exportar Excel');
   };
 
   if (loading) return <LoadingState message="Carregando..." />;

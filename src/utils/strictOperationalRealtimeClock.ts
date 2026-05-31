@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { normalizeOperationalDate, OPERATIONAL_TIMEZONE } from './operationalDateHardLock';
 
 const MAX_FUTURE_MS = 2 * 60 * 1000;
@@ -12,7 +13,7 @@ export function getStrictOperationalNow(): number {
 
 export function assertOperationalTimezone(): boolean {
   const ok = OPERATIONAL_TIMEZONE === 'America/Sao_Paulo';
-  if (!ok) console.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'timezone', timezone: OPERATIONAL_TIMEZONE });
+  if (!ok) observabilityConsole.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'timezone', timezone: OPERATIONAL_TIMEZONE });
   return ok;
 }
 
@@ -20,7 +21,7 @@ export function assertOperationalYear(instantMs: number, nowMs = getStrictOperat
   const year = new Date(instantMs).getUTCFullYear();
   const maxYear = new Date(nowMs).getUTCFullYear() + 1;
   if (year < MIN_YEAR || year > maxYear) {
-    console.warn('[INVALID OPERATIONAL YEAR]', { year, min_year: MIN_YEAR, max_year: maxYear });
+    observabilityConsole.warn('[INVALID OPERATIONAL YEAR]', { year, min_year: MIN_YEAR, max_year: maxYear });
     return false;
   }
   return true;
@@ -29,11 +30,11 @@ export function assertOperationalYear(instantMs: number, nowMs = getStrictOperat
 export function assertOperationalRealtimeTimestamp(iso: string, nowMs = getStrictOperationalNow()): { ok: boolean; instantMs?: number } {
   const n = normalizeOperationalDate(iso, { quiet: true, source: 'strictOperationalRealtimeClock' });
   if (!n) {
-    console.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'invalid_parse', iso });
+    observabilityConsole.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'invalid_parse', iso });
     return { ok: false };
   }
   if (n.instantMs - nowMs > MAX_FUTURE_MS) {
-    console.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'future', iso, diff_ms: n.instantMs - nowMs });
+    observabilityConsole.warn('[STRICT REALTIME CLOCK BLOCK]', { reason: 'future', iso, diff_ms: n.instantMs - nowMs });
     return { ok: false };
   }
   if (!assertOperationalYear(n.instantMs, nowMs)) return { ok: false };
@@ -44,7 +45,7 @@ export function assertOperationalRealtimeTimestamp(iso: string, nowMs = getStric
 export function assertOperationalTemporalMonotonicity(key: string, nextInstantMs: number): boolean {
   const prev = byKey.get(key);
   if (prev && nextInstantMs < prev.instantMs) {
-    console.warn('[TEMPORAL MONOTONICITY VIOLATION]', {
+    observabilityConsole.warn('[TEMPORAL MONOTONICITY VIOLATION]', {
       key,
       previous_ms: prev.instantMs,
       next_ms: nextInstantMs,

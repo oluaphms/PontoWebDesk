@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import * as Sentry from '@sentry/react';
 
 const dsn = import.meta.env.VITE_SENTRY_DSN;
@@ -18,7 +19,7 @@ export function captureException(error: Error, context?: Record<string, unknown>
   try {
     Sentry.captureException(error, { extra: context });
   } catch (err) {
-    console.warn('[sentry] Falha ao enviar exceção:', err);
+    observabilityConsole.warn('[sentry] Falha ao enviar exceção:', err);
   }
 }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * POST /api/rep/punch — handler **completo** (weak match + `repIngestPunchCore`).
  * Em produção, `/api/rep/punch` deve ir sempre por `api/rep/[slug].ts` + `handleRepPunchRpcLite` (`repApiRoutes` slug `punch`).
@@ -92,7 +93,7 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[api/rep/punch] runRepIngestPunchRpc exception', msg, e instanceof Error ? e.stack : '');
+      observabilityConsole.error('[api/rep/punch] runRepIngestPunchRpc exception', msg, e instanceof Error ? e.stack : '');
       return Response.json(
         { success: false, error: msg, code: 'REP_PUNCH_INGEST_EXCEPTION' },
         { status: 500, headers: headersJson },
@@ -115,7 +116,7 @@ export async function handleRepPunchHttp(request: Request): Promise<Response> {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[REP API ERROR]', '[api/rep/punch] unhandled', msg, e instanceof Error ? e.stack : '');
+    observabilityConsole.error('[REP API ERROR]', '[api/rep/punch] unhandled', msg, e instanceof Error ? e.stack : '');
     const fallback = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     return Response.json(
       { success: false, error: msg, code: 'REP_PUNCH_UNHANDLED', detail: String(msg) },

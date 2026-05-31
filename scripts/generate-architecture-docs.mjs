@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -74,4 +75,4 @@ graph TD
 
 fs.mkdirSync(path.dirname(DOC), { recursive: true });
 fs.writeFileSync(DOC, content);
-console.info('[ARCH DOCS] updated docs/ARCHITECTURE_MAP.md');
+observabilityConsole.info('[ARCH DOCS] updated docs/ARCHITECTURE_MAP.md');

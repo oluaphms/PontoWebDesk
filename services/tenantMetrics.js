@@ -12,6 +12,7 @@
  */
 
 import { LOG_LEVEL } from './syncQueue.js';
+import { observabilityConsole } from './observabilityConsole.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tenant_metrics (
@@ -33,7 +34,11 @@ export class TenantMetrics {
    */
   constructor(opts) {
     this._db = opts.db;
-    try { this._db.exec(SCHEMA); } catch { /* ignore */ }
+    try {
+      this._db.exec(SCHEMA);
+    } catch (error) {
+      observabilityConsole.warn('[tenantMetrics] Falha ao garantir schema:', error);
+    }
   }
 
   /**
@@ -54,7 +59,9 @@ export class TenantMetrics {
           last_sync_at   = excluded.last_sync_at,
           updated_at     = excluded.updated_at
       `).run(companyId, count, count, latencyMs, now, now);
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[tenantMetrics] Falha ao registrar sync:', error);
+    }
   }
 
   /**
@@ -74,7 +81,9 @@ export class TenantMetrics {
           last_error_msg = excluded.last_error_msg,
           updated_at     = excluded.updated_at
       `).run(companyId, now, errorMsg.slice(0, 500), now);
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[tenantMetrics] Falha ao registrar erro:', error);
+    }
   }
 
   /**

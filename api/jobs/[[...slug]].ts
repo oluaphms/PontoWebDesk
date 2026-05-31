@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Rota unificada /api/jobs/* (Hobby: 1 função em vez de 3).
  * - POST /api/jobs/calc-period
@@ -36,7 +37,7 @@ function corsFor(request: Request, allowMethods: string): Record<string, string>
 }
 
 function jsonWithLog(body: unknown, status: number, route: string, headers: Record<string, string>): Response {
-  console.log('[API RESPONSE]', route, Date.now());
+  observabilityConsole.log('[API RESPONSE]', route, Date.now());
   return noCache(Response.json(body, { status, headers }));
 }
 
@@ -271,7 +272,7 @@ async function handleProcess(request: Request): Promise<Response> {
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
   const secret = request.headers.get('X-Cron-Secret')?.trim();
-  const cronSecret = (process.env.CRON_SECRET || process.env.VITE_CRON_SECRET || '').trim();
+  const cronSecret = (process.env.CRON_SECRET || '').trim();
   const cronOk = !!(cronSecret && secret === cronSecret);
 
   const jwt = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();

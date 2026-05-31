@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Garante schema mínimo na VPS (companies + rep_devices). Idempotente.
  * Uso: cd backend && npm run db:ensure-vps
@@ -13,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[db:ensure-vps] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[db:ensure-vps] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -29,7 +30,7 @@ const pool = new pg.Pool({ connectionString, ssl });
 async function runFile(name: string): Promise<void> {
   const sqlPath = path.join(__dirname, '..', 'db', 'vps', name);
   const sql = fs.readFileSync(sqlPath, 'utf8');
-  console.log('[db:ensure-vps] aplicando', name);
+  observabilityConsole.log('[db:ensure-vps] aplicando', name);
   await pool.query(sql);
 }
 
@@ -44,10 +45,10 @@ try {
        WHERE table_schema = 'public' AND table_name = $1`,
       [table],
     );
-    console.log('[db:ensure-vps] OK —', table, '→', check.rows[0]?.c ?? 0, 'colunas');
+    observabilityConsole.log('[db:ensure-vps] OK —', table, '→', check.rows[0]?.c ?? 0, 'colunas');
   }
 } catch (e) {
-  console.error('[db:ensure-vps] Falhou:', e instanceof Error ? e.message : e);
+  observabilityConsole.error('[db:ensure-vps] Falhou:', e instanceof Error ? e.message : e);
   process.exit(1);
 } finally {
   await pool.end();

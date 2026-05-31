@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { operationalBusEmitContract } from '../bus/operationalEventBus';
 import { operationalNowUtcIso } from '../../../utils/operationalClock';
@@ -50,7 +51,7 @@ export async function openOperationalIncident(
     .single();
   if (error) return { ok: false, error: error.message };
 
-  console.warn('[OPERATIONAL INCIDENT OPENED]', {
+  observabilityConsole.warn('[OPERATIONAL INCIDENT OPENED]', {
     id: data?.id,
     company_id: input.companyId,
     employee_id: input.employeeId ?? null,
@@ -88,7 +89,7 @@ export async function resolveOperationalIncident(
     .eq('id', input.id)
     .eq('company_id', input.companyId);
   if (error) return { ok: false, error: error.message };
-  console.info('[OPERATIONAL INCIDENT RESOLVED]', {
+  observabilityConsole.info('[OPERATIONAL INCIDENT RESOLVED]', {
     id: input.id,
     company_id: input.companyId,
   });

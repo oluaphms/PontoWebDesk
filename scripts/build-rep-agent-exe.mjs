@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Empacota o agente REP em dist/rep-agent.exe (esbuild bundle CJS + pkg).
  * `pkg .` no monorepo React puxa dependências do frontend — este script isola só o agente.
@@ -20,7 +21,7 @@ mkdirSync(distDir, { recursive: true });
 
 const buildId = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-console.log('[build:agent] Bundling scripts/rep-agent.mjs …');
+observabilityConsole.log('[build:agent] Bundling scripts/rep-agent.mjs …');
 await esbuild.build({
   entryPoints: [path.join(__dirname, 'rep-agent.mjs')],
   bundle: true,
@@ -36,25 +37,25 @@ await esbuild.build({
   },
 });
 
-console.log('[build:agent] pkg → dist/rep-agent.staging.exe …');
+observabilityConsole.log('[build:agent] pkg → dist/rep-agent.staging.exe …');
 execSync(
   `npx pkg "${bundlePath}" --targets node18-win-x64 --output "${exeStagingPath}" --public-packages better-sqlite3`,
   { cwd: root, stdio: 'inherit', shell: true }
 );
 
 if (!existsSync(exeStagingPath)) {
-  console.error('[build:agent] Falha: staging exe não foi gerado.');
+  observabilityConsole.error('[build:agent] Falha: staging exe não foi gerado.');
   process.exit(1);
 }
 
 try {
   if (existsSync(exePath)) unlinkSync(exePath);
   renameSync(exeStagingPath, exePath);
-  console.log(`[build:agent] OK: ${exePath} (build=${buildId})`);
+  observabilityConsole.log(`[build:agent] OK: ${exePath} (build=${buildId})`);
 } catch (e) {
-  console.warn(
+  observabilityConsole.warn(
     `[build:agent] Não foi possível substituir rep-agent.exe (${e?.message || e}). ` +
       `Use dist/rep-agent.staging.exe — pare o serviço PontoWebDeskAgent e copie como Administrador.`
   );
-  console.log(`[build:agent] OK: ${exeStagingPath} (build=${buildId})`);
+  observabilityConsole.log(`[build:agent] OK: ${exeStagingPath} (build=${buildId})`);
 }

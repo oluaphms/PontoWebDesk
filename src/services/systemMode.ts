@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { isSupabaseBlocked } from '../utils/supabaseGuard';
 
 let degraded =
@@ -9,11 +10,11 @@ export function enableDegradedMode(): void {
   if (typeof sessionStorage !== 'undefined') {
     try {
       sessionStorage.setItem('pontoweb:degraded_mode', '1');
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
   }
-  console.warn('[SYSTEM] Modo degradado ativo (sem cloud)');
+  observabilityConsole.warn('[SYSTEM] Modo degradado ativo (sem cloud)');
 }
 
 export function isDegradedMode(): boolean {
@@ -21,7 +22,8 @@ export function isDegradedMode(): boolean {
   if (typeof sessionStorage !== 'undefined') {
     try {
       return sessionStorage.getItem('pontoweb:degraded_mode') === '1';
-    } catch {
+  } catch (error) {
+    void error;
       return false;
     }
   }
@@ -33,8 +35,8 @@ export function clearDegradedMode(): void {
   if (typeof sessionStorage !== 'undefined') {
     try {
       sessionStorage.removeItem('pontoweb:degraded_mode');
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
   }
 }

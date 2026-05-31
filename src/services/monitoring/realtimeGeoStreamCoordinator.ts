@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Coordena entregas realtime do mapa: coalesce, debounce, backpressure por visibilidade.
  */
@@ -30,14 +31,14 @@ class RealtimeGeoStreamCoordinator {
       resolveOperationalRollout({ featureName: 'realtimeCoordinator', companyId: this.companyId, percentage: 100 });
     if (!coordinatorEnabled) {
       if (!isPollingSuppressedByVisibility()) {
-        console.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'flush_immediate', reason });
+        observabilityConsole.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'flush_immediate', reason });
         flush();
       }
       return;
     }
     if (this.timer) {
       this.coalesced++;
-      console.info('[STREAM COALESCED]', { company_id: this.companyId, reason, coalesced: this.coalesced });
+      observabilityConsole.info('[STREAM COALESCED]', { company_id: this.companyId, reason, coalesced: this.coalesced });
     }
     if (this.timer) clearTimeout(this.timer);
 
@@ -45,7 +46,7 @@ class RealtimeGeoStreamCoordinator {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
       base = Math.round(base * 1.35);
       if (this.coalesced > 6) {
-        console.warn('[STREAM BACKPRESSURE]', { company_id: this.companyId, coalesced: this.coalesced });
+        observabilityConsole.warn('[STREAM BACKPRESSURE]', { company_id: this.companyId, coalesced: this.coalesced });
         operationalReliabilitySLO.recordRealtimeCoalescePeak(this.coalesced);
         reportGeoCircuitSignal('realtime_lag');
         operationalBusEmit('realtime:flush', { companyId: this.companyId, coalesced: this.coalesced });
@@ -60,10 +61,10 @@ class RealtimeGeoStreamCoordinator {
       this.timer = null;
       this.coalesced = 0;
       if (isPollingSuppressedByVisibility()) {
-        console.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'skipped_visibility' });
+        observabilityConsole.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'skipped_visibility' });
         return;
       }
-      console.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'flush', reason });
+      observabilityConsole.info('[REALTIME GEO STREAM]', { company_id: this.companyId, action: 'flush', reason });
       flush();
     }, base);
   }
@@ -87,19 +88,19 @@ class RealtimeGeoStreamCoordinator {
     };
     if (prev) {
       if (next.version < prev.version || (next.updatedAt && prev.updatedAt && next.updatedAt < prev.updatedAt)) {
-        console.warn('[REALTIME REGRESSION BLOCKED]', { employee_id: key, prev, next });
+        observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', { employee_id: key, prev, next });
         return false;
       }
       if (next.capturedAt && prev.capturedAt && next.capturedAt < prev.capturedAt) {
-        console.warn('[REALTIME STALE EVENT DROPPED]', { employee_id: key, reason: 'captured_at_regression' });
+        observabilityConsole.warn('[REALTIME STALE EVENT DROPPED]', { employee_id: key, reason: 'captured_at_regression' });
         return false;
       }
       if (next.lineage && prev.lineage && next.lineage < prev.lineage) {
-        console.warn('[REALTIME STALE EVENT DROPPED]', { employee_id: key, reason: 'lineage_regression' });
+        observabilityConsole.warn('[REALTIME STALE EVENT DROPPED]', { employee_id: key, reason: 'lineage_regression' });
         return false;
       }
       if (next.checksum && prev.checksum && next.checksum !== prev.checksum && next.version <= prev.version) {
-        console.warn('[REALTIME REGRESSION BLOCKED]', { employee_id: key, reason: 'checksum_non_monotonic' });
+        observabilityConsole.warn('[REALTIME REGRESSION BLOCKED]', { employee_id: key, reason: 'checksum_non_monotonic' });
         return false;
       }
     }

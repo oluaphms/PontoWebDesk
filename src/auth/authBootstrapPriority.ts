@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Separa bootstrap crítico (login) de trabalho diferido (dashboard, GEO, métricas, etc.).
  * Durante o caminho crítico, serviços podem consultar `isCriticalLoginPathActive()` e adiar trabalho pesado.
@@ -28,7 +29,7 @@ export function scheduleDeferredBootstrap(label: string, fn: DeferredFn): void {
       .then(fn)
       .catch((e) => {
         if (typeof console !== 'undefined') {
-          console.warn('[AUTH DEFERRED BOOTSTRAP]', { label, error: e instanceof Error ? e.message : String(e) });
+          observabilityConsole.warn('[AUTH DEFERRED BOOTSTRAP]', { label, error: e instanceof Error ? e.message : String(e) });
         }
       });
   };

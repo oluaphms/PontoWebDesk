@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 
 export interface EngineCalcAuditPayload {
@@ -35,7 +36,7 @@ export async function appendEngineCalcAudit(params: {
     })
     .catch((err) => {
       if (import.meta.env?.DEV) {
-        console.warn('[engineCalcAudit] insert falhou:', err);
+        observabilityConsole.warn('[engineCalcAudit] insert falhou:', err);
       }
     });
 }

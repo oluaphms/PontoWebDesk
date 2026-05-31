@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../../hooks/useCurrentUser';
@@ -29,7 +30,7 @@ export function FuncoesRead() {
           })),
         );
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       } finally {
         if (!c) setLoadingData(false);
       }

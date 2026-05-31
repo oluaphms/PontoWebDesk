@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { distanceMeters } from './geoDistance.service';
 
 type Candidate = {
@@ -41,7 +42,7 @@ export function confirmGeoCandidate(
     state.accepted = candidate;
     state.pending = null;
     state.confirmations = 0;
-    console.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: 'bootstrap' });
+    observabilityConsole.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: 'bootstrap' });
     return { accepted: true, reason: 'bootstrap', latitude: candidate.latitude, longitude: candidate.longitude };
   }
 
@@ -57,7 +58,7 @@ export function confirmGeoCandidate(
     state.accepted = candidate;
     state.pending = null;
     state.confirmations = 0;
-    console.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: 'distance_and_better_accuracy', distance_m: dist });
+    observabilityConsole.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: 'distance_and_better_accuracy', distance_m: dist });
     return { accepted: true, reason: 'distance_and_better_accuracy', latitude: candidate.latitude, longitude: candidate.longitude };
   }
 
@@ -80,16 +81,16 @@ export function confirmGeoCandidate(
     state.accepted = { ...candidate, latitude: medianLat, longitude: medianLng };
     state.pending = null;
     state.confirmations = 0;
-    console.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: '2x_confirmation', latitude: medianLat, longitude: medianLng });
+    observabilityConsole.info('[GEO CONFIRMATION ACCEPTED]', { employee_id: employeeId, reason: '2x_confirmation', latitude: medianLat, longitude: medianLng });
     return { accepted: true, reason: '2x_confirmation', latitude: medianLat, longitude: medianLng };
   }
 
   if (dist < 8) {
-    console.info('[GEO OSCILLATION BLOCKED]', { employee_id: employeeId, distance_m: dist });
+    observabilityConsole.info('[GEO OSCILLATION BLOCKED]', { employee_id: employeeId, distance_m: dist });
     return { accepted: false, reason: 'oscillation_blocked' };
   }
 
-  console.info('[GEO CONFIRMATION REJECTED]', { employee_id: employeeId, confirmations: state.confirmations });
+  observabilityConsole.info('[GEO CONFIRMATION REJECTED]', { employee_id: employeeId, confirmations: state.confirmations });
   return { accepted: false, reason: 'awaiting_confirmation' };
 }
 

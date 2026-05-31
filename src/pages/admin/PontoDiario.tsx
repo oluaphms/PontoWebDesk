@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, Navigate } from 'react-router-dom';
 import { CalendarDays, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -115,7 +116,7 @@ const AdminPontoDiario: React.FC = () => {
         setDiasMeta(metaMap);
         setDiasDirty({});
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
         setMessage({ type: 'error', text: 'Erro ao carregar dados de Ponto Diário.' });
       } finally {
         setLoadingData(false);

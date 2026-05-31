@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Fonte única: `current_operational_state` (Supabase), atualizada por trigger em time_records
  * e alinhada ao hard lock GEO em PL/pgSQL. UI (monitoramento, cards) deve consumir esta API.
@@ -66,7 +67,7 @@ export async function fetchCurrentOperationalStateByCompany(
     .eq('company_id', companyId);
   if (error) {
     if (typeof console !== 'undefined') {
-      console.warn('[current_operational_state] fetch', error.message);
+      observabilityConsole.warn('[current_operational_state] fetch', error.message);
     }
     return [];
   }

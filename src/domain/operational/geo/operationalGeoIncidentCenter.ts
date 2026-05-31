@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Centro de incidentes GEO / realtime (telemetria e rastreio).
  * Distinto da central de incidentes de folha (`OperationalIncidents` UI).
@@ -24,11 +25,11 @@ export const OperationalIncidentCenter = {
       ...incident.detail,
     };
     if (incident.severity === 'CRITICAL') {
-      console.error('[OPERATIONAL GEO INCIDENT]', base);
+      observabilityConsole.error('[OPERATIONAL GEO INCIDENT]', base);
     } else if (incident.severity === 'WARNING') {
-      console.warn('[OPERATIONAL GEO INCIDENT]', base);
+      observabilityConsole.warn('[OPERATIONAL GEO INCIDENT]', base);
     } else {
-      console.info('[OPERATIONAL GEO INCIDENT]', base);
+      observabilityConsole.info('[OPERATIONAL GEO INCIDENT]', base);
     }
   },
 };

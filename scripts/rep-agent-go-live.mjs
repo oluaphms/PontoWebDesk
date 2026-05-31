@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Política go-live safe do REP Agent: primeira execução, meta local e override manual.
  */
@@ -55,7 +56,7 @@ export function validateIngestFromDateEnv(ymd, { allowFutureThrow = true } = {})
   const oneYearAgo = new Date();
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
   if (ms < oneYearAgo.getTime()) {
-    console.warn('[BOOT] Data muito antiga — possível importação massiva');
+    observabilityConsole.warn('[BOOT] Data muito antiga — possível importação massiva');
   }
   return { ms, ymd };
 }
@@ -70,7 +71,7 @@ export async function loadAgentMeta(metaPath) {
     };
   } catch (e) {
     if (e && e.code !== 'ENOENT') {
-      console.warn('[BOOT] Falha ao ler agent-meta.json, tratando como primeira execução:', e.message || e);
+      observabilityConsole.warn('[BOOT] Falha ao ler agent-meta.json, tratando como primeira execução:', e.message || e);
     }
     return { firstRunCompleted: false, initializedAt: null };
   }
@@ -165,7 +166,7 @@ export async function resolveAgentReceivePolicy(ctx) {
       fromDateMs = v.ms;
       fromDateStr = v.ymd;
     }
-    console.log('[BOOT] REP_FORCE_MODE=1 — usando configuração do .env sem auto-ajuste.');
+    observabilityConsole.log('[BOOT] REP_FORCE_MODE=1 — usando configuração do .env sem auto-ajuste.');
     return {
       scope,
       fromDateMs,
@@ -181,7 +182,7 @@ export async function resolveAgentReceivePolicy(ctx) {
 
   const serverCfg = await fetchServerAgentConfig({ saas, apiKey, companyId });
   if (serverCfg?.recommendedScope || serverCfg?.goLiveDate) {
-    console.log(
+    observabilityConsole.log(
       '[BOOT] Configuração do servidor:',
       serverCfg.recommendedScope ? `scope=${serverCfg.recommendedScope}` : '',
       serverCfg.goLiveDate ? `goLiveDate=${serverCfg.goLiveDate}` : ''
@@ -194,7 +195,7 @@ export async function resolveAgentReceivePolicy(ctx) {
     /^(1|true|yes)$/i.test(String(process.env.REP_PRODUCTION_MODE ?? '1').trim());
 
   if (isFirstRun) {
-    console.log('[BOOT] Primeira execução detectada');
+    observabilityConsole.log('[BOOT] Primeira execução detectada');
     const today = localTodayYmd();
     const catchUpRaw = String(
       process.env.REP_INGEST_CATCH_UP_DAYS ?? process.env.REP_INGEST_CATCHUP_DAYS ?? '7'
@@ -207,15 +208,15 @@ export async function resolveAgentReceivePolicy(ctx) {
       if (envIngestFromDate) {
         const v = validateIngestFromDateEnv(envIngestFromDate, { allowFutureThrow: true });
         fromDateStr = v.ymd;
-        console.log(
+        observabilityConsole.log(
           `[BOOT] Modo produção: incremental desde ${fromDateStr} (ingest_from_date; sem histórico completo)`
         );
       } else if (catchUpDays > 0) {
-        console.log(
+        observabilityConsole.log(
           `[BOOT] Modo produção: incremental desde ${fromDateStr} (últimos ${catchUpDays} dias; sem histórico completo)`
         );
       } else {
-        console.log('[BOOT] Modo produção: incremental desde hoje (sem importar histórico inteiro)');
+        observabilityConsole.log('[BOOT] Modo produção: incremental desde hoje (sem importar histórico inteiro)');
       }
       if (ingestEndDate) {
         const v = validateIngestFromDateEnv(ingestEndDate, { allowFutureThrow: false });
@@ -235,7 +236,7 @@ export async function resolveAgentReceivePolicy(ctx) {
         serverCfg,
       };
     }
-    console.log('[BOOT] Modo legado: today_only (defina REP_PRODUCTION_MODE=1 para incremental)');
+    observabilityConsole.log('[BOOT] Modo legado: today_only (defina REP_PRODUCTION_MODE=1 para incremental)');
     return {
       scope: 'today_only',
       fromDateMs: parseYmdToMs(today),
@@ -283,7 +284,7 @@ export async function resolveAgentReceivePolicy(ctx) {
     }
   }
 
-  console.log('[MODE] Operando em modo incremental (primeira execução já concluída).');
+  observabilityConsole.log('[MODE] Operando em modo incremental (primeira execução já concluída).');
   return {
     scope,
     fromDateMs,
@@ -300,8 +301,8 @@ export async function resolveAgentReceivePolicy(ctx) {
 
 export function logSyncCounts(readCount, afterFilter) {
   const fmt = (n) => Number(n).toLocaleString('pt-BR');
-  console.log(`[SYNC] Registros lidos: ${fmt(readCount)}`);
-  console.log(`[SYNC] Registros após filtro: ${fmt(afterFilter)}`);
+  observabilityConsole.log(`[SYNC] Registros lidos: ${fmt(readCount)}`);
+  observabilityConsole.log(`[SYNC] Registros após filtro: ${fmt(afterFilter)}`);
 }
 
 export function isFirstRunPromotionEligible(cycleResult) {
@@ -319,7 +320,7 @@ export async function promoteAgentAfterFirstSuccess(metaPath, meta, onPromoted) 
     initializedAt: new Date().toISOString(),
   };
   await saveAgentMeta(metaPath, next);
-  console.log('[MODE] Mudando para incremental após inicialização');
+  observabilityConsole.log('[MODE] Mudando para incremental após inicialização');
   if (typeof onPromoted === 'function') {
     onPromoted(next);
   }

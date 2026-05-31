@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Degradação adaptativa de realtime/polling sob pressão (CPU, rede, aba oculta, rajadas).
  */
@@ -32,16 +33,16 @@ function logShedding(factor: number): void {
   const crossed = (lastReportedFactor >= 2) !== (factor >= 2);
   if (!crossed && now - lastLogAt < LOG_THROTTLE_MS && Math.abs(factor - lastReportedFactor) < 0.35) return;
   lastLogAt = now;
-  console.info('[REALTIME LOAD SHEDDING]', {
+  observabilityConsole.info('[REALTIME LOAD SHEDDING]', {
     factor,
     invalidate_burst: invalidateBurst,
     longtask_bursts: longTaskBursts,
     hidden: typeof document !== 'undefined' ? document.visibilityState === 'hidden' : null,
   });
   if (factor >= 2) {
-    console.info('[REALTIME DEGRADED MODE]', { factor });
+    observabilityConsole.info('[REALTIME DEGRADED MODE]', { factor });
   } else if (lastReportedFactor >= 2 && factor < 2) {
-    console.info('[REALTIME RECOVERED]', { factor });
+    observabilityConsole.info('[REALTIME RECOVERED]', { factor });
   }
   lastReportedFactor = factor;
 }

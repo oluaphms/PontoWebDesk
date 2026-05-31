@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import { setOperationalFeatureOverrides } from '../../../config/operationalFeatureFlags';
 
 export type FeatureHealthInput = {
@@ -18,7 +19,7 @@ export function evaluateFeatureHealthAndRollback(input: FeatureHealthInput): boo
     input.staleRate > 0.35 ||
     input.gpsTrustScore < 40;
   if (!unhealthy) return false;
-  console.warn('[FEATURE HEALTH FAILURE]', {
+  observabilityConsole.warn('[FEATURE HEALTH FAILURE]', {
     company_id: input.companyId,
     feature: input.feature,
     incidents_critical: input.incidentsCritical,
@@ -43,7 +44,7 @@ export function evaluateFeatureHealthAndRollback(input: FeatureHealthInput): boo
       },
     },
   ]);
-  console.warn('[FEATURE AUTO ROLLBACK]', { company_id: input.companyId, feature: input.feature });
+  observabilityConsole.warn('[FEATURE AUTO ROLLBACK]', { company_id: input.companyId, feature: input.feature });
   return true;
 }
 

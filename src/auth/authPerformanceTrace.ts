@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Rastreamento ponta-a-ponta do login para diagnóstico de lentidão / corridas.
  * Logs obrigatórios: prefixo [AUTH TRACE] + payload JSON.
@@ -136,9 +137,9 @@ export function finalizeLoginTrace(trace: LoginTrace | null | undefined, outcome
   };
   logTraceLine(payload);
   if (totalDurationMs > 5000) {
-    console.warn('[AUTH LOGIN BUDGET]', { totalDurationMs, targetMsMobile: 5000, outcome });
+    observabilityConsole.warn('[AUTH LOGIN BUDGET]', { totalDurationMs, targetMsMobile: 5000, outcome });
   } else if (totalDurationMs > 3000) {
-    console.warn('[AUTH LOGIN BUDGET]', { totalDurationMs, targetMsDesktop: 3000, outcome });
+    observabilityConsole.warn('[AUTH LOGIN BUDGET]', { totalDurationMs, targetMsDesktop: 3000, outcome });
   }
   if (activeTrace === trace) {
     setActiveLoginTrace(null);

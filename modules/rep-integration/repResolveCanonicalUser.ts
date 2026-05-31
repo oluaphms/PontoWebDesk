@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Resolve batida REP → users.id com a mesma ordem que o servidor: RPC tiered,
  * depois match fraco (últimos 8 / janelas) com candidato único.
@@ -221,7 +222,7 @@ export async function fixUnmatchedPunches(
     .eq('company_id', cid)
     .limit(5000);
   if (usersErr) {
-    console.error('[USERS QUERY ERROR]', usersErr);
+    observabilityConsole.error('[USERS QUERY ERROR]', usersErr);
     throw usersErr;
   }
   const users = (wu as unknown as RepWeakPisMatchUser[] | null) ?? [];
@@ -275,7 +276,7 @@ export async function fixUnmatchedPunches(
     updated += 1;
     const antigo_doc = antigoDocForLog(row, raw);
     if (typeof globalThis !== 'undefined' && globalThis.console) {
-      globalThis.console.warn('[REP IDENTITY FIX]', {
+      observabilityConsole.warn('[REP IDENTITY FIX]', {
         nsr: row.nsr,
         antigo_doc,
         novo_user_id: resolved.userId,
@@ -307,7 +308,7 @@ export async function autoReprocessRepAfterEmployeeIdentityUpdate(
   const limit = options?.limit ?? REP_REPROCESS_IDENTITY_BATCH_DEFAULT;
   const { updated } = await fixUnmatchedPunches(supabase, companyId, { limit });
   if (typeof globalThis !== 'undefined' && globalThis.console) {
-    globalThis.console.warn('[REP REPROCESS AUTO]', { total_fixed: updated });
+    observabilityConsole.warn('[REP REPROCESS AUTO]', { total_fixed: updated });
   }
   return { total_fixed: updated };
 }

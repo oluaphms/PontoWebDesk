@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole.js';
 /**
  * API intermediária para batidas do agente local (relógio).
  *
@@ -196,7 +197,7 @@ async function handler(request: Request): Promise<Response> {
     .maybeSingle();
 
   if (deviceError) {
-    console.error('[API /punch] Erro ao validar device:', deviceError);
+    observabilityConsole.error('[API /punch] Erro ao validar device:', deviceError);
     return noCache(Response.json(
       { error: 'Erro ao validar device.', deviceId, companyId },
       { status: 500, headers: corsHeaders }
@@ -216,7 +217,7 @@ async function handler(request: Request): Promise<Response> {
   }
 
   // Log de auditoria (opcional: verificar IP se necessário)
-  console.log(`[API /punch] Device validado: ${device.name} (${deviceId}) - ${punches.length} batidas`);
+  observabilityConsole.log(`[API /punch] Device validado: ${device.name} (${deviceId}) - ${punches.length} batidas`);
 
   // Montar rows para clock_event_logs
   const timeLogsTable = process.env.SUPABASE_TIME_LOGS_TABLE || 'clock_event_logs';
@@ -261,7 +262,7 @@ async function handler(request: Request): Promise<Response> {
     ));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[API /punch] Erro ao inserir:', msg);
+    observabilityConsole.error('[API /punch] Erro ao inserir:', msg);
     return noCache(Response.json(
       {
         success: false,

@@ -69,7 +69,7 @@ function normalizeColumns(row: RawRow): NormalizedEmployeeRow {
   return {
     nome: get('nome', 'Nome', 'Nome completo') || 'Sem nome',
     email: get('email', 'Email').toLowerCase(),
-    senha: get('senha') || '123456',
+    senha: get('senha') || '',
     cargo: get('cargo', 'funcao') || 'Colaborador',
     telefone: get('telefone', 'phone'),
     cpf: get('cpf', 'CPF'),
@@ -110,7 +110,7 @@ function convertTextToEmployees(text: string): RawRow[] {
         funcionarios.push({
           nome: partes[0] ?? '',
           email: partes[1] ?? '',
-          senha: partes[2] ?? '123456',
+          senha: partes[2] ?? '',
           cargo: partes[3] ?? '',
           telefone: partes[4] ?? '',
           cpf: partes[5] ?? '',

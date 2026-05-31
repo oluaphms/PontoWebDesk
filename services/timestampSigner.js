@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Assinatura digital com carimbo de tempo (Timestamp Signature).
  *
@@ -28,11 +29,11 @@ const SECRET_KEY = (process.env.TIMESTAMP_SECRET_KEY || '').trim();
 
 // Validação em tempo de importação
 if (!SECRET_KEY) {
-  console.error('[SECURITY] TIMESTAMP_SECRET_KEY não configurada. Assinatura de timestamps desativada.');
+  observabilityConsole.error('[SECURITY] TIMESTAMP_SECRET_KEY não configurada. Assinatura de timestamps desativada.');
 }
 
 if (SECRET_KEY && SECRET_KEY.length < 32) {
-  console.warn('[SECURITY] TIMESTAMP_SECRET_KEY muito curta. Recomendado: mínimo 32 caracteres (256 bits).');
+  observabilityConsole.warn('[SECURITY] TIMESTAMP_SECRET_KEY muito curta. Recomendado: mínimo 32 caracteres (256 bits).');
 }
 
 const ANCHOR_URL   = (process.env.TIMESTAMP_ANCHOR_URL   || '').trim();
@@ -144,7 +145,7 @@ export class TimestampAnchor {
     if (next <= now) next.setDate(next.getDate() + 1);
     const delay = next.getTime() - now.getTime();
     this._timer = setTimeout(() => {
-      this.anchorDay().catch(e => console.error('[ANCHOR]', e instanceof Error ? e.message : e));
+      this.anchorDay().catch(e => observabilityConsole.error('[ANCHOR]', e instanceof Error ? e.message : e));
       this._scheduleNext();
     }, delay);
   }
@@ -185,7 +186,7 @@ export class TimestampAnchor {
         VALUES (?, ?, ?, ?, ?)
       `).run(anchorId, today, merkleRoot, hashes.length, anchoredAt);
     } catch (err) {
-      console.warn('[ANCHOR] Falha ao salvar âncora local:', err);
+      observabilityConsole.warn('[ANCHOR] Falha ao salvar âncora local:', err);
     }
 
     // Salvar no Supabase
@@ -194,17 +195,17 @@ export class TimestampAnchor {
         id: anchorId, date: today, merkle_root: merkleRoot,
         hash_count: hashes.length, anchored_at: anchoredAt,
       }, { onConflict: 'date', ignoreDuplicates: false }).catch((err) => {
-        console.warn('[ANCHOR] Falha ao salvar âncora no Supabase:', err);
+        observabilityConsole.warn('[ANCHOR] Falha ao salvar âncora no Supabase:', err);
       });
     }
 
     // Publicar em serviço externo (opcional)
     if (ANCHOR_URL) {
       await this._publishExternal({ anchorId, date: today, merkleRoot, hashCount: hashes.length, anchoredAt })
-        .catch(e => console.warn('[ANCHOR] Publicação externa falhou:', e instanceof Error ? e.message : e));
+        .catch(e => observabilityConsole.warn('[ANCHOR] Publicação externa falhou:', e instanceof Error ? e.message : e));
     }
 
-    console.log(`[ANCHOR] ✓ Âncora do dia ${today}: ${hashes.length} hashes → Merkle root ${merkleRoot.slice(0, 16)}...`);
+    observabilityConsole.log(`[ANCHOR] ✓ Âncora do dia ${today}: ${hashes.length} hashes → Merkle root ${merkleRoot.slice(0, 16)}...`);
     return { merkleRoot, count: hashes.length, anchoredAt };
   }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { isDegradedMobileRuntime } from './mobileCpuBudget';
 import { isLowNetworkMode } from './networkMode';
 import { getRealtimeSheddingDebounceFactor } from './realtimeLoadShedding';
@@ -25,13 +26,13 @@ export function getAdaptiveRefetchIntervalMs(baseMs: number): number {
 export function pollingGovernorTryAcquireSlot(id: string): boolean {
   if (isPollingSuppressedByVisibility()) {
     if (typeof console !== 'undefined') {
-      console.info('[POLLING GOVERNOR]', { action: 'skip_hidden', id });
+      observabilityConsole.info('[POLLING GOVERNOR]', { action: 'skip_hidden', id });
     }
     return false;
   }
   if (activePollSlots >= MAX_CONCURRENT_POLL_SLOTS) {
     if (typeof console !== 'undefined') {
-      console.info('[POLLING GOVERNOR]', { action: 'concurrency_cap', id, activePollSlots });
+      observabilityConsole.info('[POLLING GOVERNOR]', { action: 'concurrency_cap', id, activePollSlots });
     }
     return false;
   }

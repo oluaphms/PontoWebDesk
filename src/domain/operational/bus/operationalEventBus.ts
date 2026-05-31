@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Barramento leve de eventos operacionais (desacoplamento + tracing).
  * Para payloads críticos, preferir envelope validado (`operationalBusEmitContract`).
@@ -33,12 +34,12 @@ export function operationalBusEmitContract(name: OperationalBusEventName, args: 
   try {
     envelope = buildOperationalEventEnvelope(args);
   } catch {
-    console.warn('[OPERATIONAL EVENT CONTRACT]', { phase: 'build_failed', name });
+    observabilityConsole.warn('[OPERATIONAL EVENT CONTRACT]', { phase: 'build_failed', name });
     return false;
   }
   const check = safeParseOperationalEventEnvelope(envelope);
   if (!check.ok) {
-    console.warn('[OPERATIONAL EVENT CONTRACT]', { phase: 'parse_failed', name });
+    observabilityConsole.warn('[OPERATIONAL EVENT CONTRACT]', { phase: 'parse_failed', name });
     return false;
   }
   operationalBusEmit(name, check.data);

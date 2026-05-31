@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Fila persistente de batidas (SQLite) — produção: C:\ProgramData\PontoWebDesk\agent.db
  */
@@ -39,7 +40,7 @@ export function getAgentDb() {
 }
 
 function logDbReady() {
-  console.log(`[REP DB] ${AGENT_DB_PATH}`);
+  observabilityConsole.log(`[REP DB] ${AGENT_DB_PATH}`);
 }
 
 export function closeAgentDb() {

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Central de incidentes operacionais — deriva `deriveOperationalIncident` + resoluções persistidas.
  */
@@ -336,7 +337,7 @@ const OperationalIncidents: React.FC = () => {
       const employeeLabel = employees.find((e) => e.id === emp)?.nome ?? emp;
       setRepSeqModal({ employeeId: emp, dateYmd: d, punches, initialLogId: logId, employeeLabel });
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     }
   };
 

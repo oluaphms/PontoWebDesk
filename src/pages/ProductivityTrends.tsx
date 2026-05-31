@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -104,7 +105,7 @@ const ProductivityTrendsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar times e funcionários:', e);
+        observabilityConsole.error('Erro ao carregar times e funcionários:', e);
       }
     };
 
@@ -158,7 +159,7 @@ const ProductivityTrendsPage: React.FC = () => {
 
         setLogs(mapped);
       } catch (e: unknown) {
-        console.error('Erro ao carregar produtividade:', e);
+        observabilityConsole.error('Erro ao carregar produtividade:', e);
         setError('Não foi possível carregar os dados de produtividade.');
       } finally {
         setIsLoadingData(false);

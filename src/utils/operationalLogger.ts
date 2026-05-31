@@ -13,6 +13,8 @@
  *   - opLog.error('GEO SELF HEAL FAILED', { ... })   // sempre (error)
  */
 
+import { logger as structuredLogger } from '../shared/logger/logger';
+
 export enum OperationalLogLevel {
   DEBUG = 0,
   DIAG = 1,
@@ -195,33 +197,57 @@ export function isOperationalProduction(): boolean {
 export const opLog = {
   debug(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.DEBUG, tag)) return;
-    if (payload === undefined) console.debug(fmt(tag));
-    else console.debug(fmt(tag), payload);
+    structuredLogger.info({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
   diag(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.DIAG, tag)) return;
-    if (payload === undefined) console.info(fmt(tag));
-    else console.info(fmt(tag), payload);
+    structuredLogger.info({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
   info(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.INFO, tag)) return;
-    if (payload === undefined) console.info(fmt(tag));
-    else console.info(fmt(tag), payload);
+    structuredLogger.info({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
   warn(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.WARNING, tag)) return;
-    if (payload === undefined) console.warn(fmt(tag));
-    else console.warn(fmt(tag), payload);
+    structuredLogger.warn({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
   error(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.ERROR, tag)) return;
-    if (payload === undefined) console.error(fmt(tag));
-    else console.error(fmt(tag), payload);
+    structuredLogger.error({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
   critical(tag: string, payload?: unknown): void {
     if (!shouldLog(OperationalLogLevel.CRITICAL, tag)) return;
-    if (payload === undefined) console.error(fmt(tag));
-    else console.error(fmt(tag), payload);
+    structuredLogger.fatal({
+      module: 'frontend.operational',
+      action: tag,
+      message: fmt(tag),
+      meta: payload === undefined ? {} : { payload },
+    });
   },
 };
 

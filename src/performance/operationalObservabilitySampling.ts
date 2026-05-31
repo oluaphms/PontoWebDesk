@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Amostragem adaptativa de observabilidade — reduz volume em produção.
  * CRITICAL: sempre; WARNING: parcial; INFO: amostrado.
@@ -37,10 +38,10 @@ export function operationalObservabilityLog(
   if (!shouldEmit(level)) return;
   const line = { tag, ...payload };
   if (level === 'error') {
-    console.error('[OPS]', line);
+    observabilityConsole.error('[OPS]', line);
   } else if (level === 'warn') {
-    console.warn('[OPS]', line);
+    observabilityConsole.warn('[OPS]', line);
   } else {
-    console.info('[OPS]', line);
+    observabilityConsole.info('[OPS]', line);
   }
 }

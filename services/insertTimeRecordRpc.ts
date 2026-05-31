@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * RPC `insert_time_record_for_user` — assinatura canônica única (6 params).
  * Sem fallback REST em time_records (evita 404 / PGRST203 / uuid=text).
@@ -203,7 +204,7 @@ export async function insertTimeRecordForUser(
     isMonotonicRegressionError(rpcError) &&
     String(rpcArgs.p_source ?? '').toLowerCase() !== 'manual'
   ) {
-    console.warn('FORCED MANUAL INSERT', rpcArgs);
+    observabilityConsole.warn('FORCED MANUAL INSERT', rpcArgs);
     const fallbackArgs = {
       ...rpcArgs,
       p_source: 'manual',
@@ -213,7 +214,7 @@ export async function insertTimeRecordForUser(
   }
 
   if (rpcError) {
-    console.error('[RPC ERROR FULL]', {
+    observabilityConsole.error('[RPC ERROR FULL]', {
       code: rpcError.code,
       message: rpcError.message,
       details: rpcError.details,

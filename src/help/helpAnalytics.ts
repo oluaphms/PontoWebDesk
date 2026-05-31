@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 export type HelpAnalyticsEvent =
   | 'doc_opened'
   | 'search_used'
@@ -29,5 +30,5 @@ export function trackHelpAnalytics(event: HelpAnalyticsEvent, payload: Omit<Help
     ts: Date.now(),
     ...payload,
   };
-  console.log('[HELP ANALYTICS]', entry);
+  observabilityConsole.log('[HELP ANALYTICS]', entry);
 }

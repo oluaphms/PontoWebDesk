@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-tasks?company_id=...
  * PATCH /api/operational-tasks/:id/complete
@@ -57,7 +58,7 @@ async function handler(request: Request): Promise<Response> {
     const reqUrl = resolveRequestUrl(request);
     const pathname = reqUrl.pathname.replace(/\/+$/, '') || '';
     const completeMatch = pathname.match(/^\/api\/operational-tasks\/([^/]+)\/complete$/);
-    console.log('[OP API START]', {
+    observabilityConsole.log('[OP API START]', {
       route: ROUTE,
       query: Object.fromEntries(reqUrl.searchParams.entries()),
       pathname,
@@ -65,7 +66,7 @@ async function handler(request: Request): Promise<Response> {
     });
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      observabilityConsole.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
       if (request.method === 'GET') {
         return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
       }
@@ -109,7 +110,7 @@ async function handler(request: Request): Promise<Response> {
       );
 
       if (taskFetchErr) {
-        console.error('[api/operational-tasks] fetch task', taskFetchErr);
+        observabilityConsole.error('[api/operational-tasks] fetch task', taskFetchErr);
         return degradedMutationResponse(corsHeaders, ROUTE, 'DB_ERROR', taskFetchErr.message);
       }
       if (!task) {
@@ -175,7 +176,7 @@ async function handler(request: Request): Promise<Response> {
       );
 
       if (taskUpdErr) {
-        console.error('[api/operational-tasks]', taskUpdErr);
+        observabilityConsole.error('[api/operational-tasks]', taskUpdErr);
         return degradedMutationResponse(corsHeaders, ROUTE, 'DB_ERROR', taskUpdErr.message);
       }
       if (!updatedTask) {
@@ -205,7 +206,7 @@ async function handler(request: Request): Promise<Response> {
         );
 
         if (alertErr) {
-          console.error('[api/operational-tasks] resolve linked alert', alertErr);
+          observabilityConsole.error('[api/operational-tasks] resolve linked alert', alertErr);
           const { error: revErr } = await supabase
             .from('operational_tasks')
             .update({
@@ -217,12 +218,12 @@ async function handler(request: Request): Promise<Response> {
             .eq('id', taskId)
             .eq('version', currentVersion + 1);
           if (revErr) {
-            console.error('[api/operational-tasks] revert task after alert failure', revErr);
+            observabilityConsole.error('[api/operational-tasks] revert task after alert failure', revErr);
           }
           return degradedMutationResponse(corsHeaders, ROUTE, 'DB_ERROR', alertErr.message);
         }
 
-        console.log('[TASK -> ALERT RESOLVED]', {
+        observabilityConsole.log('[TASK -> ALERT RESOLVED]', {
           task_id: taskId,
           alert_id: relatedAlertId,
         });
@@ -233,10 +234,10 @@ async function handler(request: Request): Promise<Response> {
           await evaluateAndNotifyCompanyOperationalRisk(supabase, companyIdStr);
         });
       } catch (e) {
-        console.error('[api/operational-tasks] risk after task complete', e);
+        observabilityConsole.error('[api/operational-tasks] risk after task complete', e);
       }
 
-      console.log('[TASK COMPLETED]', {
+      observabilityConsole.log('[TASK COMPLETED]', {
         task_id: taskId,
         company_id: companyIdStr,
       });
@@ -298,7 +299,7 @@ async function handler(request: Request): Promise<Response> {
     );
 
     if (error) {
-      console.error('[api/operational-tasks]', error);
+      observabilityConsole.error('[api/operational-tasks]', error);
       return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 

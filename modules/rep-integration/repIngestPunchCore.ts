@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Núcleo de ingestão REP (RPC rep_ingest_punch + timeline opcional).
  * Ficheiro separado para o POST /api/rep/punch poder importar só isto sem carregar repService inteiro (sync batch, timeEngine, etc.).
@@ -26,7 +27,7 @@ type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.ser
 function enqueueAppendTimeAttendanceTimelineEvent(input: AppendTimelineInput): void {
   void import('../../src/services/timeAttendanceTimeline.service').then((m) =>
     m.appendTimeAttendanceTimelineEvent(input).catch((err) => {
-      console.error('[repIngestPunchCore] appendTimeAttendanceTimelineEvent', err);
+      observabilityConsole.error('[repIngestPunchCore] appendTimeAttendanceTimelineEvent', err);
     }),
   );
 }
@@ -53,7 +54,7 @@ export async function fetchWeakMatchUsersForCompany(
     .eq('company_id', companyId.trim())
     .limit(5000);
   if (error) {
-    console.error('[USERS QUERY ERROR]', error);
+    observabilityConsole.error('[USERS QUERY ERROR]', error);
     return [];
   }
   return (wu as unknown as RepWeakPisMatchUser[] | null) ?? [];
@@ -115,7 +116,7 @@ export function recordRepPromoteMirrorFailureOnTimeline(
   const msg = args.message ?? '';
   const code = normalizeRepPromoteErrorCode(args.errorCode, msg);
   if (typeof globalThis !== 'undefined' && globalThis.console) {
-    globalThis.console.warn('[REP PROMOTE FAILED]', {
+    observabilityConsole.warn('[REP PROMOTE FAILED]', {
       nsr: args.nsr ?? null,
       error_code: code,
       employee_id: args.employeeId ?? null,
@@ -383,8 +384,8 @@ export async function runRepIngestPunchRpc(
           match_strategy: 'fallback',
         };
         if (typeof globalThis !== 'undefined' && globalThis.console) {
-          globalThis.console.warn('[REP MATCH FALLBACK] weak_match_applied', { userId: identity.userId });
-          globalThis.console.warn('[REP AUTO MATCH] fallback aplicado', {
+          observabilityConsole.warn('[REP MATCH FALLBACK] weak_match_applied', { userId: identity.userId });
+          observabilityConsole.warn('[REP AUTO MATCH] fallback aplicado', {
             userId: identity.userId,
             match_strategy: 'fallback',
           });
@@ -445,7 +446,7 @@ export async function runRepIngestPunchRpc(
 
   if (typeof globalThis !== 'undefined' && globalThis.console) {
     const status = forceUserId ? 'resolved' : 'unresolved';
-    globalThis.console.warn('[REP INGEST]', {
+    observabilityConsole.warn('[REP INGEST]', {
       nsr: merged.nsr ?? null,
       resolved_user_id: forceUserId ?? null,
       status,
@@ -458,7 +459,7 @@ export async function runRepIngestPunchRpc(
       cpf: cpfSend,
       raw_data: rawData,
     });
-    globalThis.console.warn('[REP MATCH DEBUG]', {
+    observabilityConsole.warn('[REP MATCH DEBUG]', {
       pis_recebido: merged.pis ?? null,
       pis_normalizado: eff ?? normalizeDigits(merged.pis ?? merged.cpf),
       cpf: merged.cpf ?? null,

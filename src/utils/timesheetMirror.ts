@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Utilitários para construir o espelho de ponto (timesheet mirror)
  * Processa time_records e organiza por dia/funcionário
@@ -191,7 +192,7 @@ function emitMirrorAudit(
   if (import.meta.env.MODE === 'test') return;
   if (!isDevVerboseLogsEnabled()) return;
   if (typeof globalThis !== 'undefined' && globalThis.console) {
-    globalThis.console.warn(`[${entry.kind}]`, {
+    observabilityConsole.warn(`[${entry.kind}]`, {
       record_id: entry.record_id,
       source: entry.source,
       timestamp: entry.timestamp,
@@ -417,11 +418,11 @@ export function classifyPunch(recordsDoDia: TimeRecord[], dayDateStr: string): {
   const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
   if (import.meta.env.DEV && sorted.length === 4) {
      
-    console.log('[CLASSIFY] registros do dia:', sorted.length);
+    observabilityConsole.log('[CLASSIFY] registros do dia:', sorted.length);
      
-    console.log('[CLASSIFY] ordem:', times.join(', '));
+    observabilityConsole.log('[CLASSIFY] ordem:', times.join(', '));
      
-    console.log('[CLASSIFY] tipos: entrada, saída_int, volta_int, saída');
+    observabilityConsole.log('[CLASSIFY] tipos: entrada, saída_int, volta_int, saída');
   }
   return { sorted, times };
 }

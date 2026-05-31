@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Score agregado de saúde GEO operacional (0–100) a partir de métricas in-process.
  */
@@ -54,6 +55,6 @@ export function calculateOperationalGeoHealth(): OperationalGeoHealthResult {
     reconciliationRuns,
   };
 
-  console.info('[GEO HEALTH SCORE]', result);
+  observabilityConsole.info('[GEO HEALTH SCORE]', result);
   return result;
 }

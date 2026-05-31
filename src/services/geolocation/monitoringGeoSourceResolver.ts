@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Fonte única para o mapa de monitoramento: live_employee_location → current_operational_state → time_record.
  * Não mistura coordenadas entre fontes; aceita apenas a primeira camada que passa nas validações temporais e de drift.
@@ -83,7 +84,7 @@ function reject(
   log: boolean,
 ): ResolveRealtimeMonitoringLocationResult {
   if (log) {
-    console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source, reason });
+    observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source, reason });
   }
   return {
     source,
@@ -117,12 +118,12 @@ function driftBlocks(
     { latitude: lat, longitude: lng },
   );
   if (meters > DRIFT_MAX_M) {
-    console.info('[GEO DRIFT DETECTED]', {
+    observabilityConsole.info('[GEO DRIFT DETECTED]', {
       employee_id: employeeId,
       meters,
       delta_ms: deltaMs,
     });
-    console.info('[IMPOSSIBLE MOVEMENT BLOCKED]', {
+    observabilityConsole.info('[IMPOSSIBLE MOVEMENT BLOCKED]', {
       employee_id: employeeId,
       meters,
       delta_ms: deltaMs,
@@ -145,14 +146,14 @@ function temporalOk(
 ): { ok: boolean; capMs: number; freshness: number } {
   const n = normalizeOperationalDate(capturedAt, { quiet: true, source: 'monitoringGeoTemporal' });
   if (!n) {
-    console.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source, reason: 'unparseable_timestamp' });
+    observabilityConsole.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source, reason: 'unparseable_timestamp' });
     return { ok: false, capMs: nowMs, freshness: 0 };
   }
   const capMs = n.instantMs;
   const freshness = nowMs - capMs;
 
   if (isOperationalTimestampFuture(capturedAt, nowMs, MONITORING_GEO_FUTURE_TOLERANCE_MS)) {
-    console.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source, captured_at: capturedAt });
+    observabilityConsole.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source, captured_at: capturedAt });
     return { ok: false, capMs, freshness };
   }
 
@@ -192,14 +193,14 @@ function accept(
   const stale = freshness_ms > MONITORING_MARKER_STALE_HIDE_MS;
 
   if (log) {
-    console.info('[MONITORING GEO SOURCE ACCEPTED]', {
+    observabilityConsole.info('[MONITORING GEO SOURCE ACCEPTED]', {
       employee_id: employeeId,
       source,
       freshness_ms,
       stale,
       version,
     });
-    console.info('[MONITORING GEO RESOLVE]', {
+    observabilityConsole.info('[MONITORING GEO RESOLVE]', {
       employee_id: employeeId,
       source,
       latitude: lat,
@@ -257,7 +258,7 @@ export function resolveRealtimeMonitoringLocation(
     const live = input.live;
     if (!live || live.is_stale) {
       if (log && live?.is_stale) {
-        console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'live_employee_location', reason: 'flag_stale' });
+        observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'live_employee_location', reason: 'flag_stale' });
       }
       return null;
     }
@@ -271,7 +272,7 @@ export function resolveRealtimeMonitoringLocation(
     }
     const acc = live.accuracy;
     if (acc != null && Number.isFinite(acc) && acc > GEO_ACCURACY_BLOCK_MARKER_M) {
-      if (log) console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'live_employee_location', reason: 'accuracy' });
+      if (log) observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'live_employee_location', reason: 'accuracy' });
       return null;
     }
 
@@ -310,7 +311,7 @@ export function resolveRealtimeMonitoringLocation(
       if (!c.accepted) return reject(employeeId, 'live_employee_location', c.reason, version, t.freshness, log);
     }
 
-    if (log) console.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'live_candidate' });
+    if (log) observabilityConsole.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'live_candidate' });
     return accept(
       input.companyId,
       employeeId,
@@ -337,7 +338,7 @@ export function resolveRealtimeMonitoringLocation(
     if (validateCoordinateOrder(lat, lng).includes('invalid_range')) return null;
     const acc = cos.map_accuracy;
     if (acc != null && Number.isFinite(acc) && acc > GEO_ACCURACY_BLOCK_MARKER_M) {
-      if (log) console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'current_operational_state', reason: 'accuracy' });
+      if (log) observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'current_operational_state', reason: 'accuracy' });
       return null;
     }
 
@@ -377,7 +378,7 @@ export function resolveRealtimeMonitoringLocation(
       if (!c.accepted) return reject(employeeId, 'current_operational_state', c.reason, version, t.freshness, log);
     }
 
-    if (log) console.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'cos_candidate' });
+    if (log) observabilityConsole.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'cos_candidate' });
     return accept(
       input.companyId,
       employeeId,
@@ -403,7 +404,7 @@ export function resolveRealtimeMonitoringLocation(
     if (validateCoordinateOrder(lat, lng).includes('invalid_range')) return null;
     const acc = rec.accuracy;
     if (acc != null && Number.isFinite(acc) && acc > GEO_ACCURACY_BLOCK_MARKER_M) {
-      if (log) console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'time_record', reason: 'accuracy' });
+      if (log) observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: 'time_record', reason: 'accuracy' });
       return null;
     }
 
@@ -412,7 +413,7 @@ export function resolveRealtimeMonitoringLocation(
     const strictDate = strictOperationalDateGuard(rec.capturedAt, nowMs);
     if (!strictDate.ok) return reject(employeeId, 'time_record', `strict_date_${strictDate.reason}`, version, 0, log);
     if (isOperationalTimestampFuture(rec.capturedAt, nowMs, MONITORING_GEO_FUTURE_TOLERANCE_MS)) {
-      console.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source: 'time_record' });
+      observabilityConsole.info('[INVALID FUTURE GEO BLOCKED]', { employee_id: employeeId, source: 'time_record' });
       return null;
     }
     const freshness = nowMs - n.instantMs;
@@ -444,7 +445,7 @@ export function resolveRealtimeMonitoringLocation(
       if (!c.accepted) return reject(employeeId, 'time_record', c.reason, version, freshness, log);
     }
 
-    if (log) console.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'time_record_candidate' });
+    if (log) observabilityConsole.info('[MONITORING GEO RESOLVE]', { employee_id: employeeId, phase: 'time_record_candidate' });
     return accept(
       input.companyId,
       employeeId,
@@ -468,7 +469,7 @@ export function resolveRealtimeMonitoringLocation(
     return liveRes;
   }
   if (liveRes && liveRes.latitude != null && liveRes.stale) {
-    if (log) console.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'live_employee_location', freshness_ms: liveRes.freshness_ms });
+    if (log) observabilityConsole.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'live_employee_location', freshness_ms: liveRes.freshness_ms });
   }
 
   const cosRes = tryCos();
@@ -477,7 +478,7 @@ export function resolveRealtimeMonitoringLocation(
     return cosRes;
   }
   if (cosRes && cosRes.latitude != null && cosRes.stale) {
-    if (log) console.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'current_operational_state', freshness_ms: cosRes.freshness_ms });
+    if (log) observabilityConsole.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'current_operational_state', freshness_ms: cosRes.freshness_ms });
   }
 
   const recRes = tryRecord();
@@ -486,11 +487,11 @@ export function resolveRealtimeMonitoringLocation(
     return recRes;
   }
   if (recRes && recRes.latitude != null && recRes.stale) {
-    if (log) console.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'time_record', freshness_ms: recRes.freshness_ms });
+    if (log) observabilityConsole.info('[STALE MARKER HIDDEN]', { employee_id: employeeId, source: 'time_record', freshness_ms: recRes.freshness_ms });
   }
 
   if (log) {
-    console.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: null, reason: 'no_valid_source' });
+    observabilityConsole.info('[MONITORING GEO SOURCE REJECTED]', { employee_id: employeeId, source: null, reason: 'no_valid_source' });
   }
   return {
     source: null,

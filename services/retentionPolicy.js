@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Política de retenção e conformidade LGPD.
  *
@@ -148,7 +149,7 @@ export class RetentionPolicy {
       `Anonimização concluída: ${anonymized} registros`,
       { anonymized, skipped, cutoff });
 
-    console.log(`[RETENTION] ✓ ${anonymized} registros anonimizados (LGPD, cutoff: ${cutoff})`);
+    observabilityConsole.log(`[RETENTION] ✓ ${anonymized} registros anonimizados (LGPD, cutoff: ${cutoff})`);
     return { anonymized, skipped };
   }
 

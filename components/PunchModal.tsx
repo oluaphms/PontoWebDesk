@@ -14,6 +14,10 @@ import {
   type GeoPosition,
 } from '../src/services/locationService';
 import LocationMap from './LocationMap';
+import { validateUploadByPolicy } from '../src/shared/upload/uploadPolicies';
+import { readFileHead } from '../src/shared/upload/fileValidation';
+import { detectImageMime } from '../src/shared/upload/magicBytes';
+import { logger } from '../src/shared/logger/logger';
 
 interface PunchModalProps {
   user: User;
@@ -62,14 +66,28 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         navigator.mediaDevices.enumerateDevices().then(devices => {
           const videoDevices = devices.filter(d => d.kind === 'videoinput');
-          console.log('📹 Verificação inicial - dispositivos encontrados:', videoDevices.length);
+          logger.info({
+            module: 'punch.modal',
+            action: 'CAMERA_DEVICES_ENUMERATED',
+            message: 'Dispositivos de video enumerados',
+            userId: user.id,
+            companyId: user.companyId,
+            meta: { count: videoDevices.length },
+          });
           setAvailableDevices(videoDevices);
         }).catch((err) => {
-          console.warn('Falha ao enumerar dispositivos de vídeo:', err);
+          logger.warn({
+            module: 'punch.modal',
+            action: 'CAMERA_DEVICE_ENUMERATION_FAILED',
+            message: 'Falha ao enumerar dispositivos de video',
+            userId: user.id,
+            companyId: user.companyId,
+            error: err,
+          });
         });
       }
     }
-  }, [method, hasCamera]);
+  }, [method, hasCamera, user.id, user.companyId]);
 
   // Verificar disponibilidade de biometria
   useEffect(() => {
@@ -123,9 +141,15 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
 
   useEffect(() => {
     if (error) {
-      console.log('🔄 Erro definido:', error);
+      logger.warn({
+        module: 'punch.modal',
+        action: 'PUNCH_MODAL_ERROR_SET',
+        message: error,
+        userId: user.id,
+        companyId: user.companyId,
+      });
     }
-  }, [error]);
+  }, [error, user.id, user.companyId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -136,7 +160,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const requestLocation = async () => {
+  const requestLocation = useCallback(async () => {
     setError(null);
     setIsLocationLoading(true);
     setAddressInfo(null);
@@ -157,7 +181,14 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       if (result.ok === false) {
         setIsLocationLoading(false);
         setError(geolocationReasonMessage(result.reason));
-        console.warn('Falha ao obter localização:', result.reason);
+        logger.warn({
+          module: 'punch.modal',
+          action: 'LOCATION_FETCH_FAILED',
+          message: 'Falha ao obter localizacao',
+          userId: user.id,
+          companyId: user.companyId,
+          meta: { reason: result.reason },
+        });
         return;
       }
 
@@ -181,7 +212,14 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
           setAddressInfo(GeocodingService.formatShortAddress(geoResult));
         }
       } catch (err) {
-        console.warn('Geocoding falhou:', err);
+        logger.warn({
+          module: 'punch.modal',
+          action: 'REVERSE_GEOCODE_FAILED',
+          message: 'Falha no geocoding reverso',
+          userId: user.id,
+          companyId: user.companyId,
+          error: err,
+        });
       } finally {
         setAddressLoading(false);
       }
@@ -191,11 +229,11 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       setIsLocationLoading(false);
       setError('Não foi possível obter a localização. Verifique se o GPS está ativado.');
     }
-  };
+  }, [user.id, user.companyId]);
 
   useEffect(() => {
     requestLocation();
-  }, []);
+  }, [requestLocation]);
 
   useEffect(() => {
     if (method === PunchMethod.PHOTO) {
@@ -204,7 +242,13 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
   }, [method]);
 
   const startCamera = useCallback(async () => {
-    console.log('🎬 startCamera chamada');
+    logger.info({
+      module: 'punch.modal',
+      action: 'CAMERA_START_REQUESTED',
+      message: 'Solicitacao para iniciar camera',
+      userId: user.id,
+      companyId: user.companyId,
+    });
     setError(null);
     setIsCapturing(false);
 
@@ -228,18 +272,38 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
 
     let videoDevices: MediaDeviceInfo[] = [];
     try {
-      console.log('📹 Verificando dispositivos disponíveis...');
+      logger.info({
+        module: 'punch.modal',
+        action: 'CAMERA_DEVICES_CHECK_STARTED',
+        message: 'Verificando dispositivos de video',
+        userId: user.id,
+        companyId: user.companyId,
+      });
       try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         tempStream.getTracks().forEach(track => track.stop());
       } catch (e) {
-        console.warn('Falha ao testar câmera (pré-check):', e);
+        logger.warn({
+          module: 'punch.modal',
+          action: 'CAMERA_PRECHECK_FAILED',
+          message: 'Falha no pre-check da camera',
+          userId: user.id,
+          companyId: user.companyId,
+          error: e,
+        });
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-      console.log('📹 Dispositivos de vídeo encontrados:', videoDevices.length);
+      logger.info({
+        module: 'punch.modal',
+        action: 'CAMERA_DEVICES_AVAILABLE',
+        message: 'Dispositivos de video encontrados',
+        userId: user.id,
+        companyId: user.companyId,
+        meta: { count: videoDevices.length },
+      });
       setAvailableDevices(videoDevices);
 
       if (videoDevices.length === 0) {
@@ -250,7 +314,14 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
 
       setHasCamera(true);
     } catch (err) {
-      console.error('Erro ao verificar dispositivos:', err);
+      logger.error({
+        module: 'punch.modal',
+        action: 'CAMERA_DEVICES_CHECK_FAILED',
+        message: 'Erro ao verificar dispositivos de video',
+        userId: user.id,
+        companyId: user.companyId,
+        error: err,
+      });
     }
 
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -290,7 +361,13 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         const constraints = videoConstraints[i];
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log('✅ Acesso à câmera concedido');
+          logger.info({
+            module: 'punch.modal',
+            action: 'CAMERA_ACCESS_GRANTED',
+            message: 'Acesso a camera concedido',
+            userId: user.id,
+            companyId: user.companyId,
+          });
           break;
         } catch (err: any) {
           lastError = err;
@@ -351,14 +428,27 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         await videoRef.current.play();
         setIsCapturing(true);
         setError(null);
-        console.log('✅ Vídeo iniciado com sucesso');
+        logger.info({
+          module: 'punch.modal',
+          action: 'CAMERA_STREAM_STARTED',
+          message: 'Stream da camera iniciado',
+          userId: user.id,
+          companyId: user.companyId,
+        });
       } catch (playErr) {
         setError("Erro ao iniciar a visualização da câmera.");
         setIsCapturing(false);
       }
 
     } catch (err: any) {
-      console.error('❌ Erro ao acessar câmera:', err);
+      logger.error({
+        module: 'punch.modal',
+        action: 'CAMERA_ACCESS_FAILED',
+        message: 'Erro ao acessar camera',
+        userId: user.id,
+        companyId: user.companyId,
+        error: err,
+      });
       setIsCapturing(false);
 
       if (videoRef.current?.srcObject) {
@@ -390,7 +480,7 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
         setError(`Erro ao acessar a câmera: ${err.message || 'Erro desconhecido'}.`);
       }
     }
-  }, []);
+  }, [user.id, user.companyId]);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current?.srcObject) {
@@ -431,17 +521,23 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
     };
   }, [method, photo, showTroubleshoot, error, isCapturing, startCamera, stopCamera]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
+    const policy = validateUploadByPolicy({
+      policy: 'punchPhoto',
+      fileName: file.name || 'punch.jpg',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!policy.ok) {
       setError('Por favor, selecione um arquivo de imagem válido.');
       return;
     }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('A imagem deve ter no máximo 5MB.');
+    const head = await readFileHead(file, 32);
+    if (!detectImageMime(head)) {
+      setError('Conteúdo da imagem inválido.');
       return;
     }
 
@@ -520,14 +616,28 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
           }
         }
       } catch (faceErr) {
-        console.warn('Face detection não suportada ou falhou:', faceErr);
+        logger.warn({
+          module: 'punch.modal',
+          action: 'FACE_DETECTION_FAILED',
+          message: 'Face detection indisponivel ou falhou',
+          userId: user.id,
+          companyId: user.companyId,
+          error: faceErr,
+        });
       }
 
       setPhoto(data);
       stopCamera();
       setError(null);
     } catch (err) {
-      console.error('Erro ao capturar foto:', err);
+      logger.error({
+        module: 'punch.modal',
+        action: 'PHOTO_CAPTURE_FAILED',
+        message: 'Erro ao capturar foto',
+        userId: user.id,
+        companyId: user.companyId,
+        error: err,
+      });
       setError("Erro ao capturar foto. Verifique as permissões.");
     }
   };
@@ -547,10 +657,24 @@ const PunchModal: React.FC<PunchModalProps> = ({ user, type, onClose, onConfirm,
       const cameraPermission = await navigator.permissions.query({ name: 'camera' as PermissionName });
       (diagnostics as any).cameraPermission = cameraPermission.state;
     } catch (e) {
-      console.warn('Falha ao consultar permissão de câmera:', e);
+      logger.warn({
+        module: 'punch.modal',
+        action: 'CAMERA_PERMISSION_QUERY_FAILED',
+        message: 'Falha ao consultar permissao de camera',
+        userId: user.id,
+        companyId: user.companyId,
+        error: e,
+      });
     }
 
-    console.log('=== DIAGNÓSTICO DA CÂMERA ===', JSON.stringify(diagnostics, null, 2));
+    logger.info({
+      module: 'punch.modal',
+      action: 'CAMERA_DIAGNOSTIC_EXECUTED',
+      message: 'Diagnostico de camera executado',
+      userId: user.id,
+      companyId: user.companyId,
+      meta: diagnostics as Record<string, unknown>,
+    });
     setError(`Diagnóstico executado. Verifique o console (F12).`);
   };
 

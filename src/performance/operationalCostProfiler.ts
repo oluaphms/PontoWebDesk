@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Governança de custo operacional — agregados em memória (sem PII).
  */
@@ -57,6 +58,6 @@ export const operationalCostProfiler = {
     if (t - lastAggregateLog < intervalMs) return;
     lastAggregateLog = t;
     if (supabaseReads.n === 0 && supabaseWrites.n === 0 && realtimeMessages.n === 0) return;
-    console.info('[OPERATIONAL COST AGG]', this.snapshot());
+    observabilityConsole.info('[OPERATIONAL COST AGG]', this.snapshot());
   },
 };

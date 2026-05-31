@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Resolver único para telas operacionais: status + GEO alinhados (COS, live, último registro).
  */
@@ -110,7 +111,7 @@ function applyResolvedGeo(
   }
 
   if (resolved.stale || resolved.confidence === 'INVALID') {
-    console.info('[MAP MARKER HARD REFRESH]', {
+    observabilityConsole.info('[MAP MARKER HARD REFRESH]', {
       employee_id: row.userId,
       reason: resolved.stale ? 'stale_threshold' : 'invalid_confidence',
       freshness_ms: resolved.freshness_ms,
@@ -129,7 +130,7 @@ function applyResolvedGeo(
   }
 
   const mapMarkerKey = [row.userId, resolved.captured_at, String(resolved.version), resolved.lineage_updated_at ?? ''].join('|');
-  console.info('[MAP MARKER VERSION CHANGE]', { employee_id: row.userId, map_marker_version_key: mapMarkerKey });
+  observabilityConsole.info('[MAP MARKER VERSION CHANGE]', { employee_id: row.userId, map_marker_version_key: mapMarkerKey });
 
   return {
     ...row,

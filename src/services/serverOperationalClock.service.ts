@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Alinha relógio operacional ao servidor (Supabase) e expõe confiança temporal.
  */
@@ -44,7 +45,7 @@ export async function syncServerOperationalClockOffset(): Promise<void> {
   lastServerSyncOk = true;
   lastServerSyncedAt = t1;
   if (Math.abs(offset) > DRIFT_WARN_MS) {
-    console.warn('[CLOCK OFFSET DETECTED]', { offset_ms: offset, rtt_ms: rtt });
+    observabilityConsole.warn('[CLOCK OFFSET DETECTED]', { offset_ms: offset, rtt_ms: rtt });
   }
 }
 

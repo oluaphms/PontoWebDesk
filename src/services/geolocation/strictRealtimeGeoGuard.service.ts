@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { distanceMeters } from './geoDistance.service';
 import { geoSnapshotChecksumChanged } from './geoSnapshotChecksum';
 import { scheduleOperationalLegalAudit } from '../operationalLegalAuditTrail.service';
@@ -50,14 +51,14 @@ export function validateStrictRealtimeGeoCandidate(
   const nowMs = Date.now();
   const strictTs = assertOperationalRealtimeTimestamp(candidate.capturedAtIso, nowMs);
   if (!strictTs.ok) {
-    console.warn('[STRICT GEO TEMPORAL BLOCK]', {
+    observabilityConsole.warn('[STRICT GEO TEMPORAL BLOCK]', {
       employee_id: candidate.employeeId,
       reason: 'strict_realtime_clock',
     });
     return { ok: false, reason: 'strict_realtime_clock' };
   }
   if (!assertOperationalTemporalMonotonicity(`${candidate.employeeId}:geo`, strictTs.instantMs!)) {
-    console.warn('[STRICT GEO TEMPORAL BLOCK]', {
+    observabilityConsole.warn('[STRICT GEO TEMPORAL BLOCK]', {
       employee_id: candidate.employeeId,
       reason: 'temporal_monotonicity_violation',
     });
@@ -65,26 +66,26 @@ export function validateStrictRealtimeGeoCandidate(
   }
 
   const block = (reason: string): { ok: false; reason: string } => {
-    console.warn('[STRICT GEO BLOCK]', {
+    observabilityConsole.warn('[STRICT GEO BLOCK]', {
       employee_id: candidate.employeeId,
       company_id: candidate.companyId,
       source: candidate.source,
       reason,
     });
     if (reason.includes('temporal') || reason.includes('captured_at')) {
-      console.warn('[STRICT TEMPORAL REGRESSION]', {
+      observabilityConsole.warn('[STRICT TEMPORAL REGRESSION]', {
         employee_id: candidate.employeeId,
         reason,
         captured_at: candidate.capturedAtIso,
       });
     }
     if (reason.includes('stale')) {
-      console.warn('[STRICT STALE POSITION]', {
+      observabilityConsole.warn('[STRICT STALE POSITION]', {
         employee_id: candidate.employeeId,
         reason,
       });
     }
-    console.warn('[STRICT GEO INVALIDATED]', { employee_id: candidate.employeeId });
+    observabilityConsole.warn('[STRICT GEO INVALIDATED]', { employee_id: candidate.employeeId });
 
     if (candidate.companyId && getOperationalFeatureFlag('operationalIncidents', { companyId: candidate.companyId })) {
       openAutoOperationalIncident({
@@ -132,22 +133,22 @@ export function validateStrictRealtimeGeoCandidate(
 
   if (prev) {
     if (candidate.capturedAtMs < prev.capturedAtMs) {
-      console.warn('[STRICT GEO TEMPORAL BLOCK]', { employee_id: candidate.employeeId, reason: 'captured_at_regression' });
+      observabilityConsole.warn('[STRICT GEO TEMPORAL BLOCK]', { employee_id: candidate.employeeId, reason: 'captured_at_regression' });
       return block('captured_at_regression');
     }
     if ((candidate.stateVersion ?? 0) < prev.stateVersion) {
-      console.warn('[STRICT GEO VERSION BLOCK]', { employee_id: candidate.employeeId, reason: 'state_version_regression' });
+      observabilityConsole.warn('[STRICT GEO VERSION BLOCK]', { employee_id: candidate.employeeId, reason: 'state_version_regression' });
       return block('state_version_regression');
     }
     if (candidate.checksum && prev.checksum && geoSnapshotChecksumChanged(prev.checksum, candidate.checksum)) {
       // checksum diferente é esperado; bloqueia apenas se evento temporal regrediu junto
       if (candidate.capturedAtMs <= prev.capturedAtMs) {
-        console.warn('[STRICT GEO CHECKSUM BLOCK]', { employee_id: candidate.employeeId, reason: 'checksum_regression_with_temporal_regression' });
+        observabilityConsole.warn('[STRICT GEO CHECKSUM BLOCK]', { employee_id: candidate.employeeId, reason: 'checksum_regression_with_temporal_regression' });
         return block('checksum_regression_with_temporal_regression');
       }
     }
     if (prev.lineageUpdatedAt && candidate.lineageUpdatedAt && candidate.lineageUpdatedAt < prev.lineageUpdatedAt) {
-      console.warn('[STRICT GEO LINEAGE BLOCK]', { employee_id: candidate.employeeId, reason: 'lineage_regression' });
+      observabilityConsole.warn('[STRICT GEO LINEAGE BLOCK]', { employee_id: candidate.employeeId, reason: 'lineage_regression' });
       return block('lineage_regression');
     }
     const dt = candidate.capturedAtMs - prev.capturedAtMs;

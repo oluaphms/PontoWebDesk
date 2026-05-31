@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { useEffect, useRef, useState } from 'react';
 import { getSchemaGuardError } from '@/services/schemaGuard';
 import { safeJsonStringify } from '@/services/schemaGuardReporter';
@@ -28,9 +29,9 @@ export default function SchemaGuardBadge() {
       if (navigator.clipboard?.writeText) {
         void navigator.clipboard.writeText(payload);
       }
-      console.info('[SCHEMA GUARD DEBUG] relatório copiado para suporte');
+      observabilityConsole.info('[SCHEMA GUARD DEBUG] relatório copiado para suporte');
     } catch {
-      console.info('[SCHEMA GUARD DEBUG] relatório copiado para suporte');
+      observabilityConsole.info('[SCHEMA GUARD DEBUG] relatório copiado para suporte');
     }
   };
 
@@ -68,14 +69,14 @@ export default function SchemaGuardBadge() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      console.log('[SCHEMA GUARD DEBUG] relatório exportado (.json)');
+      observabilityConsole.log('[SCHEMA GUARD DEBUG] relatório exportado (.json)');
       setJustExported(true);
       if (exportTimeoutRef.current) {
         clearTimeout(exportTimeoutRef.current);
       }
       exportTimeoutRef.current = setTimeout(() => setJustExported(false), 1500);
     } catch (error) {
-      console.error('[SCHEMA GUARD DEBUG] erro ao exportar relatório', error);
+      observabilityConsole.error('[SCHEMA GUARD DEBUG] erro ao exportar relatório', error);
     }
   };
 
@@ -123,14 +124,14 @@ export default function SchemaGuardBadge() {
       }
       if (e.key === 'r' && e.ctrlKey && e.shiftKey) {
         (window as any).__SCHEMA_GUARD_DEBUG__?.resetAll?.();
-        console.info('[SCHEMA GUARD DEBUG] reset completo via atalho');
+        observabilityConsole.info('[SCHEMA GUARD DEBUG] reset completo via atalho');
         return;
       }
       if (e.key === 'r' && e.ctrlKey) {
         (window as any).__SCHEMA_GUARD_DEBUG__?.clear();
       }
       if (e.key.toLowerCase() === 'g' && e.ctrlKey && e.shiftKey) {
-        console.warn('[SCHEMA GUARD DEBUG]', getSchemaGuardError());
+        observabilityConsole.warn('[SCHEMA GUARD DEBUG]', getSchemaGuardError());
       }
       if (e.key.toLowerCase() === 'd' && e.altKey && e.shiftKey) {
         altShiftDActiveRef.current = true;
@@ -235,21 +236,21 @@ export default function SchemaGuardBadge() {
           copySchemaGuardReport();
           return;
         }
-        console.warn('[SCHEMA GUARD DEBUG]', state);
+        observabilityConsole.warn('[SCHEMA GUARD DEBUG]', state);
         if (event.altKey) {
           try {
             const payload = JSON.stringify(state);
             if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
               void navigator.clipboard.writeText(payload);
             }
-            console.info('[SCHEMA GUARD DEBUG] estado copiado');
+            observabilityConsole.info('[SCHEMA GUARD DEBUG] estado copiado');
           } catch {
-            console.info('[SCHEMA GUARD DEBUG] estado copiado');
+            observabilityConsole.info('[SCHEMA GUARD DEBUG] estado copiado');
           }
           return;
         }
         if (typeof window !== 'undefined' && (window as any).__SCHEMA_GUARD_DEBUG__) {
-          console.info('Use __SCHEMA_GUARD_DEBUG__.clear() para resetar');
+          observabilityConsole.info('Use __SCHEMA_GUARD_DEBUG__.clear() para resetar');
         }
       }}
       onMouseDown={(event) => {

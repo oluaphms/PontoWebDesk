@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Serviço de tema (modo escuro automático)
  * Fonte única de persistência: `theme`; lê legado `smartponto_theme` se necessário.
@@ -22,7 +23,7 @@ export const ThemeService = {
       if (v === 'light' || v === 'dark' || v === 'auto') return v;
       return null;
     } catch (err) {
-      console.warn('[themeService] Falha ao ler tema salvo:', err);
+      observabilityConsole.warn('[themeService] Falha ao ler tema salvo:', err);
       return null;
     }
   },
@@ -42,7 +43,7 @@ export const ThemeService = {
       localStorage.setItem(THEME_KEY, theme);
       localStorage.setItem(LEGACY_THEME_KEY, theme);
     } catch (err) {
-      console.warn('[themeService] Falha ao salvar tema:', err);
+      observabilityConsole.warn('[themeService] Falha ao salvar tema:', err);
     }
   },
 

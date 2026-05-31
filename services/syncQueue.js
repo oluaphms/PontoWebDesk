@@ -17,6 +17,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { observabilityConsole } from './observabilityConsole.js';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,11 @@ export class SyncQueue {
 
   close() {
     if (this._db) {
-      try { this._db.close(); } catch { /* ignore */ }
+      try {
+        this._db.close();
+      } catch (error) {
+        observabilityConsole.warn('[syncQueue] Falha ao fechar SQLite:', error);
+      }
       this._db = null;
     }
   }
@@ -459,7 +464,9 @@ export class SyncQueue {
           last_reconciled_at = COALESCE(excluded.last_reconciled_at, last_reconciled_at),
           updated_at         = excluded.updated_at
       `).run(id, fields.lastProcessedAt ?? null, fields.lastReconciledAt ?? null, now);
-    } catch { /* best-effort */ }
+    } catch (error) {
+      observabilityConsole.warn('[syncQueue] Falha ao salvar checkpoint:', error);
+    }
   }
 
   /**
@@ -474,7 +481,10 @@ export class SyncQueue {
       ).get(id);
       if (!row) return null;
       return { lastProcessedAt: row.last_processed_at, lastReconciledAt: row.last_reconciled_at };
-    } catch { return null; }
+    } catch (error) {
+      observabilityConsole.warn('[syncQueue] Falha ao ler checkpoint:', error);
+      return null;
+    }
   }
 
   /**

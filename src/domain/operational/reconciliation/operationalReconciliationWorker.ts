@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Worker de reconciliação multi-fonte (COS, live, batidas, timeline) com limite por tenant.
  */
@@ -51,7 +52,7 @@ export async function runOperationalReconciliationWorker(input: {
   const unique = Array.from(new Set(companyIds.filter(Boolean)));
   const limited = unique.slice(0, maxTenantsPerRun);
 
-  console.info('[RECONCILIATION START]', {
+  observabilityConsole.info('[RECONCILIATION START]', {
     correlation_id: correlationId,
     tenants: limited.length,
     auto_repair: autoRepair,
@@ -64,21 +65,21 @@ export async function runOperationalReconciliationWorker(input: {
   for (const batch of chunk(limited, chunkSize)) {
     for (const companyId of batch) {
       if (!retryBudget.allow(`${TENANT_BUDGET_KEY}:${companyId}`, 20)) {
-        console.info('[RECONCILIATION FAILED]', { company_id: companyId, reason: 'tenant_budget' });
+        observabilityConsole.info('[RECONCILIATION FAILED]', { company_id: companyId, reason: 'tenant_budget' });
         continue;
       }
       try {
         const cos = await auditCurrentOperationalStateIntegrity(client, companyId);
         const timelineFindings = await auditTimelineIntegrity(client, companyId);
         if (cos.details.length > 0) {
-          console.warn('[RECONCILIATION DRIFT]', {
+          observabilityConsole.warn('[RECONCILIATION DRIFT]', {
             company_id: companyId,
             drift: cos.drift_count,
             samples: cos.details.slice(0, 8),
           });
         }
         if (timelineFindings.length > 0) {
-          console.warn('[RECONCILIATION DRIFT]', {
+          observabilityConsole.warn('[RECONCILIATION DRIFT]', {
             company_id: companyId,
             kind: 'timeline',
             findings: timelineFindings.length,
@@ -88,7 +89,7 @@ export async function runOperationalReconciliationWorker(input: {
           const { repaired_count } = await repairOperationalStateDrift(client, companyId, correlationId);
           tenants_repaired += repaired_count > 0 ? 1 : 0;
           if (repaired_count > 0) {
-            console.info('[RECONCILIATION AUTO FIX]', { company_id: companyId, repaired_count });
+            observabilityConsole.info('[RECONCILIATION AUTO FIX]', { company_id: companyId, repaired_count });
           }
         }
         reports.push({
@@ -97,12 +98,12 @@ export async function runOperationalReconciliationWorker(input: {
           timelineIssues: timelineFindings.reduce((a, f) => a + f.count, 0),
         });
       } catch (e) {
-        console.warn('[RECONCILIATION FAILED]', { company_id: companyId, error: String(e) });
+        observabilityConsole.warn('[RECONCILIATION FAILED]', { company_id: companyId, error: String(e) });
       }
     }
   }
 
-  console.info('[RECONCILIATION COMPLETE]', {
+  observabilityConsole.info('[RECONCILIATION COMPLETE]', {
     correlation_id: correlationId,
     scanned: reports.length,
     repaired_tenants: tenants_repaired,

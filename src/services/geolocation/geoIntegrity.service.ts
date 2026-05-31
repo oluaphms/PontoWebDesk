@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { isImpossibleMovement } from './geoDistance.service';
 
 export type GeoSnapshot = {
@@ -32,7 +33,7 @@ type GeoContext = {
 
 function logGeo(tag: string, payload: Record<string, unknown>): void {
   if (typeof console === 'undefined') return;
-  console.info(tag, payload);
+  observabilityConsole.info(tag, payload);
 }
 
 export function validateCoordinateOrder(lat: number, lng: number): GeoValidationIssue[] {

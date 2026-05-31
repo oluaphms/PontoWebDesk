@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Snapshot de segurança diário.
  *
@@ -145,7 +146,7 @@ export class SnapshotService {
       `Snapshot concluído: ${timeRecords.length} registros, ${sizeBytes} bytes`,
       { filename, sizeBytes, checksum, localPath, remotePath });
 
-    console.log(`[SNAPSHOT] ✓ ${filename} — ${timeRecords.length} registros, ${(sizeBytes / 1024).toFixed(1)}KB`);
+    observabilityConsole.log(`[SNAPSHOT] ✓ ${filename} — ${timeRecords.length} registros, ${(sizeBytes / 1024).toFixed(1)}KB`);
 
     return { localPath, remotePath, sizeBytes };
   }

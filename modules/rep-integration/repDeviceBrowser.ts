@@ -37,7 +37,8 @@ async function readJsonOrText(res: Response): Promise<Record<string, unknown>> {
   if (!text.trim()) return {};
   try {
     return JSON.parse(text) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    void error;
     return { _raw: text.slice(0, 500) };
   }
 }
@@ -68,8 +69,8 @@ function normalizeApiError(data: Record<string, unknown>, status: number): strin
   try {
     const s = JSON.stringify(data);
     if (s !== '{}') return s.length > 400 ? `${s.slice(0, 400)}…` : s;
-  } catch {
-    /* ignore */
+  } catch (error) {
+    void error;
   }
   return `HTTP ${status}`;
 }
@@ -90,7 +91,8 @@ export function toUiString(v: unknown, fallback = ''): string {
   try {
     const s = JSON.stringify(v);
     return s.length > 520 ? `${s.slice(0, 520)}…` : s;
-  } catch {
+  } catch (error) {
+    void error;
     return fallback;
   }
 }

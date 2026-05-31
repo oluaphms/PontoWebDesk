@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Motor de alertas operacionais (espelho + REP + status reconciliado).
  */
@@ -169,7 +170,7 @@ export async function evaluateAndNotifyCompanyOperationalRisk(
     .eq('resolved', false);
 
   if (aErr) {
-    console.error('[OPERATIONAL RISK] Falha ao ler alertas', { companyId: company, message: aErr.message });
+    observabilityConsole.error('[OPERATIONAL RISK] Falha ao ler alertas', { companyId: company, message: aErr.message });
     return;
   }
 
@@ -180,7 +181,7 @@ export async function evaluateAndNotifyCompanyOperationalRisk(
     .maybeSingle();
 
   if (sErr) {
-    console.error('[OPERATIONAL RISK] Falha ao ler SLA', { companyId: company, message: sErr.message });
+    observabilityConsole.error('[OPERATIONAL RISK] Falha ao ler SLA', { companyId: company, message: sErr.message });
   }
 
   const sla = (slaRow ?? null) as OperationalSlaConfigRow | null;
@@ -218,7 +219,7 @@ export async function replaceOperationalAlertsForDay(
     .eq('date', day);
 
   if (delErr) {
-    console.error('[OPERATIONAL ALERTS DELETE FAILED]', {
+    observabilityConsole.error('[OPERATIONAL ALERTS DELETE FAILED]', {
       companyId: company,
       employeeId: emp,
       date: day,
@@ -235,7 +236,7 @@ export async function replaceOperationalAlertsForDay(
   });
 
   if (alerts.length === 0) {
-    console.log('[OPERATIONAL ALERTS SYNCED]', { companyId: company, employeeId: emp, date: day, count: 0 });
+    observabilityConsole.log('[OPERATIONAL ALERTS SYNCED]', { companyId: company, employeeId: emp, date: day, count: 0 });
     await evaluateAndNotifyCompanyOperationalRisk(supabase, company);
     return;
   }
@@ -255,7 +256,7 @@ export async function replaceOperationalAlertsForDay(
   const { error: insErr } = await supabase.from('operational_alerts').insert(rows);
 
   if (insErr) {
-    console.error('[OPERATIONAL ALERTS INSERT FAILED]', {
+    observabilityConsole.error('[OPERATIONAL ALERTS INSERT FAILED]', {
       companyId: company,
       employeeId: emp,
       date: day,
@@ -264,7 +265,7 @@ export async function replaceOperationalAlertsForDay(
     return;
   }
 
-  console.log('[OPERATIONAL ALERTS SYNCED]', {
+  observabilityConsole.log('[OPERATIONAL ALERTS SYNCED]', {
     companyId: company,
     employeeId: emp,
     date: day,

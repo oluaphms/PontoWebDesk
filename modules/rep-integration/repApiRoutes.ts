@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Handlers HTTP para /api/rep/* (função serverless em api/rep/[slug].ts — limite Hobby 12).
  */
@@ -27,6 +28,7 @@ import {
   validateAfdUpload,
 } from '../../src/shared/upload/fileValidation.js';
 import { UPLOAD_LIMITS } from '../../src/shared/upload/limits.js';
+import { validateUploadedFile } from '../../src/shared/upload/validateUploadedFile.js';
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
@@ -91,7 +93,7 @@ async function fetchUserRowForRepPush(
   if (ctx) {
     const cols = await safeUserSelectColumns(ctx.admin, requested);
     const { data, error } = await ctx.admin.from('users').select(cols.join(',')).eq('id', userId).maybeSingle();
-    if (error) console.error('[USERS QUERY ERROR]', error);
+    if (error) observabilityConsole.error('[USERS QUERY ERROR]', error);
     if (error || !data) {
       return repJson({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
     }
@@ -121,7 +123,7 @@ async function fetchUserRowForRepPush(
   });
   const cols = await safeUserSelectColumns(userClient, requested);
   const { data, error } = await userClient.from('users').select(cols.join(',')).eq('id', userId).maybeSingle();
-  if (error) console.error('[USERS QUERY ERROR]', error);
+  if (error) observabilityConsole.error('[USERS QUERY ERROR]', error);
   if (error || !data) {
     return repJson({ error: 'Funcionário não encontrado' }, { status: 404, headers: JSON_HDR });
   }
@@ -199,7 +201,7 @@ async function handlePushEmployee(request: Request): Promise<Response> {
     return repJson({ ok: result.ok, message: result.message }, { status: 200, headers });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Erro interno no proxy REP (push-employee)';
-    console.error('[api/rep/push-employee]', e);
+    observabilityConsole.error('[api/rep/push-employee]', e);
     return repJson({ ok: false, error: message }, { status: 500, headers });
   }
 }
@@ -264,7 +266,7 @@ async function handleExchange(request: Request): Promise<Response> {
     try {
       return repJson(result, { status: 200, headers });
     } catch (ser: unknown) {
-      console.error('[api/rep/exchange] JSON serialize', ser);
+      observabilityConsole.error('[api/rep/exchange] JSON serialize', ser);
       return repJson(
         {
           ok: false,
@@ -275,7 +277,7 @@ async function handleExchange(request: Request): Promise<Response> {
     }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Erro interno no proxy REP (exchange)';
-    console.error('[api/rep/exchange]', e);
+    observabilityConsole.error('[api/rep/exchange]', e);
     return repJson({ ok: false, error: message }, { status: 500, headers });
   }
 }
@@ -354,7 +356,7 @@ async function handleStatus(request: Request): Promise<Response> {
     try {
       return repJson(payload, { status: 200, headers });
     } catch (ser: unknown) {
-      console.error('[api/rep/status] JSON serialize', ser);
+      observabilityConsole.error('[api/rep/status] JSON serialize', ser);
       return repJson(
         {
           ok: r.ok,
@@ -366,7 +368,7 @@ async function handleStatus(request: Request): Promise<Response> {
     }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Erro interno no proxy REP (status)';
-    console.error('[api/rep/status]', e);
+    observabilityConsole.error('[api/rep/status]', e);
     return repJson({ ok: false, error: message }, { status: 500, headers });
   }
 }
@@ -414,7 +416,7 @@ async function handlePunches(request: Request): Promise<Response> {
     try {
       const punches = await getPunchesFromDeviceServer(device, since);
       if (punches.length === 0) {
-        console.warn('[api/rep/punches] Nenhuma marcação retornada pelo adaptador.', {
+        observabilityConsole.warn('[api/rep/punches] Nenhuma marcação retornada pelo adaptador.', {
           device_id: device.id,
           since: since?.toISOString(),
         });
@@ -422,7 +424,7 @@ async function handlePunches(request: Request): Promise<Response> {
       try {
         return repJson({ ok: true, punches }, { status: 200, headers });
       } catch (ser: unknown) {
-        console.error('[api/rep/punches] JSON serialize', ser);
+        observabilityConsole.error('[api/rep/punches] JSON serialize', ser);
         return repJson(
           { ok: false, message: 'Resposta do relógio não pôde ser serializada (dados inválidos).' },
           { status: 500, headers }
@@ -434,7 +436,7 @@ async function handlePunches(request: Request): Promise<Response> {
     }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Erro interno no proxy REP';
-    console.error('[api/rep/punches]', e);
+    observabilityConsole.error('[api/rep/punches]', e);
     return repJson({ ok: false, error: message }, { status: 500, headers });
   }
 }
@@ -556,6 +558,28 @@ async function handleImportAfd(request: Request): Promise<Response> {
         );
       }
       const head = new TextEncoder().encode(fileContent.slice(0, 2048));
+      const bytes = new TextEncoder().encode(fileContent);
+      const centralized = validateUploadedFile({
+        uploadType: 'afdImport',
+        filename: body.filename || 'import.txt',
+        mimeType: 'text/plain',
+        size: byteLen,
+        buffer: bytes,
+      });
+      if (centralized.ok === false) {
+        observabilityConsole.warn('[UPLOAD_REJECTED]', {
+          endpoint: '/api/rep/import-afd',
+          uploadType: 'afdImport',
+          reason: centralized.code.toLowerCase(),
+          fileName: body.filename || 'import.txt',
+          mimeType: 'text/plain',
+          size: byteLen,
+        });
+        return repJson(
+          { error: centralized.message, code: centralized.code },
+          { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+        );
+      }
       const afdCheck = validateAfdUpload({
         filename: body.filename || 'import.txt',
         declaredMime: 'text/plain',
@@ -582,6 +606,28 @@ async function handleImportAfd(request: Request): Promise<Response> {
       return repJson({ error: 'company_id e file obrigatórios' }, { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } });
     }
     const head = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
+    const fullBuffer = new Uint8Array(await file.arrayBuffer());
+    const centralized = validateUploadedFile({
+      uploadType: 'afdImport',
+      filename: file.name || 'import.txt',
+      mimeType: file.type || '',
+      size: file.size,
+      buffer: fullBuffer,
+    });
+    if (centralized.ok === false) {
+      observabilityConsole.warn('[UPLOAD_REJECTED]', {
+        endpoint: '/api/rep/import-afd',
+        uploadType: 'afdImport',
+        reason: centralized.code.toLowerCase(),
+        fileName: file.name || 'import.txt',
+        mimeType: file.type || '',
+        size: file.size,
+      });
+      return repJson(
+        { error: centralized.message, code: centralized.code },
+        { status: 400, headers: { ...corsImport, 'Content-Type': 'application/json' } },
+      );
+    }
     const afdCheck = validateAfdUpload({
       filename: file.name || 'import.txt',
       declaredMime: file.type || '',

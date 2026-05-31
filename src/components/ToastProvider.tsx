@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, {
   createContext,
   useCallback,
@@ -47,7 +48,7 @@ export const useToast = (): ToastContextValue => {
   );
   if (ctx) return ctx;
   if (import.meta.env?.DEV) {
-    console.warn('[useToast] Nenhum ToastProvider encontrado — mensagens vão para o console.');
+    observabilityConsole.warn('[useToast] Nenhum ToastProvider encontrado — mensagens vão para o console.');
   }
   return fallback;
 };

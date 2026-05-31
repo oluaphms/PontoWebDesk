@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -103,4 +104,4 @@ GRANT EXECUTE ON FUNCTION public.rep_ingest_punch(
 `;
 
 fs.writeFileSync(outPath, schema + fn + footer);
-console.log('OK', outPath, fs.statSync(outPath).size);
+observabilityConsole.log('OK', outPath, fs.statSync(outPath).size);

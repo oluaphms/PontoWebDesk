@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Hierarquia de confiabilidade GPS em tempo real (monitoramento — não jurídico).
  */
@@ -76,10 +77,10 @@ export function evaluateRealtimeGpsReliability(
   const rangeIssues = validateCoordinateOrder(input.latitude, input.longitude);
   if (rangeIssues.includes('invalid_range')) {
     if (log) {
-      console.info('[GEO HARDLOCK]', { op: 'invalid_coordinates' });
-      console.info('[GEO POSITION REJECTED]', { reason: 'invalid_lat_lng', employee_id: input.employeeId });
+      observabilityConsole.info('[GEO HARDLOCK]', { op: 'invalid_coordinates' });
+      observabilityConsole.info('[GEO POSITION REJECTED]', { reason: 'invalid_lat_lng', employee_id: input.employeeId });
     }
-    if (log) console.warn('[GEO RELIABILITY EVALUATION]', { accepted: false, reason: 'invalid_lat_lng' });
+    if (log) observabilityConsole.warn('[GEO RELIABILITY EVALUATION]', { accepted: false, reason: 'invalid_lat_lng' });
     if (!silent) {
       recordOperationalMetric('geo_invalid_realtime_movement', 1, {
         company_id: input.companyId ?? null,
@@ -91,7 +92,7 @@ export function evaluateRealtimeGpsReliability(
   }
 
   if (isMockSuspected(input.provider, input.accuracyMeters)) {
-    if (log) console.warn('[GEO MOCK SUSPECTED]', { provider: input.provider, employee_id: input.employeeId });
+    if (log) observabilityConsole.warn('[GEO MOCK SUSPECTED]', { provider: input.provider, employee_id: input.employeeId });
     if (!silent) {
       recordOperationalMetric('geo_mock_suspected', 1, {
         company_id: input.companyId ?? null,
@@ -103,7 +104,7 @@ export function evaluateRealtimeGpsReliability(
   }
 
   if (input.coordinateAgeMs > STALE_MS) {
-    if (log) console.warn('[GEO STALE COORDINATE]', { age_ms: input.coordinateAgeMs, employee_id: input.employeeId });
+    if (log) observabilityConsole.warn('[GEO STALE COORDINATE]', { age_ms: input.coordinateAgeMs, employee_id: input.employeeId });
     if (!silent) {
       recordOperationalMetric('geo_stale_coordinate_blocked', 1, {
         company_id: input.companyId ?? null,
@@ -116,7 +117,7 @@ export function evaluateRealtimeGpsReliability(
 
   const speed = input.speedMps;
   if (speed != null && Number.isFinite(speed) && speed > MAX_SPEED_MPS) {
-    if (log) console.warn('[GEO RELIABILITY EVALUATION]', { accepted: false, reason: 'speed', speed_mps: speed });
+    if (log) observabilityConsole.warn('[GEO RELIABILITY EVALUATION]', { accepted: false, reason: 'speed', speed_mps: speed });
     if (!silent) {
       recordOperationalMetric('geo_invalid_realtime_movement', 1, {
         company_id: input.companyId ?? null,
@@ -137,7 +138,7 @@ export function evaluateRealtimeGpsReliability(
       );
       if (meters > TELEPORT_M) {
         if (log) {
-          console.warn('[GEO TELEPORT DETECTED]', {
+          observabilityConsole.warn('[GEO TELEPORT DETECTED]', {
             meters,
             delta_ms: deltaMs,
             employee_id: input.employeeId,
@@ -158,9 +159,9 @@ export function evaluateRealtimeGpsReliability(
   const tier = accuracyTier(input.accuracyMeters);
   if (tier === 'INVALID') {
     if (log) {
-      console.warn('[GEO MAP BLOCKED]', { accuracy: input.accuracyMeters, employee_id: input.employeeId });
-      console.info('[GEO HARDLOCK]', { op: 'accuracy_gt_300m' });
-      console.info('[GEO POSITION REJECTED]', { reason: 'accuracy_map_block', accuracy: input.accuracyMeters });
+      observabilityConsole.warn('[GEO MAP BLOCKED]', { accuracy: input.accuracyMeters, employee_id: input.employeeId });
+      observabilityConsole.info('[GEO HARDLOCK]', { op: 'accuracy_gt_300m' });
+      observabilityConsole.info('[GEO POSITION REJECTED]', { reason: 'accuracy_map_block', accuracy: input.accuracyMeters });
     }
     if (!silent) {
       recordOperationalMetric('geo_invalid_realtime_movement', 1, {
@@ -173,13 +174,13 @@ export function evaluateRealtimeGpsReliability(
   }
 
   if (log) {
-    console.info('[GEO RELIABILITY EVALUATION]', {
+    observabilityConsole.info('[GEO RELIABILITY EVALUATION]', {
       level: tier,
       age_ms: input.coordinateAgeMs,
       accuracy: input.accuracyMeters,
       employee_id: input.employeeId,
     });
-    console.info('[GEO CONFIDENCE UPDATED]', { level: tier, employee_id: input.employeeId });
+    observabilityConsole.info('[GEO CONFIDENCE UPDATED]', { level: tier, employee_id: input.employeeId });
   }
   if (!silent) {
     recordOperationalMetric('geo_reliability_eval', 1, {

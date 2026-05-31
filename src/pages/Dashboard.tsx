@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CalendarDays, Clock as ClockIcon, Inbox, Layers3 } from 'lucide-react';
@@ -130,20 +131,20 @@ const DashboardPage: React.FC = () => {
         if (recRes.status === 'rejected') {
           const e = recRes.reason;
           if (isTimeoutLike(e) && import.meta.env.DEV) {
-            console.debug('[Dashboard] time_records: timeout — cards de ponto sem dados até a próxima tentativa.');
+            observabilityConsole.debug('[Dashboard] time_records: timeout — cards de ponto sem dados até a próxima tentativa.');
           } else {
-            console.error('[Dashboard] time_records:', e);
+            observabilityConsole.error('[Dashboard] time_records:', e);
           }
         }
 
         const balanceRows = balRes.status === 'fulfilled' ? balRes.value : [];
         if (balRes.status === 'rejected') {
-          console.error('[Dashboard] time_balance:', balRes.reason);
+          observabilityConsole.error('[Dashboard] time_balance:', balRes.reason);
         }
 
         const reqRows = reqRes.status === 'fulfilled' ? reqRes.value : [];
         if (reqRes.status === 'rejected') {
-          console.error('[Dashboard] requests:', reqRes.reason);
+          observabilityConsole.error('[Dashboard] requests:', reqRes.reason);
         }
 
         const raw = rows ?? [];
@@ -198,7 +199,7 @@ const DashboardPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar dados do dashboard Supabase:', e);
+        observabilityConsole.error('Erro ao carregar dados do dashboard Supabase:', e);
       } finally {
         setIsLoadingData(false);
       }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Confiança GEO unificada para mapa realtime e presença operacional (não jurídico).
  */
@@ -83,7 +84,7 @@ export function calculateGeoConfidence(
   }
 
   if (opts?.log !== false) {
-    console.info('[GEO CONFIDENCE SCORE]', {
+    observabilityConsole.info('[GEO CONFIDENCE SCORE]', {
       level,
       reason,
       accuracyMeters: input.accuracyMeters,
@@ -119,14 +120,14 @@ export function detectImpossibleRealtimeMovement(
       prev,
       next,
     };
-    console.warn('[GEO IMPOSSIBLE REALTIME MOVEMENT]', payload);
+    observabilityConsole.warn('[GEO IMPOSSIBLE REALTIME MOVEMENT]', payload);
     return { impossible: true, impliedKmh: Number.POSITIVE_INFINITY, meters, deltaMs };
   }
   const hours = deltaMs / 3_600_000;
   const impliedKmh = meters / 1000 / hours;
   const impossible = impliedKmh > maxUrbanKmh;
   if (impossible) {
-    console.warn('[GEO IMPOSSIBLE REALTIME MOVEMENT]', {
+    observabilityConsole.warn('[GEO IMPOSSIBLE REALTIME MOVEMENT]', {
       impliedKmh,
       maxUrbanKmh,
       meters,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Lembretes de ponto via notificações locais (sem backend).
  * Web Push (servidor) requer VAPID + backend – ver PUSH_NOTIFICACOES.md.
@@ -18,7 +19,7 @@ function getConfig(): PushReminderConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (err) {
-    console.warn('[pushReminderService] Falha ao ler config:', err);
+    observabilityConsole.warn('[pushReminderService] Falha ao ler config:', err);
   }
   return { enabled: true, times: DEFAULT_TIMES };
 }
@@ -29,7 +30,7 @@ export function setReminderConfig(config: Partial<PushReminderConfig>) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch (err) {
-    console.warn('[pushReminderService] Falha ao salvar config:', err);
+    observabilityConsole.warn('[pushReminderService] Falha ao salvar config:', err);
   }
 }
 
@@ -55,7 +56,7 @@ function remindedToday(target: string): boolean {
   try {
     val = localStorage.getItem(key);
   } catch (err) {
-    console.warn('[pushReminderService] Falha ao ler marcador diário:', err);
+    observabilityConsole.warn('[pushReminderService] Falha ao ler marcador diário:', err);
   }
   const today = new Date().toDateString();
   return val === today;
@@ -66,7 +67,7 @@ function markReminded(target: string) {
   try {
     localStorage.setItem(key, new Date().toDateString());
   } catch (err) {
-    console.warn('[pushReminderService] Falha ao gravar marcador diário:', err);
+    observabilityConsole.warn('[pushReminderService] Falha ao gravar marcador diário:', err);
   }
 }
 
@@ -83,7 +84,7 @@ function showReminder(title: string, body: string) {
       window.focus();
     };
   } catch (err) {
-    console.warn('[pushReminderService] Falha ao mostrar notificação:', err);
+    observabilityConsole.warn('[pushReminderService] Falha ao mostrar notificação:', err);
   }
 }
 

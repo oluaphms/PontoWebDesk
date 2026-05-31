@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Sistema de internacionalização simples
  */
@@ -767,7 +768,7 @@ export const i18n = {
     try {
       localStorage.setItem('smartponto_language', lang);
     } catch (err) {
-      console.warn('[i18n] Falha ao salvar idioma:', err);
+      observabilityConsole.warn('[i18n] Falha ao salvar idioma:', err);
     }
   },
 
@@ -784,7 +785,7 @@ export const i18n = {
     try {
       saved = localStorage.getItem('smartponto_language') as Language;
     } catch (err) {
-      console.warn('[i18n] Falha ao ler idioma salvo:', err);
+      observabilityConsole.warn('[i18n] Falha ao ler idioma salvo:', err);
     }
     if (saved && (saved === 'pt-BR' || saved === 'en-US')) {
       currentLanguage = saved;

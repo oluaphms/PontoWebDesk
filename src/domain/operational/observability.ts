@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 export type OperationalLogChannel =
   | 'EVENT'
   | 'RULE'
@@ -28,8 +29,8 @@ function isProductionRuntime(): boolean {
   try {
     const meta = (import.meta as unknown as { env?: { PROD?: boolean } }).env;
     if (meta?.PROD) return true;
-  } catch {
-    /* ignore */
+  } catch (error) {
+    void error;
   }
   return false;
 }
@@ -51,5 +52,5 @@ export function operationalLog(channel: OperationalLogChannel, data: StructuredO
     created_at: String(data.created_at ?? new Date().toISOString()),
     ...data,
   };
-  console.info(`[OPERATIONAL_${channel}]`, envelope);
+  observabilityConsole.info(`[OPERATIONAL_${channel}]`, envelope);
 }

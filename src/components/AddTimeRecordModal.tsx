@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, MapPin, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/UI';
@@ -149,7 +150,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
           'Não foi possível carregar justificativas agora. Você pode seguir preenchendo o motivo manualmente.',
         );
         if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.warn('Justificativas indisponíveis no momento:', e);
+          observabilityConsole.warn('Justificativas indisponíveis no momento:', e);
         }
       }
     };
@@ -240,7 +241,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
       });
       setSkipGps(false);
     } catch (err) {
-      console.error('Erro ao obter localização:', err);
+      observabilityConsole.error('Erro ao obter localização:', err);
       const msg =
         err && typeof err === 'object' && 'code' in err
           ? geolocationErrorMessage(err as GeolocationPositionError)

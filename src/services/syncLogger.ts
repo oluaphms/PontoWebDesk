@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Logs estruturados da sincronização (console; opcionalmente persistidos via callback).
  */
@@ -31,9 +32,9 @@ export class SyncLogger {
     };
     const prefix = deviceId ? `[sync][${deviceId}]` : '[sync]';
     const line = `${prefix} ${message}`;
-    if (level === 'error') console.error(line, meta ?? '');
-    else if (level === 'warn') console.warn(line, meta ?? '');
-    else console.log(line, meta ?? '');
+    if (level === 'error') observabilityConsole.error(line, meta ?? '');
+    else if (level === 'warn') observabilityConsole.warn(line, meta ?? '');
+    else observabilityConsole.log(line, meta ?? '');
     this.sink?.(entry);
   }
 

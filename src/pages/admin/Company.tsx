@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -249,7 +250,7 @@ const AdminCompany: React.FC = () => {
           }
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
         setCompanyId(user.companyId ?? null);
       } finally {
         setLoadingData(false);
@@ -319,7 +320,7 @@ const AdminCompany: React.FC = () => {
             } as Company),
           );
         } catch (err) {
-          console.warn('[Company] Falha ao salvar empresa no storage:', err);
+          observabilityConsole.warn('[Company] Falha ao salvar empresa no storage:', err);
         }
       } else {
         const payload = buildCompanyDbPayload(form);
@@ -339,7 +340,7 @@ const AdminCompany: React.FC = () => {
             });
           }
         } catch (err: unknown) {
-          console.error('Erro ao salvar empresa:', err);
+          observabilityConsole.error('Erro ao salvar empresa:', err);
           const msg = err instanceof Error ? err.message : String(err);
           setMessage({
             type: 'error',
@@ -361,7 +362,7 @@ const AdminCompany: React.FC = () => {
               }),
             );
           } catch (err) {
-            console.warn('[Company] Falha ao cachear empresa localmente:', err);
+            observabilityConsole.warn('[Company] Falha ao cachear empresa localmente:', err);
           }
         }
 
@@ -369,7 +370,7 @@ const AdminCompany: React.FC = () => {
           try {
             await db.update('users', user.id, { company_id: idToUse });
           } catch (linkErr) {
-            console.error('Erro ao vincular usuário à empresa:', linkErr);
+            observabilityConsole.error('Erro ao vincular usuário à empresa:', linkErr);
           }
           if (user) {
             setSessionUser({ ...user, companyId: idToUse, tenantId: idToUse });
@@ -388,7 +389,7 @@ const AdminCompany: React.FC = () => {
               );
               window.dispatchEvent(new Event('current_user_changed'));
             } catch (err) {
-              console.warn('[Company] Falha ao atualizar cache local de usuário:', err);
+              observabilityConsole.warn('[Company] Falha ao atualizar cache local de usuário:', err);
             }
           }
           clearTenantMetadataSyncCache();

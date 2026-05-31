@@ -1,6 +1,8 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { IS_PRODUCTION, getEnvBoolean } from '@/config/runtimeEnv';
 import type { SchemaGuardErrorState } from '@/services/schemaGuard';
-import { db, getUserProfileStorage, isSupabaseConfigured } from '../../services/supabaseClient';
+import { getSessionTenantScope } from '@/auth/sessionAccess';
+import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LogSeverity } from '../../types';
 
 const UUID_REGEX =
@@ -37,15 +39,8 @@ function readWindowSchemaGuardState(): SchemaGuardErrorState | null {
 
 function resolveCompanyId(): string | null {
   if (typeof window === 'undefined') return null;
-  try {
-    const raw = getUserProfileStorage().getItem('current_user');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const companyId = String(parsed?.companyId || parsed?.company_id || '').trim();
-    return companyId || null;
-  } catch {
-    return null;
-  }
+  const companyId = String(getSessionTenantScope().companyId || '').trim();
+  return companyId && companyId !== 'no-company' ? companyId : null;
 }
 
 function resolveSessionId(): string | null {
@@ -87,13 +82,13 @@ async function insertAuditLog(state: SchemaGuardReportState): Promise<void> {
   if (shouldThrottle(state.mode)) return;
   const companyId = resolveCompanyId();
   if (!companyId) {
-    console.warn('[SCHEMA GUARD] auditoria ignorada por falta de company_id');
+    observabilityConsole.warn('[SCHEMA GUARD] auditoria ignorada por falta de company_id');
     return;
   }
 
   const id = crypto.randomUUID();
   if (!UUID_REGEX.test(id)) {
-    console.error('[SCHEMA GUARD REPORT] UUID inválido; auditoria ignorada');
+    observabilityConsole.error('[SCHEMA GUARD REPORT] UUID inválido; auditoria ignorada');
     return;
   }
 
@@ -120,7 +115,7 @@ async function insertAuditLog(state: SchemaGuardReportState): Promise<void> {
       user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     });
   } catch (error) {
-    console.error('[SCHEMA GUARD REPORT] falha ao gravar auditoria', error);
+    observabilityConsole.error('[SCHEMA GUARD REPORT] falha ao gravar auditoria', error);
   }
 }
 
@@ -141,7 +136,7 @@ export async function reportSchemaGuardState(state: SchemaGuardReportState): Pro
     payload.correlation_id !== lastCorrelationId &&
     Date.now() - lastCorrelationAt < 5000
   ) {
-    console.error('[SCHEMA GUARD WARNING] múltiplos eventos críticos em sequência');
+    observabilityConsole.error('[SCHEMA GUARD WARNING] múltiplos eventos críticos em sequência');
   }
   if (payload.correlation_id && payload.correlation_id !== lastCorrelationId) {
     lastCorrelationId = payload.correlation_id;
@@ -149,9 +144,9 @@ export async function reportSchemaGuardState(state: SchemaGuardReportState): Pro
   }
 
   if (!IS_PRODUCTION) {
-    console.warn('[SCHEMA GUARD REPORT]', safeJsonStringify(payload));
+    observabilityConsole.warn('[SCHEMA GUARD REPORT]', safeJsonStringify(payload));
   } else if (state.mode === 'production-error') {
-    console.error('[SCHEMA GUARD REPORT]', safeJsonStringify(payload));
+    observabilityConsole.error('[SCHEMA GUARD REPORT]', safeJsonStringify(payload));
   }
 
   if (IS_PRODUCTION) {
@@ -198,9 +193,9 @@ export function runSchemaGuardSelfTest(): boolean {
 
   if (!IS_PRODUCTION) {
     if (ok) {
-      console.info('[SCHEMA GUARD SELF TEST OK]');
+      observabilityConsole.info('[SCHEMA GUARD SELF TEST OK]');
     } else {
-      console.error('[SCHEMA GUARD SELF TEST FAILED]', {
+      observabilityConsole.error('[SCHEMA GUARD SELF TEST FAILED]', {
         debugAvailable,
         resetOk,
         envParsed,
@@ -211,7 +206,7 @@ export function runSchemaGuardSelfTest(): boolean {
       });
     }
   } else if (!ok) {
-    console.error('[SCHEMA GUARD SELF TEST FAILED]', {
+    observabilityConsole.error('[SCHEMA GUARD SELF TEST FAILED]', {
       debugAvailable,
       resetOk,
       envParsed,

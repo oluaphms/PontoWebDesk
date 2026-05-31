@@ -1,3 +1,4 @@
+const { observabilityConsole } = require('../services/observabilityConsole.cjs');
 /**
  * Roda o Vite do projeto com NODE_PATH apontando para node_modules.
  * Se vite nao estiver instalado, tenta instalar com npm install.
@@ -16,13 +17,13 @@ const viteBin = path.join(nodeModules, 'vite', 'bin', 'vite.js')
 const env = { ...process.env, NODE_ENV: 'development' }
 
 if (!fs.existsSync(viteBin)) {
-  console.error('Vite nao encontrado. Instalando vite e @vitejs/plugin-react...')
+  observabilityConsole.error('Vite nao encontrado. Instalando vite e @vitejs/plugin-react...')
   const install = spawnSync('npm', ['install', 'vite', '@vitejs/plugin-react', '--save-dev', '--include=dev', '--no-audit', '--no-fund'], {
     cwd: projectRoot,
     stdio: 'inherit'
   })
   if (install.status !== 0 || !fs.existsSync(viteBin)) {
-    console.error('Falha ao instalar. Rode manualmente: npm install vite @vitejs/plugin-react --save-dev')
+    observabilityConsole.error('Falha ao instalar. Rode manualmente: npm install vite @vitejs/plugin-react --save-dev')
     process.exit(1)
   }
 }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Fechamento de folha: consulta e enforce de “hard lock”.
  * Estado isolado deste módulo evita ciclo imports com timeRecords.service.ts.
@@ -143,7 +144,7 @@ export async function logBlockedTimesheetMutation(params: {
       },
     });
   } catch (e) {
-    console.warn('[timesheetClosure] falha ao gravar auditoria bloqueada', e);
+    observabilityConsole.warn('[timesheetClosure] falha ao gravar auditoria bloqueada', e);
   }
 }
 

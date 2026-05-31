@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { UserX, Plus, Pencil, Trash2 } from 'lucide-react';
@@ -40,7 +41,7 @@ const AdminMotivoDemissao: React.FC = () => {
         created_at: r.created_at,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar motivos de demissão.' });
     } finally {
       setLoadingData(false);

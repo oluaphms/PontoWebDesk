@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-alerts?company_id=...
  * PATCH /api/operational-alerts/:id/resolve
@@ -57,7 +58,7 @@ async function handler(request: Request): Promise<Response> {
     const reqUrl = resolveRequestUrl(request);
     const pathname = reqUrl.pathname.replace(/\/+$/, '') || '';
     const resolveMatch = pathname.match(/^\/api\/operational-alerts\/([^/]+)\/resolve$/);
-    console.log('[OP API START]', {
+    observabilityConsole.log('[OP API START]', {
       route: ROUTE,
       query: Object.fromEntries(reqUrl.searchParams.entries()),
       pathname,
@@ -65,7 +66,7 @@ async function handler(request: Request): Promise<Response> {
     });
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      observabilityConsole.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
       if (request.method === 'GET') {
         return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
       }
@@ -142,7 +143,7 @@ async function handler(request: Request): Promise<Response> {
       );
 
       if (updErr) {
-        console.error('[api/operational-alerts]', updErr);
+        observabilityConsole.error('[api/operational-alerts]', updErr);
         return degradedMutationResponse(corsHeaders, ROUTE, 'DB_ERROR', updErr.message);
       }
 
@@ -162,7 +163,7 @@ async function handler(request: Request): Promise<Response> {
       );
 
       if (taskCloseErr) {
-        console.error('[api/operational-alerts] close linked tasks', taskCloseErr);
+        observabilityConsole.error('[api/operational-alerts] close linked tasks', taskCloseErr);
         if (didResolveAlertThisRequest) {
           await supabase
             .from('operational_alerts')
@@ -177,7 +178,7 @@ async function handler(request: Request): Promise<Response> {
           await evaluateAndNotifyCompanyOperationalRisk(supabase, alertCompanyId);
         });
       } catch (e) {
-        console.error('[api/operational-alerts] risk after alert resolve', e);
+        observabilityConsole.error('[api/operational-alerts] risk after alert resolve', e);
       }
 
       if (didResolveAlertThisRequest) {
@@ -229,7 +230,7 @@ async function handler(request: Request): Promise<Response> {
     );
 
     if (error) {
-      console.error('[api/operational-alerts]', error);
+      observabilityConsole.error('[api/operational-alerts]', error);
       return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 

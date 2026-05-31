@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de histórico de ajustes de ponto
  * Responsável por consultar e exibir o histórico de mudanças
@@ -46,7 +47,7 @@ async function loadScopedUsersById(userIds: string[], companyIds: string[]): Pro
     )) as Array<{ id: string; nome?: string | null }>;
     return new Map((users || []).map((u) => [u.id, u.nome || u.id]));
   } catch (error) {
-    console.error('[AdjustmentHistoryService] Error loading scoped users:', error);
+    observabilityConsole.error('[AdjustmentHistoryService] Error loading scoped users:', error);
     return new Map<string, string>();
   }
 }
@@ -68,7 +69,7 @@ export const AdjustmentHistoryService = {
         .limit(200);
 
       if (error) {
-        console.error('[AdjustmentHistoryService] Error fetching history:', error);
+        observabilityConsole.error('[AdjustmentHistoryService] Error fetching history:', error);
         return [];
       }
 
@@ -88,7 +89,7 @@ export const AdjustmentHistoryService = {
 
       return entries;
     } catch (err) {
-      console.error('[AdjustmentHistoryService] Unexpected error:', err);
+      observabilityConsole.error('[AdjustmentHistoryService] Unexpected error:', err);
       return [];
     }
   },
@@ -109,7 +110,7 @@ export const AdjustmentHistoryService = {
         .limit(500);
 
       if (error) {
-        console.error('[AdjustmentHistoryService] Error fetching batch history:', error);
+        observabilityConsole.error('[AdjustmentHistoryService] Error fetching batch history:', error);
         return [];
       }
 
@@ -129,7 +130,7 @@ export const AdjustmentHistoryService = {
 
       return entries;
     } catch (err) {
-      console.error('[AdjustmentHistoryService] Unexpected batch error:', err);
+      observabilityConsole.error('[AdjustmentHistoryService] Unexpected batch error:', err);
       return [];
     }
   },
@@ -159,7 +160,7 @@ export const AdjustmentHistoryService = {
         changed_at: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('[AdjustmentHistoryService] Error recording history:', err);
+      observabilityConsole.error('[AdjustmentHistoryService] Error recording history:', err);
     }
   },
 };

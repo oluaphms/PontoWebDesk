@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Repeat, CalendarDays, X, UserPlus, Users } from 'lucide-react';
@@ -113,7 +114,7 @@ const AdminSchedules: React.FC = () => {
           {
             onError: (e) => {
               partialError = true;
-              console.error(`[Schedules] Falha ao carregar ${table}:`, e);
+              observabilityConsole.error(`[Schedules] Falha ao carregar ${table}:`, e);
             },
           },
         );
@@ -173,7 +174,7 @@ const AdminSchedules: React.FC = () => {
         });
       }
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Não foi possível carregar as escalas.' });
     } finally {
       setLoadingData(false);

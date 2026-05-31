@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * ÚNICA Serverless Function para /api/rep/* (limite Hobby: 12 funções).
  * Inclui: sync-status, commands, heartbeat, punch, collect, devices/...
@@ -10,11 +11,11 @@ import { getSecureCorsHeaders } from '../_shared/security.js';
 import { handleSyncStatus } from '../_shared/repSyncStatusLite.js';
 import { noCache } from '../_shared/cache.js';
 
-console.log('[REP API LOADED] catch-all [[...slug]]');
+observabilityConsole.log('[REP API LOADED] catch-all [[...slug]]');
 
 async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  console.log('[REP API ROUTE]', { pathname: url.pathname, method: request.method });
+  observabilityConsole.log('[REP API ROUTE]', { pathname: url.pathname, method: request.method });
 
   const ctx = buildRepRouteContext(request);
 

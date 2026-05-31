@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { operationalClockMs } from '../../utils/operationalClock';
 
 export type RealPresenceState =
@@ -48,11 +49,11 @@ export function evaluateRealPresence(input: RealPresenceInput): RealPresenceResu
   if (input.appFrozenSuspected || score < 20) {
     state = 'SUSPECTED_FROZEN';
     reason = 'runtime_frozen_or_extreme_signal_loss';
-    console.warn('[REAL PRESENCE FROZEN]', { employee_id: input.employeeId, score });
+    observabilityConsole.warn('[REAL PRESENCE FROZEN]', { employee_id: input.employeeId, score });
   } else if (score < 35) {
     state = 'OFFLINE';
     reason = 'critical_signal_loss';
-    console.warn('[REAL PRESENCE LOST]', { employee_id: input.employeeId, score });
+    observabilityConsole.warn('[REAL PRESENCE LOST]', { employee_id: input.employeeId, score });
   } else if (score < 60) {
     state = 'ONLINE_UNSTABLE';
     reason = 'unstable_channels_or_stale_data';
@@ -62,7 +63,7 @@ export function evaluateRealPresence(input: RealPresenceInput): RealPresenceResu
   }
 
   if (state === 'ONLINE_ACTIVE' || state === 'ONLINE_IDLE') {
-    console.info('[REAL PRESENCE ONLINE]', {
+    observabilityConsole.info('[REAL PRESENCE ONLINE]', {
       employee_id: input.employeeId,
       state,
       score,

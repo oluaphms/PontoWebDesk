@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * SLO operacional — agregados em memória e deteção de violação de budget (p50/p90).
  */
@@ -47,7 +48,7 @@ function logBreach(metric: string, value: number, budget: number): void {
   const t = Date.now();
   if (t - lastBreachLog < 4000) return;
   lastBreachLog = t;
-  console.error('[OPERATIONAL SLO BREACH]', { metric, value, budget });
+  observabilityConsole.error('[OPERATIONAL SLO BREACH]', { metric, value, budget });
 }
 
 /** Nome de exportação pedido na maturidade enterprise. */

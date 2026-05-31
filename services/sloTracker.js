@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * SLO/SLA Tracker — mede e registra conformidade com objetivos de nível de serviço.
  *
@@ -71,13 +72,13 @@ export class SLOTracker {
     try {
       this._db.exec(SCHEMA);
     } catch (err) {
-      console.warn('[sloTracker] Falha ao garantir schema:', err);
+      observabilityConsole.warn('[sloTracker] Falha ao garantir schema:', err);
     }
   }
 
   start() {
     this._timer = setInterval(() => this._measure().catch((err) => {
-      console.warn('[sloTracker] Falha ao medir SLO:', err);
+      observabilityConsole.warn('[sloTracker] Falha ao medir SLO:', err);
     }), MEASURE_INTERVAL);
     return this;
   }
@@ -157,7 +158,9 @@ export class SLOTracker {
         target,
         compliant ? 1 : 0
       );
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[sloTracker] Falha ao registrar medição SLO:', error);
+    }
 
     if (!compliant) {
       this._queue.log(LOG_LEVEL.WARN, 'slo',

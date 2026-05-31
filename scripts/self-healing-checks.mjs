@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -79,15 +80,15 @@ for (const m of migrations) {
   }
 }
 
-for (const w of warnings.slice(0, 20)) console.warn(`[SELF-HEALING CI][warn] ${w}`);
-if (warnings.length > 20) console.warn(`[SELF-HEALING CI][warn] +${warnings.length - 20} warnings adicionais`);
+for (const w of warnings.slice(0, 20)) observabilityConsole.warn(`[SELF-HEALING CI][warn] ${w}`);
+if (warnings.length > 20) observabilityConsole.warn(`[SELF-HEALING CI][warn] +${warnings.length - 20} warnings adicionais`);
 
 if (issues.length) {
-  console.error('[SELF-HEALING CI] issues detected');
-  for (const i of issues) console.error(`- ${i}`);
-  console.error('[SELF-HEALING CI] suggestions');
-  for (const s of suggestions) console.error(`- ${s}`);
+  observabilityConsole.error('[SELF-HEALING CI] issues detected');
+  for (const i of issues) observabilityConsole.error(`- ${i}`);
+  observabilityConsole.error('[SELF-HEALING CI] suggestions');
+  for (const s of suggestions) observabilityConsole.error(`- ${s}`);
   process.exit(1);
 }
 
-console.info('[SELF-HEALING CI] ok');
+observabilityConsole.info('[SELF-HEALING CI] ok');

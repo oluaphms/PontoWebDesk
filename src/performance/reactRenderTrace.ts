@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Profiling operacional via React.Profiler — budgets mobile-first na main thread.
  */
@@ -85,7 +86,7 @@ export function createReactProfilerOnRender(): (
     }
 
     if (slowFrame) {
-      console.warn('[REACT PERFORMANCE VIOLATION]', {
+      observabilityConsole.warn('[REACT PERFORMANCE VIOLATION]', {
         kind: 'render_frame',
         id,
         phase,
@@ -94,7 +95,7 @@ export function createReactProfilerOnRender(): (
       });
     }
     if (slowMount) {
-      console.warn('[REACT PERFORMANCE VIOLATION]', {
+      observabilityConsole.warn('[REACT PERFORMANCE VIOLATION]', {
         kind: 'mount',
         id,
         phase,

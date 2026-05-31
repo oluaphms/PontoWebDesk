@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Processamento automático diário de ponto.
  * Para cada funcionário ativo: processEmployeeDay, detectInconsistencies,
@@ -101,7 +102,7 @@ async function runGlobalUserPages(date: string, errors: string[]): Promise<numbe
       );
       if (res.error) break;
       const batch = (res.data ?? []) as UserBatchRow[];
-      console.info('[DB PERF] users_batch_loaded', {
+      observabilityConsole.info('[DB PERF] users_batch_loaded', {
         phase: 'global_fallback',
         count: batch.length,
         duration_ms: Date.now() - start,
@@ -140,7 +141,7 @@ export async function runDailyTimeProcessor(dateStr?: string): Promise<DailyProc
   const companies = await collectDistinctCompanyIdsFromUsers();
 
   if (companies.length === 0) {
-    console.info('[DB PERF] users_batch_loaded', { phase: 'distinct_companies_empty', hint: 'global_fallback' });
+    observabilityConsole.info('[DB PERF] users_batch_loaded', { phase: 'distinct_companies_empty', hint: 'global_fallback' });
     processed += await runGlobalUserPages(date, errors);
     return { date, processed, errors };
   }

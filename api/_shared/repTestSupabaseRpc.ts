@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * Diagnóstico RPC `rep_ingest_punch` (payload de teste).
  * Expõe-se via `api/rep/[slug].ts` em `/api/rep/diagnostic-supabase` + rewrite `/api/test-supabase` (limite Hobby).
@@ -59,7 +60,7 @@ export async function handleRepTestSupabaseRpc(request: Request): Promise<Respon
     throw e;
   }
 
-  console.log('[REP DIAGNOSTIC SUPABASE ENV]', {
+  observabilityConsole.log('[REP DIAGNOSTIC SUPABASE ENV]', {
     using: getSupabaseUrlSource(),
     hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
   });

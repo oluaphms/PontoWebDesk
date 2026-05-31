@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Heartbeat operacional leve (tabela live_employee_heartbeat).
  * Complementa live_employee_location; não substitui batida jurídica.
@@ -39,7 +40,7 @@ export async function upsertOperationalHeartbeat(
   );
 
   if (error) return { ok: false, error: error.message };
-  console.info('[OPERATIONAL HEARTBEAT]', {
+  observabilityConsole.info('[OPERATIONAL HEARTBEAT]', {
     company_id: input.companyId,
     employee_id: input.employeeId,
     app_state: input.appState,

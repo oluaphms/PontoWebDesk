@@ -11,7 +11,8 @@ function isDismissed(route: string): boolean {
   try {
     const map = JSON.parse(window.localStorage.getItem(DISMISS_KEY) || '{}') as Record<string, boolean>;
     return !!map[route];
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 }
@@ -22,8 +23,8 @@ function dismissRoute(route: string): void {
     const map = JSON.parse(window.localStorage.getItem(DISMISS_KEY) || '{}') as Record<string, boolean>;
     map[route] = true;
     window.localStorage.setItem(DISMISS_KEY, JSON.stringify(map));
-  } catch {
-    /* ignore */
+  } catch (error) {
+    void error;
   }
 }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Reconciliação assistida: sequência REP inválida — ações explícitas do RH (sem auto-promote).
  */
@@ -72,7 +73,7 @@ async function recalcMirrorDay(companyId: string, employeeId: string, dateYmd: s
   try {
     await recalculate_period(employeeId, companyId, dateYmd, dateYmd);
   } catch (e) {
-    console.warn('[REP RECONCILE RECALC]', e instanceof Error ? e.message : e);
+    observabilityConsole.warn('[REP RECONCILE RECALC]', e instanceof Error ? e.message : e);
   }
 }
 

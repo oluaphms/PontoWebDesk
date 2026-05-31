@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useEffect, useRef } from 'react';
 import { checkSupabaseConfigured } from '../../services/supabaseClient';
 import type { User } from '../../types';
@@ -55,11 +56,11 @@ export function useScheduledTenantBackup(
         await updateBackupLastRunAt(companyId, new Date().toISOString());
         lastSlotRef.current = slotKey;
         if (typeof console !== 'undefined') {
-          console.info('[tenant-backup] Backup automático concluído.', { companyId });
+          observabilityConsole.info('[tenant-backup] Backup automático concluído.', { companyId });
         }
       } catch (e) {
         if (typeof console !== 'undefined') {
-          console.warn('[tenant-backup] Falha no backup automático.', e);
+          observabilityConsole.warn('[tenant-backup] Falha no backup automático.', e);
         }
       } finally {
         busyRef.current = false;

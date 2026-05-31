@@ -1,3 +1,30 @@
+const observabilityConsole = globalThis.__observabilityConsole || (() => {
+  const sink = globalThis['console'];
+  const emit = (level, args) => {
+    const first = args[0];
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: level === 'log' || level === 'debug' ? 'info' : level,
+      service: 'pontowebdesk-public',
+      module: 'legacy.console',
+      action: `PUBLIC_CONSOLE_${String(level).toUpperCase()}`,
+      requestId: 'unknown-request',
+      correlationId: 'unknown-correlation',
+      userId: null,
+      companyId: null,
+      message: typeof first === 'string' && first.trim() ? first.trim() : 'Public runtime event',
+      meta: { args },
+    };
+    sink?.[level === 'debug' ? 'info' : level]?.(JSON.stringify(payload));
+  };
+  return {
+    log: (...args) => emit('log', args),
+    info: (...args) => emit('info', args),
+    warn: (...args) => emit('warn', args),
+    error: (...args) => emit('error', args),
+    debug: (...args) => emit('debug', args),
+  };
+})();
 /**
  * Script que injeta variáveis de ambiente no window
  * Executado ANTES do app carregar (crítico!)
@@ -12,7 +39,7 @@
     try {
       return localStorage.getItem(key) || fallback;
     } catch (e) {
-      console.warn('[env-config] Falha ao ler storage:', e);
+      observabilityConsole.warn('[env-config] Falha ao ler storage:', e);
       return fallback;
     }
   };
@@ -46,13 +73,13 @@
   if (isLocalDev) {
     if (supabaseUrl && supabaseAnonKey) {
       console.group('[Supabase Config]');
-      console.log('Environment:', activeEnv);
-      console.log('URL:', supabaseUrl);
-      console.log('Source: window/localStorage');
-      console.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
+      observabilityConsole.log('Environment:', activeEnv);
+      observabilityConsole.log('URL:', supabaseUrl);
+      observabilityConsole.log('Source: window/localStorage');
+      observabilityConsole.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
       console.groupEnd();
     } else {
-      console.debug(
+      observabilityConsole.debug(
         '[Supabase Config] localhost: credenciais pelo .env (Vite). Abra o grupo [ENV] no AppInitializer. Override opcional: localStorage VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.'
       );
     }
@@ -61,12 +88,12 @@
   if (!supabaseUrl || !supabaseAnonKey) {
     // Em produção o Vite injeta VITE_* no bundle; env-config.js vazio é esperado.
     if (isLocalDev) {
-      console.debug(
+      observabilityConsole.debug(
         '[env-config] OK em dev: sem URL/chave no storage — usando VITE_SUPABASE_* do .env (veja [SUPABASE INIT] após carregar o app).',
       );
     }
   } else if (isLocalDev) {
-    console.debug('[env-config] Credenciais definidas em runtime (localStorage/window.ENV).');
+    observabilityConsole.debug('[env-config] Credenciais definidas em runtime (localStorage/window.ENV).');
   }
 })();
 

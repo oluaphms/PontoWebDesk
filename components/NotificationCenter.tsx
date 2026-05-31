@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import React, { useState, useEffect, useCallback } from 'react';
 import { InAppNotification } from '../types';
 import { NotificationService } from '../services/notificationService';
@@ -26,7 +27,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
       setUnreadCount(pending);
       onUnreadCountChange?.(pending);
     } catch (e) {
-      console.error('Erro ao carregar notificações:', e);
+      observabilityConsole.error('Erro ao carregar notificações:', e);
       setNotifications([]);
       setUnreadCount(0);
       onUnreadCountChange?.(0);
@@ -55,7 +56,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userId, onClose
       await NotificationService.markAsRead(userId, id);
       await loadNotifications();
     } catch (e) {
-      console.error('Erro ao deletar notificação:', e);
+      observabilityConsole.error('Erro ao deletar notificação:', e);
     }
   };
 

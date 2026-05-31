@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Buffer offline-first de amostras GEO operacionais (IndexedDB).
  * Replay ordenado, monotónico e com descarte de amostras stale após reconexão.
@@ -89,7 +90,7 @@ export async function enqueueOfflineGeoOperationalSample(rec: Omit<OfflineGeoOpe
   };
   const tx = db.transaction(STORE, 'readwrite');
   await idbReq(tx.objectStore(STORE).add(row));
-  console.info('[OFFLINE GEO BUFFERED]', {
+  observabilityConsole.info('[OFFLINE GEO BUFFERED]', {
     company_id: rec.companyId,
     employee_id: rec.employeeId,
     captured_at_ms: rec.capturedAtMs,
@@ -141,12 +142,12 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
   staleMaxAgeMs?: number;
 }): Promise<{ replayed: number; droppedStale: number; droppedMonotonic: number }> {
   if (!isOperationalReplayEnabled()) {
-    console.info('[OFFLINE GEO REPLAY]', { action: 'disabled_feature_flag' });
+    observabilityConsole.info('[OFFLINE GEO REPLAY]', { action: 'disabled_feature_flag' });
     operationalReliabilitySLO.recordReplaySuccess(true);
     return { replayed: 0, droppedStale: 0, droppedMonotonic: 0 };
   }
   if (isOperationalTemporalConfidenceLow()) {
-    console.warn('[OFFLINE GEO REPLAY]', { action: 'skipped_low_temporal_confidence' });
+    observabilityConsole.warn('[OFFLINE GEO REPLAY]', { action: 'skipped_low_temporal_confidence' });
     operationalReliabilitySLO.recordReplaySuccess(false);
     return { replayed: 0, droppedStale: 0, droppedMonotonic: 0 };
   }
@@ -175,7 +176,7 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
   let droppedMonotonic = 0;
   let replayCompleted = true;
 
-  console.info('[OFFLINE GEO REPLAY]', {
+  observabilityConsole.info('[OFFLINE GEO REPLAY]', {
     company_id: opts.companyId,
     employee_id: opts.employeeId,
     pending: pending.length,
@@ -188,7 +189,7 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
     if (nowMs - row.capturedAtMs > staleMax) {
       toDelete.push(id);
       droppedStale++;
-      console.info('[OFFLINE GEO DROPPED]', {
+      observabilityConsole.info('[OFFLINE GEO DROPPED]', {
         reason: 'stale',
         employee_id: opts.employeeId,
         captured_at_ms: row.capturedAtMs,
@@ -200,7 +201,7 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
     if (row.capturedAtMs <= lastReplay) {
       toDelete.push(id);
       droppedMonotonic++;
-      console.info('[OFFLINE GEO DROPPED]', {
+      observabilityConsole.info('[OFFLINE GEO DROPPED]', {
         reason: 'non_monotonic',
         employee_id: opts.employeeId,
         captured_at_ms: row.capturedAtMs,
@@ -224,7 +225,7 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
     );
 
     if (!res.ok) {
-      console.warn('[OFFLINE GEO REPLAY]', {
+      observabilityConsole.warn('[OFFLINE GEO REPLAY]', {
         reason: 'upsert_failed_retained',
         employee_id: opts.employeeId,
         error: res.error ?? null,
@@ -241,7 +242,7 @@ export async function replayOfflineGeoOperationalBuffer(opts: {
     }
 
     if (res.skipped) {
-      console.info('[OFFLINE GEO DROPPED]', {
+      observabilityConsole.info('[OFFLINE GEO DROPPED]', {
         reason: 'server_skipped_invalid',
         employee_id: opts.employeeId,
       });

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Hard lock GEO + monitoramento: timestamps operacionais, última batida válida,
  * GEO realtime (precisão, idade), timezone America/Sao_Paulo (Luxon).
@@ -325,7 +326,7 @@ export function evaluateRealtimeGeoForMonitoring(
     const ageMs = nowMs - capturedMs;
 
     if (ageMs > REALTIME_GEO_MAX_AGE_MS) {
-      console.info('[GEO STALE POSITION]', {
+      observabilityConsole.info('[GEO STALE POSITION]', {
         employee_id: employeeId,
         age_ms: ageMs,
         captured_at: geo.capturedAt,
@@ -336,20 +337,20 @@ export function evaluateRealtimeGeoForMonitoring(
 
     const acc = geo.accuracy;
     if (acc != null && Number.isFinite(acc) && acc > GEO_ACCURACY_BLOCK_MARKER_M) {
-      console.info('[GEO MAP BLOCKED]', {
+      observabilityConsole.info('[GEO MAP BLOCKED]', {
         reason: 'accuracy_gt_300m',
         accuracy: acc,
         employee_id: employeeId,
         source_record_id: r.id,
       });
-      console.info('[GEO HARDLOCK]', { op: 'map_accuracy_reject', accuracy: acc, employee_id: employeeId });
-      console.info('[GEO POSITION REJECTED]', { reason: 'accuracy_map', accuracy: acc, employee_id: employeeId });
+      observabilityConsole.info('[GEO HARDLOCK]', { op: 'map_accuracy_reject', accuracy: acc, employee_id: employeeId });
+      observabilityConsole.info('[GEO POSITION REJECTED]', { reason: 'accuracy_map', accuracy: acc, employee_id: employeeId });
       continue;
     }
 
     const coordIssues = validateCoordinateOrder(geo.lat, geo.lng);
     if (coordIssues.includes('invalid_range')) {
-      console.info('[GEO REALTIME REJECTED]', {
+      observabilityConsole.info('[GEO REALTIME REJECTED]', {
         reason: 'invalid_range',
         lat: geo.lat,
         lng: geo.lng,
@@ -369,7 +370,7 @@ export function evaluateRealtimeGeoForMonitoring(
     const geoSourceLabel = monitoringGeoSourceLabel(r, geo.storageSource);
     const mapMarkerKey = `${r.id}:${geo.capturedAt}:${geo.lat.toFixed(5)}:${geo.lng.toFixed(5)}:${acc ?? 'na'}`;
 
-    console.info('[MAP MARKER UPDATED]', {
+    observabilityConsole.info('[MAP MARKER UPDATED]', {
       employee_id: employeeId,
       source_record_id: r.id,
       map_marker_key: mapMarkerKey,
@@ -377,7 +378,7 @@ export function evaluateRealtimeGeoForMonitoring(
       age_ms: ageMs,
     });
 
-    console.info('[MONITORING GEO SOURCE]', {
+    observabilityConsole.info('[MONITORING GEO SOURCE]', {
       employee_id: employeeId,
       source_record_id: r.id,
       geo_source_label: geoSourceLabel,
@@ -403,7 +404,7 @@ export function evaluateRealtimeGeoForMonitoring(
   }
 
   const payload = { employee_id: employeeId, reason: 'no_acceptable_geo' };
-  console.info('[MAP MARKER IGNORED]', payload);
+  observabilityConsole.info('[MAP MARKER IGNORED]', payload);
   return { useForMap: false, reason: 'no_acceptable_geo', logPayload: payload };
 }
 
@@ -450,7 +451,7 @@ export function buildMonitoringPipelineRow(
   for (const r of userRaw) {
     const v = validateOperationalTimestamp(recordPunchInstantIso(r), nowMs);
     if (v.ok === false && v.code === 'future') {
-      console.info('[INVALID FUTURE PUNCH]', {
+      observabilityConsole.info('[INVALID FUTURE PUNCH]', {
         employee_id: user.id,
         record_id: r.id,
         timestamp: recordPunchInstantIso(r),
@@ -501,7 +502,7 @@ export function buildMonitoringPipelineRow(
   }
 
   if (last) {
-    console.info('[MONITORING LAST VALID PUNCH]', {
+    observabilityConsole.info('[MONITORING LAST VALID PUNCH]', {
       employee_id: user.id,
       source_record_id: last.id,
       source_punch_iso: recordPunchInstantIso(last),
@@ -509,14 +510,14 @@ export function buildMonitoringPipelineRow(
     });
   }
 
-  console.info('[MONITORING STATUS DERIVED]', {
+  observabilityConsole.info('[MONITORING STATUS DERIVED]', {
     employee_id: user.id,
     derived_status: status,
     last_type: last ? normalizePunchType(last.type) : null,
     age_ms_since_last: last && lastInstantMs ? nowMs - lastInstantMs : null,
   });
 
-  console.info('[GEO MONITORING PIPELINE]', {
+  observabilityConsole.info('[GEO MONITORING PIPELINE]', {
     employee_id: user.id,
     source_record_id: last?.id,
     source_date: last ? punchInstantOperationalYmd(last) : null,
@@ -552,8 +553,8 @@ export function buildMonitoringPipelineRow(
     Number.isFinite(accuracy) &&
     accuracy > GEO_ACCURACY_BLOCK_MARKER_M
   ) {
-    console.info('[GEO MAP BLOCKED]', { employee_id: user.id, accuracy, source: 'buildMonitoringPipelineRow' });
-    console.info('[GEO HARDLOCK]', { op: 'pipeline_strip_accuracy', employee_id: user.id });
+    observabilityConsole.info('[GEO MAP BLOCKED]', { employee_id: user.id, accuracy, source: 'buildMonitoringPipelineRow' });
+    observabilityConsole.info('[GEO HARDLOCK]', { op: 'pipeline_strip_accuracy', employee_id: user.id });
     return {
       userId: user.id,
       userName: user.nome || user.email || '—',
@@ -637,7 +638,7 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
     isOffline: row.status === EmployeeOperationalStatus.OFF_DUTY,
   });
   if (row.geoLocationExpired) {
-    console.info('[STALE MARKER HIDDEN]', { userId: row.userId, reason: 'geo_location_expired_card' });
+    observabilityConsole.info('[STALE MARKER HIDDEN]', { userId: row.userId, reason: 'geo_location_expired_card' });
     return {
       userId: row.userId,
       userName: row.userName,
@@ -670,7 +671,7 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
     Number.isFinite(row.accuracy) &&
     row.accuracy > GEO_ACCURACY_BLOCK_MARKER_M
   ) {
-    console.info('[GEO MAP BLOCKED]', { userId: row.userId, accuracy: row.accuracy, source: 'buildMapEmployee' });
+    observabilityConsole.info('[GEO MAP BLOCKED]', { userId: row.userId, accuracy: row.accuracy, source: 'buildMapEmployee' });
     return {
       userId: row.userId,
       userName: row.userName,

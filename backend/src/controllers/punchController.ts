@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../logger/observabilityConsole.js';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { insertPunchBatchSafe, insertPunchSafe } from '../services/punchService.js';
@@ -84,7 +85,7 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
     }
     res.json({ ok: true, result });
   } catch (e) {
-    console.error('[PUNCH]', e);
+    observabilityConsole.error('[PUNCH]', e);
     res.status(500).json({ ok: false, error: 'punch_failed' });
   }
 }
@@ -108,7 +109,7 @@ export async function createPunchBatchController(req: AuthedRequest, res: Respon
     const results = await insertPunchBatchSafe(punches);
     res.json({ ok: true, results });
   } catch (e) {
-    console.error('[PUNCH BATCH]', e);
+    observabilityConsole.error('[PUNCH BATCH]', e);
     res.status(500).json({ ok: false, error: 'punch_batch_failed', results: [] });
   }
 }

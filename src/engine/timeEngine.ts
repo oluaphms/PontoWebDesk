@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Motor avançado de jornada e escalas (SmartPonto).
  * Interpreta escalas, valida marcações, detecta inconsistências,
@@ -221,7 +222,7 @@ function resetCalcMetrics(): void {
 }
 
 function logCalcSummaryFinal(context: Record<string, unknown>): void {
-  console.log('[CALC SUMMARY FINAL]', {
+  observabilityConsole.log('[CALC SUMMARY FINAL]', {
     ...context,
     ...calcMetrics,
   });
@@ -304,7 +305,7 @@ async function getManualHolidayDates(companyId: string, year: number): Promise<S
     }
   } catch (err) {
     if (import.meta.env?.DEV) {
-      console.warn('[timeEngine] Falha ao buscar feriados (holidays):', err);
+      observabilityConsole.warn('[timeEngine] Falha ao buscar feriados (holidays):', err);
     }
   }
 
@@ -323,7 +324,7 @@ async function getManualHolidayDates(companyId: string, year: number): Promise<S
     }
   } catch (err) {
     if (import.meta.env?.DEV) {
-      console.warn('[timeEngine] Falha ao buscar feriados (feriados):', err);
+      observabilityConsole.warn('[timeEngine] Falha ao buscar feriados (feriados):', err);
     }
   }
   return out;
@@ -360,7 +361,7 @@ export async function getCompanyRules(companyId: string): Promise<CompanyRules> 
     fromCompanyRules = rows?.[0] ?? null;
   } catch (err) {
     if (import.meta.env?.DEV) {
-      console.warn('[timeEngine] Falha ao buscar company_rules:', err);
+      observabilityConsole.warn('[timeEngine] Falha ao buscar company_rules:', err);
     }
   }
 
@@ -370,7 +371,7 @@ export async function getCompanyRules(companyId: string): Promise<CompanyRules> 
     overtimeRules = rows?.[0] ?? null;
   } catch (err) {
     if (import.meta.env?.DEV) {
-      console.warn('[timeEngine] Falha ao buscar overtime_rules:', err);
+      observabilityConsole.warn('[timeEngine] Falha ao buscar overtime_rules:', err);
     }
   }
 
@@ -380,7 +381,7 @@ export async function getCompanyRules(companyId: string): Promise<CompanyRules> 
     globalSettings = rows?.[0] ?? null;
   } catch (err) {
     if (import.meta.env?.DEV) {
-      console.warn('[timeEngine] Falha ao buscar global_settings:', err);
+      observabilityConsole.warn('[timeEngine] Falha ao buscar global_settings:', err);
     }
   }
 
@@ -574,7 +575,7 @@ export function applyEntradaDuplicationTolerance(records: RawTimeRecord[]): {
       };
       hadAdjustment = true;
       if (typeof globalThis !== 'undefined' && globalThis.console) {
-        globalThis.console.warn('[CALC FIX] entrada duplicada convertida em saída', {
+        observabilityConsole.warn('[CALC FIX] entrada duplicada convertida em saída', {
           recordId: out[idx].id,
           gapMin: Math.round((tCur - tPrev) / 60000),
         });
@@ -584,7 +585,7 @@ export function applyEntradaDuplicationTolerance(records: RawTimeRecord[]): {
   }
 
   if (hadAdjustment && typeof globalThis !== 'undefined' && globalThis.console) {
-    globalThis.console.warn('[CALC WARNING] sequência corrigida automaticamente');
+    observabilityConsole.warn('[CALC WARNING] sequência corrigida automaticamente');
   }
   return { records: out, hadAdjustment };
 }
@@ -963,7 +964,7 @@ async function resolveExpectedMinutesForCalculateDay(
   const base = computeScheduledExpectedMinutes(dayType, resolved.schedule);
   if (dayType !== 'WEEKDAY' && dayType !== 'SATURDAY') {
     if (!Number.isFinite(base) || base < 0) {
-      console.info('[CALC INFO] schedule_fallback_applied', {
+      observabilityConsole.info('[CALC INFO] schedule_fallback_applied', {
         date: dateStr,
         employee_id: employeeId,
         company_id: companyId,
@@ -976,7 +977,7 @@ async function resolveExpectedMinutesForCalculateDay(
 
   if (!resolved.schedule) {
     calcMetrics.schedule_missing_count += 1;
-    console.info('[CALC INFO] schedule_fallback_applied', {
+    observabilityConsole.info('[CALC INFO] schedule_fallback_applied', {
       date: dateStr,
       employee_id: employeeId,
       company_id: companyId,
@@ -989,7 +990,7 @@ async function resolveExpectedMinutesForCalculateDay(
   if (!invalid) return { expected: base, contingencyFallback: false };
 
   calcMetrics.schedule_missing_count += 1;
-  console.info('[CALC INFO] schedule_fallback_applied', {
+  observabilityConsole.info('[CALC INFO] schedule_fallback_applied', {
     date: dateStr,
     employee_id: employeeId,
     company_id: companyId,
@@ -1049,7 +1050,7 @@ export async function calculate_day(
       falta: faltaEarly,
       dateStr,
     });
-    console.log('[CALC]', {
+    observabilityConsole.log('[CALC]', {
       date: dateStr,
       expected: faltaEarly,
       worked: 0,
@@ -1115,7 +1116,7 @@ export async function calculate_day(
     falta: absenceMinutes,
     dateStr,
   });
-  console.log('[CALC]', {
+  observabilityConsole.log('[CALC]', {
     date: dateStr,
     expected,
     worked,
@@ -1315,7 +1316,7 @@ function weekDsrExtraMinutesFromGroup(group: DaySummary[]): number {
   const sundaysCount = group.filter((r) => new Date(`${r.date}T12:00:00`).getDay() === 0).length;
   const raw = (extrasMonFriOnly / Math.max(1, diasUteisTrabalhou)) * sundaysCount;
   const rounded = Math.round(raw);
-  console.log('[DSR]', {
+  observabilityConsole.log('[DSR]', {
     semana_hint: group[0]?.date,
     extras_seg_sex: extrasMonFriOnly,
     dias_uteis_trabalhados: diasUteisTrabalhou,
@@ -1589,7 +1590,7 @@ export async function recalculate_period(
     } catch (e) {
       calcMetrics.calc_errors += 1;
       const message = e instanceof Error ? e.message : String(e);
-      console.info('[CALC INFO] day_processing_failed', { date, employee_id: employeeId, message });
+      observabilityConsole.info('[CALC INFO] day_processing_failed', { date, employee_id: employeeId, message });
       violations.push({ date, reason: 'CALC_ERROR' });
       continue;
     }
@@ -1883,7 +1884,7 @@ export async function saveInconsistencies(
       resolved: false,
     }).catch((err) => {
       if (import.meta.env?.DEV) {
-        console.warn('[timeEngine] Falha ao salvar inconsistência:', err);
+        observabilityConsole.warn('[timeEngine] Falha ao salvar inconsistência:', err);
       }
     });
   }
@@ -2005,7 +2006,7 @@ export async function saveTimeAlerts(
       resolved: false,
     }).catch((err) => {
       if (import.meta.env?.DEV) {
-        console.warn('[timeEngine] Falha ao salvar alerta:', err);
+        observabilityConsole.warn('[timeEngine] Falha ao salvar alerta:', err);
       }
     });
   }

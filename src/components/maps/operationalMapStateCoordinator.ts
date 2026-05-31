@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 export type OperationalMapSnapshot = {
   employeeId: string;
   markerVersionKey: string;
@@ -20,14 +21,14 @@ export class OperationalMapStateCoordinator {
   commitSnapshot(input: OperationalMapSnapshot): boolean {
     const lock = this.versionLockByEmployee.get(input.employeeId);
     if (lock && lock !== input.markerVersionKey) {
-      console.info('[MAP HARD INVALIDATION]', {
+      observabilityConsole.info('[MAP HARD INVALIDATION]', {
         employee_id: input.employeeId,
         reason: 'snapshot_changed',
         previous_version: lock,
         incoming_version: input.markerVersionKey,
       });
-      console.info('[MAP SNAPSHOT DESTROYED]', { employee_id: input.employeeId, version: lock });
-      console.info('[MAP FULL RERENDER]', { employee_id: input.employeeId, version: input.markerVersionKey });
+      observabilityConsole.info('[MAP SNAPSHOT DESTROYED]', { employee_id: input.employeeId, version: lock });
+      observabilityConsole.info('[MAP FULL RERENDER]', { employee_id: input.employeeId, version: input.markerVersionKey });
     }
     this.versionLockByEmployee.set(input.employeeId, input.markerVersionKey);
     this.markerStateByEmployee.set(input.employeeId, {
@@ -47,7 +48,7 @@ export class OperationalMapStateCoordinator {
     if (!st) return false;
     const stale = nowMs - st.capturedAtMs > MARKER_TTL_MS;
     if (stale) {
-      console.info('[MAP SNAPSHOT STALE]', { employee_id: employeeId, age_ms: nowMs - st.capturedAtMs });
+      observabilityConsole.info('[MAP SNAPSHOT STALE]', { employee_id: employeeId, age_ms: nowMs - st.capturedAtMs });
     }
     return stale;
   }
@@ -61,7 +62,7 @@ export class OperationalMapStateCoordinator {
       this.markerStateByEmployee.delete(employeeId);
       this.versionLockByEmployee.delete(employeeId);
       removed.push(employeeId);
-      console.info('[MAP GHOST MARKER REMOVED]', {
+      observabilityConsole.info('[MAP GHOST MARKER REMOVED]', {
         employee_id: employeeId,
         reason: absentForTooLong ? 'feed_absent' : 'ttl_expired',
       });

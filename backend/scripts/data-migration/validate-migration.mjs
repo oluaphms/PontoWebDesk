@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../services/observabilityConsole.js';
 /**
  * Compara contagens Supabase vs VPS (tabelas public com dados na origem).
  *
@@ -30,7 +31,7 @@ const KEY_TABLES = [
 ];
 
 if (!supabaseUrl || !vpsUrl) {
-  console.error('[validate] Defina SUPABASE_DATABASE_URL e DATABASE_URL em backend/.env');
+  observabilityConsole.error('[validate] Defina SUPABASE_DATABASE_URL e DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -88,9 +89,9 @@ try {
     ...new Set([...KEY_TABLES, ...srcTables.filter((t) => !t.startsWith('pg_'))]),
   ].filter((t) => t !== '_schema_migrations');
 
-  console.log('\n[validate] Contagens Supabase vs VPS\n');
-  console.log('Tabela'.padEnd(36), 'Supabase'.padStart(10), 'VPS'.padStart(10), 'Status');
-  console.log('-'.repeat(70));
+  observabilityConsole.log('\n[validate] Contagens Supabase vs VPS\n');
+  observabilityConsole.log('Tabela'.padEnd(36), 'Supabase'.padStart(10), 'VPS'.padStart(10), 'Status');
+  observabilityConsole.log('-'.repeat(70));
 
   for (const table of tablesToCheck) {
     const src = await countTable(srcPool, table);
@@ -101,7 +102,7 @@ try {
     const ok = src === dst;
     if (!ok) mismatches += 1;
     const status = ok ? 'OK' : 'DIFF';
-    console.log(
+    observabilityConsole.log(
       table.padEnd(36),
       String(src ?? 'N/A').padStart(10),
       String(dst ?? 'N/A').padStart(10),
@@ -111,8 +112,8 @@ try {
 
   const authSrc = await countAuthUsers(srcPool);
   const authDst = await countAuthUsers(dstPool);
-  console.log('-'.repeat(70));
-  console.log(
+  observabilityConsole.log('-'.repeat(70));
+  observabilityConsole.log(
     'auth.users'.padEnd(36),
     String(authSrc ?? 'N/A').padStart(10),
     String(authDst ?? 'N/A').padStart(10),
@@ -122,14 +123,14 @@ try {
 
   const noPwd = await countUsersWithoutPassword(dstPool);
   if (noPwd != null && noPwd > 0) {
-    console.log(`\n[validate] AVISO: ${noPwd} utilizador(es) em public.users sem password_hash (login API).`);
-    console.log('  Rode npm run db:seed para admin ou UPDATE password_hash por email.');
+    observabilityConsole.log(`\n[validate] AVISO: ${noPwd} utilizador(es) em public.users sem password_hash (login API).`);
+    observabilityConsole.log('  Rode npm run db:seed para admin ou UPDATE password_hash por email.');
   }
 
-  console.log(mismatches === 0 ? '\n[validate] Todas as contagens conferem.\n' : `\n[validate] ${mismatches} diferença(s).\n`);
+  observabilityConsole.log(mismatches === 0 ? '\n[validate] Todas as contagens conferem.\n' : `\n[validate] ${mismatches} diferença(s).\n`);
   process.exit(mismatches === 0 ? 0 : 2);
 } catch (err) {
-  console.error('[validate] Falhou:', err);
+  observabilityConsole.error('[validate] Falhou:', err);
   process.exit(1);
 } finally {
   await srcPool.end();

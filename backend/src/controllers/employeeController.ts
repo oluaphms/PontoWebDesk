@@ -12,6 +12,7 @@ import {
   ensureUserForEmployee,
   syncUserFieldsFromEmployeeBody,
 } from '../services/employeeUserSync.js';
+import { logger } from '../logger/logger.js';
 
 function mapRow(row: Record<string, unknown>) {
   const pis = row.pis ?? row.pis_pasep;
@@ -60,7 +61,14 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
     );
     res.json({ ok: true, employees: result.rows.map(mapRow) });
   } catch (e) {
-    console.error('[EMPLOYEES LIST]', e);
+    logger.error({
+      module: 'employee.controller',
+      action: 'EMPLOYEES_LIST_FAILED',
+      message: 'Falha ao listar colaboradores',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+    });
     res.status(500).json({ ok: false, error: 'employees_list_failed' });
   }
 }
@@ -124,7 +132,14 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       res.status(400).json({ ok: false, error: 'CPF ou e-mail já cadastrado nesta empresa' });
       return;
     }
-    console.error('[EMPLOYEES CREATE]', e);
+    logger.error({
+      module: 'employee.controller',
+      action: 'EMPLOYEE_CREATE_FAILED',
+      message: 'Falha ao criar colaborador',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+    });
     res.status(500).json({ ok: false, error: 'create_failed' });
   }
 }
@@ -215,7 +230,14 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       res.status(400).json({ ok: false, error: 'CPF ou e-mail já cadastrado' });
       return;
     }
-    console.error('[EMPLOYEES UPDATE]', e);
+    logger.error({
+      module: 'employee.controller',
+      action: 'EMPLOYEE_UPDATE_FAILED',
+      message: 'Falha ao atualizar colaborador',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+    });
     res.status(500).json({ ok: false, error: 'update_failed' });
   }
 }
@@ -242,7 +264,14 @@ export async function deleteEmployeeController(req: AuthedRequest, res: Response
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error('[EMPLOYEES DELETE]', e);
+    logger.error({
+      module: 'employee.controller',
+      action: 'EMPLOYEE_DELETE_FAILED',
+      message: 'Falha ao remover colaborador',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+    });
     res.status(500).json({ ok: false, error: 'delete_failed' });
   }
 }

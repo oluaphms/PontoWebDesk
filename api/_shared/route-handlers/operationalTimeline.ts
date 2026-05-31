@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-timeline?company_id=&employee_id=&date=YYYY-MM-DD
  */
@@ -136,10 +137,10 @@ async function handler(request: Request): Promise<Response> {
       .eq('related_date', date),
   ]);
 
-  if (punchErr) console.error('[api/operational-timeline] punches', punchErr);
-  if (repErr) console.error('[api/operational-timeline] rep', repErr);
-  if (alertErr) console.error('[api/operational-timeline] alerts', alertErr);
-  if (taskErr) console.error('[api/operational-timeline] tasks', taskErr);
+  if (punchErr) observabilityConsole.error('[api/operational-timeline] punches', punchErr);
+  if (repErr) observabilityConsole.error('[api/operational-timeline] rep', repErr);
+  if (alertErr) observabilityConsole.error('[api/operational-timeline] alerts', alertErr);
+  if (taskErr) observabilityConsole.error('[api/operational-timeline] tasks', taskErr);
 
   const taskIds = new Set((taskRows ?? []).map((r: { id: string }) => r.id));
   const alertIds = new Set((alertRows ?? []).map((r: { id: string }) => r.id));
@@ -154,7 +155,7 @@ async function handler(request: Request): Promise<Response> {
     .order('created_at', { ascending: true })
     .limit(300);
 
-  if (auditErr) console.error('[api/operational-timeline] audit', auditErr);
+  if (auditErr) observabilityConsole.error('[api/operational-timeline] audit', auditErr);
 
   const auditsFiltered = (auditRows ?? []).filter((r: { entity_id: string | null }) => {
     const eid = r.entity_id ? String(r.entity_id) : '';

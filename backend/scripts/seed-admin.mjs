@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Cria usuário admin inicial no PostgreSQL (Hostinger / VPS).
  * Compatível com schema mínimo (backend/db/schema.sql) e schema completo (db:migrate:full).
@@ -16,12 +17,16 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[seed-admin] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[seed-admin] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
 const email = (process.env.SEED_ADMIN_EMAIL || 'admin@local.test').trim().toLowerCase();
-const password = process.env.SEED_ADMIN_PASSWORD || '123456';
+const password = process.env.SEED_ADMIN_PASSWORD;
+if (!password) {
+  observabilityConsole.error('[seed-admin] Defina SEED_ADMIN_PASSWORD com senha forte; senha padrão foi desabilitada.');
+  process.exit(1);
+}
 const companyIdEnv = (process.env.SEED_COMPANY_ID || '').trim();
 const role = process.env.SEED_ADMIN_ROLE || 'admin';
 
@@ -131,7 +136,7 @@ async function createBootstrapCompany(client) {
   );
   const id = ins.rows[0]?.id;
   if (!id) throw new Error('[seed-admin] INSERT em companies não devolveu id.');
-  console.log('[seed-admin] Empresa bootstrap criada:', id, `(${nome})`, `[id.${idKind}]`);
+  observabilityConsole.log('[seed-admin] Empresa bootstrap criada:', id, `(${nome})`, `[id.${idKind}]`);
   return String(id).trim();
 }
 
@@ -145,7 +150,7 @@ async function resolveCompanyId(client) {
   );
   const fromUser = existing.rows[0]?.company_id;
   if (fromUser && String(fromUser).trim()) {
-    console.log('[seed-admin] company_id do utilizador existente:', fromUser);
+    observabilityConsole.log('[seed-admin] company_id do utilizador existente:', fromUser);
     return String(fromUser).trim();
   }
 
@@ -156,7 +161,7 @@ async function resolveCompanyId(client) {
   );
   const fromCompanies = companies.rows[0]?.id;
   if (fromCompanies && String(fromCompanies).trim()) {
-    console.log('[seed-admin] company_id da primeira empresa:', fromCompanies);
+    observabilityConsole.log('[seed-admin] company_id da primeira empresa:', fromCompanies);
     return String(fromCompanies).trim();
   }
 
@@ -168,12 +173,12 @@ async function resolveCompanyId(client) {
       'Nenhuma empresa em public.companies e falha ao criar bootstrap. Defina SEED_COMPANY_ID=<uuid>.',
     );
   }
-  console.warn('[seed-admin] Sem companies — usando demo-company (schema mínimo)');
+  observabilityConsole.warn('[seed-admin] Sem companies — usando demo-company (schema mínimo)');
   return 'demo-company';
 }
 
 try {
-  const hash = await bcrypt.hash(password, 10);
+  const hash = await bcrypt.hash(password, 12);
   const client = await pool.connect();
 
   try {
@@ -207,7 +212,7 @@ try {
           'update users set company_id = $1, role = $2 where id = $3',
           [companyId, role, userId],
         );
-        console.warn('[seed-admin] Tabela users sem password_hash — rode db:migrate:full ou 003_api_local_auth.sql');
+        observabilityConsole.warn('[seed-admin] Tabela users sem password_hash — rode db:migrate:full ou 003_api_local_auth.sql');
       }
       if (hasNome) {
         await client.query(
@@ -215,7 +220,7 @@ try {
           ['Administrador', userId],
         );
       }
-      console.log('[seed-admin] Senha/perfil atualizados para', email);
+      observabilityConsole.log('[seed-admin] Senha/perfil atualizados para', email);
     } else if (hasNome && useAuthUsers) {
       const authInsert = await client.query(
         'insert into auth.users (email) values ($1) returning id',
@@ -233,7 +238,7 @@ try {
         `insert into users (${cols.join(', ')}) values (${placeholders})`,
         vals,
       );
-      console.log('[seed-admin] Usuário criado (schema Supabase):', email);
+      observabilityConsole.log('[seed-admin] Usuário criado (schema Supabase):', email);
     } else {
       if (hasPasswordHash) {
         await client.query(
@@ -247,12 +252,12 @@ try {
           [email, companyId, role],
         );
       }
-      console.log('[seed-admin] Usuário criado (schema mínimo):', email);
+      observabilityConsole.log('[seed-admin] Usuário criado (schema mínimo):', email);
     }
 
     await client.query('COMMIT');
-    console.log('[seed-admin] company_id:', companyId, '| role:', role);
-    console.log('[seed-admin] Use estas credenciais no login (API local).');
+    observabilityConsole.log('[seed-admin] company_id:', companyId, '| role:', role);
+    observabilityConsole.log('[seed-admin] Use estas credenciais no login (API local).');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -260,7 +265,7 @@ try {
     client.release();
   }
 } catch (err) {
-  console.error('[seed-admin] Falhou:', err);
+  observabilityConsole.error('[seed-admin] Falhou:', err);
   process.exit(1);
 } finally {
   await pool.end();

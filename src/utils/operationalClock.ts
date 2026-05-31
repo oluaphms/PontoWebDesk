@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Relógio operacional único para monitoramento GEO / COS / live (evita mistura solta de Date/UTC).
  */
@@ -41,7 +42,7 @@ export function normalizeOperationalTimestamp(
 ): { utcIso: string; instantMs: number } | null {
   const n = normalizeOperationalDate(input, { quiet: true, source: opts?.source ?? 'operationalClock' });
   if (n && opts?.log) {
-    console.info('[OPERATIONAL CLOCK NORMALIZED]', { utc_iso: n.utcIso, source: opts?.source ?? 'operationalClock' });
+    observabilityConsole.info('[OPERATIONAL CLOCK NORMALIZED]', { utc_iso: n.utcIso, source: opts?.source ?? 'operationalClock' });
   }
   return n;
 }

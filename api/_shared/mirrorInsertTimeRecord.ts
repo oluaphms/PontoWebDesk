@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * POST /api/mirror-insert-time-record
  * Batida manual admin/HR via RPC (JWT do caller — auth.uid() na função SECURITY DEFINER).
@@ -111,7 +112,7 @@ export async function handleMirrorInsertTimeRecord(request: Request): Promise<Re
     .maybeSingle();
 
   if (empErr) {
-    console.error('[mirror-insert-time-record] users lookup', empErr);
+    observabilityConsole.error('[mirror-insert-time-record] users lookup', empErr);
     return json({ error: empErr.message, code: empErr.code }, 500, corsHeaders);
   }
   if (!employee || String(employee.company_id ?? '') !== companyId) {
@@ -145,7 +146,7 @@ export async function handleMirrorInsertTimeRecord(request: Request): Promise<Re
   );
 
   if (rpcError) {
-    console.error('[mirror-insert-time-record] rpc', rpcError);
+    observabilityConsole.error('[mirror-insert-time-record] rpc', rpcError);
     return json(
       {
         error: rpcError.message,

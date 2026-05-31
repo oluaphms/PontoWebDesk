@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Geração idempotente de tarefas operacionais a partir de alertas do mesmo pipeline.
  */
@@ -143,7 +144,7 @@ export async function generateOperationalTasks({
     .eq('resolved', false);
 
   if (fetchErr) {
-    console.error('[AUTO TASKS] Falha ao ler alertas', { companyId: company, message: fetchErr.message });
+    observabilityConsole.error('[AUTO TASKS] Falha ao ler alertas', { companyId: company, message: fetchErr.message });
     return;
   }
 
@@ -169,7 +170,7 @@ export async function generateOperationalTasks({
       .maybeSingle();
 
     if (exErr) {
-      console.error('[AUTO TASKS] Falha ao verificar duplicata', { message: exErr.message });
+      observabilityConsole.error('[AUTO TASKS] Falha ao verificar duplicata', { message: exErr.message });
       continue;
     }
     if (existing?.id) continue;
@@ -194,12 +195,12 @@ export async function generateOperationalTasks({
       if (insErr.code === '23505') {
         continue;
       }
-      console.error('[AUTO TASKS] Insert falhou', { message: insErr.message, task_type: draft.task_type });
+      observabilityConsole.error('[AUTO TASKS] Insert falhou', { message: insErr.message, task_type: draft.task_type });
       continue;
     }
 
     if (inserted) {
-      console.log('[AUTO TASK CREATED]', {
+      observabilityConsole.log('[AUTO TASK CREATED]', {
         companyId: company,
         employeeId: emp,
         task_type: draft.task_type,

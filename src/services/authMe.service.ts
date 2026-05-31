@@ -1,5 +1,5 @@
 import { apiGet } from './apiClient';
-import { clearToken, getToken } from './authToken';
+import { clearToken, setToken } from './authToken';
 import type { User } from '../../types';
 
 type MeResponse = {
@@ -42,13 +42,13 @@ function mapMeUser(row: NonNullable<MeResponse['user']>): User {
 }
 
 export async function fetchAuthMe(): Promise<User | null> {
-  if (!getToken()) return null;
   try {
     const res = (await apiGet('/auth/me')) as MeResponse;
     if (!res?.ok || !res.user?.id) {
       clearToken();
       return null;
     }
+    setToken('cookie');
     return mapMeUser(res.user);
   } catch {
     clearToken();

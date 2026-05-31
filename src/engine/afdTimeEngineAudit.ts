@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Auditoria append-only tipo AFD — hash SHA-256 obrigatório.
  * Falha ao inserir: log CRITICAL; não interrompe cálculo.
@@ -22,7 +23,7 @@ export async function sha256Hex(input: string): Promise<string> {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   }
-  console.error('[AUDIT CRITICAL] SHA-256 indisponível (crypto.subtle)');
+  observabilityConsole.error('[AUDIT CRITICAL] SHA-256 indisponível (crypto.subtle)');
   return '';
 }
 
@@ -35,12 +36,12 @@ export async function appendAfdTimeEngineAudit(params: {
 }): Promise<void> {
   if (!isSupabaseConfigured()) return;
   if (!params?.employeeId || !params.companyId || !params.action?.trim()) {
-    console.error('[AUDIT CRITICAL] insert negado — employee_id, action ou company_id ausentes');
+    observabilityConsole.error('[AUDIT CRITICAL] insert negado — employee_id, action ou company_id ausentes');
     return;
   }
   const p = params.payload ?? {};
   if (typeof p !== 'object') {
-    console.error('[AUDIT CRITICAL] payload inválido');
+    observabilityConsole.error('[AUDIT CRITICAL] payload inválido');
     return;
   }
   const createdAt = new Date().toISOString();
@@ -59,8 +60,8 @@ export async function appendAfdTimeEngineAudit(params: {
       created_at: createdAt,
     })
     .catch((err: Error | { message?: string }) => {
-      console.error('[AUDIT CRITICAL] time_engine_afd_audit insert falhou', err?.message ?? err);
+      observabilityConsole.error('[AUDIT CRITICAL] time_engine_afd_audit insert falhou', err?.message ?? err);
     });
 
-  console.log('[AUDIT]', { action: params.action, emp: params.employeeId.slice(0, 8), hash_preview: `${hash.slice(0, 12)}…` });
+  observabilityConsole.log('[AUDIT]', { action: params.action, emp: params.employeeId.slice(0, 8), hash_preview: `${hash.slice(0, 12)}…` });
 }

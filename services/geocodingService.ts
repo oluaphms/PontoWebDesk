@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * GeocodingService - Serviço de geocodificação reversa
  * 
@@ -33,7 +34,7 @@ export const GeocodingService = {
 
         // Verificar cache primeiro
         if (geocodingCache.has(cacheKey)) {
-            console.log('📍 Geocoding: usando cache para', cacheKey);
+            observabilityConsole.log('📍 Geocoding: usando cache para', cacheKey);
             return geocodingCache.get(cacheKey)!;
         }
 
@@ -50,14 +51,14 @@ export const GeocodingService = {
             );
 
             if (!response.ok) {
-                console.warn('Geocoding API retornou erro:', response.status);
+                observabilityConsole.warn('Geocoding API retornou erro:', response.status);
                 return null;
             }
 
             const data = await response.json();
 
             if (!data || data.error) {
-                console.warn('Geocoding: nenhum resultado encontrado');
+                observabilityConsole.warn('Geocoding: nenhum resultado encontrado');
                 return null;
             }
 
@@ -85,12 +86,12 @@ export const GeocodingService = {
             // Salvar no cache
             geocodingCache.set(cacheKey, result);
 
-            console.log('📍 Geocoding:', result.address, '-', result.neighborhood, '-', result.city);
+            observabilityConsole.log('📍 Geocoding:', result.address, '-', result.neighborhood, '-', result.city);
 
             return result;
 
         } catch (error) {
-            console.error('❌ Erro no geocoding:', error);
+            observabilityConsole.error('❌ Erro no geocoding:', error);
             return null;
         }
     },

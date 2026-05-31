@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de cálculo de Pré-Folha (jornada de trabalho).
  * Responsável por calcular horas trabalhadas, extras, faltas e noturnas.
@@ -211,14 +212,14 @@ export async function saveDailyTimesheet(data: DailyTimesheet): Promise<{
     const msg = err instanceof Error ? err.message : String(err);
     const raw = data.raw_data || {};
     if (msg.includes('relation') || msg.includes('does not exist')) {
-      console.warn('[saveDailyTimesheet] Tabela timesheets_daily não existe. Execute a migração: 20260417230000_pre_folha_tables.sql');
+      observabilityConsole.warn('[saveDailyTimesheet] Tabela timesheets_daily não existe. Execute a migração: 20260417230000_pre_folha_tables.sql');
       return {
         id: `temp-${data.employee_id}-${data.date}`,
         outcome: 'skipped_integrity',
         processing_status: processingStatusFromWrite('skipped_integrity', raw as Record<string, unknown>),
       };
     }
-    console.info('[CALC INFO] saveDailyTimesheet_failed', { date: data.date, message: msg });
+    observabilityConsole.info('[CALC INFO] saveDailyTimesheet_failed', { date: data.date, message: msg });
     return {
       id: `temp-${data.employee_id}-${data.date}`,
       outcome: 'skipped_integrity',
@@ -304,7 +305,7 @@ async function calculatePayrollSummaryManual(
         err?.message?.includes('does not exist') ||
         err?.status === 400 ||
         err?.status === 404) {
-      console.warn(`[calculatePayrollSummaryManual] Tabela timesheets_daily não acessível para ${employeeId}:`, err?.message || 'Erro 400');
+      observabilityConsole.warn(`[calculatePayrollSummaryManual] Tabela timesheets_daily não acessível para ${employeeId}:`, err?.message || 'Erro 400');
       dailyRecords = [];
     } else {
       throw err;
@@ -374,7 +375,7 @@ export async function calculatePeriodTimesheetsWithSummary(
 ): Promise<{ rows: DailyTimesheet[]; summary: PeriodCalcSummaryFinal }> {
   const gate = await validateTimesheetIntegrity({ employee_id: employeeId, company_id: companyId });
   if (!gate.ok) {
-    console.info('[CALC SKIP] period_calc_blocked', {
+    observabilityConsole.info('[CALC SKIP] period_calc_blocked', {
       employee_id: employeeId,
       company_id: companyId,
       reason: gate.reason,
@@ -416,7 +417,7 @@ export async function calculatePeriodTimesheetsWithSummary(
     } catch (err: unknown) {
       error_count += 1;
       const msg = err instanceof Error ? err.message : String(err);
-      console.info('[CALC INFO] period_day_failed', { date: dateStr, message: msg });
+      observabilityConsole.info('[CALC INFO] period_day_failed', { date: dateStr, message: msg });
       results.push({
         employee_id: employeeId,
         company_id: companyId,
@@ -435,7 +436,7 @@ export async function calculatePeriodTimesheetsWithSummary(
 
     if (total_processed >= 3 && error_count / total_processed > 0.3) {
       degraded = true;
-      console.info('[CALC DEGRADED MODE]', {
+      observabilityConsole.info('[CALC DEGRADED MODE]', {
         employee_id: employeeId,
         company_id: companyId,
         total_processed,
@@ -475,7 +476,7 @@ export async function calculatePeriodTimesheetsWithSummary(
     reliability_score,
   };
 
-  console.info('[CALC PERIOD STATUS]', {
+  observabilityConsole.info('[CALC PERIOD STATUS]', {
     employee_id: employeeId,
     company_id: companyId,
     start_date: startDate,
@@ -490,7 +491,7 @@ export async function calculatePeriodTimesheetsWithSummary(
   });
 
   if (period_status !== 'complete') {
-    console.warn('[UI WARNING] dados incompletos no período', {
+    observabilityConsole.warn('[UI WARNING] dados incompletos no período', {
       employee_id: employeeId,
       company_id: companyId,
       period_status,
@@ -498,7 +499,7 @@ export async function calculatePeriodTimesheetsWithSummary(
     });
   }
 
-  console.log('[CALC SUMMARY FINAL]', {
+  observabilityConsole.log('[CALC SUMMARY FINAL]', {
     employee_id: employeeId,
     company_id: companyId,
     start_date: startDate,
@@ -568,7 +569,7 @@ export async function savePayrollSummary(summary: PayrollSummary): Promise<strin
     // Se a tabela não existe, loga e retorna ID simulado
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('relation') || msg.includes('does not exist')) {
-      console.warn('[savePayrollSummary] Tabela payroll_summaries não existe. Execute a migração: 20260417230000_pre_folha_tables.sql');
+      observabilityConsole.warn('[savePayrollSummary] Tabela payroll_summaries não existe. Execute a migração: 20260417230000_pre_folha_tables.sql');
       return `temp-${summary.employee_id}-${summary.period_start}`;
     }
     throw err;
@@ -638,7 +639,7 @@ export async function getPayrollSummaries(
   
   // Validação de datas
   if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
-    console.warn('[getPayrollSummaries] Datas inválidas:', { startDate, endDate });
+    observabilityConsole.warn('[getPayrollSummaries] Datas inválidas:', { startDate, endDate });
     return [];
   }
 
@@ -653,7 +654,7 @@ export async function getPayrollSummaries(
   } catch (err: any) {
     // Se a tabela não existe, retorna array vazio
     if (err?.message?.includes('relation') || err?.message?.includes('does not exist')) {
-      console.warn('[getPayrollSummaries] Tabela payroll_summaries não existe. Execute a migração.');
+      observabilityConsole.warn('[getPayrollSummaries] Tabela payroll_summaries não existe. Execute a migração.');
       return [];
     }
     throw err;

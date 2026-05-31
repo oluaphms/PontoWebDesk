@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Propriedade única de hidratação: um owner ativo; novos owners invalidam os anteriores.
  */
@@ -20,11 +21,11 @@ export function beginHydration(ownerToken: string): void {
   const previous = activeOwner;
   activeOwner = ownerToken;
   if (typeof console !== 'undefined') {
-    console.info('[AUTH HYDRATION OWNERSHIP]', { token: ownerToken, previous });
+    observabilityConsole.info('[AUTH HYDRATION OWNERSHIP]', { token: ownerToken, previous });
   }
   if (previous && previous !== ownerToken) {
     if (typeof console !== 'undefined') {
-      console.info('[AUTH HYDRATION CANCELLED]', { previous, supersededBy: ownerToken });
+      observabilityConsole.info('[AUTH HYDRATION CANCELLED]', { previous, supersededBy: ownerToken });
     }
   }
 }
@@ -36,12 +37,12 @@ export function isHydrationOwnerActive(ownerToken: string): boolean {
 export function endHydration(ownerToken: string): void {
   if (activeOwner === ownerToken) {
     if (typeof console !== 'undefined') {
-      console.info('[AUTH HYDRATION COMPLETED]', { token: ownerToken });
+      observabilityConsole.info('[AUTH HYDRATION COMPLETED]', { token: ownerToken });
     }
     activeOwner = null;
   } else {
     if (typeof console !== 'undefined') {
-      console.info('[AUTH HYDRATION STALE]', { token: ownerToken, current: activeOwner });
+      observabilityConsole.info('[AUTH HYDRATION STALE]', { token: ownerToken, current: activeOwner });
     }
   }
 }

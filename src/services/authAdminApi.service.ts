@@ -1,6 +1,6 @@
 import { auth } from './supabaseClient';
 import { apiPost } from './api';
-import { getToken } from './authToken';
+import { getToken, isCookieSessionToken } from './authToken';
 import { isLocalApiMode } from '../config/system';
 
 const AUTH_ERROR_CODES: Record<string, string> = {
@@ -15,8 +15,7 @@ const AUTH_ERROR_CODES: Record<string, string> = {
 async function getAdminBearerToken(): Promise<string> {
   if (isLocalApiMode()) {
     const token = getToken();
-    if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-    return token;
+    return token && !isCookieSessionToken(token) ? token : '';
   }
   const {
     data: { session },
@@ -43,18 +42,22 @@ export async function confirmEmployeeEmailInAuth(email: string): Promise<void> {
 export async function setEmployeePasswordInAuth(
   email: string,
   newPassword: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; temporaryPassword?: string; expiresAt?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
-  const password = newPassword.trim() || '123456';
+  const password = newPassword.trim();
   try {
     const token = await getAdminBearerToken();
     if (isLocalApiMode()) {
-      await apiPost(
+      const data = await apiPost<Record<string, unknown>>(
         '/admin/set-password',
         { email: normalizedEmail, newPassword: password },
-        { headers: { Authorization: `Bearer ${token}` } },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
       );
-      return { success: true };
+      return {
+        success: true,
+        temporaryPassword: typeof data.temporaryPassword === 'string' ? data.temporaryPassword : undefined,
+        expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : undefined,
+      };
     }
     await apiPost(
       '/auth/admin',
@@ -85,7 +88,12 @@ export async function createEmployeeAuthUser(params: {
   if (password) requestBody.password = password;
 
   try {
-    const data = (await apiPost('/auth/admin', requestBody)) as {
+    const token = await getAdminBearerToken();
+    const data = (await apiPost(
+      '/auth/admin',
+      requestBody,
+      token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+    )) as {
       user_id?: string;
       userId?: string;
       existing?: boolean;

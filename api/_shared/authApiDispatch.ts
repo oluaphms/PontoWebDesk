@@ -4,6 +4,7 @@
 
 import authAdmin from './route-handlers/authAdmin.js';
 import employeeInvite from './route-handlers/employeeInvite.js';
+import passwordReset from './route-handlers/passwordReset.js';
 
 function withPathname(request: Request, pathname: string): Request {
   const u = new URL(request.url);
@@ -33,6 +34,9 @@ export async function dispatchAuthRequest(request: Request): Promise<Response | 
   }
   if (segs.length === 2 && segs[0] === 'employee-invite' && segs[1] === 'accept') {
     return forward(employeeInvite, request, `/api/employee-invite/accept${u.search}`);
+  }
+  if (segs.length === 1 && segs[0] === 'reset-password') {
+    return forward(passwordReset, request, `/api/auth/reset-password${u.search}`);
   }
 
   return new Response(JSON.stringify({ success: false, error: 'NOT_FOUND' }), {

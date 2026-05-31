@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../logger/observabilityConsole.js';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 
@@ -21,7 +22,7 @@ async function ensureRevocationTable(): Promise<boolean> {
     revocationTableReady = true;
     return true;
   } catch (e) {
-    console.warn('[tokenRevocation] tabela indisponível:', e);
+    observabilityConsole.warn('[tokenRevocation] tabela indisponível:', e);
     revocationTableReady = false;
     return false;
   }

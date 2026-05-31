@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import type { InvalidateQueryFilters, Query, QueryKey } from '@tanstack/react-query';
 import { queryClient } from './queryClient';
 import { apiQueryKeys } from './apiQueryKeys';
@@ -56,7 +57,7 @@ function logDecision(
 ): void {
   if (!import.meta.env.DEV || typeof console === 'undefined') return;
   const { domain, tenantId } = parseDomainTenant(key);
-  console.info('[CACHE DECISION]', { key, domain, tenantId, reason });
+  observabilityConsole.info('[CACHE DECISION]', { key, domain, tenantId, reason });
 }
 
 function devCacheLog(
@@ -88,7 +89,7 @@ function devCacheLog(
                 : kind === 'SKIP_BACKOFF'
                   ? '[CACHE SKIP - BACKOFF]'
                   : '[CACHE SKIP - STILL FRESH]';
-  console.info(label, detail);
+  observabilityConsole.info(label, detail);
 }
 
 function findQueries(filters: InvalidateQueryFilters): Query[] {
@@ -146,7 +147,7 @@ async function refetchMatchingWithGuards(
       await query.fetch();
       refetchBackoffByDomainTenant.delete(aggregateKey);
       if (import.meta.env.DEV && typeof console !== 'undefined') {
-        console.info('[CACHE STATE]', {
+        observabilityConsole.info('[CACHE STATE]', {
           key: query.queryKey,
           isStale: query.isStale(),
           dataUpdatedAt: query.state.dataUpdatedAt,

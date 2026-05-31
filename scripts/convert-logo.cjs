@@ -1,3 +1,4 @@
+const { observabilityConsole } = require('../services/observabilityConsole.cjs');
 /**
  * Script para converter SVGs em PNGs
  * Uso: node scripts/convert-logo.cjs
@@ -27,7 +28,7 @@ const mipmapSizes = {
 };
 
 async function convertSVG() {
-  console.log('🎨 Iniciando conversão de Logo SVG para PNG\n');
+  observabilityConsole.log('🎨 Iniciando conversão de Logo SVG para PNG\n');
   
   const svgBuffer = fs.readFileSync(path.join(PUBLIC_DIR, 'logo.svg'));
   
@@ -38,7 +39,7 @@ async function convertSVG() {
       .resize(size, size)
       .png()
       .toFile(outputPath);
-    console.log(`✓ ${filename} gerado (${size}px)`);
+    observabilityConsole.log(`✓ ${filename} gerado (${size}px)`);
   }
   
   // Gerar mipmaps Android
@@ -62,18 +63,18 @@ async function convertSVG() {
       .png()
       .toFile(path.join(mipmapDir, 'ic_launcher_adaptive_fore.png'));
     
-    console.log(`✓ mipmap-${folder}/ (${size}px)`);
+    observabilityConsole.log(`✓ mipmap-${folder}/ (${size}px)`);
   }
   
-  console.log('\n🌐 Para gerar favicon.ico:');
-  console.log('   Acesse: https://convertio.co/svg-ico/');
-  console.log('   Faça upload do favicon.svg');
-  console.log('   Baixe o favicon.ico com tamanhos: 16, 32, 48px');
+  observabilityConsole.log('\n🌐 Para gerar favicon.ico:');
+  observabilityConsole.log('   Acesse: https://convertio.co/svg-ico/');
+  observabilityConsole.log('   Faça upload do favicon.svg');
+  observabilityConsole.log('   Baixe o favicon.ico com tamanhos: 16, 32, 48px');
   
-  console.log('\n✅ Conversão concluída!');
+  observabilityConsole.log('\n✅ Conversão concluída!');
 }
 
 convertSVG().catch(err => {
-  console.error('❌ Erro na conversão:', err);
+  observabilityConsole.error('❌ Erro na conversão:', err);
   process.exit(1);
 });

@@ -21,6 +21,7 @@ import {
   TEMPLATE_HEADERS,
 } from '../../services/importEmployeesService';
 import { readFileHead, validateImportDocument } from '../../shared/upload/fileValidation';
+import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 
 function normalizeHeader(h: string): string {
   return h
@@ -128,6 +129,17 @@ const ImportEmployeesPage: React.FC = () => {
     const f = e.target.files?.[0];
     if (!f || !user?.companyId) return;
     setError(null);
+    const policy = validateUploadByPolicy({
+      policy: 'employeeImportDocument',
+      fileName: f.name || 'import.csv',
+      mimeType: f.type || '',
+      size: f.size,
+    });
+    if (!policy.ok) {
+      setError('Arquivo inválido para importação.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     const head = await readFileHead(f);
     const docCheck = validateImportDocument({
       filename: f.name,

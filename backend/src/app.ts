@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import apiRouter from './routes/apiRouter.js';
 import { buildCorsAllowList, resolveCorsOrigin } from './corsConfig.js';
+import { logger } from './logger/logger.js';
+import { requestContextMiddleware } from './middleware/requestContext.js';
 
 export const app = express();
 
@@ -12,7 +14,12 @@ app.use(
     origin(origin, callback) {
       const resolved = resolveCorsOrigin(origin, corsAllowList);
       if (resolved === false) {
-        console.warn('[CORS] Origin bloqueada:', origin);
+        logger.warn({
+          module: 'http.cors',
+          action: 'CORS_ORIGIN_BLOCKED',
+          message: 'Origin bloqueada por CORS',
+          meta: { origin: origin || null },
+        });
         callback(null, false);
         return;
       }
@@ -25,14 +32,15 @@ app.use(
 );
 
 if (process.env.NODE_ENV !== 'test') {
-  console.log('[CORS] Origens permitidas:', corsAllowList.join(', '));
+  logger.info({
+    module: 'http.cors',
+    action: 'CORS_ALLOWLIST_LOADED',
+    message: 'Origens permitidas carregadas',
+    meta: { origins: corsAllowList },
+  });
 }
 app.use(express.json({ limit: '1mb' }));
-
-app.use((req, _res, next) => {
-  console.log('[API]', req.method, req.originalUrl);
-  next();
-});
+app.use(requestContextMiddleware);
 
 /** Health local (sem DB) — útil se o proxy expuser só /api. */
 app.get('/health', (_req, res) => {
@@ -69,7 +77,16 @@ app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'not_found' });
 });
 
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[API_ERROR]', err);
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error({
+    module: 'http.app',
+    action: 'UNHANDLED_ERROR',
+    message: 'Erro não tratado na API',
+    error: err,
+    meta: {
+      method: req.method,
+      path: req.originalUrl,
+    },
+  });
   res.status(500).json({ ok: false, error: 'internal_error' });
 });

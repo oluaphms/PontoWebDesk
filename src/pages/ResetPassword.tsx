@@ -112,7 +112,7 @@ const ResetPasswordPage: React.FC = () => {
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-8">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Redefinir senha</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-          Use apenas letras e números (6 a 32 caracteres). A senha deve conter letras e números.
+          Use pelo menos 12 caracteres com letra maiúscula, minúscula, número e caractere especial.
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">

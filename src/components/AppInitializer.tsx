@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Boot não bloqueante: UI sempre carrega; dados via API VPS.
  */
@@ -29,9 +30,9 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       const apiUrl = getApiBaseUrl();
       if (isDevVerboseLogsEnabled()) {
         console.group('[ENV]');
-        console.log('API URL:', apiUrl);
-        console.log('Mode:', import.meta.env.MODE);
-        console.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
+        observabilityConsole.log('API URL:', apiUrl);
+        observabilityConsole.log('Mode:', import.meta.env.MODE);
+        observabilityConsole.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
         console.groupEnd();
       }
 
@@ -47,9 +48,9 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
           origin: 'AppInitializer',
         });
         if (schemaError.mode === 'production-error') {
-          console.error('[APP INIT] Schema Guard CRÍTICO:', schemaError);
+          observabilityConsole.error('[APP INIT] Schema Guard CRÍTICO:', schemaError);
         } else {
-          console.warn('[APP INIT] Schema Guard (dev):', schemaError);
+          observabilityConsole.warn('[APP INIT] Schema Guard (dev):', schemaError);
         }
       }
 
@@ -63,12 +64,12 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
           typeof localStorage !== 'undefined' ? localStorage.getItem(versionStorageKey) : null;
         if (prevRaw && prevRaw !== nextPayload && typeof console !== 'undefined') {
           try {
-            console.warn('[VERSION CHANGE DETECTED]', {
+            observabilityConsole.warn('[VERSION CHANGE DETECTED]', {
               previous: JSON.parse(prevRaw) as { engine?: string; rules?: string },
               current: { engine: engineVer, rules: rulesVer },
             });
           } catch {
-            console.warn('[VERSION CHANGE DETECTED]', { rawPrevious: prevRaw, current: nextPayload });
+            observabilityConsole.warn('[VERSION CHANGE DETECTED]', { rawPrevious: prevRaw, current: nextPayload });
           }
         }
         if (typeof localStorage !== 'undefined') {
@@ -85,7 +86,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       try {
         await apiGet('/health');
       } catch (e) {
-        console.warn('[APP INIT] API health check falhou (não bloqueia UI):', e);
+        observabilityConsole.warn('[APP INIT] API health check falhou (não bloqueia UI):', e);
       }
 
       if (mounted) setIsReady(true);

@@ -3,6 +3,8 @@ import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { validateImageBuffer } from '../upload/fileValidation.js';
 import type { DetectedImageMime } from '../upload/magicBytes.js';
 import { buildSignedPhotoUrl, savePhotoFile } from '../services/uploadStorageService.js';
+import { validateUploadedFile } from '../upload/validateUploadedFile.js';
+import { logger } from '../logger/logger.js';
 
 type UploadKind = 'punch' | 'avatar';
 
@@ -32,6 +34,32 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
     const buffer = Buffer.from(b64, 'base64');
 
     const profile = kind === 'avatar' ? 'avatar' : 'punchPhoto';
+    const centralized = validateUploadedFile({
+      uploadType: profile,
+      filename,
+      mimeType: declaredMime,
+      size: buffer.byteLength,
+      buffer: new Uint8Array(buffer),
+      storagePath: `photos/${String(userId)}/${filename}`,
+    });
+    if (centralized.ok === false) {
+      logger.warn({
+        module: 'upload.controller',
+        action: 'UPLOAD_REJECTED',
+        message: 'Upload rejeitado por política de validação',
+        userId: String(userId),
+        meta: {
+          endpoint: '/api/uploads/photo',
+          uploadType: profile,
+          reason: centralized.code.toLowerCase(),
+          fileName: filename,
+          mimeType: declaredMime,
+          size: buffer.byteLength,
+        },
+      });
+      res.status(400).json({ ok: false, error: centralized.message, code: centralized.code });
+      return;
+    }
     const validated = validateImageBuffer({
       filename,
       declaredMime,
@@ -45,11 +73,35 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
     }
 
     const detected = validated.detectedMime as DetectedImageMime;
+    logger.info({
+      module: 'upload.controller',
+      action: 'UPLOAD_VALIDATED',
+      message: 'Upload validado com sucesso',
+      userId: String(userId),
+      meta: {
+        uploadType: profile,
+        mimeType: detected,
+        size: buffer.byteLength,
+      },
+    });
     const { fileName } = savePhotoFile(userId, kind, detected, buffer);
     const url = buildSignedPhotoUrl(req, userId, fileName);
+    logger.info({
+      module: 'upload.controller',
+      action: 'UPLOAD_COMPLETED',
+      message: 'Upload persistido com sucesso',
+      userId: String(userId),
+      meta: { path: `${userId}/${fileName}` },
+    });
     res.json({ ok: true, url, path: `${userId}/${fileName}`, mime: detected });
   } catch (e) {
-    console.error('[upload/photo]', e);
+    logger.error({
+      module: 'upload.controller',
+      action: 'UPLOAD_FAILED',
+      message: 'Falha no fluxo de upload',
+      userId: String(userId),
+      error: e,
+    });
     res.status(500).json({ ok: false, error: 'upload_failed' });
   }
 }

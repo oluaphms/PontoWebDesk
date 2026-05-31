@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { beginPostLoginQueryCooldown } from '../app/postLoginQueryGate';
 import { devVerboseInfo } from '@/utils/devVerboseLogs';
 
@@ -25,7 +26,7 @@ export function recordCriticalRequest(tag: string): void {
   if (Date.now() > windowEndAt) return;
   criticalCount += 1;
   if (criticalCount > MAX_CRITICAL && typeof console !== 'undefined') {
-    console.warn('[REQUEST BUDGET VIOLATION]', {
+    observabilityConsole.warn('[REQUEST BUDGET VIOLATION]', {
       tag,
       criticalCount,
       max: MAX_CRITICAL,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de geolocalização para registro de ponto (SmartPonto Antifraude).
  * Captura posição via navigator.geolocation + Permissions API quando disponível.
@@ -79,13 +80,13 @@ export type GeoPermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported'
 
 function devLog(...args: unknown[]): void {
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && typeof console !== 'undefined') {
-    console.info('[Geo]', ...args);
+    observabilityConsole.info('[Geo]', ...args);
   }
 }
 
 function geoLog(tag: string, payload: Record<string, unknown>): void {
   if (typeof console === 'undefined') return;
-  console.info(tag, payload);
+  observabilityConsole.info(tag, payload);
 }
 
 function readCurrentUserScope(): TenantScope {

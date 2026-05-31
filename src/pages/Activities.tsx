@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ActivitySquare, BadgeX, Clock3, Link2 } from 'lucide-react';
@@ -91,7 +92,7 @@ const ActivitiesPage: React.FC = () => {
 
         setLogs(mapped);
       } catch (e) {
-        console.error('Erro ao carregar activity_logs:', e);
+        observabilityConsole.error('Erro ao carregar activity_logs:', e);
         setError('Não foi possível carregar o log de atividades.');
       } finally {
         setIsLoadingData(false);
@@ -128,12 +129,12 @@ const ActivitiesPage: React.FC = () => {
       });
       setLogs((prev) => prev.map((l) => (l.id === log.id ? { ...l, productivity_tag: tag } : l)));
     } catch (e) {
-      console.error('Erro ao marcar produtividade:', e);
+      observabilityConsole.error('Erro ao marcar produtividade:', e);
     }
   };
 
   const handleBlockApp = (log: ActivityLogRow) => {
-    console.log('Bloquear app', log.app_name, log.url);
+    observabilityConsole.log('Bloquear app', log.app_name, log.url);
   };
 
   if (loading) {

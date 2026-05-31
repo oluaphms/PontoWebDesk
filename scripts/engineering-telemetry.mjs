@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -40,4 +41,4 @@ ${hotspots.length ? hotspots.map(([f, n]) => `- \`${f}\`: ${n} alterações`).jo
 `;
 
 fs.writeFileSync(outPath, report);
-console.info('[ENGINEERING TELEMETRY] updated docs/ENGINEERING_TELEMETRY.md');
+observabilityConsole.info('[ENGINEERING TELEMETRY] updated docs/ENGINEERING_TELEMETRY.md');

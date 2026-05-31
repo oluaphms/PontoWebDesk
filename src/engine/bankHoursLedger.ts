@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Ledger corporativo de BH (FIFO via `used_minutes`).
  * Saldo utilizável deriva de Σ(max(0, minutes − used_minutes)) nos créditos válidos − débitos.
@@ -262,7 +263,7 @@ export async function applyBankHoursLedgerDay(params: {
   const rowsAfter = await fetchBankHoursLedgerRows(employeeId, companyId);
   const balanceEndRealRaw = computeBankWalletMinutes(rowsAfter, day);
 
-  console.log('[BH]', {
+  observabilityConsole.log('[BH]', {
     date: day,
     saldo_manha_real: balanceStart,
     credited_extra_insert: creditedInsert,

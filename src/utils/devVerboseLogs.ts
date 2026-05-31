@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Controle central de logs verbosos em desenvolvimento.
  * Por padrão fica desligado para reduzir ruído no console.
@@ -17,6 +18,6 @@ export function isDevVerboseLogsEnabled(): boolean {
 
 export function devVerboseInfo(tag: string, payload?: unknown): void {
   if (!isDevVerboseLogsEnabled()) return;
-  if (payload === undefined) console.info(tag);
-  else console.info(tag, payload);
+  if (payload === undefined) observabilityConsole.info(tag);
+  else observabilityConsole.info(tag, payload);
 }

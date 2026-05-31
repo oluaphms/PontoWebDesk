@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * LGPD: portabilidade, exclusão (anonimização), consentimento e retenção.
  * Rotas públicas: /api/lgpd/* (rewrite Vercel → /api/operational/lgpd/*)
@@ -216,7 +217,7 @@ async function handleConsent(request: Request, headers: Record<string, string>):
 }
 
 async function handleRetention(request: Request, headers: Record<string, string>): Promise<Response> {
-  const cronSecret = (process.env.CRON_SECRET || process.env.VITE_CRON_SECRET || '').trim();
+  const cronSecret = (process.env.CRON_SECRET || '').trim();
   const cronHeader = (request.headers.get('X-Cron-Secret') || '').trim();
   const isCron = Boolean(cronSecret && cronHeader && cronHeader === cronSecret);
 
@@ -249,7 +250,7 @@ async function handleRetention(request: Request, headers: Record<string, string>
       const r = await runRetentionForCompany(serviceClient, companyId);
       results.push({ companyId, ...r });
     } catch (e) {
-      console.error('[lgpd/retention]', companyId, e);
+      observabilityConsole.error('[lgpd/retention]', companyId, e);
     }
   }
 
@@ -284,7 +285,7 @@ export async function dispatchLgpdRequest(request: Request): Promise<Response> {
     if (message === 'SUPABASE_ENV_MISSING') {
       return json({ error: 'Supabase não configurado no servidor' }, 500, headers);
     }
-    console.error('[api/lgpd]', slug, e);
+    observabilityConsole.error('[api/lgpd]', slug, e);
     return json({ error: message }, 500, headers);
   }
 

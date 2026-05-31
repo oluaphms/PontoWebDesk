@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Observa long tasks na main thread (UI freeze). Requer suporte a PerformanceObserver + longtask.
  */
@@ -48,9 +49,9 @@ function logLongTask(
     stackSummary: stackHint,
   };
   if (label === '[LONG TASK BLOCKING LOGIN]') {
-    console.warn(label, payload);
+    observabilityConsole.warn(label, payload);
   } else {
-    console.info(label, payload);
+    observabilityConsole.info(label, payload);
   }
 }
 

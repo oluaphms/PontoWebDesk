@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, Download, ExternalLink, Plus } from 'lucide-react';
@@ -103,7 +104,7 @@ const TimeAttendancePage: React.FC = () => {
       const { rows: dataRows } = await getTimeAttendanceData(effectiveCompanyId, start, end, nameMap);
       setRows(dataRows);
     } catch (e) {
-      console.error('Erro ao carregar dados de jornada:', e);
+      observabilityConsole.error('Erro ao carregar dados de jornada:', e);
       setError('Não foi possível carregar os registros de jornada.');
     } finally {
       setIsLoadingData(false);
@@ -160,7 +161,7 @@ const TimeAttendancePage: React.FC = () => {
       setModalOpen(false);
       await loadData();
     } catch (err) {
-      console.error('Erro ao salvar lançamento manual:', err);
+      observabilityConsole.error('Erro ao salvar lançamento manual:', err);
       setError(err instanceof Error ? err.message : 'Falha ao gravar batidas ou recalcular o dia.');
     } finally {
       setSaving(false);
@@ -168,7 +169,7 @@ const TimeAttendancePage: React.FC = () => {
   };
 
   const handleApproveHours = () => {
-    console.log('Approve hours for current filter selection');
+    observabilityConsole.log('Approve hours for current filter selection');
   };
 
   const handleExport = () => {

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 type RealtimePriority = 'critical' | 'high' | 'normal' | 'low';
 
 type RealtimeTask = {
@@ -31,10 +32,10 @@ function monitorPressure(): void {
   const depth = queue.length;
   pressureScore = depth > 400 ? 100 : depth > 200 ? 80 : depth > 120 ? 65 : depth > 60 ? 45 : depth > 30 ? 25 : 0;
   if (pressureScore >= 45) {
-    console.warn('[REALTIME PRESSURE]', { pressure: pressureScore, queued_tasks: depth });
+    observabilityConsole.warn('[REALTIME PRESSURE]', { pressure: pressureScore, queued_tasks: depth });
   }
   if (pressureScore >= 80) {
-    console.warn('[REALTIME MEMORY GUARD]', { queued_tasks: depth, action: 'drop_low_priority' });
+    observabilityConsole.warn('[REALTIME MEMORY GUARD]', { queued_tasks: depth, action: 'drop_low_priority' });
     let dropped = 0;
     for (let i = queue.length - 1; i >= 0; i--) {
       if (queue[i]?.priority === 'low') {
@@ -58,7 +59,7 @@ function cleanupStaleSubscriptions(now = Date.now()): void {
     }
   }
   if (cleaned > 0) {
-    console.info('[REALTIME SUBSCRIPTION CLEANUP]', { cleaned_tasks: cleaned });
+    observabilityConsole.info('[REALTIME SUBSCRIPTION CLEANUP]', { cleaned_tasks: cleaned });
   }
 }
 
@@ -73,7 +74,7 @@ function flushFrame(): void {
     try {
       task.execute();
     } catch (error) {
-      console.error('[REALTIME SCHEDULER TASK ERROR]', { id: task.id, error: String(error) });
+      observabilityConsole.error('[REALTIME SCHEDULER TASK ERROR]', { id: task.id, error: String(error) });
     }
     count++;
   }

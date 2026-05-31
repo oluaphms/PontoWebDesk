@@ -27,6 +27,9 @@ jobs:
       - name: Unit Tests
         run: npm run test:run
 
+      - name: Security Audit
+        run: npm run security:audit
+
       - name: Chaos Tests
         run: npm run test:chaos
 

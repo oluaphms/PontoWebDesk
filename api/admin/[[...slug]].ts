@@ -28,6 +28,8 @@ import { resolveRequestUrl } from '../_shared/getRequestBaseUrl.js';
 import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 import { noCache } from '../_shared/cache.js';
+import { logger } from '../../src/shared/logger/logger.js';
+import { encryptDeviceCredential } from '../_shared/deviceCredentialCrypto.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +60,12 @@ function authOk(request: Request): boolean {
 }
 
 function json(body: unknown, status = 200, headers: Record<string, string> = CORS_BASE): Response {
-  console.log('[API RESPONSE]', '/api/admin', Date.now());
+  logger.info({
+    module: 'api.admin',
+    action: 'ADMIN_RESPONSE_SENT',
+    message: '/api/admin response emitted',
+    meta: { status },
+  });
   return noCache(Response.json(body, { status, headers }));
 }
 
@@ -96,7 +103,15 @@ async function handleMetrics(): Promise<Response> {
           message: l.message, createdAt: l.createdAt, context: l.context,
         })),
       };
-    } catch { queueMetrics = { error: 'Fila local não acessível neste ambiente' }; }
+    } catch (error) {
+      logger.warn({
+        module: 'api.admin',
+        action: 'QUEUE_METRICS_UNAVAILABLE',
+        message: 'Fila local nao acessivel neste ambiente',
+        error,
+      });
+      queueMetrics = { error: 'Fila local não acessível neste ambiente' };
+    }
   }
   return json({
     timestamp: new Date().toISOString(),
@@ -146,7 +161,16 @@ async function handleSyncErrors(request: Request, url: URL): Promise<Response> {
     }
     if (request.method === 'POST') {
       let body: { jobIds?: string[]; all?: boolean } = {};
-      try { body = await request.json(); } catch { /* ignore */ }
+      try {
+        body = await request.json();
+      } catch (error) {
+        logger.warn({
+          module: 'api.admin',
+          action: 'SYNC_ERRORS_BODY_PARSE_FAILED',
+          message: 'Falha ao parsear body em sync-errors',
+          error,
+        });
+      }
       let jobIds: string[] = body.all === true
         ? q.getDeadLetterJobs(10_000).map((j: { id: string }) => j.id)
         : (Array.isArray(body.jobIds) ? body.jobIds.filter((id: unknown) => typeof id === 'string') : []);
@@ -187,7 +211,15 @@ async function handleSystemStatus(): Promise<Response> {
       recentAlerts = q.getLogs({ scope: 'alert', limit: 5 });
       recentErrors = q.getLogs({ level: 'error', limit: 5 });
       q.close();
-    } catch { queueMetrics = { error: 'Fila não acessível' }; }
+    } catch (error) {
+      logger.warn({
+        module: 'api.admin',
+        action: 'QUEUE_STATUS_UNAVAILABLE',
+        message: 'Fila nao acessivel no system-status',
+        error,
+      });
+      queueMetrics = { error: 'Fila não acessível' };
+    }
   }
 
   const pending   = (queueMetrics.pending   as number) ?? 0;
@@ -234,7 +266,14 @@ async function handleGlobalDashboard(): Promise<Response> {
         const { count } = await sb.from('clock_event_logs').select('id', { count: 'exact', head: true }).is('promoted_at', null).lt('created_at', cutoff);
         unpromotedCount = count ?? 0;
       }
-    } catch { /* ignore */ }
+    } catch (error) {
+      logger.warn({
+        module: 'api.admin',
+        action: 'GLOBAL_DASHBOARD_SUPABASE_CHECK_FAILED',
+        message: 'Falha ao consultar Supabase no global-dashboard',
+        error,
+      });
+    }
   }
 
   let queueMetrics: Record<string, unknown> = {}, tenantMetrics: unknown[] = [], featureFlagsStatus = {}, retentionStatus = {}, recentAlerts: unknown[] = [], auditIntegrity = {};
@@ -251,9 +290,26 @@ async function handleGlobalDashboard(): Promise<Response> {
       featureFlagsStatus = new FeatureFlags().getStatus();
       recentAlerts = q.getLogs({ scope: 'alert', limit: 10 });
       auditIntegrity = new AuditTrail({ db: q.db }).verifyIntegrity();
-      try { retentionStatus = new RetentionPolicy({ db: q.db, queue: q }).getPendingCount(); } catch { /* ignore */ }
+      try {
+        retentionStatus = new RetentionPolicy({ db: q.db, queue: q }).getPendingCount();
+      } catch (error) {
+        logger.warn({
+          module: 'api.admin',
+          action: 'RETENTION_STATUS_READ_FAILED',
+          message: 'Falha ao ler status de retencao',
+          error,
+        });
+      }
       q.close();
-    } catch { queueMetrics = { error: 'SQLite não acessível' }; }
+    } catch (error) {
+      logger.warn({
+        module: 'api.admin',
+        action: 'GLOBAL_DASHBOARD_QUEUE_UNAVAILABLE',
+        message: 'SQLite nao acessivel para global-dashboard',
+        error,
+      });
+      queueMetrics = { error: 'SQLite não acessível' };
+    }
   }
 
   const pending = (queueMetrics.pending as number) ?? 0, errorRate = (queueMetrics.errorRate as number) ?? 0, delayMs = (queueMetrics.processingDelayMs as number) ?? 0;
@@ -351,7 +407,16 @@ async function handleFlags(request: Request): Promise<Response> {
     return json({ timestamp: new Date().toISOString(), ...ff.getStatus(), instructions: { envOverride: 'Defina a variável de ambiente com o nome da flag', dynamicUpdate: 'Atualize a tabela feature_flags no Supabase para mudança sem restart', maintenanceMode: 'MAINTENANCE_MODE=1 bloqueia ingestão' } });
   }
   let body: { flag?: string; enabled?: boolean } = {};
-  try { body = await request.json(); } catch { /* ignore */ }
+  try {
+    body = await request.json();
+  } catch (error) {
+    logger.warn({
+      module: 'api.admin',
+      action: 'FLAGS_BODY_PARSE_FAILED',
+      message: 'Falha ao parsear body em flags',
+      error,
+    });
+  }
   if (!body.flag) return json({ error: 'Campo "flag" obrigatório.' }, 400);
   const current = ff.get(body.flag);
   return json({ flag: body.flag, current, message: `Para alterar "${body.flag}", defina a variável de ambiente ou atualize a tabela feature_flags no Supabase.`, supabaseSql: `INSERT INTO feature_flags (name, enabled, active) VALUES ('${body.flag}', ${body.enabled ?? !current}, true) ON CONFLICT(name) DO UPDATE SET enabled = ${body.enabled ?? !current};` });
@@ -378,14 +443,32 @@ async function handleIncidents(request: Request, url: URL, slug: string[]): Prom
     }
     if (request.method === 'POST') {
       let body: { title?: string; severity?: string; cause?: string; impact?: string; affectedTenants?: string[] } = {};
-      try { body = await request.json(); } catch { /* ignore */ }
+      try {
+        body = await request.json();
+      } catch (error) {
+        logger.warn({
+          module: 'api.admin',
+          action: 'INCIDENTS_CREATE_BODY_PARSE_FAILED',
+          message: 'Falha ao parsear body de criacao de incidente',
+          error,
+        });
+      }
       if (!body.title || !body.severity) return json({ error: 'title e severity são obrigatórios.' }, 400);
       const id = im.open(body);
       return json({ success: true, id, incident: im.get(id) }, 201);
     }
     if (request.method === 'PATCH' && isSpecific) {
       let body: Record<string, unknown> = {};
-      try { body = await request.json(); } catch { /* ignore */ }
+      try {
+        body = await request.json();
+      } catch (error) {
+        logger.warn({
+          module: 'api.admin',
+          action: 'INCIDENTS_PATCH_BODY_PARSE_FAILED',
+          message: 'Falha ao parsear body de atualizacao de incidente',
+          error,
+        });
+      }
       im.update(incidentId, body);
       return json({ success: true, incident: im.get(incidentId) });
     }
@@ -473,13 +556,35 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
             .eq('date', yesterday)
             .single();
           if (data) return json({ source: 'supabase', ...data });
-        } catch { /* fallback */ }
+        } catch (error) {
+          logger.warn({
+            module: 'api.admin',
+            action: 'AUDIT_DAILY_REPORT_SUPABASE_READ_FAILED',
+            message: 'Falha ao ler daily report no Supabase; usando fallback local',
+            error,
+          });
+        }
       }
       const { TimestampAnchor } = await import('../../services/timestampSigner.js' as string);
       const anchor    = new TimestampAnchor({ db: q.db });
       const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
       const integrity = at.verifyIntegrity();
-      const lastHash  = (() => { try { const row = q.db.prepare(`SELECT integrity_hash FROM audit_trail WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 1`).get(`${yesterday}T00:00:00.000Z`, `${yesterday}T23:59:59.999Z`); return (row as { integrity_hash?: string })?.integrity_hash ?? ''; } catch { return ''; } })();
+      const lastHash  = (() => {
+        try {
+          const row = q.db
+            .prepare(`SELECT integrity_hash FROM audit_trail WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 1`)
+            .get(`${yesterday}T00:00:00.000Z`, `${yesterday}T23:59:59.999Z`);
+          return (row as { integrity_hash?: string })?.integrity_hash ?? '';
+        } catch (error) {
+          logger.warn({
+            module: 'api.admin',
+            action: 'AUDIT_LAST_HASH_READ_FAILED',
+            message: 'Falha ao ler last hash de auditoria',
+            error,
+          });
+          return '';
+        }
+      })();
       const anchorCheck = anchor.verifyInAnchor(lastHash, yesterday);
       const report = { source: 'realtime', date: new Date().toISOString(), period: yesterday, integrity: { ok: integrity.ok, checked: integrity.checked, tampered: integrity.tampered }, anchor: { date: yesterday, found: anchorCheck.found, merkleRoot: anchorCheck.merkleRoot ?? null }, overall: integrity.ok && anchorCheck.found ? 'PASS' : 'FAIL' };
       return json(report, report.overall === 'PASS' ? 200 : 409);
@@ -500,7 +605,17 @@ async function handleOnboarding(request: Request): Promise<Response> {
   if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase não configurado.' }, 503);
 
   let body: unknown;
-  try { body = await request.json(); } catch { return json({ error: 'Body JSON inválido.' }, 400); }
+  try {
+    body = await request.json();
+  } catch (error) {
+    logger.warn({
+      module: 'api.admin',
+      action: 'ONBOARDING_BODY_PARSE_FAILED',
+      message: 'Body JSON invalido no onboarding',
+      error,
+    });
+    return json({ error: 'Body JSON inválido.' }, 400);
+  }
 
   const { z } = await import('zod');
   const Schema = z.object({
@@ -539,7 +654,20 @@ async function handleOnboarding(request: Request): Promise<Response> {
   let deviceId: string | null = null;
   if (device) {
     try {
-      const { data, error } = await sb.from('devices').insert({ company_id: companyId, brand: device.brand, ip: device.ip, port: device.port ?? null, username: device.username ?? null, password: device.password ?? null, name: device.name ?? `${device.brand}-${device.ip}`, active: true }).select('id').single();
+      const encryptedPassword = device.password ? encryptDeviceCredential(device.password) : null;
+      const { data, error } = await sb.from('devices').insert({
+        company_id: companyId,
+        brand: device.brand,
+        ip: device.ip,
+        port: device.port ?? null,
+        username: device.username ?? null,
+        password: encryptedPassword ? null : device.password ?? null,
+        password_encrypted: encryptedPassword?.encrypted ?? null,
+        password_iv: encryptedPassword?.iv ?? null,
+        password_tag: encryptedPassword?.tag ?? null,
+        name: device.name ?? `${device.brand}-${device.ip}`,
+        active: true,
+      }).select('id').single();
       if (error) throw error;
       deviceId = data.id;
       steps.push({ step: 'register_device', status: 'ok', detail: `device_id: ${deviceId}` });
@@ -599,7 +727,16 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
 
       const { count: recentPunches } = await sb.from('clock_event_logs').select('id', { count: 'exact', head: true }).eq('company_id', companyId).gte('created_at', new Date(Date.now() - 86_400_000).toISOString());
       checks.punchesLast24h = recentPunches ?? 0;
-    } catch (e) { checks.supabase = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    } catch (e) {
+      logger.error({
+        module: 'api.admin',
+        action: 'SUPPORT_SUPABASE_CHECK_FAILED',
+        message: 'Falha na verificacao de suporte via Supabase',
+        error: e,
+        meta: { companyId },
+      });
+      checks.supabase = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   } else {
     issues.push({ severity: 'critical', code: 'SUPABASE_NOT_CONFIGURED', message: 'Supabase não configurado', action: 'Configurar variáveis de ambiente' });
   }
@@ -612,7 +749,16 @@ async function handleSupport(request: Request, url: URL): Promise<Response> {
       if (m.pending > 1_000) issues.push({ severity: 'high', code: 'QUEUE_OVERFLOW', message: `Fila com ${m.pending} jobs pendentes`, action: 'Verificar conectividade', runbook: 'docs/runbooks/fila-travada.md' });
       if (m.failed > 0) issues.push({ severity: 'medium', code: 'DEAD_LETTER_JOBS', message: `${m.failed} job(s) na DLQ`, action: 'Inspecionar /api/admin/sync-errors', runbook: 'docs/runbooks/fila-travada.md' });
       q.close();
-    } catch { checks.queue = { error: 'SQLite não acessível' }; }
+    } catch (error) {
+      logger.warn({
+        module: 'api.admin',
+        action: 'SUPPORT_QUEUE_CHECK_FAILED',
+        message: 'Falha na verificacao da fila em suporte',
+        error,
+        meta: { companyId },
+      });
+      checks.queue = { error: 'SQLite não acessível' };
+    }
   }
 
   const criticals = issues.filter(i => i.severity === 'critical').length;
@@ -656,6 +802,12 @@ async function handler(request: Request): Promise<Response> {
 
     return json({ error: `Rota /api/admin/${slug.join('/')} não encontrada.`, available: ['metrics','logs','sync-errors','system-status','global-dashboard','saas-metrics','flags','incidents','slo','audit','audit/verify','audit/export','audit/snapshot','audit/daily-report','onboarding','support/diagnose'] }, 404, corsHeaders);
   } catch (e) {
+    logger.error({
+      module: 'api.admin',
+      action: 'ADMIN_HANDLER_FAILED',
+      message: 'Falha no handler /api/admin',
+      error: e,
+    });
     return json({ error: e instanceof Error ? e.message : 'Erro interno' }, 500, corsHeaders);
   }
 }

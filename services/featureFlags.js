@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Feature flags para operação segura em produção.
  *
@@ -63,7 +64,7 @@ export class FeatureFlags {
     if (!this._supabase) return this;
     void this._refresh();
     this._timer = setInterval(() => this._refresh().catch((err) => {
-      console.warn('[featureFlags] Falha ao atualizar flags:', err);
+      observabilityConsole.warn('[featureFlags] Falha ao atualizar flags:', err);
     }), this._refreshMs);
     return this;
   }
@@ -86,7 +87,7 @@ export class FeatureFlags {
       );
       this._lastRefreshedAt = new Date().toISOString();
     } catch (err) {
-      console.warn('[featureFlags] Falha ao buscar flags remotas:', err);
+      observabilityConsole.warn('[featureFlags] Falha ao buscar flags remotas:', err);
     }
   }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Contexto de idioma. Store externo + useSyncExternalStore no consumer para evitar
  * "Cannot read properties of null (reading 'useState')" no provider (múltiplas instâncias de React).
@@ -18,7 +19,7 @@ export function getDefaultLanguage(): Language {
   try {
     saved = localStorage.getItem('smartponto_language') as Language;
   } catch (err) {
-    console.warn('[LanguageContext] Falha ao ler idioma salvo:', err);
+    observabilityConsole.warn('[LanguageContext] Falha ao ler idioma salvo:', err);
   }
   return saved === 'pt-BR' || saved === 'en-US' ? saved : 'pt-BR';
 }
@@ -46,7 +47,7 @@ function setLanguageStore(next: Language) {
   try {
     localStorage.setItem('smartponto_language', next);
   } catch (err) {
-    console.warn('[LanguageContext] Falha ao salvar idioma:', err);
+    observabilityConsole.warn('[LanguageContext] Falha ao salvar idioma:', err);
   }
   listeners.forEach((l) => l());
 }

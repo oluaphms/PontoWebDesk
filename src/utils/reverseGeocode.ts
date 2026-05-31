@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Geocodificação reversa (lat/lng → endereço legível).
  * Em produção, usa /api/reverse-geocode (evita CORS).
@@ -71,7 +72,7 @@ export function extractLatLng(row: any): { lat: number; lng: number } | null {
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
   const coordIssues = validateCoordinateOrder(lat, lng);
   if (coordIssues.length > 0 && typeof console !== 'undefined') {
-    console.info('[GEO INVALID COORDINATE ORDER]', { lat, lng, issues: coordIssues, source: 'ui' });
+    observabilityConsole.info('[GEO INVALID COORDINATE ORDER]', { lat, lng, issues: coordIssues, source: 'ui' });
   }
   try {
     const { snapshot } = await reverseGeocodeSnapshot(lat, lng);
@@ -91,7 +92,7 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
 export async function reverseGeocodeStreet(lat: number, lng: number): Promise<string> {
   const coordIssues = validateCoordinateOrder(lat, lng);
   if (coordIssues.length > 0 && typeof console !== 'undefined') {
-    console.info('[GEO INVALID COORDINATE ORDER]', { lat, lng, issues: coordIssues, source: 'ui' });
+    observabilityConsole.info('[GEO INVALID COORDINATE ORDER]', { lat, lng, issues: coordIssues, source: 'ui' });
   }
   try {
     const { snapshot } = await reverseGeocodeSnapshot(lat, lng);

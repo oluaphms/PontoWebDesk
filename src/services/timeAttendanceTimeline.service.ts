@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Persistência da timeline operacional — falhas nunca interrompem o fluxo principal.
  */
@@ -72,7 +73,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
 
   const client = input.supabaseClient ?? getSupabaseClient();
   if (!client) {
-    console.error('[TIME ATTENDANCE TIMELINE ERROR]', { reason: 'no_supabase_client', event: input.eventType });
+    observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', { reason: 'no_supabase_client', event: input.eventType });
     failOperationalTrace(trace.trace_id, 'no_supabase_client');
     return;
   }
@@ -96,7 +97,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
       fn: async () => client.from('time_attendance_timeline').insert(row),
     });
     if (error) {
-      console.error('[TIME ATTENDANCE TIMELINE ERROR]', {
+      observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', {
         message: error.message,
         code: error.code,
         event: input.eventType,
@@ -127,7 +128,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
     });
     finalizeOperationalTrace(trace.trace_id);
     if (typeof globalThis !== 'undefined' && globalThis.console) {
-      globalThis.console.info('[TIME ATTENDANCE TIMELINE]', {
+      observabilityConsole.info('[TIME ATTENDANCE TIMELINE]', {
         event: input.eventType,
         severity: row.event_severity,
         company_id: companyId,
@@ -136,7 +137,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
       });
     }
   } catch (e) {
-    console.error('[TIME ATTENDANCE TIMELINE ERROR]', {
+    observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', {
       event: input.eventType,
       message: e instanceof Error ? e.message : String(e),
     });
@@ -238,13 +239,13 @@ export async function listTimeAttendanceTimelinePage(
 
     const { data, error } = await q;
     if (error) {
-      console.error('[TIME ATTENDANCE TIMELINE ERROR]', { message: error.message, context: 'list' });
+      observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', { message: error.message, context: 'list' });
       return { rows: [], nextCursor: null };
     }
 
     const scopedList = ((data ?? []) as TimeAttendanceTimelineRow[]).filter((row) => row.company_id === companyId);
     if (scopedList.length !== (data ?? []).length) {
-      console.error('[TENANT ISOLATION FAILURE]', {
+      observabilityConsole.error('[TENANT ISOLATION FAILURE]', {
         context: 'timeline_page',
         requested_company_id: companyId,
         leaked_rows: (data ?? []).length - scopedList.length,
@@ -258,7 +259,7 @@ export async function listTimeAttendanceTimelinePage(
 
     return { rows: page, nextCursor };
   } catch (e) {
-    console.error('[TIME ATTENDANCE TIMELINE ERROR]', {
+    observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', {
       context: 'list_exception',
       message: e instanceof Error ? e.message : String(e),
     });

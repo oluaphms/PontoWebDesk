@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Job de auditoria contínua automática.
  *
@@ -90,7 +91,9 @@ export class DailyAuditJob {
           .is('promoted_at', null)
           .lt('created_at', cutoff);
         unpromotedCount = count ?? 0;
-      } catch { /* best-effort */ }
+      } catch (error) {
+        observabilityConsole.warn('[dailyAuditJob] Falha ao contar eventos não promovidos:', error);
+      }
     }
 
     // 4. Montar relatório
@@ -145,11 +148,11 @@ export class DailyAuditJob {
         overall:    report.overall,
         created_at: runAt,
       }, { onConflict: 'date' }).catch((err) => {
-        console.warn('[DAILY_AUDIT] Falha ao salvar relatório no Supabase:', err);
+        observabilityConsole.warn('[DAILY_AUDIT] Falha ao salvar relatório no Supabase:', err);
       });
     }
 
-    console.log(`[DAILY_AUDIT] ${report.overall} — ${runAt}`);
+    observabilityConsole.log(`[DAILY_AUDIT] ${report.overall} — ${runAt}`);
     return report;
   }
 
@@ -162,7 +165,7 @@ export class DailyAuditJob {
       `).get(`${date}T00:00:00.000Z`, `${date}T23:59:59.999Z`);
       return row?.integrity_hash ?? '';
     } catch (err) {
-      console.warn('[DAILY_AUDIT] Falha ao ler hash do dia:', err);
+      observabilityConsole.warn('[DAILY_AUDIT] Falha ao ler hash do dia:', err);
       return '';
     }
   }

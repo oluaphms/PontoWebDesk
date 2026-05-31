@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Authentication Service
  * 
@@ -43,9 +44,10 @@ import {
 import { isSupabaseBlocked } from '../src/utils/supabaseGuard';
 import { enableDegradedMode } from '../src/services/systemMode';
 import { fetchAuthMe } from '../src/services/authMe.service';
-import { getToken, clearToken } from '../src/services/authToken';
+import { clearToken } from '../src/services/authToken';
 import { cacheEmployees } from '../src/services/localDb';
 import { getProvider } from '../src/services/getProvider';
+import { apiPost, ApiError } from '../src/services/api';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -615,7 +617,7 @@ class AuthService {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
         const emailPreview = import.meta.env?.DEV ? email : this.maskEmailForLog(email);
-        console.log('[LOGIN START]', { email: emailPreview, attempt: attempt + 1, maxAttempts });
+        observabilityConsole.log('[LOGIN START]', { email: emailPreview, attempt: attempt + 1, maxAttempts });
       }
       try {
         const client = getSupabaseClient();
@@ -634,7 +636,7 @@ class AuthService {
             }
           : null;
         if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.log('[LOGIN RESULT]', {
+          observabilityConsole.log('[LOGIN RESULT]', {
             error: error?.message ?? error ?? null,
             data: data
               ? {
@@ -650,7 +652,7 @@ class AuthService {
         if (!error && !data?.user) {
           if (attempt < maxAttempts - 1) {
             if (typeof console !== 'undefined') {
-              console.warn('[LOGIN RETRY]', { afterMs: 2000, reason: 'resposta_sem_usuario' });
+              observabilityConsole.warn('[LOGIN RETRY]', { afterMs: 2000, reason: 'resposta_sem_usuario' });
             }
             await new Promise((r) => setTimeout(r, 2000));
             continue;
@@ -664,7 +666,7 @@ class AuthService {
           }
           if (this.isRetriableLoginTransportError(error) && attempt < maxAttempts - 1) {
             if (typeof console !== 'undefined') {
-              console.warn('[LOGIN RETRY]', { afterMs: 2000, attempt: attempt + 1 });
+              observabilityConsole.warn('[LOGIN RETRY]', { afterMs: 2000, attempt: attempt + 1 });
             }
             await new Promise((r) => setTimeout(r, 2000));
             continue;
@@ -683,7 +685,7 @@ class AuthService {
         }
         if (this.isRetriableLoginTransportError(err) && attempt < maxAttempts - 1) {
           if (typeof console !== 'undefined') {
-            console.warn('[LOGIN RETRY]', { afterMs: 2000, reason: (err as Error)?.message });
+            observabilityConsole.warn('[LOGIN RETRY]', { afterMs: 2000, reason: (err as Error)?.message });
           }
           await new Promise((r) => setTimeout(r, 2000));
           continue;
@@ -729,14 +731,14 @@ class AuthService {
       const { data, error } = await supabase.auth.refreshSession();
       if (error || !data?.session?.user) {
         if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.warn('[Auth] Refresh manual falhou:', error?.message || 'sem sessão');
+          observabilityConsole.warn('[Auth] Refresh manual falhou:', error?.message || 'sem sessão');
         }
         return false;
       }
       return true;
     } catch (error) {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[Auth] Refresh manual com erro:', error);
+        observabilityConsole.warn('[Auth] Refresh manual com erro:', error);
       }
       return false;
     } finally {
@@ -956,20 +958,20 @@ class AuthService {
       if (isTimeout) {
         if (looksLikeSessionStorageRace || isGoTrueLockContention) {
           if (import.meta.env?.DEV && typeof console !== 'undefined' && console.debug) {
-            console.debug(
+            observabilityConsole.debug(
               '[Auth] Sessão/GoTrue em contenção ou timeout; usando dados mínimos do Auth até sincronizar.',
             );
           }
         } else if (import.meta.env?.DEV && typeof console !== 'undefined' && console.debug) {
-          console.debug(
+          observabilityConsole.debug(
             '[Auth] Perfil em public.users demorou ou indisponível; usando dados mínimos do Auth até sincronizar.',
           );
         }
       } else {
-        console.error('Erro ao converter usuário Supabase:', msg);
+        observabilityConsole.error('Erro ao converter usuário Supabase:', msg);
       }
       if (typeof msg === 'string' && (msg.includes('infinite recursion') || msg.includes('policy for relation'))) {
-        console.warn('[Supabase RLS] Recursão nas políticas detectada. No Supabase (SQL Editor), execute a migration 20250329000000_fix_rls_users_recursion_definitive.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
+        observabilityConsole.warn('[Supabase RLS] Recursão nas políticas detectada. No Supabase (SQL Editor), execute a migration 20250329000000_fix_rls_users_recursion_definitive.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
       }
       // Fallback: retorna usuário mínimo a partir só do Auth (tabela users inexistente/RLS/schema)
       const email = (supabaseUser?.email || '').trim().toLowerCase();
@@ -1177,7 +1179,7 @@ class AuthService {
         }
         if (isSupabaseBlocked(error)) {
           enableDegradedMode();
-          console.warn('[MODO LOCAL] auth');
+          observabilityConsole.warn('[MODO LOCAL] auth');
           await ensureDefaultLocalAdmin();
           const credUser = await verifyLocalCredentials(identifier, password);
           if (credUser) {
@@ -1358,13 +1360,11 @@ class AuthService {
    */
   async signOut(): Promise<void> {
     const startedAt = Date.now();
-    if (getToken()) {
-      try {
-        const { apiPost } = await import('../src/services/api');
-        await apiPost('/auth/logout', {});
-      } catch {
-        // revogação no servidor é best-effort
-      }
+    try {
+      const { apiPost } = await import('../src/services/api');
+      await apiPost('/auth/logout', {});
+    } catch {
+      // revogação no servidor é best-effort
     }
     clearToken();
     try {
@@ -1401,9 +1401,9 @@ class AuthService {
       await auth.signOut({ scope: 'global' });
     } catch (error) {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[Auth] signOut falhou (seguindo com limpeza local):', error);
+        observabilityConsole.warn('[Auth] signOut falhou (seguindo com limpeza local):', error);
       } else {
-        console.error('Erro ao fazer logout:', error);
+        observabilityConsole.error('Erro ao fazer logout:', error);
       }
     } finally {
       try {
@@ -1448,7 +1448,7 @@ class AuthService {
         // Libera a flag após um tick para garantir que eventos pendentes do Supabase já foram processados.
         setTimeout(() => { this._isSigningOut = false; }, 500);
         if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.info('[Auth] Logout concluído em', Date.now() - startedAt, 'ms');
+          observabilityConsole.info('[Auth] Logout concluído em', Date.now() - startedAt, 'ms');
         }
       }
     }
@@ -1470,9 +1470,20 @@ class AuthService {
    * redirectTo usa VITE_APP_URL ou origin + '/reset-password'.
    */
   async resetPassword(email: string): Promise<{ success: boolean; error: string | null }> {
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      await apiPost('/auth/reset-password', { email: normalizedEmail });
+      return { success: true, error: null };
+    } catch (apiError: unknown) {
+      if (!(apiError instanceof ApiError && apiError.status === 404)) {
+        const message = apiError instanceof Error ? apiError.message : 'Erro ao enviar email de recuperação';
+        return { success: false, error: message };
+      }
+    }
+
     try {
       const redirectTo = `${this.getResetRedirectUrl()}/reset-password`;
-      await auth.resetPassword(email, redirectTo);
+      await auth.resetPassword(normalizedEmail, redirectTo);
       return { success: true, error: null };
     } catch (error: any) {
       let errorMessage = 'Erro ao enviar email de recuperação';
@@ -1598,7 +1609,7 @@ class AuthService {
             const stored = readCurrentUserFromProfileStore();
             if (stored) {
               if (import.meta.env?.DEV && typeof console !== 'undefined') {
-                console.warn('[Auth] getCurrentUser: timeout ou lock de sessão — usando perfil em cache');
+                observabilityConsole.warn('[Auth] getCurrentUser: timeout ou lock de sessão — usando perfil em cache');
               }
               return JSON.parse(stored) as User;
             }
@@ -1614,7 +1625,7 @@ class AuthService {
                 const minimal = await this.buildMinimalAppUserFromAuthUser(sud);
                 persistCurrentUserToProfileStore(minimal);
                 if (import.meta.env?.DEV && typeof console !== 'undefined') {
-                  console.info(
+                  observabilityConsole.info(
                     '[Auth] getCurrentUser: carga completa esgotou o tempo — sessão válida; usando perfil mínimo até o próximo refresh.',
                   );
                 }
@@ -1624,7 +1635,7 @@ class AuthService {
               // segue para o aviso
             }
             if (typeof console !== 'undefined') {
-              console.warn(
+              observabilityConsole.warn(
                 '[Auth] getCurrentUser: tempo esgotado após 2 tentativas; sem perfil em cache (rede lenta ou Supabase a iniciar).',
               );
             }
@@ -1641,7 +1652,7 @@ class AuthService {
           return null;
         }
         if (error !== undefined) {
-          console.error('Erro ao obter usuário atual:', error);
+          observabilityConsole.error('Erro ao obter usuário atual:', error);
         }
         return null;
       } finally {
@@ -1662,10 +1673,6 @@ class AuthService {
       if (me) {
         persistCurrentUserToProfileStore(me);
         return me;
-      }
-      if (!getToken()) {
-        clearToken();
-        return null;
       }
       try {
         const stored = readCurrentUserFromProfileStore();
@@ -1816,10 +1823,10 @@ class AuthService {
           isMobile,
           isWebView,
         };
-        console.info('[AUTH LISTENER EVENT]', basePayload);
-        if (event === 'SIGNED_IN') console.info('[AUTH LISTENER SIGNED_IN]', basePayload);
-        if (event === 'TOKEN_REFRESHED') console.info('[AUTH LISTENER TOKEN_REFRESHED]', basePayload);
-        if (event === 'INITIAL_SESSION') console.info('[AUTH LISTENER INITIAL_SESSION]', basePayload);
+        observabilityConsole.info('[AUTH LISTENER EVENT]', basePayload);
+        if (event === 'SIGNED_IN') observabilityConsole.info('[AUTH LISTENER SIGNED_IN]', basePayload);
+        if (event === 'TOKEN_REFRESHED') observabilityConsole.info('[AUTH LISTENER TOKEN_REFRESHED]', basePayload);
+        if (event === 'INITIAL_SESSION') observabilityConsole.info('[AUTH LISTENER INITIAL_SESSION]', basePayload);
       }
       /**
        * Durante o logout, ignorar qualquer evento do listener para evitar o loop:
@@ -1835,7 +1842,7 @@ class AuthService {
        */
       if (event === 'SIGNED_IN' && this._manualLoginPipelineId != null) {
         if (import.meta.env?.DEV && typeof console !== 'undefined') {
-          console.info('[AUTH PASSIVE OBSERVER]', {
+          observabilityConsole.info('[AUTH PASSIVE OBSERVER]', {
             action: 'skip_signed_in_manual_login_owned',
             pipelineToken: this._manualLoginPipelineId,
           });
@@ -1850,7 +1857,7 @@ class AuthService {
        */
       if (event === 'SIGNED_OUT' && !session?.user && this._passwordSignInActive) {
         if (import.meta.env.DEV && typeof console !== 'undefined') {
-          console.log(
+          observabilityConsole.log(
             '[AUTH EVENT] SIGNED_OUT — ignorado (signOut local pré-login; não bloquear fila auth) [OK]',
           );
         }
@@ -1873,7 +1880,7 @@ class AuthService {
         !hasSbAuthKeysInBrowser()
       ) {
         if (import.meta.env.DEV && typeof console !== 'undefined') {
-          console.log(
+          observabilityConsole.log(
             '[AUTH EVENT] SIGNED_OUT null — eco cold start, ignorado (sem chaves sb-* no storage) [OK]',
           );
         }
@@ -1883,7 +1890,7 @@ class AuthService {
       if (import.meta.env.DEV && typeof console !== 'undefined') {
         if (event === 'INITIAL_SESSION' && !session?.user) {
           const sbOrfa = hasSbAuthKeysInBrowser();
-          console.log(
+          observabilityConsole.log(
             sbOrfa
               ? '[AUTH EVENT] INITIAL_SESSION — sem JWT válido mas há chaves sb-* (tokens antigos/corruptos; serão limpos se getSession continuar vazio) [AVISO]'
               : '[AUTH EVENT] INITIAL_SESSION null — sem sessão guardada (normal antes de fazer login) [OK]',
@@ -1894,7 +1901,7 @@ class AuthService {
             : hasSbAuthKeysInBrowser()
               ? 'payload sem user · há sb-* no storage (revalidando / possível token órfão)'
               : 'payload sem user';
-          console.log('[AUTH EVENT]', event, detail);
+          observabilityConsole.log('[AUTH EVENT]', event, detail);
         }
       }
 
@@ -2011,7 +2018,7 @@ class AuthService {
             !this._isSigningOut
           ) {
             if (import.meta.env.DEV && typeof console !== 'undefined') {
-              console.warn(
+              observabilityConsole.warn(
                 '[AUTH] Removendo tokens sb-* locais órfãos (getSession continuou sem utilizador válido).',
               );
             }

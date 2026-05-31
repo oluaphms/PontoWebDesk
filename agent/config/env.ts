@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Configuração centralizada e validação fail-fast de variáveis de ambiente.
  *
@@ -45,7 +46,7 @@ export function isValidSupabaseUrl(url: string): boolean {
 
 /** Log estruturado em JSON Lines */
 function logError(scope: string, message: string): void {
-  console.error(JSON.stringify({
+  observabilityConsole.error(JSON.stringify({
     level: 'error',
     scope,
     message,
@@ -85,15 +86,15 @@ export function validateEnv(): ValidatedEnv {
   // Fail fast se não encontrou URL
   if (!supabaseUrl) {
     logError('env', 'Variável obrigatória ausente: SUPABASE_URL (ou URL_SUPABASE ou VITE_SUPABASE_URL)');
-    console.error('[ENV ERROR] Configure SUPABASE_URL, URL_SUPABASE ou VITE_SUPABASE_URL no .env ou .env.local');
+    observabilityConsole.error('[ENV ERROR] Configure SUPABASE_URL, URL_SUPABASE ou VITE_SUPABASE_URL no .env ou .env.local');
     process.exit(1);
   }
 
   // Validar formato da URL
   if (!isValidSupabaseUrl(supabaseUrl)) {
     logError('env', `SUPABASE_URL inválida: ${supabaseUrl.substring(0, 30)}...`);
-    console.error('[ENV ERROR] A URL deve ser HTTPS e terminar com .supabase.co');
-    console.error('[ENV ERROR] Exemplo: https://xxxxxx.supabase.co');
+    observabilityConsole.error('[ENV ERROR] A URL deve ser HTTPS e terminar com .supabase.co');
+    observabilityConsole.error('[ENV ERROR] Exemplo: https://xxxxxx.supabase.co');
     process.exit(1);
   }
 
@@ -102,20 +103,20 @@ export function validateEnv(): ValidatedEnv {
 
   if (!supabaseServiceRoleKey) {
     logError('env', 'Variável obrigatória ausente: SUPABASE_SERVICE_ROLE_KEY');
-    console.error('[ENV ERROR] Configure SUPABASE_SERVICE_ROLE_KEY no .env ou .env.local');
-    console.error('[ENV ERROR] Encontre em: Supabase Dashboard → Settings → API → service_role key');
+    observabilityConsole.error('[ENV ERROR] Configure SUPABASE_SERVICE_ROLE_KEY no .env ou .env.local');
+    observabilityConsole.error('[ENV ERROR] Encontre em: Supabase Dashboard → Settings → API → service_role key');
     process.exit(1);
   }
 
   // Validar formato mínimo da key (deve parecer um JWT)
   if (supabaseServiceRoleKey.length < 50 || !supabaseServiceRoleKey.includes('.')) {
     logError('env', 'SUPABASE_SERVICE_ROLE_KEY parece inválida (formato incorreto)');
-    console.error('[ENV ERROR] A service_role_key deve ser um token JWT válido');
+    observabilityConsole.error('[ENV ERROR] A service_role_key deve ser um token JWT válido');
     process.exit(1);
   }
 
   // ===== SUCCESS =====
-  console.log(JSON.stringify({
+  observabilityConsole.log(JSON.stringify({
     level: 'info',
     scope: 'env',
     message: 'Variáveis de ambiente validadas com sucesso',

@@ -1,3 +1,5 @@
+import { observabilityConsole } from './observabilityConsole.js';
+
 /**
  * Circuit Breaker para chamadas ao Supabase.
  *
@@ -139,7 +141,11 @@ export class CircuitBreaker {
       this._calls = [];
     }
     if (this.onStateChange) {
-      try { this.onStateChange(prev, newState, reason); } catch { /* ignore */ }
+      try {
+        this.onStateChange(prev, newState, reason);
+      } catch (error) {
+        observabilityConsole.warn('[circuitBreaker] onStateChange falhou:', error);
+      }
     }
   }
 

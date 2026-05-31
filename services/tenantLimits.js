@@ -18,6 +18,7 @@
  */
 
 import { LOG_LEVEL } from './syncQueue.js';
+import { observabilityConsole } from './observabilityConsole.js';
 
 const DEFAULT_LIMITS = {
   maxPunchesPerDay: parseInt(process.env.TENANT_MAX_PUNCHES_PER_DAY || '10000', 10),
@@ -55,7 +56,9 @@ export class TenantLimits {
           updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )
       `);
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[tenantLimits] Falha ao garantir schema:', error);
+    }
   }
 
   _scheduleReset() {
@@ -84,7 +87,9 @@ export class TenantLimits {
         maxStorageMb:     row.max_storage_mb,
         throttleEnabled:  row.throttle_enabled === 1,
       };
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[tenantLimits] Falha ao consultar limites:', error);
+    }
     return { ...DEFAULT_LIMITS, throttleEnabled: false };
   }
 

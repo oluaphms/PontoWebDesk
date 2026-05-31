@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CalendarRange, PlusCircle } from 'lucide-react';
@@ -61,7 +62,7 @@ const SchedulesPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar escalas:', e);
+        observabilityConsole.error('Erro ao carregar escalas:', e);
       } finally {
         setIsLoadingData(false);
       }
@@ -120,7 +121,7 @@ const SchedulesPage: React.FC = () => {
 
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Erro ao criar escala:', err);
+      observabilityConsole.error('Erro ao criar escala:', err);
     }
   };
 

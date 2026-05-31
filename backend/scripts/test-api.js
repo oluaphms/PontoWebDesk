@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /* eslint-disable no-console */
 const base = process.env.API_BASE_URL || 'http://localhost:3000';
 const identifier = process.env.TEST_LOGIN || 'admin@local.test';
@@ -11,7 +12,7 @@ async function run() {
     body: JSON.stringify({ identifier, password, email: identifier }),
   });
   const loginData = await loginRes.json().catch(() => ({}));
-  console.log('[test-api] login:', loginRes.status, loginData);
+  observabilityConsole.log('[test-api] login:', loginRes.status, loginData);
 
   const token = loginData?.token;
   const headers = {
@@ -28,7 +29,7 @@ async function run() {
       punch_hash: `test-${Date.now()}`,
     }),
   });
-  console.log('[test-api] punch:', punchRes.status, await punchRes.json().catch(() => ({})));
+  observabilityConsole.log('[test-api] punch:', punchRes.status, await punchRes.json().catch(() => ({})));
 
   const batchRes = await fetch(`${base}/api/punches/batch`, {
     method: 'POST',
@@ -41,11 +42,11 @@ async function run() {
       })),
     }),
   });
-  console.log('[test-api] batch:', batchRes.status, await batchRes.json().catch(() => ({})));
+  observabilityConsole.log('[test-api] batch:', batchRes.status, await batchRes.json().catch(() => ({})));
 }
 
 run().catch((err) => {
-  console.error('[test-api] fatal', err);
+  observabilityConsole.error('[test-api] fatal', err);
   process.exit(1);
 });
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { reverseGeocode } from '../src/utils/reverseGeocode';
@@ -112,7 +113,7 @@ const LocationMap: React.FC<LocationMapProps> = ({ lat, lng, accuracy, className
         setMapReady(true);
         window.setTimeout(() => map.invalidateSize(), 250);
       } catch (error) {
-        console.error('Erro ao inicializar mapa:', error);
+        observabilityConsole.error('Erro ao inicializar mapa:', error);
       }
     }, 200);
 

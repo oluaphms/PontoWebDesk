@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Serviço de evidência de registro e alertas de fraude (SmartPonto Antifraude).
  */
@@ -46,13 +47,13 @@ export async function savePunchEvidence(params: SavePunchEvidenceParams): Promis
     });
     if (rpcError) {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[punch_evidence] RPC falhou, tentando insert direto:', rpcError);
+        observabilityConsole.warn('[punch_evidence] RPC falhou, tentando insert direto:', rpcError);
       }
       await db.insert('punch_evidence', row);
     }
   } catch (e) {
     if (import.meta.env?.DEV && typeof console !== 'undefined') {
-      console.warn('[punch_evidence] insert falhou (não bloqueia o ponto):', e);
+      observabilityConsole.warn('[punch_evidence] insert falhou (não bloqueia o ponto):', e);
     }
     // não falhar o registro principal
   }
@@ -66,7 +67,7 @@ export async function savePunchEvidence(params: SavePunchEvidenceParams): Promis
       });
     } catch (e) {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[punch_evidence] geo snapshot rpc falhou:', e);
+        observabilityConsole.warn('[punch_evidence] geo snapshot rpc falhou:', e);
       }
     }
   }

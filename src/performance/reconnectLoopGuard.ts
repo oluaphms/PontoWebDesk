@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Detecta rajadas de evento `online` (reconnect loops) em janela deslizante.
  */
@@ -19,7 +20,7 @@ export function recordBrowserOnlineReconnectForOperationalResilience(): void {
   }
   onlineEvents += 1;
   if (onlineEvents === STORM_THRESHOLD) {
-    console.warn('[RECONNECT LOOP STORM]', { count: onlineEvents, window_ms: WINDOW_MS });
+    observabilityConsole.warn('[RECONNECT LOOP STORM]', { count: onlineEvents, window_ms: WINDOW_MS });
     reportGeoCircuitSignal('stream_congestion');
     void reportDeviceOperationalReputationFromMonitoringContext('reconnect_loop');
   }

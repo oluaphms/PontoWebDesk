@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * GET /api/export / /api/export/afd / /api/export/aej
  * Exportação AFD (TXT) ou AEJ (JSON) — Portaria 671. Uma única função serverless (limite Hobby Vercel).
@@ -113,7 +114,7 @@ async function handleExport(request: Request, kind: 'afd' | 'aej'): Promise<Resp
       );
     }
   } catch (e) {
-    console.warn('[api/export] auditoria LGPD ignorada:', e);
+    observabilityConsole.warn('[api/export] auditoria LGPD ignorada:', e);
   }
 
   const { data: records } = await sup

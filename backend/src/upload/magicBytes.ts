@@ -62,6 +62,30 @@ export function hasRejectedBinarySignature(buf: Uint8Array): boolean {
   return false;
 }
 
+/**
+ * Detecta tentativa de CSV injection (fórmulas em planilhas).
+ * Considera início de célula com =, +, - ou @ (após aspas/espaços).
+ */
+export function hasCsvFormulaInjection(buf: Uint8Array, sampleSize = 4096): boolean {
+  const n = Math.min(buf.length, sampleSize);
+  if (n === 0) return false;
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(buf.subarray(0, n));
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line) continue;
+    const cells = line.split(/[,\t;]/);
+    for (const rawCell of cells) {
+      const cell = rawCell.trimStart().replace(/^"+/, '');
+      if (!cell) continue;
+      const first = cell[0];
+      if (first === '=' || first === '+' || first === '-' || first === '@') {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function extensionForImageMime(mime: DetectedImageMime): string {
   if (mime === 'image/png') return 'png';
   if (mime === 'image/webp') return 'webp';

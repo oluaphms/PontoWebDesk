@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -64,7 +65,7 @@ const TimeRecordsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar registros de ponto:', e);
+        observabilityConsole.error('Erro ao carregar registros de ponto:', e);
       } finally {
         setIsLoadingData(false);
       }

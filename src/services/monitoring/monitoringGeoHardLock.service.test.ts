@@ -10,6 +10,7 @@ import {
   validateOperationalTimestamp,
 } from './monitoringGeoHardLock.service';
 import type { OperationalPunchRecord } from './monitoringGeoHardLock.service';
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 
 describe('validateOperationalTimestamp', () => {
   it('rejeita instante além da tolerância futura', () => {
@@ -103,7 +104,7 @@ describe('dedup de [FUTURE DATE BLOCKED]', () => {
 
   beforeEach(() => {
     __resetFutureBlockDedupForTests();
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnSpy = vi.spyOn(observabilityConsole, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {

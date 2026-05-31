@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Detecta sobreposição de pedidos idênticos no pipeline de auth (diagnóstico).
  */
@@ -33,7 +34,7 @@ function sampleStack(): string | undefined {
 function logDuplicate(kind: string, key: string, prev: InFlight): void {
   if (typeof console === 'undefined') return;
   if (!isDevVerboseLogsEnabled()) return;
-  console.warn('[AUTH DUPLICATE REQUEST]', {
+  observabilityConsole.warn('[AUTH DUPLICATE REQUEST]', {
     kind,
     key,
     pipelineId,

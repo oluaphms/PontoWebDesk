@@ -1,6 +1,6 @@
 import type { IDataProvider, ProviderLoginParams, ProviderPunchPayload } from '../dataProvider';
 import { apiPost } from '../api';
-import { getToken, setToken } from '../authToken';
+import { getToken, isCookieSessionToken, setToken } from '../authToken';
 import { fetchEmployees } from '../employeesApi.service';
 
 export const localApiProvider: IDataProvider = {
@@ -9,7 +9,7 @@ export const localApiProvider: IDataProvider = {
     if (!data?.ok) {
       throw new Error(String(data?.error || 'Falha no login'));
     }
-    setToken(typeof data.token === 'string' ? data.token : null);
+    setToken('cookie');
     return data;
   },
 
@@ -27,6 +27,7 @@ export const localApiProvider: IDataProvider = {
   },
 
   async getAccessToken(): Promise<string | null> {
-    return getToken();
+    const token = getToken();
+    return isCookieSessionToken(token) ? null : token;
   },
 };

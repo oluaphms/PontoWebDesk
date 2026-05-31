@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 /**
  * Agendador operacional in-process: lock, timeout, budget, circuit breaker.
  * Não substitui filas server-side; serve para orquestração determinística no cliente/admin.
@@ -101,25 +102,25 @@ export async function runOperationalJob(
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const def = REGISTRY.get(id);
   if (!def) {
-    console.warn('[JOB FAILED]', { job: id, reason: 'unknown_job' });
+    observabilityConsole.warn('[JOB FAILED]', { job: id, reason: 'unknown_job' });
     return { ok: false, error: 'unknown_job' };
   }
 
   const lk = def.concurrencyKey(id);
   if (LOCKS.has(lk)) {
-    console.info('[JOB CONCURRENCY BLOCKED]', { job: id, lock: lk });
+    observabilityConsole.info('[JOB CONCURRENCY BLOCKED]', { job: id, lock: lk });
     return { ok: false, error: 'concurrency_blocked' };
   }
 
   if (!retryBudget.allow(def.retryBudgetKey, 45)) {
-    console.info('[JOB SKIPPED]', { job: id, reason: 'retry_budget' });
+    observabilityConsole.info('[JOB SKIPPED]', { job: id, reason: 'retry_budget' });
     return { ok: false, skipped: true, error: 'retry_budget' };
   }
 
   const ac = new AbortController();
   LOCKS.set(lk, Date.now());
   ACTIVE_ABORT.set(lk, ac);
-  console.info('[JOB START]', { job: id, at: operationalNowUtcIso() });
+  observabilityConsole.info('[JOB START]', { job: id, at: operationalNowUtcIso() });
 
   const runWithTimeout = (): Promise<void> =>
     new Promise((resolve, reject) => {
@@ -142,15 +143,15 @@ export async function runOperationalJob(
       companyId: ctx.companyId ?? null,
       fn: () => runWithTimeout(),
     });
-    console.info('[JOB SUCCESS]', { job: id });
+    observabilityConsole.info('[JOB SUCCESS]', { job: id });
     LAST_RUN.set(id, { at: operationalNowUtcIso(), ok: true });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === 'job_timeout') {
-      console.warn('[JOB TIMEOUT]', { job: id, timeout_ms: def.timeoutMs });
+      observabilityConsole.warn('[JOB TIMEOUT]', { job: id, timeout_ms: def.timeoutMs });
     } else {
-      console.warn('[JOB FAILED]', { job: id, error: msg });
+      observabilityConsole.warn('[JOB FAILED]', { job: id, error: msg });
     }
     LAST_RUN.set(id, { at: operationalNowUtcIso(), ok: false, error: msg });
     return { ok: false, error: msg };
@@ -194,7 +195,7 @@ function bootstrapDefaultOperationalJobs(): void {
     circuitKey: 'circuit:cleanup_live_locations',
     run: async (ctx) => {
       if (!ctx.supabaseClient) {
-        console.info('[JOB SKIPPED]', { job: 'cleanup_live_locations', reason: 'no_client' });
+        observabilityConsole.info('[JOB SKIPPED]', { job: 'cleanup_live_locations', reason: 'no_client' });
         return;
       }
       const { runLiveLocationCleanup } = await import('../../../services/liveEmployeeLocation.service');
@@ -209,7 +210,7 @@ function bootstrapDefaultOperationalJobs(): void {
     circuitKey: 'circuit:current_state_self_heal',
     run: async (ctx) => {
       if (!ctx.supabaseClient || !ctx.companyId) {
-        console.info('[JOB SKIPPED]', { job: 'current_state_self_heal', reason: 'missing_company_or_client' });
+        observabilityConsole.info('[JOB SKIPPED]', { job: 'current_state_self_heal', reason: 'missing_company_or_client' });
         return;
       }
       const { runOperationalStateSelfHeal } = await import('../operationalStateSelfHealing');
@@ -224,7 +225,7 @@ function bootstrapDefaultOperationalJobs(): void {
     circuitKey: 'circuit:scheduled_operational_geo_reconciliation',
     run: async (ctx) => {
       if (!ctx.supabaseClient || !ctx.companyId) {
-        console.info('[JOB SKIPPED]', { job: 'scheduled_operational_geo_reconciliation', reason: 'missing_company_or_client' });
+        observabilityConsole.info('[JOB SKIPPED]', { job: 'scheduled_operational_geo_reconciliation', reason: 'missing_company_or_client' });
         return;
       }
       const { scheduledOperationalGeoReconciliation } = await import('../reconciliation/scheduledOperationalGeoReconciliation');
@@ -244,7 +245,7 @@ function bootstrapDefaultOperationalJobs(): void {
       const geo = sums.filter((s) => s.name.startsWith('geo_'));
       const teleport = sums.find((s) => s.name === 'geo_teleport_detected');
       if (teleport && teleport.p95 > 2) {
-        console.info('[JOB SUCCESS]', { job: 'geo_consistency_audit', note: 'teleport_pressure', p95: teleport.p95 });
+        observabilityConsole.info('[JOB SUCCESS]', { job: 'geo_consistency_audit', note: 'teleport_pressure', p95: teleport.p95 });
       }
       recordOperationalMetric('geo_reliability_eval', geo.length, { source: 'job_geo_audit' });
     },
@@ -260,7 +261,7 @@ function bootstrapDefaultOperationalJobs(): void {
       const { recordOperationalMetric } = await import('../metrics/operationalMetrics');
       const replay = summarizeOperationalMetrics('replay_duration_ms')[0];
       if (replay && replay.p99 > 12_000) {
-        console.info('[RECONCILIATION DRIFT]', { kind: 'replay_slow', p99: replay.p99 });
+        observabilityConsole.info('[RECONCILIATION DRIFT]', { kind: 'replay_slow', p99: replay.p99 });
       }
       recordOperationalMetric('replay_throughput', replay?.count ?? 0, { source: 'replay_drift_audit' });
     },
@@ -276,7 +277,7 @@ function bootstrapDefaultOperationalJobs(): void {
       if (ctx.tenantScope?.companyId || ctx.tenantScope?.userId) {
         clearTenantScopedCaches(ctx.tenantScope);
       } else {
-        console.info('[JOB SKIPPED]', { job: 'tenant_cache_cleanup', reason: 'no_scope_full_clear_skipped' });
+        observabilityConsole.info('[JOB SKIPPED]', { job: 'tenant_cache_cleanup', reason: 'no_scope_full_clear_skipped' });
       }
     },
   });

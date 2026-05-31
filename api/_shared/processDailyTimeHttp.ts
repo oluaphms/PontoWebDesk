@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * POST /api/jobs/process-daily-time (legado: /api/process-daily-time)
  * Job diário (ex.: cron 23:59) para processar o ponto do dia.
@@ -27,7 +28,7 @@ export async function handleProcessDailyTime(request: Request): Promise<Response
   if (blockedOrigin) return blockedOrigin;
 
   const secret = request.headers.get('X-Cron-Secret')?.trim();
-  const cronSecret = (process.env.CRON_SECRET || process.env.VITE_CRON_SECRET || '').trim();
+  const cronSecret = (process.env.CRON_SECRET || '').trim();
   if (cronSecret && secret !== cronSecret) {
     return noCache(Response.json(
       { error: 'Unauthorized', code: 'UNAUTHORIZED' },
@@ -124,13 +125,13 @@ export async function handleProcessDailyTime(request: Request): Promise<Response
       }
     }
 
-    console.log('[API RESPONSE]', route, Date.now());
+    observabilityConsole.log('[API RESPONSE]', route, Date.now());
     return noCache(Response.json(
       { ok: true, processed, date: dateStr, errors: errors.slice(0, 10) },
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     ));
   } catch (e: unknown) {
-    console.log('[API RESPONSE]', route, Date.now());
+    observabilityConsole.log('[API RESPONSE]', route, Date.now());
     return noCache(Response.json(
       { error: messageFromUnknown(e, 'Erro ao processar'), code: 'PROCESS_ERROR' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

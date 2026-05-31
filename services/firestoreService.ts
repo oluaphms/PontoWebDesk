@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Supabase Database Service
  * 
@@ -78,7 +79,7 @@ function safeGetItem(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch (err) {
-    console.warn('[firestoreService] Falha ao ler storage:', err);
+    observabilityConsole.warn('[firestoreService] Falha ao ler storage:', err);
     return null;
   }
 }
@@ -89,7 +90,7 @@ function safeGetJson<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(raw) as T;
   } catch (err) {
-    console.warn('[firestoreService] Falha ao parsear JSON do storage:', err);
+    observabilityConsole.warn('[firestoreService] Falha ao parsear JSON do storage:', err);
     return fallback;
   }
 }
@@ -98,7 +99,7 @@ function safeSetJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (err) {
-    console.warn('[firestoreService] Falha ao salvar no storage:', err);
+    observabilityConsole.warn('[firestoreService] Falha ao salvar no storage:', err);
   }
 }
 
@@ -190,14 +191,14 @@ class SupabaseService {
         fraudFlags: supabaseData.fraud_flags || [],
       });
     } catch (error) {
-      console.error('Erro ao salvar registro no Supabase:', error);
+      observabilityConsole.error('Erro ao salvar registro no Supabase:', error);
       // Tentar atualizar se já existir
       try {
         const supabaseData = timeRecordToSupabase(record);
         supabaseData.method = supabaseData.method || 'admin';
         await db.update('time_records', supabaseData, [{ column: 'id', operator: 'eq', value: record.id }]);
       } catch (updateError) {
-        console.error('Erro ao atualizar registro:', updateError);
+        observabilityConsole.error('Erro ao atualizar registro:', updateError);
         throw error;
       }
     }
@@ -233,9 +234,9 @@ class SupabaseService {
       return records.map(supabaseToTimeRecord);
     } catch (error: any) {
       const msg = error?.message ?? error;
-      console.error('Erro ao buscar registros do Supabase:', msg);
+      observabilityConsole.error('Erro ao buscar registros do Supabase:', msg);
       if (typeof msg === 'string' && (msg.includes('infinite recursion') || msg.includes('policy for relation'))) {
-        console.warn('[Supabase RLS] Recursão nas políticas. No Supabase (SQL Editor), execute a migration 20250329000000_fix_rls_users_recursion_definitive.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
+        observabilityConsole.warn('[Supabase RLS] Recursão nas políticas. No Supabase (SQL Editor), execute a migration 20250329000000_fix_rls_users_recursion_definitive.sql. Veja INSTRUCOES_IMPORTACAO_FUNCIONARIOS.md §9.');
       }
       return [];
     }
@@ -265,7 +266,7 @@ class SupabaseService {
       );
       return records.map(supabaseToTimeRecord);
     } catch (error: any) {
-      console.error('Erro ao buscar registros da empresa:', error?.message ?? error);
+      observabilityConsole.error('Erro ao buscar registros da empresa:', error?.message ?? error);
       return [];
     }
   }
@@ -306,7 +307,7 @@ class SupabaseService {
       
       await db.update('time_records', supabaseData, [{ column: 'id', operator: 'eq', value: recordId }]);
     } catch (error) {
-      console.error('Erro ao atualizar registro no Supabase:', error);
+      observabilityConsole.error('Erro ao atualizar registro no Supabase:', error);
       throw error;
     }
   }
@@ -335,7 +336,7 @@ class SupabaseService {
         updated_at: new Date().toISOString()
       });
     } catch (error) {
-      console.error('Erro ao salvar empresa no Supabase:', error);
+      observabilityConsole.error('Erro ao salvar empresa no Supabase:', error);
       // Tentar atualizar se já existir
       try {
         await db.update('companies', {
@@ -392,12 +393,12 @@ class SupabaseService {
           /timeout/i.test(msg);
         if (isTimeout) {
           if (import.meta.env?.DEV) {
-            console.warn(
+            observabilityConsole.warn(
               '[Supabase] Timeout ao carregar companies (rede lenta ou fila de requisições).',
             );
           }
         } else {
-          console.error('Erro ao buscar empresa do Supabase:', msg);
+          observabilityConsole.error('Erro ao buscar empresa do Supabase:', msg);
         }
         return null;
       }
@@ -452,7 +453,7 @@ class SupabaseService {
         `user_id=eq.${userId}`
       );
     } catch (error) {
-      console.error('Erro ao criar listener:', error);
+      observabilityConsole.error('Erro ao criar listener:', error);
       // Fallback
       return () => {};
     }

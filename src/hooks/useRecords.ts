@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TimeRecord, LogType, PunchMethod } from '../../types';
@@ -141,7 +142,7 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
         invalidateAfterPunch(userId, companyId);
       } catch (err) {
         // Se falhar, mantém na fila para tentar depois
-        console.warn('Falha ao sincronizar ponto offline, tentando novamente depois.', err);
+        observabilityConsole.warn('Falha ao sincronizar ponto offline, tentando novamente depois.', err);
       }
     }
 

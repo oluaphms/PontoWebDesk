@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Logger externo centralizado.
  *
@@ -40,7 +41,7 @@ export class ExternalLogger {
   start() {
     if (!this._enabled) return this;
     this._timer = setInterval(() => this._flush().catch((err) => {
-      console.warn('[externalLogger] Falha ao enviar logs:', err);
+      observabilityConsole.warn('[externalLogger] Falha ao enviar logs:', err);
     }), FLUSH_INTERVAL);
     return this;
   }
@@ -49,7 +50,7 @@ export class ExternalLogger {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
     // Flush final síncrono best-effort
     if (this._buffer.length) this._flush().catch((err) => {
-      console.warn('[externalLogger] Falha ao flush final:', err);
+      observabilityConsole.warn('[externalLogger] Falha ao flush final:', err);
     });
   }
 
@@ -73,7 +74,7 @@ export class ExternalLogger {
 
     if (this._buffer.length >= BUFFER_MAX) {
       this._flush().catch((err) => {
-        console.warn('[externalLogger] Falha ao flush por lote cheio:', err);
+        observabilityConsole.warn('[externalLogger] Falha ao flush por lote cheio:', err);
       });
     }
   }

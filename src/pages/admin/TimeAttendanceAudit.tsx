@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Auditoria proativa — diagnóstico + ações seguras (recalc, ver batidas, marcar revisado).
  * Dados: getTimeAttendanceData (mesma fonte da Jornada de Trabalho).
@@ -577,7 +578,7 @@ const TimeAttendanceAuditPage: React.FC = () => {
       const inc = auditOnly.filter((r) => r.status_label === 'inconsistent_data').length;
       const dup = auditOnly.filter((r) => r.status_label === 'duplicate_user_day').length;
       const err = auditOnly.filter((r) => r.status_label === 'erro no processamento').length;
-      console.info('[TIME ATTENDANCE AUDIT SNAPSHOT]', {
+      observabilityConsole.info('[TIME ATTENDANCE AUDIT SNAPSHOT]', {
         inconsistent_count: inc,
         duplicate_count: dup,
         error_count: err,
@@ -592,7 +593,7 @@ const TimeAttendanceAuditPage: React.FC = () => {
         /* histórico opcional */
       }
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setError('Não foi possível carregar a auditoria.');
       setRows([]);
       setPunchMapByKey(new Map());
@@ -769,8 +770,8 @@ const TimeAttendanceAuditPage: React.FC = () => {
       const op = auditDayReviewKey(row.employee_id, row.date);
       setRecalcKey(op);
       try {
-        console.info('[TIME ATTENDANCE MANUAL RECALC]', { user_id: row.employee_id, date: row.date });
-        console.info('[TIME ATTENDANCE ADMIN ACTION]', {
+        observabilityConsole.info('[TIME ATTENDANCE MANUAL RECALC]', { user_id: row.employee_id, date: row.date });
+        observabilityConsole.info('[TIME ATTENDANCE ADMIN ACTION]', {
           action: 'manual_recalc',
           user_id: row.employee_id,
           date: row.date,
@@ -804,7 +805,7 @@ const TimeAttendanceAuditPage: React.FC = () => {
       const op = auditDayReviewKey(row.employee_id, row.date);
       setMarkReviewKey(op);
       try {
-        console.info('[TIME ATTENDANCE ADMIN ACTION]', {
+        observabilityConsole.info('[TIME ATTENDANCE ADMIN ACTION]', {
           action: 'review_mark',
           user_id: row.employee_id,
           date: row.date,
@@ -873,7 +874,7 @@ const TimeAttendanceAuditPage: React.FC = () => {
         },
         createdBy: user.id,
       });
-      console.info('[TIME ATTENDANCE SUGGESTION_APPLIED]', {
+      observabilityConsole.info('[TIME ATTENDANCE SUGGESTION_APPLIED]', {
         type: suggestion.type,
         basis: suggestion.basis,
         user_id: row.employee_id,

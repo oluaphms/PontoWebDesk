@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Estabilidade mobile/PWA: pressão de memória, freeze, restore, discard.
  */
@@ -13,6 +14,9 @@ import { installOperationalLegalAuditShadowListeners } from '../services/operati
 let installed = false;
 let lastIntervalTick = Date.now();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let lastRecoverAt = 0;
+let recoverInflight = false;
+const RECOVER_COOLDOWN_MS = 15_000;
 
 function logMemoryPressure(): void {
   const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; jsHeapSizeLimit?: number } };
@@ -20,7 +24,7 @@ function logMemoryPressure(): void {
   if (!m?.usedJSHeapSize || !m?.jsHeapSizeLimit) return;
   const ratio = m.usedJSHeapSize / m.jsHeapSizeLimit;
   if (ratio > 0.92) {
-    console.warn('[MOBILE MEMORY PRESSURE]', {
+    observabilityConsole.warn('[MOBILE MEMORY PRESSURE]', {
       used: m.usedJSHeapSize,
       limit: m.jsHeapSizeLimit,
       ratio: Math.round(ratio * 100) / 100,
@@ -29,12 +33,18 @@ function logMemoryPressure(): void {
 }
 
 function recoverRealtimeCaches(reason: string): void {
+  const now = Date.now();
+  if (recoverInflight || now - lastRecoverAt < RECOVER_COOLDOWN_MS) return;
+  recoverInflight = true;
+  lastRecoverAt = now;
   try {
     invalidateOperationalGeoCaches(reason);
     window.dispatchEvent(new CustomEvent('smartponto:operational-realtime-recover', { detail: { reason } }));
     opLog.diag('PWA RESTORE', { reason, action: 'cache_invalidate_dispatch' });
   } catch (e) {
     opLog.diag('PWA RESTORE', { reason, error: String(e), failed: true });
+  } finally {
+    recoverInflight = false;
   }
 }
 
@@ -52,7 +62,7 @@ export function installMobileRuntimeStability(): void {
   installOperationalLegalAuditShadowListeners();
 
   if (isAndroidOrWebViewUa()) {
-    console.info('[WEBVIEW DEGRADED]', { note: 'telemetry_only' });
+    observabilityConsole.info('[WEBVIEW DEGRADED]', { note: 'telemetry_only' });
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -75,7 +85,7 @@ export function installMobileRuntimeStability(): void {
     const drift = now - expected;
     lastIntervalTick = now;
     if (drift > 20_000) {
-      console.warn('[MOBILE FREEZE DETECTED]', { drift_ms: drift });
+      observabilityConsole.warn('[MOBILE FREEZE DETECTED]', { drift_ms: drift });
       recoverRealtimeCaches('freeze_heartbeat');
     }
     logMemoryPressure();

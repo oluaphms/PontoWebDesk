@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
@@ -131,11 +132,11 @@ const AdminSettings: React.FC = () => {
               });
             }
           } catch (err) {
-            console.warn('[Settings] company_rules:', err);
+            observabilityConsole.warn('[Settings] company_rules:', err);
           }
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       } finally {
         setLoadingData(false);
       }

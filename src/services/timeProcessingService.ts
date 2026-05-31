@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Processamento de jornada diária, escalas e banco de horas.
  * Usado por payrollCalculator, timeEngine e fechamento de folha.
@@ -659,9 +660,9 @@ async function getLegacyScheduleFromUser(
     } catch (e) {
       const msg = String((e as { message?: string })?.message ?? e ?? '');
       if (msg.includes('Tempo esgotado') || /timeout/i.test(msg)) {
-        console.warn('[timeProcessingService] getLegacyScheduleFromUser: timeout transitório em users/schedules');
+        observabilityConsole.warn('[timeProcessingService] getLegacyScheduleFromUser: timeout transitório em users/schedules');
       } else {
-        console.warn('[timeProcessingService] getLegacyScheduleFromUser:', e);
+        observabilityConsole.warn('[timeProcessingService] getLegacyScheduleFromUser:', e);
       }
       return null;
     }
@@ -697,7 +698,7 @@ export async function getDayRecords(employeeId: string, dateStr: string): Promis
       (r) => getLocalDateString(new Date(recordEventInstantMs(r))) === dateStr,
     );
   } catch (e) {
-    console.warn('[timeProcessingService] getDayRecords:', e);
+    observabilityConsole.warn('[timeProcessingService] getDayRecords:', e);
     return [];
   }
 }
@@ -735,7 +736,7 @@ export async function getEmployeeSchedule(
 
     return getLegacyScheduleFromUser(employeeId, companyId);
   } catch (e) {
-    console.warn('[timeProcessingService] getEmployeeSchedule:', e);
+    observabilityConsole.warn('[timeProcessingService] getEmployeeSchedule:', e);
     return null;
   }
 }
@@ -911,7 +912,7 @@ export async function updateBankHours(
 
     return { balance };
   } catch (e) {
-    console.warn('[timeProcessingService] updateBankHours:', e);
+    observabilityConsole.warn('[timeProcessingService] updateBankHours:', e);
     return { balance: 0 };
   }
 }
@@ -969,7 +970,7 @@ export async function closeTimesheet(
 
   const existing = await isTimesheetClosed(companyId, month, year, empId);
   if (existing) {
-    console.warn('[FECHAMENTO IGNORADO - JÁ EXISTE]', { employeeId: empId, month, year });
+    observabilityConsole.warn('[FECHAMENTO IGNORADO - JÁ EXISTE]', { employeeId: empId, month, year });
     return null;
   }
 
@@ -988,7 +989,7 @@ export async function closeTimesheet(
     espelho?.periodEnd ??
     `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
 
-  console.log('[FECHAMENTO REAL START]', {
+  observabilityConsole.log('[FECHAMENTO REAL START]', {
     employeeId: empId,
     periodStart: periodStart.slice(0, 10),
     periodEnd: periodEnd.slice(0, 10),
@@ -1047,7 +1048,7 @@ export async function closeTimesheet(
     closed_at_iso: new Date().toISOString(),
   };
 
-  console.log('[FECHAMENTO SNAPSHOT]', snapshotPayload);
+  observabilityConsole.log('[FECHAMENTO SNAPSHOT]', snapshotPayload);
 
   const { data: closure, error: errClosure } = await client
     .from('timesheet_closures')
@@ -1088,11 +1089,11 @@ export async function closeTimesheet(
     .single();
 
   if (errSnap) {
-    console.error('[FECHAMENTO] Falha ao gravar timesheet_snapshots:', errSnap);
+    observabilityConsole.error('[FECHAMENTO] Falha ao gravar timesheet_snapshots:', errSnap);
     throw errSnap;
   }
 
-  console.log('[FECHAMENTO DONE]');
+  observabilityConsole.log('[FECHAMENTO DONE]');
 
   void appendTimeAttendanceTimelineEvent({
     companyId,

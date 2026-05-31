@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
@@ -59,11 +60,11 @@ function shouldLogTimeAttendanceAutoFix(): boolean {
 }
 
 function logTimeAttendanceAutoFixInfo(...args: Parameters<typeof console.info>): void {
-  if (shouldLogTimeAttendanceAutoFix()) console.info(...args);
+  if (shouldLogTimeAttendanceAutoFix()) observabilityConsole.info(...args);
 }
 
 function logTimeAttendanceAutoFixWarn(...args: Parameters<typeof console.warn>): void {
-  if (shouldLogTimeAttendanceAutoFix()) console.warn(...args);
+  if (shouldLogTimeAttendanceAutoFix()) observabilityConsole.warn(...args);
 }
 
 /** Chaves `employee_id|date` pendentes na carga anterior — medir `recalc_success` na carga atual. */
@@ -617,7 +618,7 @@ type SafeApplyStatusOptions = {
 function safeApplyStatus(row: TimeAttendanceRow, status: string, options?: SafeApplyStatusOptions): void {
   const s = String(status).trim();
   if (!VALID_STATUS.has(s)) {
-    console.error('[TIME ATTENDANCE UNKNOWN STATUS]', { context: 'safeApplyStatus', status: s });
+    observabilityConsole.error('[TIME ATTENDANCE UNKNOWN STATUS]', { context: 'safeApplyStatus', status: s });
     return;
   }
   if (options?.forceOverride === true && s === 'duplicate_user_day') {
@@ -650,7 +651,7 @@ function markDuplicateUserDayOnRows(rows: readonly TimeAttendanceRow[], dupKeys:
     const list = rows.filter((r) => employeeDayKey(r) === k);
     if (list.length <= 1) continue;
     for (const row of list) {
-      console.warn('[TIME ATTENDANCE DUPLICATE USER DAY]', {
+      observabilityConsole.warn('[TIME ATTENDANCE DUPLICATE USER DAY]', {
         employee_id: row.employee_id,
         date: row.date,
         records: row.punch_count,
@@ -685,7 +686,7 @@ async function fetchPendingRepPunchLogsForPeriod(
       .order('data_hora', { ascending: true })
       .limit(8000);
     if (error) {
-      console.warn('[TIME ATTENDANCE REP PENDING FETCH]', error.message);
+      observabilityConsole.warn('[TIME ATTENDANCE REP PENDING FETCH]', error.message);
       return [];
     }
     const out: PendingRepPunch[] = [];
@@ -719,7 +720,7 @@ async function fetchPendingRepPunchLogsForPeriod(
     }
     return out;
   } catch (e) {
-    console.warn('[TIME ATTENDANCE REP PENDING FETCH]', e);
+    observabilityConsole.warn('[TIME ATTENDANCE REP PENDING FETCH]', e);
     return [];
   }
 }
@@ -889,7 +890,7 @@ export function deriveIntegrityStatus(row: TimeAttendanceRow): void {
   }
   const workedMin = workedMinutesFromRow(row);
   if (workedMin > 0 && row.punch_count === 0) {
-    console.warn('[TIME ATTENDANCE MOTOR WITHOUT PUNCHES]', {
+    observabilityConsole.warn('[TIME ATTENDANCE MOTOR WITHOUT PUNCHES]', {
       user_id: row.employee_id,
       date: row.date,
       worked_minutes: workedMin,
@@ -901,7 +902,7 @@ export function deriveIntegrityStatus(row: TimeAttendanceRow): void {
     const noInOut = !row.clock_in && !row.clock_out;
     const inNoOutPast = Boolean(row.clock_in && !row.clock_out && isPastDay(row.date));
     if (noInOut || inNoOutPast) {
-      console.warn('[TIME ATTENDANCE INCONSISTENT]', {
+      observabilityConsole.warn('[TIME ATTENDANCE INCONSISTENT]', {
         user_id: row.employee_id,
         date: row.date,
         worked_minutes: workedMin,
@@ -957,7 +958,7 @@ export function dedupeRowsByEmployeeAndDate(rows: TimeAttendanceRow[]): {
     safeApplyStatus(keeper, 'duplicate_user_day', { forceOverride: true });
     out.push(keeper);
     discardedDuplicateRows.push(...sorted.slice(1));
-    console.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
+    observabilityConsole.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
       key: k,
       kept_id: keeper.id,
       discarded_count: sorted.length - 1,
@@ -976,7 +977,7 @@ function isKnownPresentationStatusLabel(label: string): boolean {
 function coerceUnknownStatusLabel(row: TimeAttendanceRow): void {
   const k = String(row.status_label ?? '').trim();
   if (isKnownPresentationStatusLabel(k)) return;
-  console.error('[TIME ATTENDANCE UNKNOWN STATUS]', {
+  observabilityConsole.error('[TIME ATTENDANCE UNKNOWN STATUS]', {
     status: k || '(vazio)',
     employee_id: row.employee_id,
     date: row.date,
@@ -986,7 +987,7 @@ function coerceUnknownStatusLabel(row: TimeAttendanceRow): void {
 
 /** Para switches exhaustivos: registra status não mapeado sem interromper o fluxo. */
 export function assertNeverStatus(value: never): void {
-  console.error('[TIME ATTENDANCE UNKNOWN STATUS]', { branch: 'assertNeverStatus', value: value as string });
+  observabilityConsole.error('[TIME ATTENDANCE UNKNOWN STATUS]', { branch: 'assertNeverStatus', value: value as string });
 }
 
 /** Entrada/saída exibidas como HH:mm — ordem lexicográfica é válida para o mesmo dia civil. */
@@ -1344,7 +1345,7 @@ export async function getTimeAttendanceData(
         return String(b.sh.id ?? '').localeCompare(String(a.sh.id ?? ''));
       });
       primarySheet = scored[0]!.sh;
-      console.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
+      observabilityConsole.warn('[TIME ATTENDANCE DEDUP APPLIED]', {
         key,
         kept_id: primarySheet.id,
         discarded_count: sheetList.length - 1,
@@ -1671,6 +1672,10 @@ export type AuditTrendRow = {
 };
 
 const AUDIT_SNAPSHOT_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const AUDIT_SNAPSHOT_MAX_RETRIES = 5;
+const AUDIT_SNAPSHOT_BACKOFF_BASE_MS = 1000;
+const AUDIT_SNAPSHOT_BACKOFF_MAX_MS = 16_000;
+const auditSnapshotFailures = new Map<string, { attempts: number; nextRetryAt: number; disabled: boolean }>();
 
 export function computeAuditQualityScore(pick: {
   inconsistent_count: number;
@@ -1712,6 +1717,11 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
   if (!isDefaultCivilMonthRange(summary.period_start, summary.period_end)) return;
 
   const snapshotDate = civilDateTodayLocal();
+  const failureKey = `${companyId}|${snapshotDate}`;
+  const failure = auditSnapshotFailures.get(failureKey);
+  const now = Date.now();
+  if (failure?.disabled) return;
+  if (failure && failure.nextRetryAt > now) return;
 
   try {
     const existing = await db.select(
@@ -1742,8 +1752,25 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
       },
       'company_id,snapshot_date',
     );
+    auditSnapshotFailures.delete(failureKey);
   } catch (e) {
-    console.warn('[TIME ATTENDANCE AUDIT SNAPSHOT]', e);
+    const attempts = (failure?.attempts ?? 0) + 1;
+    const disabled = attempts >= AUDIT_SNAPSHOT_MAX_RETRIES;
+    const delay = Math.min(
+      AUDIT_SNAPSHOT_BACKOFF_MAX_MS,
+      AUDIT_SNAPSHOT_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1),
+    );
+    auditSnapshotFailures.set(failureKey, {
+      attempts,
+      nextRetryAt: Date.now() + delay,
+      disabled,
+    });
+    observabilityConsole.warn('[TIME ATTENDANCE AUDIT SNAPSHOT]', {
+      attempts,
+      disabled,
+      nextRetryInMs: disabled ? null : delay,
+      error: e,
+    });
   }
 }
 
@@ -1769,16 +1796,17 @@ export async function getAuditTrend(companyId: string): Promise<AuditTrendRow[]>
       error_count: Number(r.error_count) || 0,
     }));
     if (isTrendWorsening(mapped)) {
-      console.warn('[TIME ATTENDANCE TREND ALERT]', { company_id: companyId, trend: mapped });
+      observabilityConsole.warn('[TIME ATTENDANCE TREND ALERT]', { company_id: companyId, trend: mapped });
     }
     return mapped;
   } catch (e) {
-    console.warn('[TIME ATTENDANCE AUDIT TREND]', e);
+    observabilityConsole.warn('[TIME ATTENDANCE AUDIT TREND]', e);
     return [];
   }
 }
 
 const auditSummaryCache = new Map<string, { fetchedAt: number; data: TimeAttendanceAuditSummary }>();
+const auditSummaryInflight = new Map<string, Promise<TimeAttendanceAuditSummary | null>>();
 const AUDIT_SUMMARY_TTL_MS = 30_000;
 
 function auditSummaryCacheKey(companyId: string, start: string, end: string): string {
@@ -1863,6 +1891,10 @@ export async function getTimeAttendanceAuditSummary(
     };
   }
 
+  const pending = auditSummaryInflight.get(key);
+  if (pending) return pending;
+
+  const task = (async (): Promise<TimeAttendanceAuditSummary | null> => {
   const nameMap = await loadEmployeeNameMapForAudit(companyId);
   const { rows } = await getTimeAttendanceData(companyId, start, end, nameMap);
   const labels = AUDIT_SUMMARY_STATUS_LABELS as readonly string[];
@@ -1930,7 +1962,7 @@ export async function getTimeAttendanceAuditSummary(
   await upsertAuditSnapshotIfNeeded(companyId, summary);
 
   if (auditIncidentThresholdsExceeded(summary)) {
-    console.warn('[TIME ATTENDANCE INCIDENT]', {
+    observabilityConsole.warn('[TIME ATTENDANCE INCIDENT]', {
       company_id: companyId,
       inconsistent_count,
       duplicate_count,
@@ -1943,4 +1975,12 @@ export async function getTimeAttendanceAuditSummary(
   }
 
   return summary;
+  })();
+
+  auditSummaryInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    auditSummaryInflight.delete(key);
+  }
 }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 export type LegalRiskLevel = 'LOW_RISK' | 'MODERATE_RISK' | 'HIGH_RISK' | 'CRITICAL_RISK';
 
 export type LegalReliabilityInput = {
@@ -45,7 +46,7 @@ export function calculateLegalReliabilityScore(input: LegalReliabilityInput): Le
   );
   const risk: LegalRiskLevel =
     score < 35 ? 'CRITICAL_RISK' : score < 55 ? 'HIGH_RISK' : score < 75 ? 'MODERATE_RISK' : 'LOW_RISK';
-  console.info('[LEGAL RELIABILITY SCORE]', { score, risk });
+  observabilityConsole.info('[LEGAL RELIABILITY SCORE]', { score, risk });
   return { score, risk };
 }
 

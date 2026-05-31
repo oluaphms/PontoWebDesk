@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Scale, Info } from 'lucide-react';
@@ -263,7 +264,7 @@ const TimeBalancePage: React.FC = () => {
         }
         setDailyReference(rows);
       } catch (e) {
-        console.error('Erro ao carregar saldo de horas:', e);
+        observabilityConsole.error('Erro ao carregar saldo de horas:', e);
       } finally {
         setIsLoadingData(false);
       }

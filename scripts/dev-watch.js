@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import { spawn } from "node:child_process";
 
 const dev = spawn("npm", ["run", "dev"], {
@@ -18,8 +19,8 @@ dev.stdout.on("data", (data) => {
   ) {
     // Mantém o log claro, mas sem quebrar o processo
     // (apenas orienta a usar o fluxo auto-fix)
-    console.log("\n🚨 ERRO DETECTADO AUTOMATICAMENTE\n");
-    console.log(`Use auto-fix.md com esse erro:\n\n${output}`);
+    observabilityConsole.log("\n🚨 ERRO DETECTADO AUTOMATICAMENTE\n");
+    observabilityConsole.log(`Use auto-fix.md com esse erro:\n\n${output}`);
   }
 });
 
@@ -28,5 +29,5 @@ dev.stderr.on("data", (data) => {
 });
 
 dev.on("exit", (code) => {
-  console.log(`\n[dev-watch] Processo dev finalizado com código ${code ?? "desconhecido"}.`);
+  observabilityConsole.log(`\n[dev-watch] Processo dev finalizado com código ${code ?? "desconhecido"}.`);
 });

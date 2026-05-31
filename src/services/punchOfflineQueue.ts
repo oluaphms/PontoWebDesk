@@ -26,7 +26,7 @@ const MIN_BATCH = 10;
 const MAX_BATCH = 25;
 
 let lastFlushByClientId = new Map<string, RegisterPunchResult>();
-let syncListeners = new Set<(detail: { flushed: number; clientIds: string[] }) => void>();
+const syncListeners = new Set<(detail: { flushed: number; clientIds: string[] }) => void>();
 
 export function onWebPunchQueueSynced(
   listener: (detail: { flushed: number; clientIds: string[] }) => void,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * KMS Provider — Gestão de Chaves com Envelope Encryption.
  *
@@ -91,7 +92,9 @@ export class KMSProvider {
           rotated_at    TEXT
         )
       `);
-    } catch { /* ignore */ }
+    } catch (error) {
+      observabilityConsole.warn('[kmsProvider] Falha ao garantir schema de chaves:', error);
+    }
     return this;
   }
 
@@ -132,7 +135,9 @@ export class KMSProvider {
           INSERT OR IGNORE INTO tenant_deks (company_id, encrypted_dek, key_id, key_version)
           VALUES (?, ?, ?, ?)
         `).run(companyId, encryptedDek, KEY_ID, KEY_VERSION);
-      } catch { /* ignore */ }
+      } catch (error) {
+        observabilityConsole.warn('[kmsProvider] Falha ao persistir DEK:', error);
+      }
     }
 
     this._dekCache.set(companyId, { dek, keyId: KEY_ID, keyVersion: KEY_VERSION, expiresAt: Date.now() + 5 * 60_000 });
@@ -170,7 +175,7 @@ export class KMSProvider {
       }));
       return Buffer.from(CiphertextBlob).toString('base64');
     } catch (e) {
-      console.warn('[KMS] AWS KMS indisponível, usando fallback local:', e instanceof Error ? e.message : e);
+      observabilityConsole.warn('[KMS] AWS KMS indisponível, usando fallback local:', e instanceof Error ? e.message : e);
       return ENV_KEK ? aesGcmEncrypt(ENV_KEK, plaintext) : plaintext.toString('base64');
     }
   }
@@ -184,7 +189,7 @@ export class KMSProvider {
       }));
       return Buffer.from(Plaintext);
     } catch (e) {
-      console.warn('[KMS] AWS KMS decrypt falhou, usando fallback:', e instanceof Error ? e.message : e);
+      observabilityConsole.warn('[KMS] AWS KMS decrypt falhou, usando fallback:', e instanceof Error ? e.message : e);
       return ENV_KEK ? aesGcmDecrypt(ENV_KEK, ciphertext) : Buffer.from(ciphertext, 'base64');
     }
   }
@@ -247,7 +252,7 @@ export class KMSProvider {
     }
 
     this._dekCache.delete(companyId);
-    console.log(`[KMS] DEK rotacionada para empresa ${companyId} (key_version: ${KEY_VERSION})`);
+    observabilityConsole.log(`[KMS] DEK rotacionada para empresa ${companyId} (key_version: ${KEY_VERSION})`);
   }
 
   /**

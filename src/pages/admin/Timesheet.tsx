@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
@@ -177,7 +178,7 @@ function GeoDetailsToggle({
         if (!cancelled) setGeo(snapshot);
       })
       .catch((error) => {
-        console.error('[GEO ESPELHO ENRICH ERROR]', error);
+        observabilityConsole.error('[GEO ESPELHO ENRICH ERROR]', error);
       })
       .finally(() => {
         if (!cancelled) setLoadingGeo(false);
@@ -356,7 +357,7 @@ const AdminTimesheet: React.FC = () => {
       setEmployees(f.employees);
       setDepartments(f.departments);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       toast.addToast('error', 'Não foi possível carregar colaboradores e departamentos.');
     } finally {
       setLoadingFiltros(false);
@@ -399,8 +400,8 @@ const AdminTimesheet: React.FC = () => {
           u.searchParams.delete('user_id');
           u.searchParams.delete('date');
           window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
-        } catch {
-          /* ignore */
+        } catch (error) {
+          void error;
         }
       } else {
         const raw = sessionStorage.getItem(adminTimesheetFiltersKey(user.id));
@@ -417,8 +418,8 @@ const AdminTimesheet: React.FC = () => {
           if (typeof s.filterDepartmentId === 'string') setFilterDepartmentId(s.filterDepartmentId);
         }
       }
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
     setFiltersHydrated(true);
   }, [user?.id]);
@@ -458,7 +459,8 @@ const AdminTimesheet: React.FC = () => {
         if (cancelled) return;
         const closed = months.filter((_, i) => flags[i]);
         setClosedMonthsInView(closed);
-      } catch {
+      } catch (error) {
+        void error;
         if (!cancelled) setClosedMonthsInView([]);
       }
     })();
@@ -480,8 +482,8 @@ const AdminTimesheet: React.FC = () => {
           filterDepartmentId,
         }),
       );
-    } catch {
-      /* quota / privado */
+    } catch (error) {
+      void error;
     }
   }, [user?.id, filtersHydrated, periodStart, periodEnd, filterUserId, filterDepartmentId]);
 
@@ -504,7 +506,7 @@ const AdminTimesheet: React.FC = () => {
       setRecords((data.records ?? []) as TimeRecord[]);
       setHolidays(data.holidays ?? []);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       toast.addToast('error', 'Não foi possível carregar o espelho de ponto.');
     } finally {
       setLoadingEspelho(false);
@@ -539,7 +541,7 @@ const AdminTimesheet: React.FC = () => {
         const message = error instanceof Error ? error.message : String(error);
         setRepPendingReconciliationCount(null);
         setRepPendingByDate(new Map());
-        console.warn('[Espelho] rep_punch_logs pendentes:', message);
+        observabilityConsole.warn('[Espelho] rep_punch_logs pendentes:', message);
       }
     })();
     return () => {
@@ -626,7 +628,7 @@ const AdminTimesheet: React.FC = () => {
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
-        console.warn('[Espelho] timesheets_daily:', message);
+        observabilityConsole.warn('[Espelho] timesheets_daily:', message);
         setDailyCalcUiByDate(new Map());
       }
     })();
@@ -747,7 +749,7 @@ const AdminTimesheet: React.FC = () => {
       }
       invalidateAfterPunch(data.user_id, cid);
     } catch (err) {
-      console.error('[TIME RECORD ERROR]', err);
+      observabilityConsole.error('[TIME RECORD ERROR]', err);
       const msg = err instanceof Error ? err.message : 'Erro ao adicionar batida.';
       if (isMonotonicBlockError(msg)) {
         const confirmed = window.confirm(
@@ -878,7 +880,7 @@ const AdminTimesheet: React.FC = () => {
 
       toast.addToast('success', 'PDF profissional exportado com sucesso!');
     } catch (err) {
-      console.error('Erro ao gerar PDF:', err);
+      observabilityConsole.error('Erro ao gerar PDF:', err);
       toast.addToast('error', 'Erro ao gerar PDF profissional. Tente novamente.');
     } finally {
       setLoadingEspelho(false);
@@ -928,7 +930,7 @@ const AdminTimesheet: React.FC = () => {
         }
       }
     } catch (preErr) {
-      console.warn('[TIME ATTENDANCE AUDIT] pré-fechamento indisponível', preErr);
+      observabilityConsole.warn('[TIME ATTENDANCE AUDIT] pré-fechamento indisponível', preErr);
     }
     setClosingLoading(true);
     try {
@@ -938,7 +940,7 @@ const AdminTimesheet: React.FC = () => {
         setClosedMonthsInView((prev) => mergeClosedMonth(prev, y, m));
         return;
       }
-      console.log('[FECHAMENTO INPUT]', {
+      observabilityConsole.log('[FECHAMENTO INPUT]', {
         totalDays: periodDates.length,
         registros: displayRecords.length,
         calculos: 'recalculate_month via timeEngine.closeTimesheet',
@@ -952,7 +954,7 @@ const AdminTimesheet: React.FC = () => {
         closingMonthYm: closingMonth,
       });
       if (!result) {
-        console.warn('[FECHAMENTO IGNORADO - JÁ EXISTE]');
+        observabilityConsole.warn('[FECHAMENTO IGNORADO - JÁ EXISTE]');
         toast.addToast('info', 'Este mês já consta como fechado.');
         setClosedMonthsInView((prev) => mergeClosedMonth(prev, y, m));
         return;
@@ -976,8 +978,8 @@ const AdminTimesheet: React.FC = () => {
           closure_id: result.closure?.id,
         },
       });
-      console.log('[FECHAMENTO TOTAIS]', result.totals);
-      console.log('[FECHAMENTO BH]', {
+      observabilityConsole.log('[FECHAMENTO TOTAIS]', result.totals);
+      observabilityConsole.log('[FECHAMENTO BH]', {
         credited: result.totals?.banco_credito_minutes,
         debited: result.totals?.banco_debito_minutes,
         saldo_final: result.saldo_banco_final,
@@ -986,7 +988,7 @@ const AdminTimesheet: React.FC = () => {
       toast.addToast('success', 'Folha fechada com sucesso.');
       await loadEspelho();
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       const msg = e instanceof Error ? e.message : 'Não foi possível fechar a folha.';
       toast.addToast('error', msg);
     } finally {
@@ -1065,7 +1067,7 @@ const AdminTimesheet: React.FC = () => {
       toast.addToast('success', `Mês ${String(m).padStart(2, '0')}/${y} reaberto. Pode editar o espelho e sincronizar o relógio.`);
       await loadEspelho();
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       const msg = e instanceof Error ? e.message : 'Não foi possível reabrir o mês.';
       toast.addToast('error', msg);
     } finally {

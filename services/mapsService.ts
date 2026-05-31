@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { getGeminiApiKey, getGeminiModelId, validateGeminiApiKey } from "./geminiEnv";
 
 function errorText(error: unknown): string {
@@ -24,7 +25,7 @@ export async function getGeoInsight(
     return await getGeoInsightImpl(latitude, longitude);
   } catch (e) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini Maps] getGeoInsight isolado:', e);
+      observabilityConsole.warn('[Gemini Maps] getGeoInsight isolado:', e);
     }
     return {
       text: 'Serviço de inteligência geográfica indisponível. Tente novamente mais tarde.',
@@ -43,7 +44,7 @@ async function getGeoInsightImpl(
   const validation = validateGeminiApiKey(apiKey);
   if (!validation.valid) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini Maps] Validação da chave falhou:', validation.error);
+      observabilityConsole.warn('[Gemini Maps] Validação da chave falhou:', validation.error);
     }
     return {
       text: validation.error || 'Inteligência geográfica por IA não está disponível neste ambiente.',
@@ -82,13 +83,13 @@ async function getGeoInsightImpl(
 
     // Log detalhado em desenvolvimento
     if (import.meta.env?.DEV) {
-      console.warn(`[Gemini Maps] Erro (status: ${statusCode || 'unknown'}):`, errorMsg);
+      observabilityConsole.warn(`[Gemini Maps] Erro (status: ${statusCode || 'unknown'}):`, errorMsg);
     }
 
     // Tratamento específico para erro 400
     if (statusCode === 400) {
       if (import.meta.env?.DEV) {
-        console.warn(
+        observabilityConsole.warn(
           `[Gemini Maps] Erro 400: o modelo '${model}' pode não estar disponível. Defina VITE_GEMINI_MODEL (ex.: gemini-1.5-flash).`,
         );
       }
@@ -99,7 +100,7 @@ async function getGeoInsightImpl(
     }
 
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini Maps] Erro no Maps Grounding:', errorMsg);
+      observabilityConsole.warn('[Gemini Maps] Erro no Maps Grounding:', errorMsg);
     }
     return {
       text: "Erro ao conectar com o serviço de inteligência geográfica.",

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Cpu, PlusCircle } from 'lucide-react';
@@ -51,7 +52,7 @@ const DevicesPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar dispositivos:', e);
+        observabilityConsole.error('Erro ao carregar dispositivos:', e);
       } finally {
         setIsLoadingData(false);
       }
@@ -98,7 +99,7 @@ const DevicesPage: React.FC = () => {
 
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Erro ao criar dispositivo:', err);
+      observabilityConsole.error('Erro ao criar dispositivo:', err);
     }
   };
 

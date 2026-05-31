@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, PauseCircle, PlayCircle, Users } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -97,7 +98,7 @@ const RealTimeInsightsPage: React.FC = () => {
 
         setSessions(mapped);
       } catch (e) {
-        console.error('Erro ao carregar sessões em tempo real:', e);
+        observabilityConsole.error('Erro ao carregar sessões em tempo real:', e);
         setError('Não foi possível carregar as sessões em tempo real.');
       } finally {
         setIsLoadingData(false);
@@ -169,7 +170,7 @@ const RealTimeInsightsPage: React.FC = () => {
 
   const handlePauseTracking = async (session: ActivitySessionRow) => {
     if (!isSupabaseConfigured()) return;
-    console.log('Pause tracking for', session.id);
+    observabilityConsole.log('Pause tracking for', session.id);
   };
 
   const handleViewEmployee = (session: ActivitySessionRow) => {

@@ -1,3 +1,4 @@
+import { observabilityConsole } from './src/shared/logger/observabilityConsole';
 import type { IncomingMessage } from 'node:http';
 import type { Plugin } from 'vite';
 import { readConnectRequestBody } from './vite.connect';
@@ -29,7 +30,7 @@ export function devApiPlugins(): Plugin[] {
             const body = Buffer.from(await response.arrayBuffer());
             res.end(body);
           } catch (e) {
-            console.error('[reverse-geocode-api-dev]', e);
+            observabilityConsole.error('[reverse-geocode-api-dev]', e);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: 'Falha ao carregar handler da API' }));
@@ -72,7 +73,7 @@ export function devApiPlugins(): Plugin[] {
             const jobsBuf = Buffer.from(await response.arrayBuffer());
             res.end(jobsBuf);
           } catch (e) {
-            console.error('[jobs-api-dev]', e);
+            observabilityConsole.error('[jobs-api-dev]', e);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             const detail = e instanceof Error ? e.message : String(e);
@@ -111,7 +112,7 @@ export function devApiPlugins(): Plugin[] {
             const repResponseBuf = Buffer.from(await response.arrayBuffer());
             res.end(repResponseBuf);
           } catch (e) {
-            console.error('[rep-bridge-api-dev]', e);
+            observabilityConsole.error('[rep-bridge-api-dev]', e);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             const detail = e instanceof Error ? e.message : String(e);
@@ -210,7 +211,7 @@ export function devApiPlugins(): Plugin[] {
             const buf = Buffer.from(await response.arrayBuffer());
             res.end(buf);
           } catch (e) {
-            console.error('[rep-punch-api-dev]', pathname, e);
+            observabilityConsole.error('[rep-punch-api-dev]', pathname, e);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             const detail = e instanceof Error ? e.message : String(e);

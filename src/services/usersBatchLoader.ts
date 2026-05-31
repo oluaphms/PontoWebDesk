@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Carrega usuários por empresa em lotes com timeout curto (performance).
  */
@@ -52,7 +53,7 @@ export async function loadUsersBatchesForCompany(
         `users_batch(${companyId})`,
       );
       if (res.error) {
-        console.info('[DB PERF] users_batch_loaded', {
+        observabilityConsole.info('[DB PERF] users_batch_loaded', {
           company_id: companyId,
           count: 0,
           duration_ms: Date.now() - start,
@@ -63,7 +64,7 @@ export async function loadUsersBatchesForCompany(
       batch = (res.data ?? []) as UserBatchRow[];
     } catch (e) {
       controller.abort();
-      console.info('[DB PERF] users_batch_loaded', {
+      observabilityConsole.info('[DB PERF] users_batch_loaded', {
         company_id: companyId,
         count: 0,
         duration_ms: Date.now() - start,
@@ -72,7 +73,7 @@ export async function loadUsersBatchesForCompany(
       break;
     }
 
-    console.info('[DB PERF] users_batch_loaded', {
+    observabilityConsole.info('[DB PERF] users_batch_loaded', {
       company_id: companyId,
       count: batch.length,
       duration_ms: Date.now() - start,
@@ -116,7 +117,7 @@ export async function collectDistinctCompanyIdsFromUsers(): Promise<string[]> {
       if (res.error) break;
       const rows = (res.data ?? []) as { company_id?: string | null }[];
 
-      console.info('[DB PERF] users_batch_loaded', {
+      observabilityConsole.info('[DB PERF] users_batch_loaded', {
         phase: 'distinct_company_scan',
         count: rows.length,
         duration_ms: Date.now() - start,

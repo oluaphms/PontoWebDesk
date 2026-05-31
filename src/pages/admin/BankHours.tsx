@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Scale } from 'lucide-react';
@@ -195,7 +196,7 @@ const AdminBankHours: React.FC = () => {
           setRecentLedgerOutside([]);
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       } finally {
         setLoadingData(false);
       }

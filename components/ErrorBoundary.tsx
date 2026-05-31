@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Error Boundary — usa `react-error-boundary` (API funcional) sobre o boundary nativo do React.
  * Captura erros na árvore, envia ao Sentry e exibe fallback.
@@ -145,7 +146,7 @@ function useClearChunkFlagsOnNavigate(): void {
 
 function handleBoundaryError(error: unknown, info: ErrorInfo): void {
   const err = toError(error);
-  console.error('ErrorBoundary capturou um erro:', err.message, err.stack, info);
+  observabilityConsole.error('ErrorBoundary capturou um erro:', err.message, err.stack, info);
   captureException(err, { react: { componentStack: info.componentStack } });
 
   if (isLikelyChunkLoadFailure(err)) {

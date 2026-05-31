@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
@@ -93,7 +94,7 @@ const AdminLancamentoEventos: React.FC = () => {
         }))
       );
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     }
   }, [user?.companyId]);
 
@@ -108,7 +109,7 @@ const AdminLancamentoEventos: React.FC = () => {
         unitario_padrao: r.unitario_padrao ?? null,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     }
   }, [user?.companyId]);
 
@@ -145,7 +146,7 @@ const AdminLancamentoEventos: React.FC = () => {
         evento_descricao: eventoMap.get(r.evento_id)?.descricao ?? '',
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar lançamentos.' });
     } finally {
       setLoadingData(false);

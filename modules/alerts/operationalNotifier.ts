@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 import type { OperationalSlaConfigRow } from './operationalRiskEngine';
 
 export type OperationalTaskNotifyPayload = {
@@ -14,13 +15,13 @@ export type OperationalTaskNotifyPayload = {
  * Alto: registo + fila (batch / digest).
  */
 export async function notifyOperationalTask(task: OperationalTaskNotifyPayload): Promise<void> {
-  console.log('[NOTIFY TASK]', {
+  observabilityConsole.log('[NOTIFY TASK]', {
     type: task.task_type,
     priority: task.priority,
   });
 
   if (task.priority === 'critical') {
-    console.log('[NOTIFY TASK IMMEDIATE]', {
+    observabilityConsole.log('[NOTIFY TASK IMMEDIATE]', {
       companyId: task.company_id,
       employeeId: task.employee_id,
       title: task.title,
@@ -28,7 +29,7 @@ export async function notifyOperationalTask(task: OperationalTaskNotifyPayload):
     });
     // Futuro imediato: sendWhatsAppImmediate(...) | sendEmailImmediate(...) | webhookCritical(...)
   } else if (task.priority === 'high') {
-    console.log('[NOTIFY TASK QUEUE]', {
+    observabilityConsole.log('[NOTIFY TASK QUEUE]', {
       companyId: task.company_id,
       employeeId: task.employee_id,
       title: task.title,
@@ -56,7 +57,7 @@ export async function notifyIfCriticalRisk({ companyId, risk, sla }: NotifyIfCri
     whatsapp: sla?.notify_whatsapp === true,
   };
 
-  console.log('[ALERT NOTIFY]', {
+  observabilityConsole.log('[ALERT NOTIFY]', {
     companyId,
     risk,
     channels,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Proteção contra rajadas de queries / invalidações (custo em produção).
  */
@@ -38,7 +39,7 @@ function bumpFetch(queryKey: readonly unknown[] | undefined): void {
   const dup = (DUP_TRACK.get(label) ?? 0) + 1;
   DUP_TRACK.set(label, dup);
   if (dup === DUP_THRESHOLD) {
-    console.warn('[DUPLICATE QUERY]', { queryKey: label.slice(0, 240), hits: dup });
+    observabilityConsole.warn('[DUPLICATE QUERY]', { queryKey: label.slice(0, 240), hits: dup });
   }
 
   let sum = 0;
@@ -46,7 +47,7 @@ function bumpFetch(queryKey: readonly unknown[] | undefined): void {
     if (k.startsWith(`${wk}::`)) sum += v.count;
   }
   if (sum === STORM_PER_MIN || sum === STORM_PER_MIN * 2) {
-    console.warn('[QUERY STORM]', { approx_observations: sum, window_ms: WINDOW_MS });
+    observabilityConsole.warn('[QUERY STORM]', { approx_observations: sum, window_ms: WINDOW_MS });
   }
 }
 
@@ -75,7 +76,7 @@ export function patchQueryCostGuard(queryClient: QueryClient): void {
     cur.count += 1;
     FETCH_COUNTS.set(statKey, cur);
     if (cur.count === 40 || cur.count === 80) {
-      console.warn('[QUERY COST HIGH]', { kind: 'invalidate', count: cur.count, queryKey: label.slice(0, 200) });
+      observabilityConsole.warn('[QUERY COST HIGH]', { kind: 'invalidate', count: cur.count, queryKey: label.slice(0, 200) });
     }
     return origInv(filters as never, options as never);
   };

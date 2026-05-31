@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Single-flight global: mesma chave lógica → uma promise em voo (dedupe paralelo).
  */
@@ -7,7 +8,7 @@ export function runSingleFlight<T>(key: string, factory: () => Promise<T>): Prom
   const existing = inflight.get(key) as Promise<T> | undefined;
   if (existing) {
     if (typeof console !== 'undefined') {
-      console.info('[FETCH SINGLE-FLIGHT]', { key, reused: true });
+      observabilityConsole.info('[FETCH SINGLE-FLIGHT]', { key, reused: true });
     }
     return existing;
   }

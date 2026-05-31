@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { operationalClockMs } from '../../utils/operationalClock';
 import { distanceMeters } from './geoDistance.service';
 
@@ -112,9 +113,9 @@ export class NativeGpsPrecisionWatcher {
   }
 
   private reject(reason: NativeGpsRejectedReason, extra?: Record<string, unknown>): void {
-    if (reason === 'stale_timestamp') console.warn('[NATIVE GPS STALE]', extra ?? {});
-    else if (reason === 'teleport_blocked') console.warn('[NATIVE GPS TELEPORT BLOCKED]', extra ?? {});
-    else console.info('[NATIVE GPS REJECTED]', { reason, ...(extra ?? {}) });
+    if (reason === 'stale_timestamp') observabilityConsole.warn('[NATIVE GPS STALE]', extra ?? {});
+    else if (reason === 'teleport_blocked') observabilityConsole.warn('[NATIVE GPS TELEPORT BLOCKED]', extra ?? {});
+    else observabilityConsole.info('[NATIVE GPS REJECTED]', { reason, ...(extra ?? {}) });
     this.callbacks.onRejected?.(reason, extra);
   }
 
@@ -152,7 +153,7 @@ export class NativeGpsPrecisionWatcher {
       Math.abs(this.lastSeenCoords.longitude - lng) < 0.0000001 &&
       Math.abs(this.lastSeenCoords.timestamp - tsMs) < 3;
     if (cached_position_reused) {
-      console.warn('[NATIVE GPS CACHE REUSED]', { timestamp: tsMs });
+      observabilityConsole.warn('[NATIVE GPS CACHE REUSED]', { timestamp: tsMs });
       this.reject('repeated_coords', { reason: 'cache_reused' });
       return;
     }
@@ -193,7 +194,7 @@ export class NativeGpsPrecisionWatcher {
       uaIsAndroid() &&
       ((speedMps != null && speedMps > 35 && accuracyMeters > 80) || (this.lastAccepted == null && ageMs < 1000));
     if (android_mock_location_suspected) {
-      console.warn('[NATIVE GPS MOCK SUSPECTED]', { accuracy_m: accuracyMeters, speed_mps: speedMps });
+      observabilityConsole.warn('[NATIVE GPS MOCK SUSPECTED]', { accuracy_m: accuracyMeters, speed_mps: speedMps });
     }
 
     const gps_signal_quality = signalQuality(accuracyMeters);
@@ -215,7 +216,7 @@ export class NativeGpsPrecisionWatcher {
       cached_position_reused,
       android_mock_location_suspected,
     };
-    console.info('[NATIVE GPS ACCEPTED]', {
+    observabilityConsole.info('[NATIVE GPS ACCEPTED]', {
       accuracy_m: accuracyMeters,
       speed_mps: speedMps,
       quality: gps_signal_quality,

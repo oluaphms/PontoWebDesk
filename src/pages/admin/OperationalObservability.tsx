@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Activity } from 'lucide-react';
@@ -71,7 +72,7 @@ const OperationalObservability: React.FC = () => {
   const geoHealthScore = useMemo(() => calculateOperationalGeoHealth(), [refreshIndex]);
 
   useEffect(() => {
-    console.info('[OBSERVABILITY GEO HEALTH]', {
+    observabilityConsole.info('[OBSERVABILITY GEO HEALTH]', {
       geo_reliability: geoReliabilityDist,
       teleports: teleportCount,
       future_blocked: futureBlocked,

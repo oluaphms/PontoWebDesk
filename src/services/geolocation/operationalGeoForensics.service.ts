@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../supabaseClient';
 import type { GeoForensicsPoint } from '../../domain/operational/geo/geoForensics.service';
@@ -66,7 +67,7 @@ export async function evaluateAndPersistOperationalGeoForensics(
 
   if (hasReplayPattern(input.points)) {
     flags.push('position_replay_pattern');
-    console.warn('[GEO REPLAY DETECTED]', {
+    observabilityConsole.warn('[GEO REPLAY DETECTED]', {
       company_id: input.companyId,
       employee_id: input.employeeId,
     });
@@ -84,14 +85,14 @@ export async function evaluateAndPersistOperationalGeoForensics(
   const adjustedScore = Math.max(0, base.geo_forensics_score - Math.max(0, flags.length - base.flags.length) * 6);
   const riskLevel = toRiskLevel(adjustedScore, flags);
   if (riskLevel === 'CRITICAL') {
-    console.error('[GEO FORENSICS CRITICAL]', {
+    observabilityConsole.error('[GEO FORENSICS CRITICAL]', {
       company_id: input.companyId,
       employee_id: input.employeeId,
       flags,
     });
   }
   if (flags.length > 0) {
-    console.warn('[GEO FRAUD PATTERN]', {
+    observabilityConsole.warn('[GEO FRAUD PATTERN]', {
       company_id: input.companyId,
       employee_id: input.employeeId,
       flags,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Aplica backend/db/schema.sql no PostgreSQL (Hostinger ou local).
  * Uso: cd backend && node scripts/apply-schema.mjs
@@ -13,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[apply-schema] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[apply-schema] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -29,9 +30,9 @@ const pool = new pg.Pool({ connectionString, ssl });
 
 try {
   await pool.query(sql);
-  console.log('[apply-schema] OK — tabelas criadas/atualizadas em', connectionString.replace(/:[^:@/]+@/, ':***@'));
+  observabilityConsole.log('[apply-schema] OK — tabelas criadas/atualizadas em', connectionString.replace(/:[^:@/]+@/, ':***@'));
 } catch (err) {
-  console.error('[apply-schema] Falhou:', err);
+  observabilityConsole.error('[apply-schema] Falhou:', err);
   process.exit(1);
 } finally {
   await pool.end();

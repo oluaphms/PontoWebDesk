@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 /**
  * Serviço de notificações in-app
  */
@@ -70,7 +71,7 @@ export const NotificationService = {
           metadata: notif.metadata ?? {},
         });
       } catch (e) {
-        console.error('Notification Supabase failed:', e);
+        observabilityConsole.error('Notification Supabase failed:', e);
         this.persistLocal(notif);
       }
     } else {
@@ -87,7 +88,7 @@ export const NotificationService = {
       const updated = [notif, ...existing].slice(0, MAX_LOCAL);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (err) {
-      console.warn('[notificationService] Falha ao persistir notificação local:', err);
+      observabilityConsole.warn('[notificationService] Falha ao persistir notificação local:', err);
     }
   },
 
@@ -112,7 +113,7 @@ export const NotificationService = {
           })) as InAppNotification[];
           return parsed.filter((n) => n.userId === userId && !n.read);
         } catch (err) {
-          console.warn('[notificationService] Falha ao ler notificações locais:', err);
+          observabilityConsole.warn('[notificationService] Falha ao ler notificações locais:', err);
           return [];
         }
       };
@@ -155,13 +156,13 @@ export const NotificationService = {
               if (now - lastNotifSlowWarnAt >= NOTIF_SLOW_WARN_INTERVAL_MS) {
                 lastNotifSlowWarnAt = now;
                 if (import.meta.env.DEV && typeof console !== 'undefined') {
-                  console.debug(
+                  observabilityConsole.debug(
                     '[notifications] Lista indisponível (rede lenta ou lock); usando notificações locais se houver.',
                   );
                 }
               }
             } else {
-              console.error('Get notifications Supabase failed:', msg);
+              observabilityConsole.error('Get notifications Supabase failed:', msg);
             }
           }
         }
@@ -194,7 +195,7 @@ export const NotificationService = {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       }
     } catch (e) {
-      console.error('localStorage update failed:', e);
+      observabilityConsole.error('localStorage update failed:', e);
     }
 
     // Tentar atualizar no Supabase (background, não bloqueia)
@@ -214,7 +215,7 @@ export const NotificationService = {
             .eq('id', notificationId)
             .eq('user_id', userId);
         } catch (updateError) {
-          console.error('Mark read failed:', updateError);
+          observabilityConsole.error('Mark read failed:', updateError);
         }
       }
     }
@@ -258,7 +259,7 @@ export const NotificationService = {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       }
     } catch (e) {
-      console.error('localStorage update failed:', e);
+      observabilityConsole.error('localStorage update failed:', e);
     }
 
     // Tentar atualizar no Supabase (background, não bloqueia)
@@ -278,7 +279,7 @@ export const NotificationService = {
             .eq('id', notificationId)
             .eq('user_id', userId);
         } catch (updateError) {
-          console.error('Delete notification failed:', updateError);
+          observabilityConsole.error('Delete notification failed:', updateError);
         }
       }
     }

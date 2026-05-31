@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * POST /api/rep/heartbeat — sinal do agente local (alias simplificado).
  * Body: { device_id, company_id?, agent_version? }
@@ -46,7 +47,7 @@ async function authenticateAgent(
     .maybeSingle();
 
   if (deviceErr) {
-    console.error('[REP HEARTBEAT ERROR] rep_devices query:', deviceErr.message);
+    observabilityConsole.error('[REP HEARTBEAT ERROR] rep_devices query:', deviceErr.message);
     return { ok: false, response: json({ error: 'Falha ao consultar dispositivo', detail: deviceErr.message }, 500, headers) };
   }
   if (!device?.id) {
@@ -119,7 +120,7 @@ export async function handleRepHeartbeat(request: Request): Promise<Response> {
     .eq('id', deviceId);
 
   if (devErr) {
-    console.error('[REP HEARTBEAT ERROR] update rep_devices:', devErr.message, { device_id: deviceId });
+    observabilityConsole.error('[REP HEARTBEAT ERROR] update rep_devices:', devErr.message, { device_id: deviceId });
     return json({ error: 'Falha ao registrar heartbeat', detail: devErr.message }, 500, headers);
   }
 
@@ -131,7 +132,7 @@ export async function handleRepHeartbeat(request: Request): Promise<Response> {
     updated_at: now,
   });
   if (hbErr) {
-    console.warn('[rep/heartbeat] rep_device_heartbeats upsert:', hbErr.message);
+    observabilityConsole.warn('[rep/heartbeat] rep_device_heartbeats upsert:', hbErr.message);
   }
 
   return json(

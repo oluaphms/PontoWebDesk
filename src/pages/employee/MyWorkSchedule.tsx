@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
@@ -199,7 +200,7 @@ const MyWorkSchedule: React.FC = () => {
           setEmpDays([]);
         }
       } catch (e: any) {
-        console.error(e);
+        observabilityConsole.error(e);
         setErrorMsg(e?.message || 'Erro ao carregar dados.');
       } finally {
         setLoadingData(false);

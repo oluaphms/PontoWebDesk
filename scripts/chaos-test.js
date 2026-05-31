@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Teste de caos e carga — PontoWebDesk
  *
@@ -89,7 +90,7 @@ function sleep(ms) {
 // ─── Cenários ──────────────────────────────────────────────────────────────────
 
 async function scenarioLoad(db) {
-  console.log('\n═══ CENÁRIO: CARGA (2000 batidas) ═══');
+  observabilityConsole.log('\n═══ CENÁRIO: CARGA (2000 batidas) ═══');
   const COUNT = 2000;
   const t0 = Date.now();
 
@@ -105,19 +106,19 @@ async function scenarioLoad(db) {
   const elapsed = Date.now() - t0;
   const pending = countPending(db);
 
-  console.log(`✓ ${COUNT} batidas inseridas em ${elapsed}ms`);
-  console.log(`  Pendentes na fila: ${pending}`);
-  console.log(`  Taxa: ${Math.round(COUNT / (elapsed / 1000))} batidas/s`);
+  observabilityConsole.log(`✓ ${COUNT} batidas inseridas em ${elapsed}ms`);
+  observabilityConsole.log(`  Pendentes na fila: ${pending}`);
+  observabilityConsole.log(`  Taxa: ${Math.round(COUNT / (elapsed / 1000))} batidas/s`);
 
   if (elapsed > 2000) {
-    console.warn(`⚠ Violação SLA ingestão: ${elapsed}ms > 2000ms`);
+    observabilityConsole.warn(`⚠ Violação SLA ingestão: ${elapsed}ms > 2000ms`);
   }
 
   return { count: COUNT, elapsedMs: elapsed, pending };
 }
 
 async function scenarioDedupe(db) {
-  console.log('\n═══ CENÁRIO: DUPLICATAS EM MASSA ═══');
+  observabilityConsole.log('\n═══ CENÁRIO: DUPLICATAS EM MASSA ═══');
   const COUNT = 500;
   const BASE_TIMESTAMP = '2024-04-20T08:00:00.000Z';
 
@@ -135,27 +136,27 @@ async function scenarioDedupe(db) {
   const afterCount = countPending(db);
   const inserted = afterCount - beforeCount;
 
-  console.log(`✓ ${COUNT} tentativas de insert com mesmo timestamp`);
-  console.log(`  Inseridos (NSR único): ${inserted}`);
-  console.log(`  Deduplicados pelo SQLite: ${COUNT - inserted}`);
+  observabilityConsole.log(`✓ ${COUNT} tentativas de insert com mesmo timestamp`);
+  observabilityConsole.log(`  Inseridos (NSR único): ${inserted}`);
+  observabilityConsole.log(`  Deduplicados pelo SQLite: ${COUNT - inserted}`);
 
   // Verificar que dedupe_hash vai eliminar duplicatas no Supabase
   const hashes = new Set(punches.map(p =>
     computeDedupeHash(p.company_id, p.rep_id, p.p_pis, BASE_TIMESTAMP, 'entrada')
   ));
-  console.log(`  Hashes únicos (esperado: 1): ${hashes.size}`);
+  observabilityConsole.log(`  Hashes únicos (esperado: 1): ${hashes.size}`);
 
   if (hashes.size !== 1) {
-    console.error('✗ FALHA: dedupe_hash deveria ser único para mesma batida lógica');
+    observabilityConsole.error('✗ FALHA: dedupe_hash deveria ser único para mesma batida lógica');
   } else {
-    console.log('✓ dedupe_hash correto: 1 hash único para 500 tentativas');
+    observabilityConsole.log('✓ dedupe_hash correto: 1 hash único para 500 tentativas');
   }
 
   return { attempted: COUNT, inserted, deduplicated: COUNT - inserted };
 }
 
 async function scenarioMultiDevice(db) {
-  console.log('\n═══ CENÁRIO: MÚLTIPLOS RELÓGIOS SIMULTÂNEOS ═══');
+  observabilityConsole.log('\n═══ CENÁRIO: MÚLTIPLOS RELÓGIOS SIMULTÂNEOS ═══');
   const DEVICES = 5;
   const PER_DEVICE = 200;
   const t0 = Date.now();
@@ -177,15 +178,15 @@ async function scenarioMultiDevice(db) {
   insertPunches(db, allPunches);
   const elapsed = Date.now() - t0;
 
-  console.log(`✓ ${DEVICES} relógios × ${PER_DEVICE} batidas = ${allPunches.length} total`);
-  console.log(`  Inseridos em ${elapsed}ms`);
-  console.log(`  Pendentes: ${countPending(db)}`);
+  observabilityConsole.log(`✓ ${DEVICES} relógios × ${PER_DEVICE} batidas = ${allPunches.length} total`);
+  observabilityConsole.log(`  Inseridos em ${elapsed}ms`);
+  observabilityConsole.log(`  Pendentes: ${countPending(db)}`);
 
   return { devices: DEVICES, perDevice: PER_DEVICE, total: allPunches.length, elapsedMs: elapsed };
 }
 
 async function scenarioTimezone(db) {
-  console.log('\n═══ CENÁRIO: TIMEZONE (wall time sem offset) ═══');
+  observabilityConsole.log('\n═══ CENÁRIO: TIMEZONE (wall time sem offset) ═══');
 
   // Simular batidas com timestamp sem offset (problema do Dimep AFD)
   const wallTimes = [
@@ -198,7 +199,7 @@ async function scenarioTimezone(db) {
 
   const { ensureUTC } = await import('../services/timeUtils.js');
 
-  console.log('  Conversões wall time → UTC:');
+  observabilityConsole.log('  Conversões wall time → UTC:');
   let allCorrect = true;
   for (const wt of wallTimes) {
     const utc = ensureUTC(wt, 'America/Sao_Paulo');
@@ -206,21 +207,21 @@ async function scenarioTimezone(db) {
     const isUTC = utc.endsWith('Z') || utc.includes('+00:00');
     const status = isUTC ? '✓' : '✗';
     if (!isUTC) allCorrect = false;
-    console.log(`  ${status} ${wt} → ${utc} (offset: ${d.getTimezoneOffset()}min)`);
+    observabilityConsole.log(`  ${status} ${wt} → ${utc} (offset: ${d.getTimezoneOffset()}min)`);
   }
 
   if (allCorrect) {
-    console.log('✓ Todos os timestamps convertidos para UTC corretamente');
+    observabilityConsole.log('✓ Todos os timestamps convertidos para UTC corretamente');
   } else {
-    console.error('✗ FALHA: alguns timestamps não foram convertidos para UTC');
+    observabilityConsole.error('✗ FALHA: alguns timestamps não foram convertidos para UTC');
   }
 
   return { tested: wallTimes.length, allCorrect };
 }
 
 async function scenarioOfflineRecovery(db) {
-  console.log('\n═══ CENÁRIO: RECUPERAÇÃO OFFLINE ═══');
-  console.log('  (Simulação: inserindo batidas como se Supabase estivesse offline)');
+  observabilityConsole.log('\n═══ CENÁRIO: RECUPERAÇÃO OFFLINE ═══');
+  observabilityConsole.log('  (Simulação: inserindo batidas como se Supabase estivesse offline)');
 
   const COUNT = 100;
   const punches = Array.from({ length: COUNT }, (_, i) => makePunch({
@@ -232,10 +233,10 @@ async function scenarioOfflineRecovery(db) {
   insertPunches(db, punches);
   const pending = countPending(db);
 
-  console.log(`✓ ${COUNT} batidas inseridas (simulando offline)`);
-  console.log(`  Total pendente na fila: ${pending}`);
-  console.log(`  → Quando Supabase voltar, o worker vai processar automaticamente`);
-  console.log(`  → Nenhum dado perdido (SQLite persiste indefinidamente)`);
+  observabilityConsole.log(`✓ ${COUNT} batidas inseridas (simulando offline)`);
+  observabilityConsole.log(`  Total pendente na fila: ${pending}`);
+  observabilityConsole.log(`  → Quando Supabase voltar, o worker vai processar automaticamente`);
+  observabilityConsole.log(`  → Nenhum dado perdido (SQLite persiste indefinidamente)`);
 
   return { inserted: COUNT, totalPending: pending };
 }
@@ -243,19 +244,19 @@ async function scenarioOfflineRecovery(db) {
 // ─── Runner ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║     PontoWebDesk — Teste de Caos e Carga             ║');
-  console.log('╚══════════════════════════════════════════════════════╝');
-  console.log(`SQLite: ${SQLITE_PATH}`);
-  console.log(`Cenário: ${scenario}`);
+  observabilityConsole.log('╔══════════════════════════════════════════════════════╗');
+  observabilityConsole.log('║     PontoWebDesk — Teste de Caos e Carga             ║');
+  observabilityConsole.log('╚══════════════════════════════════════════════════════╝');
+  observabilityConsole.log(`SQLite: ${SQLITE_PATH}`);
+  observabilityConsole.log(`Cenário: ${scenario}`);
 
   let db;
   try {
     db = openDb();
   } catch (err) {
-    console.error(`✗ Não foi possível abrir o SQLite: ${err.message}`);
-    console.error('  Certifique-se de que CLOCK_AGENT_SQLITE_PATH está configurado');
-    console.error('  e que o agente já foi iniciado ao menos uma vez.');
+    observabilityConsole.error(`✗ Não foi possível abrir o SQLite: ${err.message}`);
+    observabilityConsole.error('  Certifique-se de que CLOCK_AGENT_SQLITE_PATH está configurado');
+    observabilityConsole.error('  e que o agente já foi iniciado ao menos uma vez.');
     process.exit(1);
   }
 
@@ -284,14 +285,14 @@ async function main() {
 
   const totalMs = Date.now() - t0;
 
-  console.log('\n═══ RESULTADO FINAL ═══');
-  console.log(`Tempo total: ${totalMs}ms`);
-  console.log('Resultados:', JSON.stringify(results, null, 2));
-  console.log('\n→ Inicie o agente para processar a fila: npm run clock-sync-agent');
-  console.log('→ Monitore: GET /api/admin/metrics (com Authorization: Bearer <API_KEY>)');
+  observabilityConsole.log('\n═══ RESULTADO FINAL ═══');
+  observabilityConsole.log(`Tempo total: ${totalMs}ms`);
+  observabilityConsole.log('Resultados:', JSON.stringify(results, null, 2));
+  observabilityConsole.log('\n→ Inicie o agente para processar a fila: npm run clock-sync-agent');
+  observabilityConsole.log('→ Monitore: GET /api/admin/metrics (com Authorization: Bearer <API_KEY>)');
 }
 
 main().catch(err => {
-  console.error('FATAL:', err.message);
+  observabilityConsole.error('FATAL:', err.message);
   process.exit(1);
 });

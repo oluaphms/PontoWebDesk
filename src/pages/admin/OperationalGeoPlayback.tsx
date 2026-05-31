@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Playback GEO operacional — histórico append-only (operational_state_history) + score forense.
  */
@@ -55,7 +56,7 @@ const OperationalGeoPlaybackPage: React.FC = () => {
       setTrail(t);
       setForensics(OperationalGeoPlayback.analyzeTrail(t));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     } finally {
       setBusy(false);
     }

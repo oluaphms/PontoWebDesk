@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Worker de sincronização — produção nível empresa.
  *
@@ -86,7 +87,7 @@ function enterDegradedMode(queue) {
   queue.log(LOG_LEVEL.WARN, 'degraded_mode', 'Sistema entrou em modo degradado (Supabase inacessível)', {
     since: DEGRADED_MODE.since,
   });
-  console.warn('[SYNC] ⚠ MODO DEGRADADO: coletando localmente, sync suspenso');
+  observabilityConsole.warn('[SYNC] ⚠ MODO DEGRADADO: coletando localmente, sync suspenso');
 }
 
 function exitDegradedMode(queue) {
@@ -97,7 +98,7 @@ function exitDegradedMode(queue) {
   DEGRADED_MODE.active = false;
   DEGRADED_MODE.since  = null;
   queue.log(LOG_LEVEL.INFO, 'degraded_mode', `Sistema saiu do modo degradado após ${duration}s`, { duration });
-  console.log(`[SYNC] ✓ Modo normal restaurado após ${duration}s`);
+  observabilityConsole.log(`[SYNC] ✓ Modo normal restaurado após ${duration}s`);
 }
 
 // ─── Log estruturado padrão ────────────────────────────────────────────────────
@@ -110,7 +111,7 @@ function structuredLog(queue, level, event, context = {}) {
   const entry = { level: level.toUpperCase(), event, ...context };
   queue.log(level, event.toLowerCase(), JSON.stringify(entry), context);
   if (level === 'error') {
-    console.error(`[${entry.level}] ${event}`, context);
+    observabilityConsole.error(`[${entry.level}] ${event}`, context);
   }
 }
 
@@ -171,7 +172,11 @@ function ensureLocalSchema(db) {
     ['last_sync_error', 'TEXT'],
   ]) {
     if (!names.has(col)) {
-      try { db.exec(`ALTER TABLE time_records ADD COLUMN ${col} ${def}`); } catch { /* ignore */ }
+      try {
+        db.exec(`ALTER TABLE time_records ADD COLUMN ${col} ${def}`);
+      } catch (error) {
+        observabilityConsole.warn('[syncService] Falha ao aplicar migração incremental:', error);
+      }
     }
   }
 }
@@ -270,7 +275,7 @@ export function startSyncService(opts) {
       queue.log(LOG_LEVEL.WARN, 'backpressure',
         `Backpressure ativo: ${metrics.pending} jobs pendentes (limite: ${BACKPRESSURE_LIMIT})`,
         { pending: metrics.pending });
-      console.warn(`[SYNC] ⚠ Backpressure: ${metrics.pending} jobs pendentes — ingestão pausada`);
+      observabilityConsole.warn(`[SYNC] ⚠ Backpressure: ${metrics.pending} jobs pendentes — ingestão pausada`);
       return 0;
     }
 
@@ -407,7 +412,7 @@ export function startSyncService(opts) {
     }
     if (enqueued > 0) {
       queue.log(LOG_LEVEL.INFO, 'collect', `${enqueued} batida(s) enfileirada(s)`, { enqueued, elapsedMs: elapsed });
-      console.log(`[SYNC] ▶ ${enqueued} batida(s) enfileirada(s) (${elapsed}ms)`);
+      observabilityConsole.log(`[SYNC] ▶ ${enqueued} batida(s) enfileirada(s) (${elapsed}ms)`);
     }
 
     // Salvar checkpoint de progresso
@@ -422,7 +427,7 @@ export function startSyncService(opts) {
     // Lock distribuído (multi-instância)
     const locked = await distLock.acquire(LOCK_NAME);
     if (!locked) {
-      console.log('[SYNC] Lock distribuído ocupado — outro worker em execução');
+      observabilityConsole.log('[SYNC] Lock distribuído ocupado — outro worker em execução');
       return;
     }
 
@@ -430,7 +435,7 @@ export function startSyncService(opts) {
       const jobs = queue.dequeue(WORKER_BATCH_SIZE);
       if (!jobs.length) return;
 
-      console.log(`[SYNC] Processando ${jobs.length} job(s)...`);
+      observabilityConsole.log(`[SYNC] Processando ${jobs.length} job(s)...`);
 
       for (const job of jobs) {
         if (stopped) break;
@@ -492,7 +497,7 @@ export function startSyncService(opts) {
         jobId, companyId, deviceId, count: rows.length, elapsedMs: elapsed,
         batchSize: adaptive.size,
       });
-      console.log(`[SYNC] ✓ Job ${jobId}: ${rows.length} batida(s) → clock_event_logs (${elapsed}ms)`);
+      observabilityConsole.log(`[SYNC] ✓ Job ${jobId}: ${rows.length} batida(s) → clock_event_logs (${elapsed}ms)`);
 
       // Métricas por tenant
       tenantMx.recordSync(companyId, { count: rows.length, latencyMs: elapsed });
@@ -543,7 +548,7 @@ export function startSyncService(opts) {
         queue.log(LOG_LEVEL.ERROR, 'dead_letter',
           `Job ${jobId} → dead letter imediato (${errorType})`,
           { jobId, errorType, error: msg.slice(0, 500) });
-        console.error(`[SYNC] ✗ Job ${jobId} → dead letter (${errorType}): ${msg}`);
+        observabilityConsole.error(`[SYNC] ✗ Job ${jobId} → dead letter (${errorType}): ${msg}`);
       } else {
         // Erro transitório → retry com delay baseado no tipo
         const delay = retryDelayMs(errorType, attempts);
@@ -567,7 +572,7 @@ export function startSyncService(opts) {
             `Job ${jobId} reagendado (${errorType}, tentativa ${nextAttempts}/10, delay ${delay}ms)`,
             { jobId, errorType, attempts: nextAttempts, delayMs: delay });
         }
-        console.error(`[SYNC] ✗ Job ${jobId} falhou (${errorType}, ${attempts + 1}/10): ${msg}`);
+        observabilityConsole.error(`[SYNC] ✗ Job ${jobId} falhou (${errorType}, ${attempts + 1}/10): ${msg}`);
       }
     }
   }
@@ -586,7 +591,7 @@ export function startSyncService(opts) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       queue.log(LOG_LEVEL.WARN, 'espelho', `Promoção espelho falhou: ${msg}`, { companyId, deviceId, jobId });
-      console.warn(`[SYNC] ⚠ Espelho falhou para ${deviceId}: ${msg}`);
+      observabilityConsole.warn(`[SYNC] ⚠ Espelho falhou para ${deviceId}: ${msg}`);
     }
   }
 
@@ -670,7 +675,9 @@ export function startSyncService(opts) {
     // Adicionar coluna error_type se não existir (migração incremental)
     try {
       rawDb.exec(`ALTER TABLE sync_jobs ADD COLUMN error_type TEXT`);
-    } catch { /* já existe */ }
+    } catch (error) {
+      observabilityConsole.warn('[syncService] Coluna error_type já existe ou não pôde ser criada:', error);
+    }
   }
 
   // ── Ciclo principal ───────────────────────────────────────────────────────────
@@ -685,7 +692,7 @@ export function startSyncService(opts) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       queue.log(LOG_LEVEL.ERROR, 'tick', `Erro no ciclo: ${msg}`, { error: msg });
-      console.error('[SYNC] Erro no ciclo:', msg);
+      observabilityConsole.error('[SYNC] Erro no ciclo:', msg);
     } finally {
       running = false;
     }
@@ -693,20 +700,20 @@ export function startSyncService(opts) {
 
   // ── Timers ────────────────────────────────────────────────────────────────────
 
-  const syncInterval        = setInterval(() => tick().catch(e => console.error('[SYNC]', e instanceof Error ? e.message : e)), intervalMs);
+  const syncInterval        = setInterval(() => tick().catch(e => observabilityConsole.error('[SYNC]', e instanceof Error ? e.message : e)), intervalMs);
   const maintenanceInterval = setInterval(runMaintenance, MAINTENANCE_INTERVAL);
   const auditInterval       = setInterval(() => runAuditCheck().catch((err) => {
-    console.warn('[SYNC] Falha no audit check:', err instanceof Error ? err.message : err);
+    observabilityConsole.warn('[SYNC] Falha no audit check:', err instanceof Error ? err.message : err);
   }), AUDIT_INTERVAL_MS);
 
   // Primeiro ciclo imediato
-  void tick().catch(e => console.error('[SYNC] Primeiro ciclo:', e instanceof Error ? e.message : e));
+  void tick().catch(e => observabilityConsole.error('[SYNC] Primeiro ciclo:', e instanceof Error ? e.message : e));
 
   queue.log(LOG_LEVEL.INFO, 'startup', `Worker iniciado`, {
     intervalMs, enqueueBatch: ENQUEUE_BATCH_SIZE, workerBatch: WORKER_BATCH_SIZE,
     adaptiveBatch: adaptive.size, instanceId: distLock.instanceId,
   });
-  console.log(`[SYNC] Worker iniciado — intervalo: ${intervalMs / 1000}s | instância: ${distLock.instanceId}`);
+  observabilityConsole.log(`[SYNC] Worker iniciado — intervalo: ${intervalMs / 1000}s | instância: ${distLock.instanceId}`);
 
   return {
     stop: () => {
@@ -726,10 +733,14 @@ export function startSyncService(opts) {
       sloTracker.stop();
       bizMetrics.stop();
       distLock.release(LOCK_NAME).catch((err) => {
-        console.warn('[SYNC] Falha ao liberar lock distribuído:', err instanceof Error ? err.message : err);
+        observabilityConsole.warn('[SYNC] Falha ao liberar lock distribuído:', err instanceof Error ? err.message : err);
       });
-      try { rawDb.close(); } catch { /* ignore */ }
-      console.log('[SYNC] Worker parado');
+      try {
+        rawDb.close();
+      } catch (error) {
+        observabilityConsole.warn('[syncService] Falha ao fechar SQLite:', error);
+      }
+      observabilityConsole.log('[SYNC] Worker parado');
     },
     queue,
     cb,

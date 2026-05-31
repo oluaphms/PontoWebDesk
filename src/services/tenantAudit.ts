@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db } from '../../services/supabaseClient';
 import type { TenantId, User } from '../../types';
 import { resolveTenantId } from './tenantScope';
@@ -26,7 +27,7 @@ export async function logTenantAuditEvent(params: {
       created_at: new Date().toISOString(),
     });
   } catch (err) {
-    if (import.meta.env?.DEV) console.debug('[tenantAudit]', err);
+    if (import.meta.env?.DEV) observabilityConsole.debug('[tenantAudit]', err);
   }
 }
 

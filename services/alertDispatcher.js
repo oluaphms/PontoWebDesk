@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Dispatcher de alertas críticos.
  *
@@ -61,7 +62,7 @@ export class AlertDispatcher {
     // 1. Log estruturado (sempre)
     const logLevel = level === 'critical' ? 'error' : level;
     const logMsg   = `[ALERT:${type}] ${title}: ${message}`;
-    console.error(logMsg, context ?? '');
+    observabilityConsole.error(logMsg, context ?? '');
 
     if (this._queue) {
       this._queue.log(logLevel, 'alert', logMsg, { type, title, context });
@@ -100,7 +101,7 @@ export class AlertDispatcher {
     } catch (err) {
       // Falha no webhook não deve derrubar o sistema
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[ALERT] Falha ao enviar webhook: ${msg}`);
+      observabilityConsole.warn(`[ALERT] Falha ao enviar webhook: ${msg}`);
     }
   }
 

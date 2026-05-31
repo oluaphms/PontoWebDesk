@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 // @ts-nocheck — SDK Firebase opcional; tipos completos exigem dependência `firebase`.
 /**
  * Firebase Configuration and Initialization
@@ -61,9 +62,9 @@ const firebaseConfig = {
 
 // Validate Firebase configuration
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'your_firebase_api_key_here') {
-  console.error('❌ Firebase API Key não configurada!');
-  console.error('Por favor, configure as variáveis do Firebase no arquivo .env.local');
-  console.error('O produto usa Supabase como backend principal. Veja CONFIGURAR_SUPABASE.md e docs/overview.md');
+  observabilityConsole.error('❌ Firebase API Key não configurada!');
+  observabilityConsole.error('Por favor, configure as variáveis do Firebase no arquivo .env.local');
+  observabilityConsole.error('O produto usa Supabase como backend principal. Veja CONFIGURAR_SUPABASE.md e docs/overview.md');
 }
 
 // Initialize Firebase (only if not already initialized)

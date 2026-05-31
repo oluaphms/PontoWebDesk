@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 // ============================================================
 // Serviço Profissional de Geração de PDF - Espelho de Ponto
 // Conforme Portaria MTP 671/2021
@@ -460,7 +461,7 @@ class PDFBuilder {
       this.doc.setFontSize(7);
       this.doc.text('Escaneie para validar', qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
     } catch (e) {
-      console.error('Erro ao gerar QR Code:', e);
+      observabilityConsole.error('Erro ao gerar QR Code:', e);
     }
 
     // Estatísticas de registros

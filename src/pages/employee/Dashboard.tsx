@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { Clock, CalendarDays, Activity, Scale, ClipboardList, LogIn, LogOut, FileEdit, FileText, CalendarClock } from 'lucide-react';
@@ -88,7 +89,7 @@ const EmployeeDashboard: React.FC = () => {
           rows = (await getTimeRecordsForEmployeeDashboard(user.id)) as any[];
         } catch (error) {
           // Não interrompe o dashboard por timeout transitório do Supabase.
-          console.warn('[EmployeeDashboard] time_records indisponível no momento:', error);
+          observabilityConsole.warn('[EmployeeDashboard] time_records indisponível no momento:', error);
           rows = [];
           // Fallback local direto para evitar cards vazios quando a primeira consulta expira.
           try {
@@ -103,7 +104,7 @@ const EmployeeDashboard: React.FC = () => {
                 },
               )) ?? [];
           } catch (fallbackErr) {
-            console.warn('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
+            observabilityConsole.warn('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
           }
         }
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
@@ -201,7 +202,7 @@ const EmployeeDashboard: React.FC = () => {
           }
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       } finally {
         if (showLoading) setLoadingData(false);
       }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Serviço de integração REP - ingestão de marcações, logs e consolidação em time_records
  */
@@ -24,7 +25,7 @@ type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.ser
 function enqueueAppendTimeAttendanceTimelineEvent(input: AppendTimelineInput): void {
   void import('../../src/services/timeAttendanceTimeline.service').then((m) =>
     m.appendTimeAttendanceTimelineEvent(input).catch((err) => {
-      console.error('[repService] appendTimeAttendanceTimelineEvent', err);
+      observabilityConsole.error('[repService] appendTimeAttendanceTimelineEvent', err);
     }),
   );
 }
@@ -422,7 +423,7 @@ async function logRepOperationalReconciliationForPromoteBatch(
       const partial = pendingCount > 0 && (promotedSameDay > 0 || (rec.counts.mirror ?? 0) > 0);
 
       if (typeof globalThis !== 'undefined' && globalThis.console) {
-        globalThis.console.info('[REP DAY RECONCILIATION]', {
+        observabilityConsole.info('[REP DAY RECONCILIATION]', {
           employee_id: userId,
           date,
           pending_rep_in_mirror_day: pendingCount,
@@ -436,14 +437,14 @@ async function logRepOperationalReconciliationForPromoteBatch(
       for (const iss of rec.issues) {
         if (typeof globalThis !== 'undefined' && globalThis.console) {
           if (iss.kind === 'sequence_gap') {
-            globalThis.console.warn('[REP SEQUENCE GAP]', {
+            observabilityConsole.warn('[REP SEQUENCE GAP]', {
               employee_id: userId,
               date,
               ...iss,
             });
           }
           if (iss.kind === 'duplicate_entry') {
-            globalThis.console.warn('[REP DUPLICATE ENTRY DETECTED]', {
+            observabilityConsole.warn('[REP DUPLICATE ENTRY DETECTED]', {
               employee_id: userId,
               date,
               ...iss,
@@ -525,7 +526,7 @@ export async function promotePendingRepPunchLogs(
     try {
       await syncEspelhoAfterRepPromote(supabase, companyId.trim(), row.promoted_detail);
     } catch (e) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: e instanceof Error ? e.message : String(e),
         contexto: 'syncEspelhoAfterRepPromote',
         company_id: companyId.trim(),
@@ -560,7 +561,7 @@ export async function promotePendingRepPunchLogs(
     }
     const pf = row.promote_failed ?? 0;
     if (pf > 0 && typeof globalThis !== 'undefined' && globalThis.console) {
-      globalThis.console.info('[REP PROMOTE RETRY]', {
+      observabilityConsole.info('[REP PROMOTE RETRY]', {
         promote_failed: pf,
         note: 'Sem retry automático imediato para invalid_sequence / período fechado / NSR duplicado; missing_user após vínculo manual.',
         rep_device_id: repDeviceId,
@@ -649,7 +650,7 @@ export async function promotePendingRepPunchLogs(
       const iso = rc.data_hora != null ? String(rc.data_hora) : '';
       const ymd = iso ? repCivilDateFromIsoUtc(iso) : null;
       if (typeof globalThis !== 'undefined' && globalThis.console) {
-        globalThis.console.info('[REP PROMOTE RECOVERED]', {
+        observabilityConsole.info('[REP PROMOTE RECOVERED]', {
           nsr: rc.nsr ?? null,
           employee_id: uid || null,
           date: ymd,
@@ -676,7 +677,7 @@ export async function promotePendingRepPunchLogs(
     if (recovered.length > 0) {
       void import('../../src/services/repOperationalIntegrity.service').then((m) =>
         m.runRepGovernanceAfterPromoteRecoveredBatch(supabase, companyId.trim(), recovered).catch((err) => {
-          console.error('[repService] runRepGovernanceAfterPromoteRecoveredBatch', err);
+          observabilityConsole.error('[repService] runRepGovernanceAfterPromoteRecoveredBatch', err);
         }),
       );
     }
@@ -772,7 +773,7 @@ export async function linkUnresolvedRepPunchAndPromote(
     try {
       await syncEspelhoAfterRepPromote(supabase, companyId.trim(), row.promoted_detail);
     } catch (e) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: e instanceof Error ? e.message : String(e),
         contexto: 'syncEspelhoAfterRepPromote (manual link)',
         company_id: companyId.trim(),

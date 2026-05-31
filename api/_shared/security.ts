@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 import { noCache } from './cache.js';
 
 /**
@@ -156,7 +157,7 @@ export function getSecureCorsHeaders(
 
   // Se a origem não é permitida, não retorna header CORS (bloqueia por padrão)
   if (!allowedOrigin && requestOrigin) {
-    console.warn(`[CORS] Origem bloqueada: ${requestOrigin}`);
+    observabilityConsole.warn(`[CORS] Origem bloqueada: ${requestOrigin}`);
   }
 
   // Headers comuns; Cache-Control fica a cargo de cada endpoint (`api/_shared/cache.ts`).
@@ -290,11 +291,11 @@ export function assertEnvVars(): void {
   const { valid, errors } = validateEnvVars();
 
   if (errors.length > 0) {
-    console.error('='.repeat(60));
-    console.error('ERROS DE CONFIGURAÇÃO DE SEGURANÇA:');
-    console.error('='.repeat(60));
-    errors.forEach(e => console.error(e));
-    console.error('='.repeat(60));
+    observabilityConsole.error('='.repeat(60));
+    observabilityConsole.error('ERROS DE CONFIGURAÇÃO DE SEGURANÇA:');
+    observabilityConsole.error('='.repeat(60));
+    errors.forEach(e => observabilityConsole.error(e));
+    observabilityConsole.error('='.repeat(60));
   }
 
   if (!valid) {
@@ -325,7 +326,9 @@ interface RateLimitOptions {
 
 const DEFAULT_RATE_LIMITS = {
   general: { maxRequests: 100, windowMs: 60 * 1000 },      // 100 req/min
-  login: { maxRequests: 5, windowMs: 60 * 1000 },            // 5 tentativas/min
+  login: { maxRequests: 5, windowMs: 15 * 60 * 1000 },        // 5 tentativas/15min
+  reset: { maxRequests: 3, windowMs: 15 * 60 * 1000 },        // 3 resets/15min
+  authAdmin: { maxRequests: 10, windowMs: 15 * 60 * 1000 },   // ações admin sensíveis
   api: { maxRequests: 60, windowMs: 60 * 1000 },            // 60 req/min para APIs
   punch: { maxRequests: 10, windowMs: 60 * 1000 },           // 10 batidas/min
 };
@@ -336,7 +339,7 @@ const DEFAULT_RATE_LIMITS = {
  */
 export function checkRateLimit(
   identifier: string,  // IP ou userId
-  type: 'general' | 'login' | 'api' | 'punch' = 'general'
+  type: 'general' | 'login' | 'reset' | 'authAdmin' | 'api' | 'punch' = 'general'
 ): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
   const config = DEFAULT_RATE_LIMITS[type];
@@ -360,6 +363,54 @@ export function checkRateLimit(
 
   entry.count++;
   return { allowed: true, remaining: config.maxRequests - entry.count, resetAt: entry.resetAt };
+}
+
+async function upstashCommand(args: string[]): Promise<unknown> {
+  const url = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
+  const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+  if (!url || !token) return null;
+  const response = await fetch(url.replace(/\/+$/, ''), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(args),
+  });
+  if (!response.ok) return null;
+  const body = (await response.json()) as { result?: unknown };
+  return body.result;
+}
+
+function isDistributedRateLimitRequired(): boolean {
+  const explicit = String(process.env.RATE_LIMIT_REDIS_REQUIRED || '').trim().toLowerCase();
+  if (explicit === 'true' || explicit === '1') return true;
+  if (explicit === 'false' || explicit === '0') return false;
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+export async function checkRateLimitDistributed(
+  identifier: string,
+  type: 'general' | 'login' | 'reset' | 'authAdmin' | 'api' | 'punch' = 'general',
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; distributed: boolean }> {
+  const config = DEFAULT_RATE_LIMITS[type];
+  const key = `${type}:${identifier}`;
+  const count = Number(await upstashCommand(['INCR', key]).catch(() => null));
+  if (Number.isFinite(count) && count > 0) {
+    if (count === 1) {
+      await upstashCommand(['EXPIRE', key, String(Math.ceil(config.windowMs / 1000))]).catch(() => null);
+    }
+    return {
+      allowed: count <= config.maxRequests,
+      remaining: Math.max(0, config.maxRequests - count),
+      resetAt: Date.now() + config.windowMs,
+      distributed: true,
+    };
+  }
+  if (isDistributedRateLimitRequired()) {
+    throw new Error('RATE_LIMIT_REDIS_REQUIRED');
+  }
+  return { ...checkRateLimit(identifier, type), distributed: false };
 }
 
 /**

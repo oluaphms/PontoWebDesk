@@ -1,3 +1,4 @@
+import { observabilityConsole } from './src/shared/logger/observabilityConsole';
 import React, { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -18,7 +19,7 @@ import { isPostLoginQueryCooldownActive } from './src/app/postLoginQueryGate';
 try {
   initSentry();
 } catch (e) {
-  console.warn('[Sentry] init falhou (ignorado no dev):', e);
+  observabilityConsole.warn('[Sentry] init falhou (ignorado no dev):', e);
 }
 
 // Após deploy, chunks antigos podem 404; um reload recupera. Evita loop com sessionStorage.
@@ -67,7 +68,7 @@ if (typeof document !== 'undefined') {
       if (document.visibilityState === 'visible') {
         if (isPostLoginQueryCooldownActive()) {
           if (import.meta.env.DEV && typeof console !== 'undefined') {
-            console.info('[QUERY WINDOW FOCUS REFETCH SUPPRESSED]', { reason: 'post_login_cooldown' });
+            observabilityConsole.info('[QUERY WINDOW FOCUS REFETCH SUPPRESSED]', { reason: 'post_login_cooldown' });
           }
           return;
         }

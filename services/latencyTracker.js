@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Rastreador de latência ponta-a-ponta.
  *
@@ -42,7 +43,7 @@ export class LatencyTracker {
   start() {
     if (this._timer) return this;
     this._timer = setInterval(() => this._check().catch((err) => {
-      console.warn('[latencyTracker] Falha ao medir latência:', err);
+      observabilityConsole.warn('[latencyTracker] Falha ao medir latência:', err);
     }), this._interval);
     return this;
   }

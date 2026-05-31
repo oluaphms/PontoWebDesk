@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 // ============================================================
 // Relatório de Horas Extras - Padrão Profissional
 // ============================================================
@@ -344,11 +345,11 @@ const ReportOvertime: React.FC = () => {
   };
 
   const handleExportPDF = () => {
-    console.log('Exportar PDF');
+    observabilityConsole.log('Exportar PDF');
   };
 
   const handleExportExcel = () => {
-    console.log('Exportar Excel');
+    observabilityConsole.log('Exportar Excel');
   };
 
   if (loading) return <LoadingState message="Carregando..." />;

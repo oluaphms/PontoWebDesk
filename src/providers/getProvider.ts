@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { getDataProviderMode, isLocalApiMode, isSupabaseMode } from '../config/system';
 import type { IDataProvider } from '../services/dataProvider';
 import { localApiProvider } from '../services/providers/localApiProvider';
@@ -14,9 +15,9 @@ export function getProvider(): IDataProvider {
   if (!modeLogged) {
     modeLogged = true;
     if (isLocalApiMode()) {
-      console.log('[MODE] LOCAL_API ativo (API VPS)');
+      observabilityConsole.log('[MODE] LOCAL_API ativo (API VPS)');
     } else if (isSupabaseMode()) {
-      console.warn('[MODE] SUPABASE selecionado — provider não implementado');
+      observabilityConsole.warn('[MODE] SUPABASE selecionado — provider não implementado');
     }
   }
 

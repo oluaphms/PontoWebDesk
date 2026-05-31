@@ -5,6 +5,11 @@ import PageHeader from '../../components/PageHeader';
 import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { User, Mail, Briefcase, Building2, Calendar, Camera, Lock } from 'lucide-react';
+import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
+import { readFileHead } from '../../shared/upload/fileValidation';
+import { detectImageMime } from '../../shared/upload/magicBytes';
+import { uploadPhotoViaApi } from '../../services/uploadPhotoApi';
+import { logger } from '../../shared/logger/logger';
 
 const EmployeeProfile: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -50,7 +55,14 @@ const EmployeeProfile: React.FC = () => {
     try {
       await db.update('users', user.id, { phone: phone || null, updated_at: new Date().toISOString() });
     } catch (e) {
-      console.error(e);
+      logger.error({
+        module: 'employee.profile',
+        action: 'PROFILE_SAVE_FAILED',
+        message: 'Falha ao salvar perfil',
+        userId: user.id,
+        companyId: user.companyId,
+        error: e,
+      });
     } finally {
       setSaving(false);
     }
@@ -58,21 +70,63 @@ const EmployeeProfile: React.FC = () => {
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user || !storage || !isSupabaseConfigured()) return;
-    if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
-      console.warn('Avatar: tipo ou tamanho inválido (máx. 2 MB, imagem).');
+    if (!file || !user) return;
+    const check = validateUploadByPolicy({
+      policy: 'avatar',
+      fileName: file.name || 'avatar.jpg',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!check.ok) {
+      logger.warn({
+        module: 'employee.profile',
+        action: 'AVATAR_UPLOAD_POLICY_REJECTED',
+        message: 'Avatar rejeitado por política',
+        userId: user.id,
+        companyId: user.companyId,
+        meta: { fileName: file.name, mimeType: file.type, size: file.size },
+      });
+      e.target.value = '';
+      return;
+    }
+    const head = await readFileHead(file, 32);
+    if (!detectImageMime(head)) {
+      logger.warn({
+        module: 'employee.profile',
+        action: 'AVATAR_MAGIC_BYTES_INVALID',
+        message: 'Avatar rejeitado por magic bytes',
+        userId: user.id,
+        companyId: user.companyId,
+      });
       e.target.value = '';
       return;
     }
     setUploadingPhoto(true);
     try {
-      const path = `${user.id}/avatar-${Date.now()}.jpg`;
-      await storage.upload('photos', path, file);
-      const url = storage.getPublicUrl('photos', path);
+      const uploaded = await uploadPhotoViaApi({ file, kind: 'avatar' });
+      if (!uploaded.ok) {
+        logger.warn({
+          module: 'employee.profile',
+          action: 'AVATAR_UPLOAD_FAILED',
+          message: 'Upload de avatar falhou',
+          userId: user.id,
+          companyId: user.companyId,
+          meta: { error: uploaded.error },
+        });
+        return;
+      }
+      const url = uploaded.url;
       await db.update('users', user.id, { avatar: url, updated_at: new Date().toISOString() });
       setAvatarUrl(url);
     } catch (err) {
-      console.error(err);
+      logger.error({
+        module: 'employee.profile',
+        action: 'AVATAR_PERSISTENCE_FAILED',
+        message: 'Falha ao persistir avatar',
+        userId: user.id,
+        companyId: user.companyId,
+        error: err,
+      });
     } finally {
       setUploadingPhoto(false);
       e.target.value = '';

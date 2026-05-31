@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { RepDeviceClockSet } from '../../../../modules/rep-integration/types';
 import type { EmployeeForRep, RepAgentConnectionState, RepDeviceRow, RepRpcUserRow } from './types';
 import { TIPOS_CONEXAO } from './constants';
@@ -264,7 +265,7 @@ export function readLsBool(key: string, defaultVal: boolean): boolean {
   try {
     v = localStorage.getItem(key);
   } catch (err) {
-    console.warn('[RepDevices] Falha ao ler storage:', err);
+    observabilityConsole.warn('[RepDevices] Falha ao ler storage:', err);
   }
   if (v === null) return defaultVal;
   return v === '1';

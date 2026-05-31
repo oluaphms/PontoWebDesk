@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Autenticação para rotas /api/rep/* (proxy do relógio).
  * @security Nível: CRÍTICO - Todas as rotas validam autenticação e CORS
@@ -47,7 +48,7 @@ export function repCorsHeaders(request: Request, options?: { allowMethods?: stri
 
   // Se não permitido, loga mas ainda retorna a origem (para não quebrar clientes existentes)
   // Em modo estrito, descomente para bloquear:
-  // if (!isAllowed) { console.warn(`[REP-CORS] Origem não listada: ${origin}`); }
+  // if (!isAllowed) { observabilityConsole.warn(`[REP-CORS] Origem não listada: ${origin}`); }
 
   return {
     'Access-Control-Allow-Origin': origin,
@@ -228,7 +229,7 @@ export async function authenticateRepDeviceRequest(
     return await authenticateWithUserJwt(deviceId, token);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[repAuth] authenticateRepDeviceRequest', e);
+    observabilityConsole.error('[repAuth] authenticateRepDeviceRequest', e);
     return Response.json(
       { error: 'Falha na autenticação REP', details: msg },
       { status: 500, headers: JSON_HDR }

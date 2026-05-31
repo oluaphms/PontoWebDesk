@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Scores heurísticos 0–100 e tendência operacional (sem ML).
  */
@@ -115,7 +116,7 @@ export function computeOperationalTrend(params: {
     messages,
   };
   if (messages.length > 0 && typeof globalThis !== 'undefined' && globalThis.console) {
-    globalThis.console.info('[TIME ATTENDANCE TREND]', {
+    observabilityConsole.info('[TIME ATTENDANCE TREND]', {
       degraded_operation: out.degraded_operation,
       rep_degrading: out.rep_degrading,
       schedule_problem: out.schedule_problem,
@@ -150,17 +151,17 @@ export async function upsertReliabilitySnapshot(input: {
       { onConflict: 'company_id,snapshot_date,subject_type,subject_id' },
     );
     if (error) {
-      console.error('[TIME ATTENDANCE RELIABILITY]', { message: error.message });
+      observabilityConsole.error('[TIME ATTENDANCE RELIABILITY]', { message: error.message });
       return;
     }
-    console.info('[TIME ATTENDANCE RELIABILITY]', {
+    observabilityConsole.info('[TIME ATTENDANCE RELIABILITY]', {
       company_id: input.companyId,
       date: input.snapshotDate,
       subject_type: input.subjectType,
       score: input.score,
     });
   } catch (e) {
-    console.error('[TIME ATTENDANCE RELIABILITY]', {
+    observabilityConsole.error('[TIME ATTENDANCE RELIABILITY]', {
       message: e instanceof Error ? e.message : String(e),
     });
   }

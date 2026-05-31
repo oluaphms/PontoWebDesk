@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * Endpoint consolidado de convites:
  * - GET  /api/employee-invite?token=xxx
@@ -119,7 +120,7 @@ async function handler(request: Request): Promise<Response> {
         .maybeSingle();
 
       if (error) {
-        console.error('[employee-invite]', error);
+        observabilityConsole.error('[employee-invite]', error);
         return noCache(Response.json(
           { error: 'Erro ao consultar convite', code: 'DB_ERROR' },
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -241,7 +242,7 @@ async function handler(request: Request): Promise<Response> {
     return noCache(Response.json({ success: true, message: 'Conta criada. Faça login com seu e-mail e senha.' }, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }));
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[employee-invite]', msg);
+    observabilityConsole.error('[employee-invite]', msg);
     return noCache(Response.json(
       { error: 'Erro interno', code: 'INTERNAL_ERROR' },
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

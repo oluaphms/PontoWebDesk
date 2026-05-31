@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Orçamentos de tempo operacional (instrumentação — não bloqueia UI).
  */
@@ -28,7 +29,7 @@ export function markLoginUiComplete(tag: string): void {
   if (!shouldLogPerfWarnings()) return;
   const elapsed = Date.now() - loginSubmitAt;
   if (elapsed > LOGIN_UI_BUDGET_MS && typeof console !== 'undefined') {
-    console.warn('[LOGIN UI BUDGET VIOLATION]', { elapsedMs: elapsed, budgetMs: LOGIN_UI_BUDGET_MS, tag });
+    observabilityConsole.warn('[LOGIN UI BUDGET VIOLATION]', { elapsedMs: elapsed, budgetMs: LOGIN_UI_BUDGET_MS, tag });
   }
 }
 
@@ -39,7 +40,7 @@ export function markFirstRouteIfNeeded(pathname: string): void {
   firstRouteLogged = true;
   const elapsed = Date.now() - loginSubmitAt;
   if (elapsed > FIRST_ROUTE_BUDGET_MS && typeof console !== 'undefined') {
-    console.warn('[FIRST ROUTE BUDGET VIOLATION]', { elapsedMs: elapsed, budgetMs: FIRST_ROUTE_BUDGET_MS, pathname });
+    observabilityConsole.warn('[FIRST ROUTE BUDGET VIOLATION]', { elapsedMs: elapsed, budgetMs: FIRST_ROUTE_BUDGET_MS, pathname });
   }
 }
 
@@ -49,7 +50,7 @@ export function markDashboardInteractiveIfNeeded(): void {
   dashboardInteractiveLogged = true;
   const elapsed = Date.now() - loginSubmitAt;
   if (elapsed > DASHBOARD_INTERACTIVE_BUDGET_MS && typeof console !== 'undefined') {
-    console.warn('[DASHBOARD INTERACTIVE VIOLATION]', { elapsedMs: elapsed, budgetMs: DASHBOARD_INTERACTIVE_BUDGET_MS });
+    observabilityConsole.warn('[DASHBOARD INTERACTIVE VIOLATION]', { elapsedMs: elapsed, budgetMs: DASHBOARD_INTERACTIVE_BUDGET_MS });
   }
 }
 

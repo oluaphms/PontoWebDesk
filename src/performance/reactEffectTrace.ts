@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useEffect, useMemo, useRef, type DependencyList } from 'react';
 
 const STORM_WINDOW_MS = 5000;
@@ -36,7 +37,7 @@ function summarizeDeps(deps: DependencyList): string {
 
 function detectStorm(key: string, runs: RunLog[]): void {
   if (runs.length < STORM_RUN_THRESHOLD || typeof console === 'undefined') return;
-  console.warn('[REACT EFFECT STORM]', {
+  observabilityConsole.warn('[REACT EFFECT STORM]', {
     key,
     runsIn5s: runs.length,
     threshold: STORM_RUN_THRESHOLD,
@@ -78,7 +79,7 @@ export function useTracedEffect(
           (prevSnap !== null && prevSnap !== depSnap) ||
           (typeof window !== 'undefined' && (window as unknown as { __REACT_EFFECT_TRACE?: boolean }).__REACT_EFFECT_TRACE);
         if (verbose) {
-          console.info('[REACT EFFECT TRACE]', {
+          observabilityConsole.info('[REACT EFFECT TRACE]', {
             component,
             effectId,
             durationMs: Math.round(durationMs * 10) / 10,

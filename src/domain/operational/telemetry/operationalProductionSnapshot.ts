@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type OperationalProductionSnapshotInput = {
@@ -51,7 +52,7 @@ export async function saveOperationalProductionSnapshot(
     payload_after: payload,
   });
   if (error) return { ok: false, error: error.message };
-  console.info('[PRODUCTION SNAPSHOT GENERATED]', {
+  observabilityConsole.info('[PRODUCTION SNAPSHOT GENERATED]', {
     company_id: input.companyId,
     realtime_latency_ms: input.realtimeLatencyMs,
     render_latency_ms: input.renderLatencyMs,

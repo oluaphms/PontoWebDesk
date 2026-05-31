@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CircleOff, Trash2 } from 'lucide-react';
@@ -70,7 +71,7 @@ const AbsencesPage: React.FC = () => {
         if (!cancelled) {
           const msg = e?.message || 'Falha ao carregar dados.';
           setLoadError(msg);
-          console.error('Erro ao carregar ausências:', e);
+          observabilityConsole.error('Erro ao carregar ausências:', e);
         }
       } finally {
         if (!cancelled) setIsLoadingData(false);
@@ -131,7 +132,7 @@ const AbsencesPage: React.FC = () => {
       toast.addToast('success', 'Ausência registrada com sucesso.');
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Erro ao registrar ausência:', err);
+      observabilityConsole.error('Erro ao registrar ausência:', err);
       toast.addToast('error', 'Erro ao registrar ausência.');
     }
   };
@@ -154,7 +155,7 @@ const AbsencesPage: React.FC = () => {
 
       toast.addToast('success', 'Ausência removida com sucesso.');
     } catch (err) {
-      console.error('Erro ao deletar ausência:', err);
+      observabilityConsole.error('Erro ao deletar ausência:', err);
       toast.addToast('error', 'Erro ao remover ausência.');
     } finally {
       setDeletingId(null);

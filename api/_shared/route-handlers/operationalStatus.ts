@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-status?company_id=...&date=YYYY-MM-DD (opcional)
  */
@@ -52,7 +53,7 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const sp = resolveRequestUrl(request).searchParams;
-    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
+    observabilityConsole.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
 
     const companyId = sp.get('company_id')?.trim() || '';
     const date = sp.get('date')?.trim() || null;
@@ -62,7 +63,7 @@ async function handler(request: Request): Promise<Response> {
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      observabilityConsole.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
       return degradedListResponse(corsHeaders, ROUTE, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
@@ -82,7 +83,7 @@ async function handler(request: Request): Promise<Response> {
 
     const schema = await verifyOperationalCoreTables(supabase);
     if (!schema.ok) {
-      console.error('[DB SCHEMA]', { route: ROUTE, missing: schema.missing });
+      observabilityConsole.error('[DB SCHEMA]', { route: ROUTE, missing: schema.missing });
       return degradedListResponse(corsHeaders, ROUTE, `missing_tables:${schema.missing.join(',')}`);
     }
 
@@ -109,7 +110,7 @@ async function handler(request: Request): Promise<Response> {
 
     const { data: rows, error } = await withQueryTimeout(q, `${ROUTE}.list`);
     if (error) {
-      console.error('[api/operational-status]', error);
+      observabilityConsole.error('[api/operational-status]', error);
       return degradedListResponse(corsHeaders, ROUTE, error.message);
     }
 

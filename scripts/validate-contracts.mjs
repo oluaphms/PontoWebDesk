@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -15,14 +16,14 @@ const requiredFiles = [
 ];
 
 if (!fs.existsSync(CONTRACTS)) {
-  console.error('[CONTRACT VALIDATION] contracts folder missing');
+  observabilityConsole.error('[CONTRACT VALIDATION] contracts folder missing');
   process.exit(1);
 }
 
 const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(CONTRACTS, file)));
 if (missing.length > 0) {
-  console.error('[CONTRACT VALIDATION] missing files');
-  for (const m of missing) console.error(`- ${m}`);
+  observabilityConsole.error('[CONTRACT VALIDATION] missing files');
+  for (const m of missing) observabilityConsole.error(`- ${m}`);
   process.exit(1);
 }
 
@@ -33,9 +34,9 @@ for (const file of requiredFiles) {
 }
 
 if (invalid.length > 0) {
-  console.error('[CONTRACT VALIDATION] version field missing');
-  for (const m of invalid) console.error(`- ${m}`);
+  observabilityConsole.error('[CONTRACT VALIDATION] version field missing');
+  for (const m of invalid) observabilityConsole.error(`- ${m}`);
   process.exit(1);
 }
 
-console.info('[CONTRACT VALIDATION] ok');
+observabilityConsole.info('[CONTRACT VALIDATION] ok');

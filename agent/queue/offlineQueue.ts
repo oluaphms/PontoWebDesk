@@ -57,15 +57,15 @@ function ensureTimeRecordsColumns(db: Database.Database): void {
   if (!names.has('sync_attempts')) {
     try {
       db.exec(`ALTER TABLE time_records ADD COLUMN sync_attempts INTEGER NOT NULL DEFAULT 0`);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
   }
   if (!names.has('last_sync_error')) {
     try {
       db.exec(`ALTER TABLE time_records ADD COLUMN last_sync_error TEXT`);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      void error;
     }
   }
 }
@@ -320,8 +320,8 @@ export class OfflineQueue {
           if (new Date(context.nextRetryAt).getTime() <= t) {
             out.push({ id: r.id, context });
           }
-        } catch {
-          /* ignora linha corrompida */
+        } catch (error) {
+          void error;
         }
       }
       return out;

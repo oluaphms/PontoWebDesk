@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
@@ -581,7 +582,7 @@ const EmployeeClockIn: React.FC = () => {
         return;
       }
       if (typeof console !== 'undefined') {
-        console.info('[GEO CAPTURE]', {
+        observabilityConsole.info('[GEO CAPTURE]', {
           employee_id: user.id,
           lat: geoPos?.latitude ?? null,
           lng: geoPos?.longitude ?? null,
@@ -622,7 +623,7 @@ const EmployeeClockIn: React.FC = () => {
         manualBypass,
       };
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.info('[ClockIn] registerPunchSecure', punchPayload);
+        observabilityConsole.info('[ClockIn] registerPunchSecure', punchPayload);
       }
 
       const evidenceForQueue = {
@@ -725,11 +726,11 @@ const EmployeeClockIn: React.FC = () => {
       }
       closeProofModal();
     } catch (e: unknown) {
-      console.error('Erro ao registrar ponto:', e);
+      observabilityConsole.error('Erro ao registrar ponto:', e);
       const err = normalizePunchRegistrationError(e);
       const msg = err.message || 'Erro ao registrar ponto';
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[ClockIn] registerPunch erro', e);
+        observabilityConsole.warn('[ClockIn] registerPunch erro', e);
       }
       setError(msg);
       toast.addToast('error', msg);

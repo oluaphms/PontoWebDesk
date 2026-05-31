@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useEffect, useRef, type DependencyList } from 'react';
 
 const DEFAULT_WINDOW_MS = 200;
@@ -24,7 +25,7 @@ export function useEffectStormProbe(
       buf.shift();
     }
     if (buf.length >= threshold && typeof console !== 'undefined') {
-      console.warn('[REACT EFFECT STORM]', {
+      observabilityConsole.warn('[REACT EFFECT STORM]', {
         name,
         runsInWindow: buf.length,
         windowMs,

@@ -1,9 +1,11 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Upload de foto do registro de ponto: validação, multipart (File) e retry em falhas temporárias.
  */
 
 import { messageFromUnknown } from './messageFromUnknown';
 import { uploadPhotoViaApi } from '../services/uploadPhotoApi';
+import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
 
 export type PunchStorage = {
   upload: (bucket: string, path: string, file: File) => Promise<unknown>;
@@ -27,6 +29,15 @@ export function validatePunchImageDataUrl(dataUrl: string): { ok: true } | { ok:
   }
   const base64 = dataUrl.split(',')[1] || '';
   const approxBytes = (base64.length * 3) / 4;
+  const policy = validateUploadByPolicy({
+    policy: 'punchPhoto',
+    fileName: 'punch.jpg',
+    mimeType: head.slice(5).split(';')[0] || 'image/jpeg',
+    size: approxBytes,
+  });
+  if (!policy.ok) {
+    return { ok: false, message: 'Formato não permitido. Use JPEG, PNG ou WebP.' };
+  }
   if (approxBytes > MAX_BYTES) {
     return { ok: false, message: 'Imagem muito grande (máximo 5 MB).' };
   }
@@ -64,7 +75,7 @@ export interface UploadPunchPhotoResult {
  * Envia a imagem como arquivo (multipart no cliente Supabase Storage).
  */
 export async function uploadPunchPhotoWithRetry(
-  storageModule: PunchStorage,
+  _storageModule: PunchStorage,
   userId: string,
   dataUrl: string,
   opts?: { maxRetries?: number }
@@ -87,28 +98,22 @@ export async function uploadPunchPhotoWithRetry(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const res = await fetch(dataUrl);
-      if (!res.ok) {
-        throw new Error(`Falha ao ler imagem (${res.status}).`);
+      const apiRetry = await uploadPhotoViaApi({
+        dataUrl,
+        kind: 'punch',
+        filename: `punch-${Date.now()}.jpg`,
+      });
+      if (!apiRetry.ok) {
+        throw new Error(apiRetry.error);
       }
-      const blob = await res.blob();
-      const mime = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
-      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
-      const file = new File([blob], `punch-${Date.now()}.${ext}`, { type: mime });
-      if (file.size > MAX_BYTES) {
-        return { publicUrl: null, error: 'Imagem muito grande (máximo 5 MB).', transientFailure: false };
-      }
-      const path = `${userId}/${Date.now()}-punch.${ext}`;
-      await storageModule.upload('photos', path, file);
-      const publicUrl = storageModule.getPublicUrl('photos', path);
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.info('[punchPhotoUpload] OK', { attempt: attempt + 1, path });
+        observabilityConsole.info('[punchPhotoUpload] OK', { attempt: attempt + 1 });
       }
-      return { publicUrl, error: null, transientFailure: false };
+      return { publicUrl: apiRetry.url, error: null, transientFailure: false };
     } catch (e) {
       lastErr = e;
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
-        console.warn('[punchPhotoUpload] tentativa', attempt + 1, e);
+        observabilityConsole.warn('[punchPhotoUpload] tentativa', attempt + 1, e);
       }
       const transient = isTransientUploadError(e);
       if (!transient || attempt === maxRetries - 1) {

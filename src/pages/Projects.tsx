@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { FolderKanban, Plus, Users } from 'lucide-react';
@@ -101,7 +102,7 @@ const ProjectsPage: React.FC = () => {
 
         setProjects(mapped);
       } catch (e) {
-        console.error('Erro ao carregar projetos:', e);
+        observabilityConsole.error('Erro ao carregar projetos:', e);
         setError('Não foi possível carregar os projetos.');
       } finally {
         setIsLoadingData(false);
@@ -184,7 +185,7 @@ const ProjectsPage: React.FC = () => {
       }
       setModalOpen(false);
     } catch (err) {
-      console.error('Erro ao salvar projeto:', err);
+      observabilityConsole.error('Erro ao salvar projeto:', err);
     } finally {
       setSaving(false);
     }
@@ -196,7 +197,7 @@ const ProjectsPage: React.FC = () => {
       await (db as { delete: (table: string, id: string) => Promise<any> }).delete('projects', project.id);
       setProjects((prev) => prev.filter((p) => p.id !== project.id));
     } catch (e) {
-      console.error('Erro ao excluir projeto:', e);
+      observabilityConsole.error('Erro ao excluir projeto:', e);
     }
   };
 
@@ -229,12 +230,12 @@ const ProjectsPage: React.FC = () => {
       }
       setAssignModalOpen(false);
     } catch (err) {
-      console.error('Erro ao atribuir membros ao projeto:', err);
+      observabilityConsole.error('Erro ao atribuir membros ao projeto:', err);
     }
   };
 
   const handleOpenProject = (project: ProjectRow) => {
-    console.log('Open project details', project.id);
+    observabilityConsole.log('Open project details', project.id);
   };
 
   if (loading) {

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db, getSupabaseClient } from '../../services/supabaseClient';
 
 export type RepDeviceAuditAction = 'DELETE' | 'DEACTIVATE';
@@ -105,7 +106,7 @@ async function writeRepDeviceAuditLog(input: {
   });
 
   if (error) {
-    console.error('[rep_devices] Falha ao gravar auditoria:', error);
+    observabilityConsole.error('[rep_devices] Falha ao gravar auditoria:', error);
   }
 
   const globalAction = input.action === 'DELETE' ? 'DELETE_DEVICE' : 'DEACTIVATE_DEVICE';
@@ -124,7 +125,7 @@ async function writeRepDeviceAuditLog(input: {
     timestamp: now,
   });
   if (auditErr) {
-    console.error('[rep_devices] Falha ao gravar audit_logs global:', auditErr);
+    observabilityConsole.error('[rep_devices] Falha ao gravar audit_logs global:', auditErr);
   }
 }
 
@@ -211,7 +212,7 @@ export async function deleteRepDevice(
     });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
-    console.error('[rep_devices] Erro ao excluir dispositivo — tentando desativar:', e);
+    observabilityConsole.error('[rep_devices] Erro ao excluir dispositivo — tentando desativar:', e);
 
     try {
       const fallback = await deactivateRepDevice(deviceId, {
@@ -227,7 +228,7 @@ export async function deleteRepDevice(
       };
     } catch (fallbackErr) {
       const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-      console.error('[rep_devices] Fallback de desativação também falhou:', fallbackErr);
+      observabilityConsole.error('[rep_devices] Fallback de desativação também falhou:', fallbackErr);
       return {
         success: false,
         action: 'none',

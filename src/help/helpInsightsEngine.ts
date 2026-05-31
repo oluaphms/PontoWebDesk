@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import type { HelpDocSlug } from './helpCenterCatalog';
 
@@ -101,7 +102,7 @@ export async function fetchHelpInsights(companyId: string): Promise<HelpInsight[
       });
     }
   } catch (e) {
-    console.warn('[helpInsightsEngine]', e);
+    observabilityConsole.warn('[helpInsightsEngine]', e);
   }
 
   return insights;

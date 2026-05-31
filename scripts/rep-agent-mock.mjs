@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Mock local para testar o rep-agent.mjs sem relógio físico e sem o SaaS deployado.
  *
@@ -49,9 +50,9 @@ let afdContent = DEFAULT_AFD;
 if (process.env.MOCK_AFD_FILE) {
   try {
     afdContent = await fs.readFile(process.env.MOCK_AFD_FILE, 'utf8');
-    console.log(`[mock-clock] AFD carregado de ${process.env.MOCK_AFD_FILE} (${afdContent.length} bytes)`);
+    observabilityConsole.log(`[mock-clock] AFD carregado de ${process.env.MOCK_AFD_FILE} (${afdContent.length} bytes)`);
   } catch (e) {
-    console.error(`[mock-clock] falha ao ler ${process.env.MOCK_AFD_FILE}: ${e?.message || e}`);
+    observabilityConsole.error(`[mock-clock] falha ao ler ${process.env.MOCK_AFD_FILE}: ${e?.message || e}`);
     process.exit(1);
   }
 }
@@ -67,7 +68,7 @@ const AFD_PATHS = new Set([
 
 const clock = http.createServer((req, res) => {
   const url = req.url || '/';
-  console.log(`[mock-clock] ${req.method} ${url}`);
+  observabilityConsole.log(`[mock-clock] ${req.method} ${url}`);
 
   if (req.method === 'POST') {
     let body = '';
@@ -102,7 +103,7 @@ function listen127WithHints(server, port, tag, envAltHint, onListening) {
         envAltHint === 'MOCK_SAAS_PORT'
           ? '$env:MOCK_SAAS_PORT="8283"'
           : '$env:MOCK_CLOCK_PORT="8182"; $env:REP_DEVICE_PORT="8182"';
-      console.error(
+      observabilityConsole.error(
         `[${tag}] Porta ${port} ocupada (EADDRINUSE) — já existe outro mock ou processo nesta porta.\n` +
           `  • Feche o outro terminal (Ctrl+C) ou mate o processo:\n` +
           `    Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\n` +
@@ -110,7 +111,7 @@ function listen127WithHints(server, port, tag, envAltHint, onListening) {
           `    ${alt}; node scripts/rep-agent-mock.mjs`
       );
     } else {
-      console.error(`[${tag}]`, err);
+      observabilityConsole.error(`[${tag}]`, err);
     }
     process.exit(1);
   });
@@ -126,9 +127,13 @@ const saas = http.createServer((req, res) => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       let payload = null;
-      try { payload = JSON.parse(body); } catch { /* noop */ }
+      try {
+        payload = JSON.parse(body);
+      } catch (error) {
+        observabilityConsole.warn('[mock-saas] Body JSON inválido:', error);
+      }
       received.push(payload);
-      console.log('[mock-saas] punch recebido:', payload);
+      observabilityConsole.log('[mock-saas] punch recebido:', payload);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       if (SAAS_DUPLICATE) {
         res.end(JSON.stringify({ success: false, duplicate: true }));
@@ -150,26 +155,34 @@ const saas = http.createServer((req, res) => {
 });
 
 listen127WithHints(clock, CLOCK_PORT, 'mock-clock', 'MOCK_CLOCK_PORT', () => {
-  console.log(
+  observabilityConsole.log(
     `[mock-clock] escutando em http://127.0.0.1:${CLOCK_PORT}` +
       (AFD_404 ? ' (modo MOCK_AFD_404 ligado — todas as rotas AFD respondem 404)' : '')
   );
   listen127WithHints(saas, SAAS_PORT, 'mock-saas', 'MOCK_SAAS_PORT', () => {
-    console.log(
+    observabilityConsole.log(
       `[mock-saas]  escutando em http://127.0.0.1:${SAAS_PORT}` +
         (SAAS_DUPLICATE ? ' (modo MOCK_SAAS_DUPLICATE ligado — respostas sempre duplicate)' : '')
     );
-    console.log('[mock] inspecione punches recebidos em GET /__received');
-    console.log(
+    observabilityConsole.log('[mock] inspecione punches recebidos em GET /__received');
+    observabilityConsole.log(
       '[mock] Se o rep-agent marcar tudo como duplicado: apague data/rep-agent/processed-nsr.json e last-nsr.json (ou a pasta data/rep-agent) e volte a correr o agente.'
     );
   });
 });
 
 const shutdown = () => {
-  console.log('\n[mock] shutdown.');
-  try { clock.close(); } catch { /* noop */ }
-  try { saas.close(); } catch { /* noop */ }
+  observabilityConsole.log('\n[mock] shutdown.');
+  try {
+    clock.close();
+  } catch (error) {
+    observabilityConsole.warn('[mock-clock] Falha ao fechar servidor:', error);
+  }
+  try {
+    saas.close();
+  } catch (error) {
+    observabilityConsole.warn('[mock-saas] Falha ao fechar servidor:', error);
+  }
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

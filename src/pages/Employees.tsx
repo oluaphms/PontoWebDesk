@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Users, UserPlus, Upload, Mail, Pencil, UserX, Send } from 'lucide-react';
@@ -18,6 +19,9 @@ import {
   type CsvEmployeeRow,
   type InvitePayload,
 } from '../services/employeeInviteService';
+import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
+import { readFileHead } from '../shared/upload/fileValidation';
+import { hasCsvFormulaInjection, isMostlyTextBuffer } from '../shared/upload/magicBytes';
 
 interface EmployeeRow {
   id: string;
@@ -107,7 +111,7 @@ const EmployeesPage: React.FC = () => {
         })),
       );
     } catch (e) {
-      console.error('Erro ao carregar colaboradores:', e);
+      observabilityConsole.error('Erro ao carregar colaboradores:', e);
     } finally {
       setIsLoadingData(false);
     }
@@ -126,7 +130,7 @@ const EmployeesPage: React.FC = () => {
   const handleAssignSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !selectedEmployee || !selectedScheduleId) return;
-    console.warn('[Employees] Atribuição de escala requer endpoint de API (não disponível).');
+    observabilityConsole.warn('[Employees] Atribuição de escala requer endpoint de API (não disponível).');
     return;
     /*
     try {
@@ -167,7 +171,7 @@ const EmployeesPage: React.FC = () => {
       });
       setAssignModalOpen(false);
     } catch (err) {
-      console.error('Erro ao atribuir escala:', err);
+      observabilityConsole.error('Erro ao atribuir escala:', err);
     }
     */
   };
@@ -284,7 +288,7 @@ const EmployeesPage: React.FC = () => {
       await updateEmployee(emp.id, { status: 'inactive' });
       setRows((prev) => prev.map((r) => (r.id === emp.id ? { ...r, status: 'Inativo' } : r)));
     } catch (err) {
-      console.error('Erro ao desativar:', err);
+      observabilityConsole.error('Erro ao desativar:', err);
     }
   }, [user]);
 
@@ -327,9 +331,24 @@ const EmployeesPage: React.FC = () => {
     [handleDeactivate, handleSendInvitation, openAssignSchedule],
   );
 
-  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCsvFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const policy = validateUploadByPolicy({
+      policy: 'employeeImportCsv',
+      fileName: file.name || 'employees.csv',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!policy.ok) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    const head = await readFileHead(file, 4096);
+    if (!isMostlyTextBuffer(head) || hasCsvFormulaInjection(head)) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setCsvFile(file);
     const reader = new FileReader();
     reader.onload = () => {

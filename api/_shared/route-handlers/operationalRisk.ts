@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * GET /api/operational-risk?company_id=...
  */
@@ -48,14 +49,14 @@ async function handler(request: Request): Promise<Response> {
     }
 
     const sp = resolveRequestUrl(request).searchParams;
-    console.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
+    observabilityConsole.log('[OP API START]', { route: ROUTE, query: Object.fromEntries(sp.entries()) });
     const companyId = sp.get('company_id')?.trim() || '';
     if (!companyId) {
       return noCache(Response.json({ success: false, error: 'MISSING_COMPANY_ID' }, { status: 400, headers: corsHeaders }));
     }
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
+      observabilityConsole.error('[CONFIG ERROR] SERVICE_ROLE_KEY_MISSING', { route: ROUTE });
       return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, 'SUPABASE_SERVICE_ROLE_KEY missing');
     }
 
@@ -99,7 +100,7 @@ async function handler(request: Request): Promise<Response> {
     );
 
     if (aErr) {
-      console.error('[api/operational-risk] alerts', aErr);
+      observabilityConsole.error('[api/operational-risk] alerts', aErr);
       return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, aErr.message);
     }
 
@@ -109,7 +110,7 @@ async function handler(request: Request): Promise<Response> {
     );
 
     if (sErr) {
-      console.error('[api/operational-risk] sla', sErr);
+      observabilityConsole.error('[api/operational-risk] sla', sErr);
       return degradedObjectResponse(corsHeaders, ROUTE, { level: 'unknown', score: 0, sla: null }, sErr.message);
     }
 

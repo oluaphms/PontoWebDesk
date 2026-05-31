@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Camada defensiva GEO — somente score e flags (sem bloquear fluxo de produção).
  */
@@ -108,14 +109,14 @@ export function evaluateGeoFraudSignals(input: {
   else if (score < 70 || flags.length > 0) trust_level = 'suspicious';
 
   if (flags.length > 0) {
-    console.warn('[GEO FRAUD DETECTED]', {
+    observabilityConsole.warn('[GEO FRAUD DETECTED]', {
       flags,
       employee_id: input.employeeId,
       company_id: input.companyId,
     });
   }
 
-  console.info('[GEO TRUST SCORE]', {
+  observabilityConsole.info('[GEO TRUST SCORE]', {
     score,
     trust_level,
     employee_id: input.employeeId,
@@ -123,7 +124,7 @@ export function evaluateGeoFraudSignals(input: {
   });
 
   if (trust_level === 'blocked') {
-    console.warn('[GEO LOCATION BLOCKED]', {
+    observabilityConsole.warn('[GEO LOCATION BLOCKED]', {
       note: 'observability_only',
       score,
       flags,

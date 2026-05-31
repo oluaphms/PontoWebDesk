@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Resoluções registradas na central de incidentes (metadado).
  */
@@ -35,7 +36,7 @@ export async function fetchIncidentReviewsForCompany(
     .limit(5000);
 
   if (error) {
-    console.error('[TIME ATTENDANCE INCIDENT]', { context: 'fetch_reviews', message: error.message });
+    observabilityConsole.error('[TIME ATTENDANCE INCIDENT]', { context: 'fetch_reviews', message: error.message });
     return [];
   }
   return (data ?? []) as IncidentReviewRow[];
@@ -77,10 +78,10 @@ export async function insertIncidentResolution(input: {
   try {
     const { error } = await client.from('time_attendance_incident_reviews').insert(row);
     if (error) {
-      console.error('[TIME ATTENDANCE INCIDENT]', { context: 'insert_review', message: error.message });
+      observabilityConsole.error('[TIME ATTENDANCE INCIDENT]', { context: 'insert_review', message: error.message });
       return false;
     }
-    console.info('[TIME ATTENDANCE INCIDENT RESOLVED]', {
+    observabilityConsole.info('[TIME ATTENDANCE INCIDENT RESOLVED]', {
       incident_code: row.incident_code,
       employee_id: row.employee_id,
       date: row.date,
@@ -104,7 +105,7 @@ export async function insertIncidentResolution(input: {
     }
     return true;
   } catch (e) {
-    console.error('[TIME ATTENDANCE INCIDENT]', {
+    observabilityConsole.error('[TIME ATTENDANCE INCIDENT]', {
       context: 'insert_review_exception',
       message: e instanceof Error ? e.message : String(e),
     });
@@ -138,7 +139,7 @@ export async function deleteIncidentResolution(input: {
     .eq('date', String(input.dateYmd).slice(0, 10));
 
   if (error) {
-    console.error('[TIME ATTENDANCE INCIDENT]', { context: 'delete_review', message: error.message });
+    observabilityConsole.error('[TIME ATTENDANCE INCIDENT]', { context: 'delete_review', message: error.message });
     return false;
   }
   return true;

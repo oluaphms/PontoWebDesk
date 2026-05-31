@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 const ROI_KEY = 'pontowebdesk:help_roi';
 
 export interface HelpRoiSnapshot {
@@ -52,7 +53,7 @@ export function logHelpRoi(
   const avgMs =
     next.resolverSamples > 0 ? Math.round(next.totalResolverMs / next.resolverSamples) : null;
 
-  console.log('[HELP ROI]', {
+  observabilityConsole.log('[HELP ROI]', {
     event,
     errorsAvoided: next.errorsAvoided,
     resolverClicks: next.resolverClicks,

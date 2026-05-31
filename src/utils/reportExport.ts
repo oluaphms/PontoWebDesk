@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 // ============================================================
 // Utilitários de Exportação para Relatórios (PDF e Excel)
 // ============================================================
@@ -97,7 +98,7 @@ export const exportReportToPDF = async (report: Report, type: ReportType): Promi
     const filename = `relatorio-${type}-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);
   } catch (error) {
-    console.error('Erro ao exportar PDF:', error);
+    observabilityConsole.error('Erro ao exportar PDF:', error);
     throw error;
   }
 };
@@ -128,7 +129,7 @@ export const exportReportToExcel = async (report: Report, type: ReportType): Pro
     const filename = `relatorio-${type}-${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
   } catch (error) {
-    console.error('Erro ao exportar Excel:', error);
+    observabilityConsole.error('Erro ao exportar Excel:', error);
     throw error;
   }
 };

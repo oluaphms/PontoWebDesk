@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Shield, Bell, Cog, Globe2, MonitorPlay } from 'lucide-react';
@@ -78,7 +79,7 @@ const SettingsPage: React.FC = () => {
           setContextLanguage(lang); // todo o sistema passa a usar o idioma salvo (sidebar, layout, etc.)
         }
       } catch (e) {
-        console.error('Erro ao carregar settings:', e);
+        observabilityConsole.error('Erro ao carregar settings:', e);
       }
     };
 
@@ -125,7 +126,7 @@ const SettingsPage: React.FC = () => {
         });
       }
     } catch (err) {
-      console.error('Erro ao salvar settings:', err);
+      observabilityConsole.error('Erro ao salvar settings:', err);
       setError(i18n.t('settings.saveError'));
     } finally {
       setSaving(false);

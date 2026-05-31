@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * WebView Android / PWA: detecta pausa longa de timers ou gap de visibilidade e força resync GEO.
  */
@@ -12,9 +13,17 @@ import { syncServerOperationalClockOffset } from '../services/serverOperationalC
 let installed = false;
 let lastVisiblePerf = typeof performance !== 'undefined' ? performance.now() : 0;
 let intervalId: number | null = null;
+let recoveryInflight = false;
+let lastRecoveryAt = 0;
+const RECOVERY_COOLDOWN_MS = 15_000;
 
 async function recoverFromClockDrift(reason: string): Promise<void> {
-  console.warn('[MOBILE CLOCK DRIFT DETECTED]', { reason });
+  const now = Date.now();
+  if (recoveryInflight || now - lastRecoveryAt < RECOVERY_COOLDOWN_MS) return;
+  recoveryInflight = true;
+  lastRecoveryAt = now;
+  try {
+  observabilityConsole.warn('[MOBILE CLOCK DRIFT DETECTED]', { reason });
   void syncServerOperationalClockOffset();
   operationalReliabilitySLO.recordDriftEventCount(1);
   reportGeoCircuitSignal('drift_storm');
@@ -27,11 +36,14 @@ async function recoverFromClockDrift(reason: string): Promise<void> {
     );
     window.dispatchEvent(new CustomEvent('smartponto:operational-snapshot-resync', { detail: { reason } }));
   }
-  console.info('[OPERATIONAL SNAPSHOT RESYNC]', { reason });
-  console.info('[REALTIME CHANNEL REOPEN]', {
+  observabilityConsole.info('[OPERATIONAL SNAPSHOT RESYNC]', { reason });
+  observabilityConsole.info('[REALTIME CHANNEL REOPEN]', {
     note: 'client_invalidated_geo_caches; channels re-subscribe on next navigation or monitoring mount',
     reason,
   });
+  } finally {
+    recoveryInflight = false;
+  }
 }
 
 /**

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Evidência de batidas REP no dia (para validação mobile quando time_records ainda não refletiu o relógio).
  */
@@ -49,7 +50,7 @@ export async function fetchRepPunchSequenceForDay(
     .order('data_hora', { ascending: true });
 
   if (error) {
-    console.warn('[repPunchSequenceEvidence] fetch:', error.message);
+    observabilityConsole.warn('[repPunchSequenceEvidence] fetch:', error.message);
     return [];
   }
 

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Mapa colaborador: mesmo resolver unificado que o monitoramento admin (GEO priorizado).
  */
@@ -109,7 +110,7 @@ const EmployeeMonitoring: React.FC = () => {
       setUsingCos(unified.usingOperationalStateTable);
       setPipelineRows(unified.pipelineRows);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     } finally {
       if (typeof performance !== 'undefined') {
         operationalReliabilitySLO.recordMonitoringRefreshMs(performance.now() - tLoad0);
@@ -185,14 +186,14 @@ const EmployeeMonitoring: React.FC = () => {
         }
         lastHeartbeatOkAtRef.current = Date.now();
         if (wasLost) {
-          console.info('[HEARTBEAT RECOVERED]', { employee_id: user.id });
+          observabilityConsole.info('[HEARTBEAT RECOVERED]', { employee_id: user.id });
           wasLost = false;
         }
       } else {
         failures += 1;
         if (failures >= 3 && !wasLost) {
           wasLost = true;
-          console.warn('[HEARTBEAT LOST]', { employee_id: user.id, error: res.error });
+          observabilityConsole.warn('[HEARTBEAT LOST]', { employee_id: user.id, error: res.error });
           void reportDeviceOperationalReputationEvent({
             companyId: user.companyId!,
             employeeId: user.id!,
@@ -297,7 +298,7 @@ const EmployeeMonitoring: React.FC = () => {
     const onVis = () => {
       if (document.visibilityState === 'visible') {
         lastLiveUpsertRef.current = 0;
-        console.info('[MAP FOREGROUND RESYNC]', { scope: 'employee_monitoring' });
+        observabilityConsole.info('[MAP FOREGROUND RESYNC]', { scope: 'employee_monitoring' });
         void load();
       }
     };

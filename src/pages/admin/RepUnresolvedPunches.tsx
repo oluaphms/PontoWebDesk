@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Quarentena: batidas REP sem colaborador resolvido — vinculação manual + promote.
  */
@@ -83,7 +84,7 @@ const AdminRepUnresolvedPunches: React.FC = () => {
       setRows((quarantine as QuarantineRow[]) || []);
       setEmployees((em as EmployeeOption[]) || []);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({
         type: 'err',
         text: e instanceof Error ? e.message : i18n.t('repUnresolved.loadError'),

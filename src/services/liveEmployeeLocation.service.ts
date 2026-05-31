@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Posição efêmera (live_employee_location): mapa/presença realtime — não batida jurídica.
  */
@@ -63,7 +64,7 @@ export async function fetchLiveLocationsForCompany(
     )
     .eq('company_id', companyId);
   if (error) {
-    console.warn('[live_employee_location] fetch', error.message);
+    observabilityConsole.warn('[live_employee_location] fetch', error.message);
     return [];
   }
   return (data ?? []) as LiveEmployeeLocationRow[];
@@ -159,7 +160,7 @@ export async function upsertLiveEmployeeLocation(
   );
   if (error) return { ok: false, error: error.message };
 
-  console.info('[LIVE LOCATION UPDATED]', {
+  observabilityConsole.info('[LIVE LOCATION UPDATED]', {
     company_id: input.companyId,
     employee_id: input.employeeId,
     confidence: conf,
@@ -174,7 +175,7 @@ export async function runLiveLocationCleanup(clientOverride?: SupabaseClient | n
   if (!client) return 0;
   const { data, error } = await client.rpc('cleanup_expired_live_employee_locations');
   if (error) {
-    console.warn('[live_employee_location] cleanup', error.message);
+    observabilityConsole.warn('[live_employee_location] cleanup', error.message);
     return 0;
   }
   const n = typeof data === 'number' ? data : Number(data);

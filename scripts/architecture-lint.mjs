@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -93,15 +94,15 @@ for (const file of files) {
 }
 
 if (violations.length > 0) {
-  console.error('[ARCHITECTURE LINT] violations detected');
-  console.error('[ARCHITECTURE LINT] quick-fix hints:');
-  console.error('- Mover tipos compartilhados para src/contracts');
-  console.error('- Registrar excecao temporaria em architecture-lint.config.json');
-  console.error('- Encapsular acesso infra em service/adapter autorizado');
+  observabilityConsole.error('[ARCHITECTURE LINT] violations detected');
+  observabilityConsole.error('[ARCHITECTURE LINT] quick-fix hints:');
+  observabilityConsole.error('- Mover tipos compartilhados para src/contracts');
+  observabilityConsole.error('- Registrar excecao temporaria em architecture-lint.config.json');
+  observabilityConsole.error('- Encapsular acesso infra em service/adapter autorizado');
   for (const v of violations) {
-    console.error(`- ${v.type}: ${v.file} -> ${v.import} (${v.reason})`);
+    observabilityConsole.error(`- ${v.type}: ${v.file} -> ${v.import} (${v.reason})`);
   }
   process.exit(1);
 }
 
-console.info('[ARCHITECTURE LINT] ok');
+observabilityConsole.info('[ARCHITECTURE LINT] ok');

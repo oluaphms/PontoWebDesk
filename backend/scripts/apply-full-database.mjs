@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Schema completo na VPS: bootstrap + supabase_full_schema + supabase/migrations + backend/db/migrations
  *
@@ -21,7 +22,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[db:full] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[db:full] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -94,40 +95,40 @@ async function markApplied(client, name) {
 async function runSqlFile(client, filePath, name) {
   if (!(await isApplied(client, name))) {
     if (dryRun) {
-      console.log('[db:full] (dry-run) aplicaria:', name);
+      observabilityConsole.log('[db:full] (dry-run) aplicaria:', name);
       return { applied: false, skipped: false };
     }
     const sql = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
     await client.query(sql);
     await markApplied(client, name);
-    console.log('[db:full] OK', name);
+    observabilityConsole.log('[db:full] OK', name);
     return { applied: true, skipped: false };
   }
-  console.log('[db:full] skip (já aplicado):', name);
+  observabilityConsole.log('[db:full] skip (já aplicado):', name);
   return { applied: false, skipped: true };
 }
 
 async function runSqlContent(client, sql, name) {
   if (await isApplied(client, name)) {
-    console.log('[db:full] skip (já aplicado):', name);
+    observabilityConsole.log('[db:full] skip (já aplicado):', name);
     return { applied: false, skipped: true };
   }
   if (dryRun) {
-    console.log('[db:full] (dry-run) aplicaria:', name);
+    observabilityConsole.log('[db:full] (dry-run) aplicaria:', name);
     return { applied: false, skipped: false };
   }
   await client.query(sql);
   await markApplied(client, name);
-  console.log('[db:full] OK', name);
+  observabilityConsole.log('[db:full] OK', name);
   return { applied: true, skipped: false };
 }
 
 let started = !fromName;
 
 if (dryRun) {
-  console.log('[db:full] dry-run — ficheiros que seriam aplicados:');
+  observabilityConsole.log('[db:full] dry-run — ficheiros que seriam aplicados:');
   for (const step of STEPS) {
-    console.log('  ', step.label);
+    observabilityConsole.log('  ', step.label);
   }
   const supabaseFiles = listSupabaseMigrations();
   for (const file of supabaseFiles) {
@@ -135,12 +136,12 @@ if (dryRun) {
       if (file === fromName || file.startsWith(fromName || '')) started = true;
       else continue;
     }
-    console.log('  ', file);
+    observabilityConsole.log('  ', file);
   }
   for (const file of listBackendMigrations()) {
-    console.log('  ', `backend/db/migrations/${file}`);
+    observabilityConsole.log('  ', `backend/db/migrations/${file}`);
   }
-  console.log(`[db:full] Total supabase: ${listSupabaseMigrations().length}, backend: ${listBackendMigrations().length}`);
+  observabilityConsole.log(`[db:full] Total supabase: ${listSupabaseMigrations().length}, backend: ${listBackendMigrations().length}`);
   process.exit(0);
 }
 
@@ -164,7 +165,7 @@ try {
         else if (r.applied) applied += 1;
       } catch (err) {
         failed += 1;
-        console.error('[db:full] ERRO', name, err.message || err);
+        observabilityConsole.error('[db:full] ERRO', name, err.message || err);
         if (!continueOnError) throw err;
       }
     }
@@ -185,7 +186,7 @@ try {
         else if (r.applied) applied += 1;
       } catch (err) {
         failed += 1;
-        console.error('[db:full] ERRO', name, err.message || err);
+        observabilityConsole.error('[db:full] ERRO', name, err.message || err);
         if (!continueOnError) throw err;
       }
     }
@@ -200,12 +201,12 @@ try {
         else if (r.applied) applied += 1;
       } catch (err) {
         failed += 1;
-        console.error('[db:full] ERRO', name, err.message || err);
+        observabilityConsole.error('[db:full] ERRO', name, err.message || err);
         if (!continueOnError) throw err;
       }
     }
 
-    console.log(
+    observabilityConsole.log(
       `[db:full] Concluído — aplicados: ${applied}, já existentes: ${skipped}, erros: ${failed}${dryRun ? ' (dry-run)' : ''}`,
     );
     if (failed > 0 && continueOnError) process.exit(2);
@@ -213,7 +214,7 @@ try {
     client.release();
   }
 } catch (err) {
-  console.error('[db:full] Falhou:', err);
+  observabilityConsole.error('[db:full] Falhou:', err);
   process.exit(1);
 } finally {
   await pool.end();

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { setSupabaseServiceRoleOverride } from '../../lib/supabaseClient';
 import { recalculate_period } from '../../engine/timeEngine';
@@ -27,9 +28,9 @@ export interface JobRow {
 
 function logJob(msg: 'started' | 'finished' | 'failed', jobId: string, type: string, extra?: Record<string, unknown>) {
   const line = extra && Object.keys(extra).length > 0 ? { id: jobId, type, ...extra } : { id: jobId, type };
-  if (msg === 'started') console.log('[JOB] started', line);
-  else if (msg === 'finished') console.log('[JOB] finished', line);
-  else console.log('[JOB] failed', line);
+  if (msg === 'started') observabilityConsole.log('[JOB] started', line);
+  else if (msg === 'finished') observabilityConsole.log('[JOB] finished', line);
+  else observabilityConsole.log('[JOB] failed', line);
 }
 
 function stripRecalcResult(raw: Awaited<ReturnType<typeof recalculate_period>>) {

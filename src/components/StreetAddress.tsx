@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { reverseGeocodeStreet } from '../utils/reverseGeocode';
 
@@ -20,7 +21,7 @@ export const StreetAddress: React.FC<Props> = ({ lat, lng, className = '' }) => 
         if (!cancelled) setLine(t);
       })
       .catch((error) => {
-        console.warn('[StreetAddress] reverse geocode falhou:', error);
+        observabilityConsole.warn('[StreetAddress] reverse geocode falhou:', error);
         if (!cancelled) setLine('Endereço indisponível');
       });
     return () => {

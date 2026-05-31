@@ -73,7 +73,7 @@ describe('insertOperationalLegalAuditTrail — circuit breaker', () => {
     await insertOperationalLegalAuditTrail(baseInput);
     expect(insertMock).toHaveBeenCalledTimes(1);
 
-    let suppressed = await insertOperationalLegalAuditTrail(baseInput);
+    const suppressed = await insertOperationalLegalAuditTrail(baseInput);
     expect(suppressed.skipped).toBe('circuit_open');
 
     __resetOperationalLegalAuditCircuitForTests();

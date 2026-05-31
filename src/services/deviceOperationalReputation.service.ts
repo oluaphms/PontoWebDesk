@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Reputação operacional por dispositivo (device_operational_reputation).
  * Histórico append-only: device_operational_reputation_history (trigger SQL).
@@ -170,7 +171,7 @@ export async function recordDeviceOperationalReputationSignal(
 
   if (error) return { ok: false, error: error.message };
   if (nextScore < prevScore && nextScore < 70) {
-    console.warn('[DEVICE REPUTATION DEGRADED]', {
+    observabilityConsole.warn('[DEVICE REPUTATION DEGRADED]', {
       device_key: deviceKey,
       company_id: input.companyId,
       employee_id: input.employeeId,

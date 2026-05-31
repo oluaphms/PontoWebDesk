@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 /**
  * POST /api/operational/legal-audit
  * Insere em operational_legal_audit_trail via service_role (evita 403 RLS no browser).
@@ -104,7 +105,7 @@ async function handler(request: Request): Promise<Response> {
     });
 
     if (error) {
-      console.error('[api/operational-legal-audit]', error);
+      observabilityConsole.error('[api/operational-legal-audit]', error);
       return degradedMutationResponse(corsHeaders, ROUTE, 'DB_ERROR', error.message);
     }
 

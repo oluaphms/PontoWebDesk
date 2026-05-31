@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole';
 /**
  * Control iD — API REP iDClass (documentação: api_idclass / *.fcgi).
  * Não usa /api/v1/punches: sessão via POST /login.fcgi e marcações via POST /get_afd.fcgi (AFD).
@@ -79,7 +80,7 @@ async function controlIdLogin(device: RepDevice): Promise<{ session: string } | 
   const { login, password } = credentials(device);
   const debug = (process.env.CONTROLID_LOGIN_DEBUG || '').trim() === '1';
   if (debug) {
-    console.debug('[Control iD][login] usuário (tamanho)', login.length, '| senha (tamanho)', password.length);
+    observabilityConsole.debug('[Control iD][login] usuário (tamanho)', login.length, '| senha (tamanho)', password.length);
   }
 
   const tryBodies: string[] = [loginBodyFromDevice(device, login, password)];
@@ -846,7 +847,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     const pisRawSanitized = sanitizeDigits(employee.pis);
     const pisNorm = tryNormalizeBrazilianPisTo11Digits(pisRawSanitized);
 
-    console.debug('[Control iD][pushEmployee] PIS — rastreio', {
+    observabilityConsole.debug('[Control iD][pushEmployee] PIS — rastreio', {
       funcionario: nome,
       pisOriginal,
       pisSanitized: pisRawSanitized,
@@ -854,7 +855,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     });
 
     if (pisRawSanitized.length > 0 && !pisNorm) {
-      console.warn('[Control iD][pushEmployee] PIS inválido; não será enviado ao relógio.', {
+      observabilityConsole.warn('[Control iD][pushEmployee] PIS inválido; não será enviado ao relógio.', {
         funcionario: nome,
         pisOriginal,
         pisSanitized: pisRawSanitized,
@@ -1000,7 +1001,7 @@ const ControlIdAdapter: RepVendorAdapter = {
         } catch (e) {
           return { ok: false, message: e instanceof Error ? e.message : 'Identificador inválido para o Control iD.' };
         }
-        console.debug('[Control iD][pushEmployee] tentativa 671', {
+        observabilityConsole.debug('[Control iD][pushEmployee] tentativa 671', {
           funcionario: nome,
           fonteIdentificador,
           passo: step.tag,
@@ -1047,7 +1048,7 @@ const ControlIdAdapter: RepVendorAdapter = {
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : 'Identificador inválido para o Control iD.' };
       }
-      console.debug('[Control iD][pushEmployee] tentativa legado', {
+      observabilityConsole.debug('[Control iD][pushEmployee] tentativa legado', {
         funcionario: nome,
         fonteIdentificador,
         passo: step.tag,
@@ -1277,7 +1278,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     }
 
     if (records.length === 0) {
-      console.warn('[Control iD][fetchPunches] AFD sem registros parseados após get_afd.', {
+      observabilityConsole.warn('[Control iD][fetchPunches] AFD sem registros parseados após get_afd.', {
         deviceId: device.id,
         mode671Config: mode671,
         last_afd_nsr: lastNsr || undefined,

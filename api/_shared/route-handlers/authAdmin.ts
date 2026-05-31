@@ -1,7 +1,8 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole.js';
 ﻿/**
  * POST /api/auth-admin
  * Body: { action: 'confirm-email' | 'set-password' | 'create-user', email: string, ... }
- * Header: Authorization: Bearer <jwt do admin> (obrigatório para ações diferentes de create-user)
+ * Header: Authorization: Bearer <jwt do admin> (obrigatório para todas as ações)
  *
  * Uma única Serverless Function que unifica:
  * - confirm-email: { action: 'confirm-email', email } → marca email_confirm=true
@@ -14,11 +15,12 @@
 import { getSupabaseUrlForServer } from '../getSupabaseConfig.js';
 import { z } from 'zod';
 import { noCache } from '../cache.js';
-import { getSecureCorsHeaders, requireTrustedOrigin } from '../security.js';
+import { checkRateLimitDistributed, getClientIP, getSecureCorsHeaders, requireTrustedOrigin } from '../security.js';
 
-console.log('[AUTH ADMIN LOADED]');
+observabilityConsole.log('[AUTH ADMIN LOADED]');
 
 const FALLBACK_EMAIL_DOMAIN = 'pontowebdesk.local';
+const AUTH_ADMIN_MIN_PASSWORD_LENGTH = 12;
 
 /** Local — evita import de `src/` no bootstrap da função serverless. */
 function messageFromUnknown(err: unknown, fallback = 'Erro.'): string {
@@ -44,7 +46,7 @@ function mapAuthErrorToFriendly(rawMessage: string, rawCode: string, status: num
     return { message: 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.', code: 'RATE_LIMIT' };
   }
   if (/password|senha|invalid password|weak password|min.*character/i.test(lower) || /invalid_password|weak_password/i.test(codeLower)) {
-    return { message: 'Senha inválida (mínimo 6 caracteres, conforme política do projeto).', code: 'INVALID_PASSWORD' };
+    return { message: `Senha inválida (mínimo ${AUTH_ADMIN_MIN_PASSWORD_LENGTH} caracteres, com letras, número e caractere especial).`, code: 'INVALID_PASSWORD' };
   }
   if (/invalid email|email.*invalid|malformed/i.test(lower) || /invalid_email/i.test(codeLower)) {
     return { message: 'E-mail inválido.', code: 'INVALID_EMAIL' };
@@ -87,13 +89,29 @@ function isValidDocument11Digits(doc: string): boolean {
   return /^\d{11}$/.test(doc);
 }
 
-async function getRoleFromUsers(adminSup: any, callerId: string): Promise<string | null> {
-  const byId = await adminSup.from('users').select('role').eq('id', callerId).maybeSingle();
+type CallerAdminContext = {
+  userId: string;
+  role: string | null;
+  companyId: string | null;
+};
+
+async function getCallerAdminContext(adminSup: any, callerId: string): Promise<CallerAdminContext> {
+  const byId = await adminSup.from('users').select('role, company_id').eq('id', callerId).maybeSingle();
   const data = byId?.data ?? byId;
-  if (data?.role) return String(data.role).toLowerCase();
-  const byAuth = await adminSup.from('users').select('role').eq('auth_user_id', callerId).maybeSingle();
+  if (data?.role) {
+    return {
+      userId: callerId,
+      role: String(data.role).toLowerCase(),
+      companyId: data.company_id ? String(data.company_id) : null,
+    };
+  }
+  const byAuth = await adminSup.from('users').select('role, company_id').eq('auth_user_id', callerId).maybeSingle();
   const d = byAuth?.data ?? byAuth;
-  return d?.role ? String(d.role).toLowerCase() : null;
+  return {
+    userId: callerId,
+    role: d?.role ? String(d.role).toLowerCase() : null,
+    companyId: d?.company_id ? String(d.company_id) : null,
+  };
 }
 
 const ConfirmEmailBodySchema = z.object({
@@ -104,7 +122,7 @@ const ConfirmEmailBodySchema = z.object({
 const SetPasswordBodySchema = z.object({
   action: z.literal('set-password'),
   email: z.string().email(),
-  newPassword: z.string().min(6),
+  newPassword: z.string().min(AUTH_ADMIN_MIN_PASSWORD_LENGTH),
 });
 
 const CreateUserBodySchema = z.object({
@@ -219,7 +237,7 @@ async function handleRequest(request: Request): Promise<Response> {
   const anonKey = (typeof process.env.SUPABASE_ANON_KEY === 'string' ? process.env.SUPABASE_ANON_KEY : (process.env.VITE_SUPABASE_ANON_KEY as string) || '').trim();
 
   if (!serviceKey) {
-    console.error('SERVICE_ROLE_KEY_MISSING');
+    observabilityConsole.error('SERVICE_ROLE_KEY_MISSING');
     return authAdminResponse(500, corsHeaders, request, {
       success: false,
       error: 'CONFIG_ERROR',
@@ -271,7 +289,7 @@ async function handleRequest(request: Request): Promise<Response> {
 
   const normalizedRaw = normalizeIncomingPayload(rawBody);
 
-  console.log('[AUTH ADMIN PAYLOAD]', {
+  observabilityConsole.log('[AUTH ADMIN PAYLOAD]', {
     action: normalizedRaw.action,
     hasEmail: !!normalizedRaw.email,
     hasMetadata: !!normalizedRaw.metadata,
@@ -300,14 +318,44 @@ async function handleRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get('authorization') ?? request.headers.get('Authorization') ?? '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
 
-  console.log('[AUTH ADMIN CONTEXT]', {
+  observabilityConsole.log('[AUTH ADMIN CONTEXT]', {
     hasAuthHeader: !!authHeader,
     hasCookie: !!request.headers.get('cookie'),
     action,
   });
 
-  if (action === 'create-user' && authHeader && /Bearer/i.test(authHeader)) {
-    console.warn('[AUTH ADMIN WARNING] Authorization header ignorado no create-user');
+  const rateKey = `${getClientIP(request)}:${action}:${email || 'no-email'}`;
+  let rate;
+  try {
+    rate = await checkRateLimitDistributed(rateKey, 'authAdmin');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'RATE_LIMIT_REDIS_REQUIRED') {
+      return authAdminResponse(503, corsHeaders, request, {
+        success: false,
+        error: 'RATE_LIMIT_UNAVAILABLE',
+        detail: 'Rate limiting distribuído obrigatório não configurado.',
+      });
+    }
+    throw error;
+  }
+  if (!rate.allowed) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000));
+    return noCache(Response.json(
+      {
+        success: false,
+        error: 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.',
+        code: 'RATE_LIMIT',
+        retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Retry-After': String(retryAfterSeconds),
+        },
+      },
+    ));
   }
 
   try {
@@ -316,32 +364,31 @@ async function handleRequest(request: Request): Promise<Response> {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    if (action !== 'create-user') {
-      if (!jwt) {
-        return Response.json(
-          { error: 'Token de autenticação obrigatório.', code: 'UNAUTHORIZED' },
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+    if (!jwt) {
+      return Response.json(
+        { error: 'Token de autenticação obrigatório.', code: 'UNAUTHORIZED' },
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-      let callerRole: string | null = null;
-      if (anonKey) {
-        const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-          headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
-        });
-        if (authRes.ok) {
-          const authUser = await authRes.json();
-          const callerId = authUser?.id;
-          if (callerId) callerRole = await getRoleFromUsers(adminSup, callerId);
-        }
-      }
-      if (callerRole !== 'admin' && callerRole !== 'hr') {
-        return Response.json(
-          { error: 'Apenas administrador ou RH pode executar esta ação.', code: 'FORBIDDEN' },
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+    let callerContext: CallerAdminContext | null = null;
+    if (anonKey) {
+      const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
+      });
+      if (authRes.ok) {
+        const authUser = await authRes.json();
+        const callerId = authUser?.id;
+        if (callerId) callerContext = await getCallerAdminContext(adminSup, callerId);
       }
     }
+    if (!callerContext || (callerContext.role !== 'admin' && callerContext.role !== 'hr')) {
+      return Response.json(
+        { error: 'Apenas administrador ou RH pode executar esta ação.', code: 'FORBIDDEN' },
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const callerCompanyId = callerContext.companyId;
 
     const adminAuth = (adminSup.auth as any).admin;
     const { data: listData } = await adminAuth.listUsers({ perPage: 1000 });
@@ -370,9 +417,9 @@ async function handleRequest(request: Request): Promise<Response> {
 
     if (action === 'set-password') {
       const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
-      if (!newPassword || newPassword.length < 6) {
+      if (!newPassword || newPassword.length < AUTH_ADMIN_MIN_PASSWORD_LENGTH) {
         return Response.json(
-          { error: 'Senha deve ter no mínimo 6 caracteres.', code: 'BAD_REQUEST' },
+          { error: `Senha deve ter no mínimo ${AUTH_ADMIN_MIN_PASSWORD_LENGTH} caracteres.`, code: 'BAD_REQUEST' },
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -411,13 +458,13 @@ async function handleRequest(request: Request): Promise<Response> {
       }
       const { error: deleteErr } = await adminAuth.deleteUser(userIdToDelete);
       if (deleteErr) {
-        console.error({ step: 'rollback_auth', success: false, user_id: userIdToDelete, error: deleteErr.message });
+        observabilityConsole.error({ step: 'rollback_auth', success: false, user_id: userIdToDelete, error: deleteErr.message });
         return Response.json(
           { success: false, error: 'Falha ao remover usuário no Auth.', code: 'AUTH_ERROR' },
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      console.info({ step: 'rollback_auth', success: true, user_id: userIdToDelete });
+      observabilityConsole.info({ step: 'rollback_auth', success: true, user_id: userIdToDelete });
       return Response.json(
         { success: true, userId: userIdToDelete },
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -425,11 +472,19 @@ async function handleRequest(request: Request): Promise<Response> {
     }
 
     if (action === 'create-user') {
-      const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+      const metadata = body.metadata && typeof body.metadata === 'object' ? { ...body.metadata } : {};
       const nome = String((metadata as Record<string, unknown>).nome ?? (metadata as Record<string, unknown>).name ?? '').trim();
       const cpf = normalizeDigits((metadata as Record<string, unknown>).cpf);
       const pis = normalizeDigits((metadata as Record<string, unknown>).pis ?? (metadata as Record<string, unknown>).pis_pasep);
-      const companyId = String((metadata as Record<string, unknown>).company_id ?? '').trim() || null;
+      const providedCompanyId = String((metadata as Record<string, unknown>).company_id ?? '').trim();
+      if (callerCompanyId && providedCompanyId && providedCompanyId !== callerCompanyId) {
+        return Response.json(
+          { success: false, user_id: null, error: 'Empresa do cadastro não corresponde à sessão do administrador.', code: 'FORBIDDEN' },
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const companyId = providedCompanyId || callerCompanyId;
+      if (companyId) metadata.company_id = companyId;
 
       const payloadLog = {
         action,
@@ -439,7 +494,7 @@ async function handleRequest(request: Request): Promise<Response> {
         pis: pis ? `${pis.slice(0, 3)}***` : '',
         companyId,
       };
-      console.info('[auth-admin:create-user] payload recebido', payloadLog);
+      observabilityConsole.info('[auth-admin:create-user] payload recebido', payloadLog);
 
       if (!nome) {
         return Response.json(
@@ -497,9 +552,9 @@ async function handleRequest(request: Request): Promise<Response> {
       const passwordRaw = typeof body.password === 'string' ? body.password.trim() : '';
       const generatedPassword = !passwordRaw;
       const passwordToUse = passwordRaw || generateFallbackPassword();
-      if (passwordToUse.length < 6) {
+      if (passwordToUse.length < AUTH_ADMIN_MIN_PASSWORD_LENGTH) {
         return Response.json(
-          { success: false, user_id: null, error: 'Senha deve ter pelo menos 6 caracteres.', code: 'INVALID_PASSWORD' },
+          { success: false, user_id: null, error: `Senha deve ter pelo menos ${AUTH_ADMIN_MIN_PASSWORD_LENGTH} caracteres.`, code: 'INVALID_PASSWORD' },
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -517,7 +572,7 @@ async function handleRequest(request: Request): Promise<Response> {
           .or(duplicateChecks.join(','))
           .limit(5);
         if (duplicateError) {
-          console.error('[auth-admin:create-user] erro ao validar duplicidade', duplicateError);
+          observabilityConsole.error('[auth-admin:create-user] erro ao validar duplicidade', duplicateError);
           return Response.json(
             { success: false, user_id: null, error: 'Falha ao validar duplicidade de usuário.', code: 'DB_ERROR' },
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -545,7 +600,7 @@ async function handleRequest(request: Request): Promise<Response> {
       }
 
       try {
-        console.info({ step: 'create_auth_user', email: emailToUse, company_id: companyId });
+        observabilityConsole.info({ step: 'create_auth_user', email: emailToUse, company_id: companyId });
         const { data: created, error: createError } = await adminAuth.createUser({
           email: emailToUse,
           password: passwordToUse,
@@ -563,7 +618,7 @@ async function handleRequest(request: Request): Promise<Response> {
         });
         if (createError) {
           const { message: friendlyMessage } = mapAuthErrorToFriendly(createError.message || '', (createError as any).code || '', 400);
-          console.error({ step: 'create_auth_user', success: false, error: createError.message });
+          observabilityConsole.error({ step: 'create_auth_user', success: false, error: createError.message });
           return Response.json(
             { success: false, user_id: null, error: friendlyMessage, code: 'AUTH_ERROR' },
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -571,19 +626,19 @@ async function handleRequest(request: Request): Promise<Response> {
         }
         const userId = created?.user?.id ?? created?.id;
         if (!userId) {
-          console.error({ step: 'create_auth_user', success: false, error: 'Sem user_id na resposta do Auth' });
+          observabilityConsole.error({ step: 'create_auth_user', success: false, error: 'Sem user_id na resposta do Auth' });
           return Response.json(
             { success: false, user_id: null, error: 'Conta criada mas ID não retornado.', code: 'AUTH_ERROR' },
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-        console.info({ step: 'create_auth_user', success: true, user_id: userId, used_fallback_email: !email, generated_password: generatedPassword });
+        observabilityConsole.info({ step: 'create_auth_user', success: true, user_id: userId, used_fallback_email: !email, generated_password: generatedPassword });
         return Response.json(
           { success: true, user_id: userId, error: null },
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       } catch (err: unknown) {
-        console.error('[auth-admin:create-user] excecao', err);
+        observabilityConsole.error('[auth-admin:create-user] excecao', err);
         const errStr = messageFromUnknown(err, 'Falha ao criar usuário no Auth.');
         const mapped = mapAuthErrorToFriendly(errStr, '', 400);
         return Response.json(
@@ -599,7 +654,7 @@ async function handleRequest(request: Request): Promise<Response> {
     );
   } catch (e: unknown) {
     const error = e instanceof Error ? e : new Error(messageFromUnknown(e, 'Erro interno.'));
-    console.error('[AUTH ADMIN FATAL]', {
+    observabilityConsole.error('[AUTH ADMIN FATAL]', {
       message: error.message,
       stack: error.stack,
     });
@@ -612,12 +667,12 @@ async function handleRequest(request: Request): Promise<Response> {
 }
 
 async function handler(request: Request): Promise<Response> {
-  console.log('[AUTH ADMIN START]', { method: request.method, url: request.url });
+  observabilityConsole.log('[AUTH ADMIN START]', { method: request.method, url: request.url });
   try {
     return await handleRequest(request);
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(messageFromUnknown(error, 'Erro interno.'));
-    console.error('[AUTH ADMIN FATAL]', {
+    observabilityConsole.error('[AUTH ADMIN FATAL]', {
       message: err.message,
       stack: err.stack,
       raw: error,

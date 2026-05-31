@@ -12,6 +12,11 @@ const MIGRATION_INTERNAL = new Set([
   '_uuid_migration_view_backup',
 ]);
 
+const GENERIC_DATA_API_BLOCKED_TABLES = new Set([
+  'users',
+  'employees',
+]);
+
 /** Presentes no dump Supabase (2026-05-25) — dados de produção. */
 export const DUMP_PUBLIC_TABLES = [
   'absences',
@@ -177,9 +182,11 @@ const EXTRA_APP_TABLES = [
 export function buildPublicAllowedTables(): Set<string> {
   const all = new Set<string>();
   for (const t of DUMP_PUBLIC_TABLES) {
-    if (!MIGRATION_INTERNAL.has(t)) all.add(t);
+    if (!MIGRATION_INTERNAL.has(t) && !GENERIC_DATA_API_BLOCKED_TABLES.has(t)) all.add(t);
   }
-  for (const t of EXTRA_APP_TABLES) all.add(t);
+  for (const t of EXTRA_APP_TABLES) {
+    if (!GENERIC_DATA_API_BLOCKED_TABLES.has(t)) all.add(t);
+  }
   return all;
 }
 

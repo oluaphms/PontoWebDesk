@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * UPSERT inteligente em timesheets_daily — anti-sobrescrita, sem alterar schema.
  */
@@ -184,7 +185,7 @@ function scheduleMotorTimelineObservation(params: {
         },
       });
       if (typeof globalThis !== 'undefined' && globalThis.console) {
-        globalThis.console.info('[TIME ATTENDANCE INCIDENT]', {
+        observabilityConsole.info('[TIME ATTENDANCE INCIDENT]', {
           incident_code: inc.incident_code,
           severity: inc.severity,
           employee_id: payload.employee_id,
@@ -202,7 +203,7 @@ function finalizeWrite(
   id?: string | null,
 ): TimesheetWriteResult {
   const processing_status = processingStatusFromWrite(outcome, rawForStatus);
-  console.info('[CALC STATUS]', {
+  observabilityConsole.info('[CALC STATUS]', {
     date: payload.date,
     employee_id: payload.employee_id,
     status: processing_status,
@@ -222,7 +223,7 @@ export async function writeTimesheetsDailyCalculatedRow(
     company_id: payload.company_id,
   });
   if (!integrity.ok) {
-    console.info('[CALC SKIP] employee_integrity_failed', {
+    observabilityConsole.info('[CALC SKIP] employee_integrity_failed', {
       employee_id: payload.employee_id,
       company_id: payload.company_id,
       date: payload.date,
@@ -242,14 +243,14 @@ export async function writeTimesheetsDailyCalculatedRow(
       p_ref_ts: refTs,
     });
     if (rpcErr) {
-      console.info('[CALC INFO] timesheet_closed_check_failed', {
+      observabilityConsole.info('[CALC INFO] timesheet_closed_check_failed', {
         employee_id: payload.employee_id,
         company_id: payload.company_id,
         date: payload.date,
         message: rpcErr.message,
       });
     } else if (closed) {
-      console.info('[CALC SKIP] protected_record', {
+      observabilityConsole.info('[CALC SKIP] protected_record', {
         employee_id: payload.employee_id,
         company_id: payload.company_id,
         date: payload.date,
@@ -267,7 +268,7 @@ export async function writeTimesheetsDailyCalculatedRow(
     .maybeSingle();
 
   if (existing?.company_id && String(existing.company_id) !== String(payload.company_id)) {
-    console.info('[CALC SKIP] invalid_employee_reference', {
+    observabilityConsole.info('[CALC SKIP] invalid_employee_reference', {
       employee_id: payload.employee_id,
       company_id: payload.company_id,
       date: payload.date,
@@ -278,7 +279,7 @@ export async function writeTimesheetsDailyCalculatedRow(
 
   const rawEx = existing?.raw_data as Record<string, unknown> | undefined;
   if (rawEx && isProtectedRaw(rawEx)) {
-    console.info('[CALC SKIP] protected_record', {
+    observabilityConsole.info('[CALC SKIP] protected_record', {
       employee_id: payload.employee_id,
       company_id: payload.company_id,
       date: payload.date,
@@ -306,7 +307,7 @@ export async function writeTimesheetsDailyCalculatedRow(
     existing?.id && coreFieldsEqual(existing as Partial<TimesheetDailyRowPayload>, payload);
   const noopSemantic = contextsSemanticallyEqual(rawEx?.calculation_context, ctxPreview);
   if (noopNumeric && noopSemantic) {
-    console.info('[CALC INFO] timesheet_unchanged', {
+    observabilityConsole.info('[CALC INFO] timesheet_unchanged', {
       employee_id: payload.employee_id,
       date: payload.date,
     });
@@ -365,7 +366,7 @@ export async function writeTimesheetsDailyCalculatedRow(
   }
 
   if (error) {
-    console.info('[CALC INFO] timesheet_write_failed', {
+    observabilityConsole.info('[CALC INFO] timesheet_write_failed', {
       employee_id: payload.employee_id,
       date: payload.date,
       message: error.message,
@@ -374,7 +375,7 @@ export async function writeTimesheetsDailyCalculatedRow(
     return finalizeWrite('skipped_integrity', mergedRaw, payload);
   }
 
-  console.info('[CALC UPDATE] recalculated', {
+  observabilityConsole.info('[CALC UPDATE] recalculated', {
     employee_id: payload.employee_id,
     company_id: payload.company_id,
     date: payload.date,

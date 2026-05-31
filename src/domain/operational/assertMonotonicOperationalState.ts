@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
  * Impede regressão de versão/tempo em snapshots operacionais (replay / eventos atrasados).
  */
@@ -27,7 +28,7 @@ export function assertMonotonicOperationalState(
   const incV = Number(incoming.state_version ?? 0);
   const curV = Number(current.state_version ?? 0);
   if (incV < curV) {
-    console.info('[TEMPORAL REGRESSION BLOCKED]', {
+    observabilityConsole.info('[TEMPORAL REGRESSION BLOCKED]', {
       reason: 'state_version',
       incoming: incV,
       current: curV,
@@ -38,7 +39,7 @@ export function assertMonotonicOperationalState(
   const incUp = instantMs(incoming.updated_at);
   const curUp = instantMs(current.updated_at);
   if (incUp != null && curUp != null && incUp < curUp - 750) {
-    console.info('[TEMPORAL REGRESSION BLOCKED]', {
+    observabilityConsole.info('[TEMPORAL REGRESSION BLOCKED]', {
       reason: 'updated_at',
       incoming_ms: incUp,
       current_ms: curUp,
@@ -49,7 +50,7 @@ export function assertMonotonicOperationalState(
   const incCap = instantMs(incoming.captured_at);
   const curCap = instantMs(current.captured_at);
   if (incCap != null && curCap != null && incV === curV && incCap < curCap - 750) {
-    console.info('[TEMPORAL REGRESSION BLOCKED]', {
+    observabilityConsole.info('[TEMPORAL REGRESSION BLOCKED]', {
       reason: 'captured_at',
       incoming_ms: incCap,
       current_ms: curCap,

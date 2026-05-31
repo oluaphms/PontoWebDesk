@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { LogType, PunchMethod } from '../types';
 
 interface OfflinePunchPayload {
@@ -22,7 +23,7 @@ const loadQueue = (): OfflinePunchPayload[] => {
     if (!stored) return [];
     return JSON.parse(stored) as OfflinePunchPayload[];
   } catch (err) {
-    console.warn('[offlinePunchService] Falha ao ler fila offline:', err);
+    observabilityConsole.warn('[offlinePunchService] Falha ao ler fila offline:', err);
     return [];
   }
 };
@@ -31,7 +32,7 @@ const saveQueue = (queue: OfflinePunchPayload[]) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
   } catch (err) {
-    console.warn('[offlinePunchService] Falha ao salvar fila offline:', err);
+    observabilityConsole.warn('[offlinePunchService] Falha ao salvar fila offline:', err);
   }
 };
 

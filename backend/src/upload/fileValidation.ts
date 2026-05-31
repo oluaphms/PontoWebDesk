@@ -3,6 +3,7 @@ import {
   detectDocumentMime,
   detectImageMime,
   extensionForImageMime,
+  hasCsvFormulaInjection,
   hasRejectedBinarySignature,
   isMostlyTextBuffer,
   type DetectedImageMime,
@@ -79,6 +80,13 @@ export function validateAfdUpload(input: {
       ok: false,
       code: 'NOT_TEXT',
       message: 'Conteúdo não é texto válido para importação AFD.',
+    };
+  }
+  if ((ext === 'csv' || ext === 'txt') && hasCsvFormulaInjection(input.head)) {
+    return {
+      ok: false,
+      code: 'CSV_INJECTION',
+      message: 'O arquivo contém conteúdo potencialmente perigoso para planilhas.',
     };
   }
 
@@ -212,7 +220,8 @@ export function validatePhotoUrl(url: string | null | undefined): ValidationResu
       return { ok: false, code: 'HOST_NOT_ALLOWED', message: 'Domínio da foto não autorizado.' };
     }
     return { ok: true, url: trimmed };
-  } catch {
+  } catch (error) {
+    void error;
     return { ok: false, code: 'INVALID_URL', message: 'URL da foto inválida.' };
   }
 }
@@ -223,8 +232,8 @@ function addHostFromUrl(hosts: Set<string>, raw?: string): void {
     const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
     hosts.add(u.hostname.toLowerCase());
     hosts.add(u.host.toLowerCase());
-  } catch {
-    /* ignore */
+  } catch (error) {
+    void error;
   }
 }
 

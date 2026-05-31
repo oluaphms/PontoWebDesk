@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * LGPD: auditoria global, RBAC sensível, alertas e retenção.
  */
@@ -68,7 +69,7 @@ export async function auditLog(input: LgpdAuditInput): Promise<void> {
   };
 
   const { error } = await supabase.from('audit_logs').insert(row);
-  if (error) console.error('[lgpd] audit_logs insert failed:', error.message);
+  if (error) observabilityConsole.error('[lgpd] audit_logs insert failed:', error.message);
 }
 
 export async function logViewSensitiveData(

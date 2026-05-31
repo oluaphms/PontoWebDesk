@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 export type SupabaseUrlTestResult = {
   ok: boolean;
   errorType?: 'dns' | 'timeout' | 'network';
@@ -72,7 +73,7 @@ export async function testSupabaseUrl(url: string): Promise<SupabaseUrlTestResul
     }
   }
 
-  console.error('[NETWORK] Supabase não acessível:', lastErrorType, lastDetail || '(sem detalhe)');
+  observabilityConsole.error('[NETWORK] Supabase não acessível:', lastErrorType, lastDetail || '(sem detalhe)');
   return { ok: false, errorType: lastErrorType, detail: lastDetail };
 }
 

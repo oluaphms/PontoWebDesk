@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { trackHelpAnalytics } from './helpAnalytics';
 
 const FEEDBACK_KEY = 'pontowebdesk:help_feedback_log';
@@ -31,7 +32,7 @@ export function recordHelpFeedback(doc: string, helpful: boolean, context?: stri
     doc,
     query: helpful ? 'feedback_positive' : 'feedback_negative',
   });
-  console.log('[HELP FEEDBACK]', entry);
+  observabilityConsole.log('[HELP FEEDBACK]', entry);
 }
 
 export function getHelpFeedbackSummary(): { positive: number; negative: number } {

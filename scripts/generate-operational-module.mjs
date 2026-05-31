@@ -1,10 +1,11 @@
+import { observabilityConsole } from '../services/observabilityConsole.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
 const name = process.argv[2];
 if (!name) {
-  console.error('Uso: node scripts/generate-operational-module.mjs <module-name>');
+  observabilityConsole.error('Uso: node scripts/generate-operational-module.mjs <module-name>');
   process.exit(1);
 }
 
@@ -23,4 +24,4 @@ if (!fs.existsSync(file)) {
 const idx = path.join(base, 'index.ts');
 if (!fs.existsSync(idx)) fs.writeFileSync(idx, `export * from './${mod}';\n`);
 
-console.info(`[SCAFFOLD] operational module generated: src/domain/operational/${mod}`);
+observabilityConsole.info(`[SCAFFOLD] operational module generated: src/domain/operational/${mod}`);

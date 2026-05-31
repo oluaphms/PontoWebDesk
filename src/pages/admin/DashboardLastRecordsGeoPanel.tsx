@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { memo, useEffect, useState } from 'react';
 import { CalendarDays, ArrowRight } from 'lucide-react';
 import type { AdminDashboardLastRecord } from '../../services/dashboard.service';
@@ -219,7 +220,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
     if (!formattedAddress) return true;
     const duplicated = formattedAddress.toLowerCase().includes(street.toLowerCase());
     if (duplicated) {
-      console.warn('[GEO DUPLICATE STREET DETECTED]', {
+      observabilityConsole.warn('[GEO DUPLICATE STREET DETECTED]', {
         formatted_address: formattedAddress,
         street,
       });

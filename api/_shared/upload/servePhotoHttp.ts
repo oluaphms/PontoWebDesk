@@ -7,13 +7,20 @@ import crypto from 'node:crypto';
 import { getSecureCorsHeaders } from '../security.js';
 import { noCache } from '../cache.js';
 import { sanitizeFilename } from '../../../src/shared/upload/sanitizeFilename.js';
+import { resolveAndAssertWithinRoot } from '../../../src/shared/upload/sanitizeStoragePath.js';
+import { logger } from '../../../src/shared/logger/logger.js';
+const MAX_SIGNED_URL_TTL_SEC = 3600;
 
 function cors(request: Request) {
   return getSecureCorsHeaders(request, { allowMethods: 'GET, OPTIONS', allowHeaders: 'Content-Type' });
 }
 
 function uploadRoot(): string {
-  return (process.env.UPLOAD_DIR || path.join(process.cwd(), 'data', 'uploads')).replace(/\\/g, '/');
+  const resolved = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'data', 'uploads'));
+  if (resolved.toLowerCase().includes(`${path.sep}public${path.sep}`) || resolved.toLowerCase().endsWith(`${path.sep}public`)) {
+    throw new Error('UPLOAD_DIR_PUBLIC_FORBIDDEN');
+  }
+  return resolved;
 }
 
 function signingSecret(): string {
@@ -38,12 +45,20 @@ function verifySignature(userId: string, fileName: string, exp: string, sig: str
   const secret = signingSecret();
   if (!secret || !exp || !sig) return false;
   const expNum = Number(exp);
-  if (!Number.isFinite(expNum) || expNum < Math.floor(Date.now() / 1000)) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(expNum) || expNum < nowSec) return false;
+  if (expNum - nowSec > MAX_SIGNED_URL_TTL_SEC + 60) return false;
   const payload = `${userId}/${fileName}:${exp}`;
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   try {
     return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
-  } catch {
+  } catch (error) {
+    logger.warn({
+      module: 'upload.serve-photo',
+      action: 'UPLOAD_SIGNATURE_COMPARE_FAILED',
+      message: 'Falha ao comparar assinatura de URL de upload',
+      error,
+    });
     return false;
   }
 }
@@ -80,10 +95,17 @@ export async function handleServeUploadFile(
     return noCache(new Response('Forbidden', { status: 403, headers: h }));
   }
 
-  const fullPath = path.join(uploadRoot(), 'photos', safeUser, safeName);
-  const resolved = path.resolve(fullPath);
-  const allowedRoot = path.resolve(path.join(uploadRoot(), 'photos', safeUser));
-  if (!resolved.startsWith(allowedRoot + path.sep) && resolved !== allowedRoot) {
+  let resolved: string;
+  try {
+    resolved = resolveAndAssertWithinRoot(uploadRoot(), `photos/${safeUser}/${safeName}`);
+  } catch (error) {
+    logger.warn({
+      module: 'upload.serve-photo',
+      action: 'UPLOAD_PATH_RESOLUTION_FAILED',
+      message: 'Falha ao resolver caminho do arquivo solicitado',
+      error,
+      meta: { userId: safeUser },
+    });
     return noCache(new Response('Forbidden', { status: 403, headers: h }));
   }
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {

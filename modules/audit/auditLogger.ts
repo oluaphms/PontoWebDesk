@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type OperationalAuditEntityType = 'task' | 'alert' | 'risk';
@@ -41,9 +42,9 @@ export async function logAudit({
     });
 
     if (error) {
-      console.error('[AUDIT LOG ERROR]', error);
+      observabilityConsole.error('[AUDIT LOG ERROR]', error);
     }
   } catch (err) {
-    console.error('[AUDIT LOG ERROR]', err);
+    observabilityConsole.error('[AUDIT LOG ERROR]', err);
   }
 }

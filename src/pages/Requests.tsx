@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClipboardList, PlusCircle, Trash2 } from 'lucide-react';
@@ -105,7 +106,7 @@ const RequestsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar solicitações:', e);
+        observabilityConsole.error('Erro ao carregar solicitações:', e);
       } finally {
         setIsLoadingData(false);
       }
@@ -221,11 +222,11 @@ const RequestsPage: React.FC = () => {
               actionUrl: '/requests',
             });
           } catch (e) {
-            console.error('Erro ao notificar admin:', e);
+            observabilityConsole.error('Erro ao notificar admin:', e);
           }
         }
       } catch (e) {
-        console.error('Erro ao buscar admins:', e);
+        observabilityConsole.error('Erro ao buscar admins:', e);
       }
 
       try {
@@ -254,7 +255,7 @@ const RequestsPage: React.FC = () => {
         err && typeof err === 'object' && 'message' in err
           ? String((err as { message?: string }).message)
           : 'Falha ao enviar solicitação.';
-      console.error('Erro ao criar solicitação:', err);
+      observabilityConsole.error('Erro ao criar solicitação:', err);
       toast.addToast('error', msg.includes('row-level') ? 'Permissão negada ao salvar. Verifique com o administrador.' : msg);
     } finally {
       setSubmitting(false);
@@ -290,7 +291,7 @@ const RequestsPage: React.FC = () => {
           });
           invalidateAfterPunch(row.user_id, companyId);
         } catch (e: unknown) {
-          console.error('Erro ao inserir batida da solicitação:', e);
+          observabilityConsole.error('Erro ao inserir batida da solicitação:', e);
           const msg =
             e && typeof e === 'object' && 'message' in e
               ? String((e as { message?: string }).message)
@@ -328,7 +329,7 @@ const RequestsPage: React.FC = () => {
           await NotificationService.markAsRead(user.id, notif.id);
         }
       } catch (e) {
-        console.error('Erro ao deletar notificação do admin:', e);
+        observabilityConsole.error('Erro ao deletar notificação do admin:', e);
       }
 
       // Resolve notificações pendentes do colaborador referentes a esta solicitação
@@ -361,7 +362,7 @@ const RequestsPage: React.FC = () => {
         details: { requestId: row.id, status },
       });
     } catch (err) {
-      console.error('Erro ao atualizar solicitação:', err);
+      observabilityConsole.error('Erro ao atualizar solicitação:', err);
     }
   };
 
@@ -390,7 +391,7 @@ const RequestsPage: React.FC = () => {
         err && typeof err === 'object' && 'message' in err
           ? String((err as { message?: string }).message)
           : 'Falha ao excluir.';
-      console.error('Erro ao excluir solicitação:', err);
+      observabilityConsole.error('Erro ao excluir solicitação:', err);
       toast.addToast(
         'error',
         msg.includes('row-level') || msg.includes('permission') || msg.includes('policy')

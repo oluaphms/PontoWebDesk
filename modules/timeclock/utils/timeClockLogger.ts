@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../src/shared/logger/observabilityConsole';
 type LogCtx = {
   provider: string;
   op: string;
@@ -35,7 +36,7 @@ function redactDeep(value: unknown, depth = 0): unknown {
 /** Log estruturado para auditoria e debug (sem credenciais). */
 export function logTimeClockOp(ctx: LogCtx): void {
   try {
-    console.info(
+    observabilityConsole.info(
       '[TimeClock]',
       JSON.stringify({
         provider: ctx.provider,
@@ -48,6 +49,6 @@ export function logTimeClockOp(ctx: LogCtx): void {
       })
     );
   } catch {
-    console.info('[TimeClock]', ctx.provider, ctx.op, ctx.durationMs, 'ms');
+    observabilityConsole.info('[TimeClock]', ctx.provider, ctx.op, ctx.durationMs, 'ms');
   }
 }

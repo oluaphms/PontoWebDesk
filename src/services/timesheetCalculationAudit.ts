@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Contexto de cálculo, hash de integridade, trilha de auditoria e replay (sem novas colunas).
  */
@@ -400,7 +401,7 @@ export async function applyCalculationAuditToRaw(params: {
   });
 
   if (!contextsSemanticallyEqual(oldCtx, newCtx)) {
-    console.info('[CALC CONTEXT CHANGE DETECTED]', {
+    observabilityConsole.info('[CALC CONTEXT CHANGE DETECTED]', {
       calculation_type: newCtx.calculation_type,
     });
     mergedRaw.recalculated_due_to_change = true;
@@ -541,7 +542,7 @@ async function persistReplayMarking(
 
   const { error: upErr } = await client.from('timesheets_daily').update({ raw_data: next }).eq('id', timesheet_id);
   if (upErr) {
-    console.info('[CALC REPLAY] raw_data update failed', { timesheet_id, message: upErr.message });
+    observabilityConsole.info('[CALC REPLAY] raw_data update failed', { timesheet_id, message: upErr.message });
   }
 }
 
@@ -606,7 +607,7 @@ export async function replayTimesheetCalculation(timesheet_id: string): Promise<
   const raw = (row.raw_data || {}) as Record<string, unknown>;
   const traceEarly = parseCalculationTraceFromRawData(raw);
   if (!raw.calculation_context) {
-    console.info('[CALC REPLAY] sem calculation_context', { timesheet_id });
+    observabilityConsole.info('[CALC REPLAY] sem calculation_context', { timesheet_id });
     scheduleReplayTimelineObservation({
       company_id: String(row.company_id),
       employee_id: String(row.employee_id),
@@ -640,7 +641,7 @@ export async function replayTimesheetCalculation(timesheet_id: string): Promise<
     summary = await processEmployeeDay(employee_id, company_id, date);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.info('[CALC REPLAY ERROR]', { timesheet_id, message: msg });
+    observabilityConsole.info('[CALC REPLAY ERROR]', { timesheet_id, message: msg });
     await persistReplayMarking(timesheet_id, raw, { status: 'error' });
     scheduleReplayTimelineObservation({
       company_id,
@@ -698,7 +699,7 @@ export async function replayTimesheetCalculation(timesheet_id: string): Promise<
 
   if (versionDrift) {
     const dr = persistDriftReason(rulesDrift, engineDrift);
-    console.info('[CALC CONTEXT DRIFT DETECTED]', {
+    observabilityConsole.info('[CALC CONTEXT DRIFT DETECTED]', {
       timesheet_id,
       employee_id,
       date,
@@ -738,7 +739,7 @@ export async function replayTimesheetCalculation(timesheet_id: string): Promise<
     hashDivergent = expectedHash !== raw.calculation_hash;
   }
 
-  console.info('[CALC INCONSISTENCY DETECTED]', {
+  observabilityConsole.info('[CALC INCONSISTENCY DETECTED]', {
     timesheet_id,
     employee_id,
     date,

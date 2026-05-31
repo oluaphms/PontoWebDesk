@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
 /**
  * URL do projeto Supabase no runtime serverless (Vercel).
  * Ordem: SUPABASE_URL → URL_SUPABASE (integração Vercel) → VITE_SUPABASE_URL (só process.env no servidor; não altera o frontend).
@@ -23,7 +24,7 @@ export function getSupabaseConfig(): { url: string; serviceKey: string } {
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').toString().trim();
 
   if (!url || !serviceKey) {
-    console.error('[SUPABASE ENV ERROR]', {
+    observabilityConsole.error('[SUPABASE ENV ERROR]', {
       hasSUPABASE_URL: !!process.env.SUPABASE_URL,
       hasURL_SUPABASE: !!process.env.URL_SUPABASE,
       hasVITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,

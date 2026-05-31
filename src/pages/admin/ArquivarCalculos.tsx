@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Lock, Trash2, History } from 'lucide-react';
@@ -54,7 +55,7 @@ const AdminArquivarCalculos: React.FC = () => {
         })),
       );
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar períodos arquivados.' });
     } finally {
       setLoadingData(false);

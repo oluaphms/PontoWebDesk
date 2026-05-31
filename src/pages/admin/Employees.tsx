@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import {
@@ -47,6 +48,10 @@ import {
 import { parseFlexibleDate } from '../../utils/dateFlexible';
 import { isValidCpf, isValidEmail, stripCpf } from '../../services/importEmployeesService';
 import { calcularScoreConfiabilidade, type ReliabilityInputs } from '../../ai/reliabilityScore';
+import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
+import { readFileHead } from '../../shared/upload/fileValidation';
+import { detectImageMime } from '../../shared/upload/magicBytes';
+import { logger } from '../../shared/logger/logger';
 import {
   TIPO_VINCULO_LABELS,
   TIPO_VINCULO_VALUES,
@@ -448,7 +453,13 @@ const AdminEmployees: React.FC = () => {
       setCargos([]);
       setMotivosDemissao([]);
     } catch (e) {
-      console.error(e);
+      logger.error({
+        module: 'admin.employees',
+        action: 'EMPLOYEES_LOAD_FAILED',
+        message: 'Falha ao carregar colaboradores',
+        companyId: effectiveCompanyId || null,
+        error: e,
+      });
       setError('Não foi possível carregar colaboradores da API.');
     } finally {
       window.clearTimeout(loadingTimer);
@@ -662,15 +673,15 @@ const AdminEmployees: React.FC = () => {
         }
       } else {
         const created = await createEmployee(apiPayload);
-        const pwd = form.password?.trim() || '123456';
+        const pwd = form.password?.trim() || '';
         if (created.email) {
           const pw = await setEmployeePasswordInAuth(created.email, pwd);
           if (!pw.success) {
             setSuccess(
-              'Colaborador cadastrado. Defina a senha em Editar → “Definir senha provisória 123456”.',
+              'Colaborador cadastrado. Gere uma senha temporária forte em Editar.',
             );
           } else {
-            setSuccess('Colaborador cadastrado. Senha provisória definida para login.');
+            setSuccess('Colaborador cadastrado. Senha temporária definida para login.');
           }
         } else {
           setSuccess('Colaborador cadastrado na API.');
@@ -681,7 +692,13 @@ const AdminEmployees: React.FC = () => {
         loadData();
       }
     } catch (e: unknown) {
-      console.error('[CREATE USER FRONT ERROR]', e);
+      logger.error({
+        module: 'admin.employees',
+        action: 'EMPLOYEE_SAVE_FAILED',
+        message: 'Falha ao salvar colaborador',
+        companyId: effectiveCompanyId || null,
+        error: e,
+      });
       const { message: msg, detail, status, code } = errorProps(e);
       const lower = msg.toLowerCase();
 
@@ -863,7 +880,7 @@ const AdminEmployees: React.FC = () => {
   const logImportRow = (rowNum: number, email: string, outcome: 'ok' | 'fail', reason?: string) => {
     try {
       if (typeof console !== 'undefined' && console.info) {
-        console.info('[Import]', { row: rowNum, email, outcome, reason: reason ?? undefined });
+        observabilityConsole.info('[Import]', { row: rowNum, email, outcome, reason: reason ?? undefined });
       }
     } catch {
       // ignora falha de log
@@ -895,7 +912,7 @@ const AdminEmployees: React.FC = () => {
       const emailFinal = row.email.trim()
         || (row.cpf.trim() ? `import.${stripCpf(row.cpf)}@temp.local` : `import.${Date.now().toString(36)}.${i}@temp.local`);
       const nomeFinal = nome || 'Sem nome';
-      const senha = row.senha && row.senha.trim() ? row.senha.trim() : '123456';
+      const senha = row.senha && row.senha.trim() ? row.senha.trim() : '';
       const cargoFinal = row.cargo || 'Colaborador';
       const departmentId = row.departamento ? deptByName.get(row.departamento.trim().toLowerCase()) || '' : '';
       const scheduleId = row.escala ? schedByName.get(row.escala.trim().toLowerCase()) || '' : '';
@@ -975,6 +992,17 @@ const AdminEmployees: React.FC = () => {
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !effectiveCompanyId) return;
+    const policy = validateUploadByPolicy({
+      policy: 'employeeImportDocument',
+      fileName: file.name || 'import.csv',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!policy.ok) {
+      setImportParseError('Arquivo inválido para importação.');
+      e.target.value = '';
+      return;
+    }
     setImportResult(null);
     setImportPreview(null);
     setImportParseError(null);
@@ -1065,10 +1093,18 @@ const AdminEmployees: React.FC = () => {
     setSuccess(null);
   };
 
-  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    if (file.size > 2 * 1024 * 1024) return;
+    if (!file) return;
+    const check = validateUploadByPolicy({
+      policy: 'avatar',
+      fileName: file.name || 'avatar.jpg',
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!check.ok) return;
+    const head = await readFileHead(file, 32);
+    if (!detectImageMime(head)) return;
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
@@ -1831,7 +1867,7 @@ const AdminEmployees: React.FC = () => {
                                 {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
                               </button>
                             </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Em branco, será usada a senha 123456.</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Em branco, será gerada uma senha temporária forte.</p>
                           </>
                         )}
                         {editingId && form.email?.trim() && (
@@ -1842,13 +1878,15 @@ const AdminEmployees: React.FC = () => {
                               onClick={async () => {
                                 setPasswordMessage(null);
                                 setSettingPassword(true);
-                                const result = await setEmployeePasswordInAuth(form.email.trim(), '123456');
+                                const result = await setEmployeePasswordInAuth(form.email.trim(), '');
                                 setSettingPassword(false);
-                                setPasswordMessage(result.success ? 'Senha provisória 123456 definida. O funcionário já pode fazer login.' : (result.error || 'Falha ao definir senha.'));
+                                setPasswordMessage(result.success
+                                  ? `Senha temporária gerada: ${result.temporaryPassword ?? 'verifique o canal seguro definido pela empresa'}`
+                                  : (result.error || 'Falha ao definir senha.'));
                               }}
                               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium"
                             >
-                              {settingPassword ? 'Definindo...' : 'Definir senha provisória 123456'}
+                              {settingPassword ? 'Definindo...' : 'Gerar senha temporária forte'}
                             </button>
                             {passwordMessage && (
                               <p className={`text-xs ${passwordMessage.startsWith('Senha') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{passwordMessage}</p>

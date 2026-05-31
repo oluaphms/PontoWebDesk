@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../../shared/logger/observabilityConsole';
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../../hooks/useCurrentUser';
@@ -32,7 +33,7 @@ export function FuncionariosRead() {
           })),
         );
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       } finally {
         if (!isCancelled()) setLoadingData(false);
       }

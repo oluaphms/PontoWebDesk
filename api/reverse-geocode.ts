@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole.js';
 import { cachePublic, noCache } from './_shared/cache.js';
 import { resolveRequestUrl } from './_shared/getRequestBaseUrl.js';
 import { getSecureCorsHeaders } from './_shared/security.js';
@@ -108,7 +109,7 @@ async function resolveAddressFromCoordinates(
     const first = await tryOnce();
     if (first.address) return first;
   } catch (e) {
-    console.warn('Nominatim reverse geocode (1ª):', e instanceof Error ? e.message : e);
+    observabilityConsole.warn('Nominatim reverse geocode (1ª):', e instanceof Error ? e.message : e);
   }
 
   await new Promise((r) => setTimeout(r, 350));
@@ -117,7 +118,7 @@ async function resolveAddressFromCoordinates(
     const second = await tryOnce();
     if (second.address) return second;
   } catch (e) {
-    console.warn('Nominatim reverse geocode (2ª):', e instanceof Error ? e.message : e);
+    observabilityConsole.warn('Nominatim reverse geocode (2ª):', e instanceof Error ? e.message : e);
   }
 
   return {
@@ -168,7 +169,7 @@ async function handler(request: Request): Promise<Response> {
 
     return cachePublic(Response.json(geo, { status: 200, headers: corsHeaders }), 86400, 604800);
   } catch (e) {
-    console.error('Reverse geocode handler error:', e);
+    observabilityConsole.error('Reverse geocode handler error:', e);
     return noCache(
       Response.json(
         {

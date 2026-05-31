@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CalendarDays, Download, Filter } from 'lucide-react';
@@ -60,7 +61,7 @@ const AdminAusencias: React.FC = () => {
         setDepartments((deps ?? []) as any[]);
         setEmployees((emps ?? []) as any[]);
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       }
     };
 
@@ -89,7 +90,7 @@ const AdminAusencias: React.FC = () => {
       });
       setRows(data as AusenciaRow[]);
     } catch (e: any) {
-      console.error(e);
+      observabilityConsole.error(e);
       setErrorMsg(e?.message || 'Erro ao carregar ausências.');
       setRows([]);
     } finally {

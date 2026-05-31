@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 type ComplexityLevel = 'HEALTHY' | 'WARNING' | 'CRITICAL';
 
 export type OperationalComplexityInput = {
@@ -28,7 +29,7 @@ export function runOperationalComplexityAudit(input: OperationalComplexityInput)
   if (input.activeWatchers > 8) {
     score -= 12;
     findings.push('watchers_above_budget');
-    console.warn('[DUPLICATE WATCHER DETECTED]', { active_watchers: input.activeWatchers });
+    observabilityConsole.warn('[DUPLICATE WATCHER DETECTED]', { active_watchers: input.activeWatchers });
   }
   if (input.activeListeners > 24) {
     score -= 10;
@@ -37,7 +38,7 @@ export function runOperationalComplexityAudit(input: OperationalComplexityInput)
   if (input.realtimePipelines > 1 || input.redundantRealtimeHits > 0) {
     score -= 20;
     findings.push('redundant_realtime_pipeline');
-    console.warn('[REDUNDANT REALTIME PIPELINE]', {
+    observabilityConsole.warn('[REDUNDANT REALTIME PIPELINE]', {
       realtime_pipelines: input.realtimePipelines,
       redundant_hits: input.redundantRealtimeHits,
     });
@@ -66,7 +67,7 @@ export function runOperationalComplexityAudit(input: OperationalComplexityInput)
   const finalScore = clamp(score);
   const level: ComplexityLevel = finalScore < 45 ? 'CRITICAL' : finalScore < 75 ? 'WARNING' : 'HEALTHY';
   if (level !== 'HEALTHY') {
-    console.warn('[OPERATIONAL COMPLEXITY DETECTED]', {
+    observabilityConsole.warn('[OPERATIONAL COMPLEXITY DETECTED]', {
       operational_complexity_score: finalScore,
       level,
       findings,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
@@ -172,7 +173,7 @@ const AdminCalculos: React.FC = () => {
           setHolidayDates(holSet);
         }
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
         if (!cancelled) toast.addToast('error', 'Não foi possível carregar colaboradores.');
       } finally {
         if (!cancelled) setLoadingListas(false);
@@ -342,7 +343,7 @@ const AdminCalculos: React.FC = () => {
         toast.addToast('error', e.message);
         return;
       }
-      console.warn('[Calculos] fallback local ativado:', e);
+      observabilityConsole.warn('[Calculos] fallback local ativado:', e);
       // Fallback importante para mobile/offline parcial: cálculo local por dia.
       try {
         const rows = await Promise.all(
@@ -351,7 +352,7 @@ const AdminCalculos: React.FC = () => {
         setCalcRows(rows);
         toast.addToast('warning', 'Cálculo executado em modo local neste dispositivo.');
       } catch (localErr: any) {
-        console.error(localErr);
+        observabilityConsole.error(localErr);
         toast.addToast('error', localErr?.message || e?.message || 'Falha ao calcular.');
       }
     } finally {
@@ -637,7 +638,7 @@ const AdminCalculos: React.FC = () => {
       doc.save(`calculos-${nome.replace(/\s+/g, '_')}-${periodStart}_${periodEnd}.pdf`);
       toast.addToast('success', 'PDF gerado.');
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       toast.addToast('error', 'Não foi possível gerar o PDF. Tente novamente.');
     } finally {
       setExportingPdf(false);

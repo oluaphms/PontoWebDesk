@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Medições explícitas de latência Supabase no pipeline de auth (diagnóstico de “auth rápida, pós-auth lento”).
  */
@@ -12,7 +13,7 @@ export function logSupabaseAuthLatency(
 ): void {
   opLog.info('SUPABASE AUTH LATENCY', { phase, durationMs, ...extra });
   if (durationMs > STEP_CRITICAL_MS) {
-    console.warn('[AUTH CRITICAL SLOW]', { phase, durationMs, thresholdMs: STEP_CRITICAL_MS, ...extra });
+    observabilityConsole.warn('[AUTH CRITICAL SLOW]', { phase, durationMs, thresholdMs: STEP_CRITICAL_MS, ...extra });
   }
 }
 

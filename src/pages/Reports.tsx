@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { BarChart3, CalendarRange, Download, FileText, Users } from 'lucide-react';
@@ -82,7 +83,7 @@ const ReportsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar dados estáticos de relatórios:', e);
+        observabilityConsole.error('Erro ao carregar dados estáticos de relatórios:', e);
       }
     };
 
@@ -157,7 +158,7 @@ const ReportsPage: React.FC = () => {
         );
       }
     } catch (e) {
-      console.error('Erro ao gerar relatório:', e);
+      observabilityConsole.error('Erro ao gerar relatório:', e);
       setError('Não foi possível gerar o relatório.');
     } finally {
       setIsLoadingData(false);

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { FileText, Download } from 'lucide-react';
@@ -55,7 +56,7 @@ const AdminArquivosFiscais: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
         setMessage({ type: 'error', text: 'Erro ao carregar dados para arquivos fiscais.' });
       } finally {
         setLoadingData(false);
@@ -149,7 +150,7 @@ const AdminArquivosFiscais: React.FC = () => {
       URL.revokeObjectURL(url);
       setMessage({ type: 'success', text: 'Arquivo fiscal gerado com sucesso.' });
     } catch (e: any) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: e?.message || 'Erro ao gerar arquivo fiscal.' });
     } finally {
       setGenerating(false);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Script de verificação de segurança pré-deploy.
  *
@@ -39,13 +40,13 @@ function log(message, type = 'info') {
     success: `${colors.green}[OK]${colors.reset}`,
   }[type] || '';
 
-  console.log(`${prefix} ${message}`);
+  observabilityConsole.log(`${prefix} ${message}`);
 }
 
 function section(title) {
-  console.log(`\n${colors.bold}${'='.repeat(60)}${colors.reset}`);
-  console.log(`${colors.bold}${title}${colors.reset}`);
-  console.log(`${colors.bold}${'='.repeat(60)}${colors.reset}`);
+  observabilityConsole.log(`\n${colors.bold}${'='.repeat(60)}${colors.reset}`);
+  observabilityConsole.log(`${colors.bold}${title}${colors.reset}`);
+  observabilityConsole.log(`${colors.bold}${'='.repeat(60)}${colors.reset}`);
 }
 
 // ============================================
@@ -336,12 +337,12 @@ function checkKeyStrength() {
 // MAIN
 // ============================================
 function main() {
-  console.log(`${colors.bold}`);
-  console.log('╔══════════════════════════════════════════════════════════╗');
-  console.log('║     PontoWebDesk - Verificação de Segurança              ║');
-  console.log('║              Pré-Deploy Checklist                        ║');
-  console.log('╚══════════════════════════════════════════════════════════╝');
-  console.log(`${colors.reset}`);
+  observabilityConsole.log(`${colors.bold}`);
+  observabilityConsole.log('╔══════════════════════════════════════════════════════════╗');
+  observabilityConsole.log('║     PontoWebDesk - Verificação de Segurança              ║');
+  observabilityConsole.log('║              Pré-Deploy Checklist                        ║');
+  observabilityConsole.log('╚══════════════════════════════════════════════════════════╝');
+  observabilityConsole.log(`${colors.reset}`);
 
   // Executar checks
   checkEnvLocal();
@@ -369,7 +370,7 @@ function main() {
     exitCode = 1;
   }
 
-  console.log(`\n${colors.bold}Para mais informações, consulte SECURITY_MIGRATION_GUIDE.md${colors.reset}\n`);
+  observabilityConsole.log(`\n${colors.bold}Para mais informações, consulte SECURITY_MIGRATION_GUIDE.md${colors.reset}\n`);
 
   process.exit(exitCode);
 }

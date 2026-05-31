@@ -3,10 +3,11 @@ import { resolveBestRealtimeLocation } from './realtimeGeoSourcePriority.service
 import { resolveRealtimeMonitoringLocation } from './monitoringGeoSourceResolver';
 import type { LiveEmployeeLocationRow } from '../liveEmployeeLocation.service';
 import type { CurrentOperationalStateRow } from '../currentOperationalState.service';
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 
 describe('resolveRealtimeMonitoringLocation (pipeline único)', () => {
   beforeEach(() => {
-    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(observabilityConsole, 'info').mockImplementation(() => {});
   });
 
   it('prioriza live_employee_location sobre COS', () => {
@@ -62,7 +63,7 @@ describe('resolveRealtimeMonitoringLocation (pipeline único)', () => {
 
 describe('resolveBestRealtimeLocation (deprecated)', () => {
   it('emite [LEGACY GEO RESOLVER DETECTED]', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(observabilityConsole, 'warn').mockImplementation(() => {});
     const nowMs = 1_700_000_000_000;
     resolveBestRealtimeLocation({
       nowMs,

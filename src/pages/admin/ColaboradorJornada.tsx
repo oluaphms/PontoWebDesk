@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Calendar, Clock, Users, Search, X, CheckCircle, XCircle } from 'lucide-react';
@@ -121,7 +122,7 @@ const ColaboradorJornada: React.FC = () => {
         ativo: v.ativo ?? true,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     } finally {
       setLoadingData(false);
     }

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../services/observabilityConsole.js';
 /**
  * Garante schema mínimo de rep_devices na VPS (idempotente).
  * Uso: cd backend && npm run db:ensure-rep
@@ -13,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('[db:ensure-rep] Defina DATABASE_URL em backend/.env');
+  observabilityConsole.error('[db:ensure-rep] Defina DATABASE_URL em backend/.env');
   process.exit(1);
 }
 
@@ -35,12 +36,12 @@ try {
     WHERE table_schema = 'public' AND table_name = 'rep_devices'
     ORDER BY ordinal_position
   `);
-  console.log('[db:ensure-rep] OK — rep_devices com', check.rows.length, 'colunas');
+  observabilityConsole.log('[db:ensure-rep] OK — rep_devices com', check.rows.length, 'colunas');
   for (const row of check.rows) {
-    console.log('  -', row.column_name, '(' + row.data_type + ')');
+    observabilityConsole.log('  -', row.column_name, '(' + row.data_type + ')');
   }
 } catch (e) {
-  console.error('[db:ensure-rep] Falhou:', e instanceof Error ? e.message : e);
+  observabilityConsole.error('[db:ensure-rep] Falhou:', e instanceof Error ? e.message : e);
   process.exit(1);
 } finally {
   await pool.end();

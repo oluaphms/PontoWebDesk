@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Reconciliação operacional do dia (REP + espelho) — análise em TypeScript.
  * O espelho continua protegido pelo trigger SQL; aqui apenas timeline, gaps e telemetria.
@@ -119,7 +120,7 @@ export async function fetchReconcileAndUpsertOperationalDayStatus(
       p_last_punch: input.lastPunch,
     });
     if (error) {
-      console.error('[OPERATIONAL STATUS UPSERT FAILED]', {
+      observabilityConsole.error('[OPERATIONAL STATUS UPSERT FAILED]', {
         companyId: company,
         employeeId: emp,
         date: day,
@@ -128,7 +129,7 @@ export async function fetchReconcileAndUpsertOperationalDayStatus(
       });
       return false;
     }
-    console.log('[OPERATIONAL STATUS UPDATED]', {
+    observabilityConsole.log('[OPERATIONAL STATUS UPDATED]', {
       companyId: company,
       employeeId: emp,
       date: day,

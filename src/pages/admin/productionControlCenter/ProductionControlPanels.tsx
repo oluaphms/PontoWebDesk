@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { summarizeOperationalMetrics, listOperationalMetricSamples, summarizeOperationalGrowthByTenant } from '../../../domain/operational/metrics';
 import { calculateOperationalGeoHealth } from '../../../domain/operational/geo/operationalGeoHealth';
@@ -266,7 +267,7 @@ export const OperationalGeoTelemetryPanel = memo(function OperationalGeoTelemetr
   const driftDet = samples.filter((s) => s.name === 'geo_teleport_detected').length;
   const relEval = samples.filter((s) => s.name === 'geo_reliability_eval').length;
   useEffect(() => {
-    console.info('[OPERATIONAL GEO TELEMETRY]', {
+    observabilityConsole.info('[OPERATIONAL GEO TELEMETRY]', {
       summary_rows: slice.length,
       sample_stale_events: staleBlocks,
       sample_teleport: driftDet,

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { SlidersHorizontal, Plus, Pencil, Trash2 } from 'lucide-react';
@@ -78,7 +79,7 @@ const AdminColunasMix: React.FC = () => {
         })),
       );
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar colunas mix.' });
     } finally {
       setLoadingData(false);

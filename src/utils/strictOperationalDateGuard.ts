@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { normalizeOperationalDate, OPERATIONAL_TIMEZONE } from './operationalDateHardLock';
 import { operationalClockMs } from './operationalClock';
 
@@ -18,17 +19,17 @@ export function strictOperationalDateGuard(
   const n = normalizeOperationalDate(input, { quiet: true, source: 'strictOperationalDateGuard' });
   if (!n) return { ok: false, reason: 'invalid_parse', instantMs: null };
   if (n.instantMs - nowMs > MAX_FUTURE_MS) {
-    console.warn('[STRICT FUTURE DATE BLOCKED]', { input, now_ms: nowMs, instant_ms: n.instantMs });
+    observabilityConsole.warn('[STRICT FUTURE DATE BLOCKED]', { input, now_ms: nowMs, instant_ms: n.instantMs });
     return { ok: false, reason: 'future', instantMs: n.instantMs };
   }
   const y = new Date(n.instantMs).getUTCFullYear();
   const nowY = new Date(nowMs).getUTCFullYear();
   if (y < MIN_YEAR || y > nowY + MAX_YEAR_DRIFT) {
-    console.warn('[STRICT INVALID YEAR]', { input, year: y, now_year: nowY });
+    observabilityConsole.warn('[STRICT INVALID YEAR]', { input, year: y, now_year: nowY });
     return { ok: false, reason: 'invalid_year', instantMs: n.instantMs };
   }
   if (!OPERATIONAL_TIMEZONE || OPERATIONAL_TIMEZONE !== 'America/Sao_Paulo') {
-    console.warn('[STRICT TIMEZONE DRIFT]', { configured_timezone: OPERATIONAL_TIMEZONE });
+    observabilityConsole.warn('[STRICT TIMEZONE DRIFT]', { configured_timezone: OPERATIONAL_TIMEZONE });
     return { ok: false, reason: 'timezone_drift', instantMs: n.instantMs };
   }
   return { ok: true, reason: null, instantMs: n.instantMs };

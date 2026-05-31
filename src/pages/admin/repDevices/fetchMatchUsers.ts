@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { safeUserSelectColumns } from '../../../services/supabaseClient';
 import type { EmployeeForRep } from './types';
@@ -25,7 +26,7 @@ export async function fetchRepMatchUsersForBlob(
   const cols = await safeUserSelectColumns(client, requested);
   const { data, error } = await client.from('users').select(cols.join(',')).eq('company_id', cid).limit(5000);
   if (error) {
-    console.error('[USERS QUERY ERROR]', error);
+    observabilityConsole.error('[USERS QUERY ERROR]', error);
     return [];
   }
 

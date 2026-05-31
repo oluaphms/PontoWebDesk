@@ -20,6 +20,8 @@ export async function adminSetPasswordController(req: AuthedRequest, res: Respon
   res.json({
     ok: true,
     email: result.email,
+    temporaryPassword: result.temporaryPassword,
+    expiresAt: result.expiresAt,
     message: 'Senha atualizada. O utilizador já pode fazer login na API.',
   });
 }

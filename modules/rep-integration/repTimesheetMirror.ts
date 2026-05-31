@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 /**
  * Após consolidar batidas REP (time_records), recalcula o dia no motor e verifica linha em timesheets_daily.
  */
@@ -61,7 +62,7 @@ export async function syncEspelhoAfterRepPromote(
     const uid = String(row.user_id ?? '').trim();
     const iso = parseDataHora(row);
     if (!uid || !iso) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: 'promoted_detail sem user_id ou data_hora válidos',
         nsr: row.nsr ?? null,
         user_id: row.user_id ?? null,
@@ -71,7 +72,7 @@ export async function syncEspelhoAfterRepPromote(
     }
     const civilDate = civilDateSaoPauloFromIso(iso);
     if (!civilDate) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: 'data_hora não interpretável para dia civil (America/Sao_Paulo)',
         nsr: row.nsr ?? null,
         user_id: uid,
@@ -102,14 +103,14 @@ export async function syncEspelhoAfterRepPromote(
     let calcErrMsg: string | null = null;
     try {
       await recalculate_period(user_id, cid, civilDate, civilDate);
-      console.info('[TIMESHEET AUTO RECALC]', {
+      observabilityConsole.info('[TIMESHEET AUTO RECALC]', {
         user_id,
         date: civilDate,
         source: 'rep_promote',
       });
     } catch (e) {
       calcErrMsg = e instanceof Error ? e.message : String(e);
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: `recalculate_period: ${calcErrMsg}`,
         user_id,
         company_id: cid,
@@ -137,7 +138,7 @@ export async function syncEspelhoAfterRepPromote(
           'espelho_ausente (recálculo não persistiu linha — possível folha fechada, protecção raw_data ou falha de integridade)';
       } else status = 'espelho_ok';
 
-      console.info('[REP → TIMESHEET]', {
+      observabilityConsole.info('[REP → TIMESHEET]', {
         nsr: pr.nsr ?? null,
         user_id: pr.user_id,
         status,
@@ -146,7 +147,7 @@ export async function syncEspelhoAfterRepPromote(
     }
 
     if (!calcErrMsg && !tsErr && !tsRow?.id) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo:
           'Após recalculate_period, não há linha em timesheets_daily (comum: período fechado na RPC timesheet_is_closed_for_stamp, raw_data manual/fechado, ou falha silenciosa writeTimesheetsDailyCalculatedRow).',
         user_id,
@@ -156,7 +157,7 @@ export async function syncEspelhoAfterRepPromote(
       });
     }
     if (tsErr) {
-      console.error('[TIMESHEET FAIL]', {
+      observabilityConsole.error('[TIMESHEET FAIL]', {
         motivo: tsErr.message,
         code: (tsErr as { code?: string }).code,
         user_id,

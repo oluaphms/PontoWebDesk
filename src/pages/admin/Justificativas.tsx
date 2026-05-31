@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { DoorOpen, FileCheck, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -123,7 +124,7 @@ const AdminJustificativas: React.FC = () => {
         created_at: r.created_at,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar justificativas.' });
     } finally {
       setLoadingData(false);
@@ -146,7 +147,7 @@ const AdminJustificativas: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error(e);
+        observabilityConsole.error(e);
       }
     };
     run();

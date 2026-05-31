@@ -3,8 +3,11 @@
  * Endpoint: POST {VITE_API_URL}/uploads/photo
  */
 import { buildApiUrl } from './api';
-import { getToken } from './authToken';
+import { getToken, isCookieSessionToken } from './authToken';
 import { validatePunchImageDataUrl } from '../utils/punchPhotoUpload';
+import { readFileHead } from '../shared/upload/fileValidation';
+import { detectImageMime } from '../shared/upload/magicBytes';
+import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
 
 export type UploadPhotoKind = 'punch' | 'avatar';
 
@@ -23,9 +26,6 @@ export async function uploadPhotoViaApi(
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const kind = input.kind ?? ('file' in input && input.file.name.includes('avatar') ? 'avatar' : 'punch');
   const token = getToken();
-  if (!token) {
-    return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
-  }
 
   let contentBase64: string;
   let filename: string;
@@ -44,8 +44,18 @@ export async function uploadPhotoViaApi(
     filename = input.filename || `${kind}-${Date.now()}.${ext}`;
   } else {
     const file = input.file;
-    if (!file.type.startsWith('image/')) {
-      return { ok: false, error: 'Selecione uma imagem válida.' };
+    const fileCheck = validateUploadByPolicy({
+      policy: kind === 'avatar' ? 'avatar' : 'punchPhoto',
+      fileName: file.name || `${kind}.jpg`,
+      mimeType: file.type || '',
+      size: file.size,
+    });
+    if (!fileCheck.ok) {
+      return { ok: false, error: 'Imagem inválida para upload.' };
+    }
+    const head = await readFileHead(file, 32);
+    if (!detectImageMime(head)) {
+      return { ok: false, error: 'Conteúdo da imagem inválido.' };
     }
     contentBase64 = await fileToBase64(file);
     filename = file.name || `${kind}-${Date.now()}.jpg`;
@@ -54,8 +64,9 @@ export async function uploadPhotoViaApi(
 
   const res = await fetch(buildApiUrl('/uploads/photo'), {
     method: 'POST',
+    credentials: 'include',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ kind, filename, mimeType, contentBase64 }),

@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Logger centralizado para erros Supabase: rede, timeout e auth.
  */
@@ -82,9 +83,9 @@ export function logSupabaseError(error: unknown, detail?: unknown): void {
   if (typeof console !== 'undefined') {
     // Timeout em dev: debug para não poluir console (mensagem já aparece na UI quando for login)
     if (category === 'timeout' && typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-      console.debug('[SmartPonto]', category, message, detail ?? '');
+      observabilityConsole.debug('[SmartPonto]', category, message, detail ?? '');
     } else {
-      console.warn('[SmartPonto]', category, message, detail ?? '');
+      observabilityConsole.warn('[SmartPonto]', category, message, detail ?? '');
     }
   }
 }

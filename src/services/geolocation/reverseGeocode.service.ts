@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import {
   assertTenantScopedCacheKey,
   buildTenantGeoCacheKey,
@@ -34,8 +35,8 @@ function logReverseGeocodeApiFailure(apiError: unknown, lat: number, lng: number
     geoPipelineDiag('GEO REVERSE API UNAVAILABLE', { lat, lng, message: msg, ...extra });
     return;
   }
-  console.error('[GEO REVERSE ERROR RAW]', apiError);
-  console.error('[GEO REVERSE ERROR DETAILS]', {
+  observabilityConsole.error('[GEO REVERSE ERROR RAW]', apiError);
+  observabilityConsole.error('[GEO REVERSE ERROR DETAILS]', {
     name: apiError instanceof Error ? apiError.name : null,
     message: apiError instanceof Error ? apiError.message : String(apiError),
     stack: apiError instanceof Error ? apiError.stack : null,

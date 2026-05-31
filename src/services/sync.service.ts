@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 /**
  * Orquestração: dispositivos (Supabase) → adapters → normalização → REST (time logs) → last_sync.
  * Sem ramificações por marca fora dos adapters — apenas getAdapter(brand).
@@ -273,7 +274,7 @@ async function syncOneDevice(
     }
 
     if (rows.length > 0) {
-      console.log(`[COLETA] device=${deviceId} ${rows.length} registro(s) normalizado(s) (dedupe em memória)`);
+      observabilityConsole.log(`[COLETA] device=${deviceId} ${rows.length} registro(s) normalizado(s) (dedupe em memória)`);
     }
 
     let stagedIds: string[] = [];
@@ -286,7 +287,7 @@ async function syncOneDevice(
         skipPendingPunches: deferCloud,
       });
       const localLabel = deferCloud ? 'time_records+worker' : 'pending_punches+nuvem';
-      console.log(`[LOCAL] device=${deviceId} ${rows.length} linha(s) espelhadas (${localLabel}); pending_ids=${stagedIds.length}`);
+      observabilityConsole.log(`[LOCAL] device=${deviceId} ${rows.length} linha(s) espelhadas (${localLabel}); pending_ids=${stagedIds.length}`);
       logger.sync(`Persistido localmente: ${rows.length} evento(s) (${localLabel})`, deviceId, {
         staged: stagedIds.length,
         rows: rows.length,
@@ -327,7 +328,7 @@ async function syncOneDevice(
         await offlineClockPersistence.markRowsSynced(stagedIds);
       }
     } else if (rows.length > 0) {
-      console.log(
+      observabilityConsole.log(
         `[LOCAL] Nuvem adiada ao worker syncService.js (rep_ingest_punch). Desativar: CLOCK_SYNC_DEFER_CLOUD_TO_WORKER=0`
       );
     }

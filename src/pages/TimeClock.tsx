@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { MapPin, PlayCircle } from 'lucide-react';
@@ -53,7 +54,7 @@ const TimeClockPage: React.FC = () => {
           setLastRecord(null);
         }
       } catch (e) {
-        console.error('Erro ao buscar último registro de ponto:', e);
+        observabilityConsole.error('Erro ao buscar último registro de ponto:', e);
       }
     };
     load();
@@ -117,7 +118,7 @@ const TimeClockPage: React.FC = () => {
 
       toast.addToast('success', 'Registro de ponto criado com sucesso.');
     } catch (e: unknown) {
-      console.error('Erro ao registrar ponto:', e);
+      observabilityConsole.error('Erro ao registrar ponto:', e);
       const err = normalizePunchRegistrationError(e);
       toast.addToast('error', err?.message || 'Erro ao registrar ponto.');
     } finally {

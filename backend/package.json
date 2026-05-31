@@ -14,6 +14,9 @@
     "db:test": "node scripts/test-db-connection.mjs",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:full": "node scripts/apply-full-database.mjs",
+    "security:backfill-device-credentials": "node scripts/backfill-device-credentials.mjs",
+    "security:rotate-secret": "node scripts/rotate-secret.mjs",
+    "security:revoke-secret": "node scripts/revoke-secret.mjs",
     "db:ensure-rep": "node scripts/ensure-rep-devices.mjs",
     "db:ensure-vps": "node scripts/ensure-vps-schema.mjs",
     "db:data:export": "node scripts/data-migration/export-supabase.mjs",
@@ -25,12 +28,15 @@
     "test:employees": "vitest run src/utils/employeeValidation.test.ts"
   },
   "dependencies": {
+    "@types/pino": "^7.0.4",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "pino": "^10.3.1",
+    "redis": "^6.0.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

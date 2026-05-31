@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useState, memo, useCallback, lazy, Suspense } from 'react';
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
+import React, { useEffect, useState, memo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import {
   Users,
@@ -98,7 +99,7 @@ const AdminDashboard: React.FC = () => {
           markDashboardInteractiveIfNeeded();
         }
       } catch (e) {
-        console.error('Erro ao carregar cards do dashboard admin:', e);
+        observabilityConsole.error('Erro ao carregar cards do dashboard admin:', e);
       } finally {
         window.clearTimeout(safety);
         if (!cancelled) setLoadingCards(false);
@@ -125,7 +126,7 @@ const AdminDashboard: React.FC = () => {
           const lr = await getAdminDashboardLastRecordsOnly(user.companyId!);
           if (!cancelled) setLastRecords(lr);
         } catch (e) {
-          console.error('Erro ao carregar últimos registros:', e);
+          observabilityConsole.error('Erro ao carregar últimos registros:', e);
         } finally {
           if (!cancelled) setLoadingRecords(false);
         }

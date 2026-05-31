@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Incident Manager — registro e gestão de incidentes operacionais.
  *
@@ -62,7 +63,11 @@ export class IncidentManager {
     this._db     = opts.db;
     this._queue  = opts.queue;
     this._alerts = opts.alerts ?? null;
-    try { this._db.exec(SCHEMA); } catch { /* ignore */ }
+    try {
+      this._db.exec(SCHEMA);
+    } catch (error) {
+      observabilityConsole.warn('[incidentManager] Falha ao garantir schema:', error);
+    }
     mkdirSync(INCIDENTS_DIR, { recursive: true });
   }
 
@@ -269,9 +274,9 @@ _A preencher pela equipe após análise._
         .run(path, incident.id);
       this._queue.log(LOG_LEVEL.INFO, 'incident',
         `[${incident.id}] Post-mortem gerado: ${path}`, { id: incident.id, path });
-      console.log(`[INCIDENT] Post-mortem: ${path}`);
+      observabilityConsole.log(`[INCIDENT] Post-mortem: ${path}`);
     } catch (err) {
-      console.error('[INCIDENT] Falha ao gerar post-mortem:', err instanceof Error ? err.message : err);
+      observabilityConsole.error('[INCIDENT] Falha ao gerar post-mortem:', err instanceof Error ? err.message : err);
     }
   }
 }

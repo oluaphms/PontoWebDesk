@@ -1,3 +1,4 @@
+import { observabilityConsole } from './src/shared/logger/observabilityConsole';
 import React, { useState, useCallback, useMemo, useEffect, useRef, useReducer, Profiler } from 'react';
 import { flushSync } from 'react-dom';
 import { Routes, Route, Navigate, useLocation, useNavigate, Outlet } from 'react-router-dom';
@@ -320,7 +321,7 @@ const AppMain: React.FC = () => {
   const { records, isLoading: isPunching, error, setError, addRecord } = useRecords(user?.id, user?.companyId);
 
   useEffect(() => {
-    console.info('[SYSTEM] API VPS — Supabase desativado');
+    observabilityConsole.info('[SYSTEM] API VPS — Supabase desativado');
   }, []);
   /** Chrome operacional (badges/polling leve no layout) só após idle — reduz cascata pós setUser. */
   const portalChromeReady = useDeferredPortalChrome(user?.id);
@@ -450,7 +451,7 @@ const AppMain: React.FC = () => {
       try {
         hasLangPref = !!localStorage.getItem('smartponto_language');
       } catch (err) {
-        console.warn('[App] Falha ao ler idioma salvo:', err);
+        observabilityConsole.warn('[App] Falha ao ler idioma salvo:', err);
       }
     }
     if (globalSettings?.language && typeof window !== 'undefined' && !hasLangPref) {
@@ -477,14 +478,14 @@ const AppMain: React.FC = () => {
         const INIT_APP_MAX_MS = 95_000;
         timeoutId = setTimeout(() => {
           if (isMounted) {
-            console.warn('Initialization timeout - forcing app to load');
+            observabilityConsole.warn('Initialization timeout - forcing app to load');
             setIsInitialLoading(false);
           }
         }, INIT_APP_MAX_MS);
 
         checkApiConnection().then((result) => {
           if (import.meta.env?.DEV) {
-            console.log(result.ok ? '[PontoWebDesk] API OK' : '[PontoWebDesk] API indisponível:', result.message);
+            observabilityConsole.log(result.ok ? '[PontoWebDesk] API OK' : '[PontoWebDesk] API indisponível:', result.message);
           }
         });
 
@@ -497,7 +498,7 @@ const AppMain: React.FC = () => {
           authService.getCurrentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), INIT_HYDRATE_MS)),
         ]).catch((error) => {
-          console.error('Error getting current user:', error);
+          observabilityConsole.error('Error getting current user:', error);
           return null;
         });
 
@@ -512,7 +513,7 @@ const AppMain: React.FC = () => {
               ]).catch(() => null);
               if (comp && isMounted) setCompany(comp);
             } catch (error) {
-              console.error('Error loading company:', error);
+              observabilityConsole.error('Error loading company:', error);
             }
           });
 
@@ -520,7 +521,7 @@ const AppMain: React.FC = () => {
           try {
             hasSeenOnboarding = localStorage.getItem(`onboarding_${currentUser.id}`);
           } catch (err) {
-            console.warn('[App] Falha ao ler onboarding:', err);
+            observabilityConsole.warn('[App] Falha ao ler onboarding:', err);
           }
           if (!hasSeenOnboarding && isMounted) setShowOnboarding(true);
         }
@@ -530,7 +531,7 @@ const AppMain: React.FC = () => {
           setIsInitialLoading(false);
         }
       } catch (error) {
-        console.error('Error initializing app:', error);
+        observabilityConsole.error('Error initializing app:', error);
         if (isMounted) {
           clearTimeout(timeoutId);
           setIsInitialLoading(false);
@@ -623,7 +624,7 @@ const AppMain: React.FC = () => {
             PontoService.getCompany(authUser.companyId).then(comp => {
               if (isMounted && comp) setCompany(comp);
             }).catch(error => {
-              console.error('Error loading company in auth state change:', error);
+              observabilityConsole.error('Error loading company in auth state change:', error);
             });
             logAuth('[AUTH PIPELINE COMPLETED]', {
               pipelineId,
@@ -644,7 +645,7 @@ const AppMain: React.FC = () => {
           }
         });
       } catch (error) {
-        console.error('Error setting up auth state listener:', error);
+        observabilityConsole.error('Error setting up auth state listener:', error);
       }
     }
 
@@ -704,7 +705,7 @@ const AppMain: React.FC = () => {
       setInsights(result);
     } catch (e) {
       if (import.meta.env.DEV) {
-        console.warn('[Dashboard] IA indisponível (ignorado):', e);
+        observabilityConsole.warn('[Dashboard] IA indisponível (ignorado):', e);
       }
       setInsights({
         insight: 'Insights por IA não estão disponíveis neste ambiente. O restante do sistema segue normal.',
@@ -749,7 +750,7 @@ const AppMain: React.FC = () => {
     try {
       ThemeService.applyTheme(theme);
     } catch (error) {
-      console.error('Erro ao aplicar tema:', error);
+      observabilityConsole.error('Erro ao aplicar tema:', error);
     }
   }, [theme]);
 
@@ -800,14 +801,14 @@ const AppMain: React.FC = () => {
         audio.volume = 0.5;
         audio.play().catch((err) => {
           if (import.meta.env?.DEV) {
-            console.warn('[App] Falha ao tocar som de confirmação:', err);
+            observabilityConsole.warn('[App] Falha ao tocar som de confirmação:', err);
           }
         });
       } catch {
         // silencioso se falhar
       }
     } catch (err) {
-      console.error('Erro ao registrar ponto:', err);
+      observabilityConsole.error('Erro ao registrar ponto:', err);
       setError('Falha ao registrar o ponto. Tente novamente.');
     }
   };
@@ -953,7 +954,7 @@ const AppMain: React.FC = () => {
           window.localStorage.clear();
           window.sessionStorage.clear();
           if (typeof console !== 'undefined') {
-            console.info('[LOGIN] clearAuthCache=1 → storage limpo antes do submit');
+            observabilityConsole.info('[LOGIN] clearAuthCache=1 → storage limpo antes do submit');
           }
         }
       }
@@ -961,7 +962,7 @@ const AppMain: React.FC = () => {
       // ignorar
     }
     if (typeof console !== 'undefined' && import.meta.env?.DEV) {
-      console.info('[LOGIN] submit', {
+      observabilityConsole.info('[LOGIN] submit', {
         identifierLen: (identifier || '').trim().length,
         passwordLen: (password || '').length,
         role,
@@ -971,7 +972,7 @@ const AppMain: React.FC = () => {
     if (!parsed.success) {
       pendingLoginRoleRef.current = null;
       if (typeof console !== 'undefined' && import.meta.env?.DEV) {
-        console.warn('[LOGIN] validação Zod falhou:', parsed.error.flatten());
+        observabilityConsole.warn('[LOGIN] validação Zod falhou:', parsed.error.flatten());
       }
       setLoginError(parsed.error.errors[0]?.message ?? 'Dados inválidos');
       dispatchAuthFlow({ type: 'FAILED', attemptId, error: 'validation_failed' });
@@ -1007,7 +1008,6 @@ const AppMain: React.FC = () => {
       });
       logAuth('[AUTH HYDRATION START]', { attemptId, owner });
       try {
-        if (!getToken()) return false;
         dispatchAuthFlow({ type: 'SESSION_DETECTED', attemptId });
 
         const hydratedUserResult = await withHydrationTimeout(owner, 45_000, () => authService.getCurrentUser());
@@ -1091,7 +1091,7 @@ const AppMain: React.FC = () => {
         // Pré-check informativo: NÃO acionar telas globais nem connectionUnavailable —
         // isso roubava o formulário de login e mostrava "Servidor indisponível" mesmo antes de tentar sessão Auth.
         if (import.meta.env.DEV && typeof console !== 'undefined') {
-          console.warn('[LOGIN PRECHECK] Health-check inconclusivo (login segue igual):', precheckResult.message);
+          observabilityConsole.warn('[LOGIN PRECHECK] Health-check inconclusivo (login segue igual):', precheckResult.message);
         }
       }
 
@@ -1235,7 +1235,7 @@ const AppMain: React.FC = () => {
       if (result.user) {
         if (result.source === 'local' || result.source === 'offline-forced') {
           setOfflineAuthMode(true);
-          console.warn('[MODO LOCAL]');
+          observabilityConsole.warn('[MODO LOCAL]');
         } else {
           setOfflineAuthMode(false);
         }
@@ -1271,7 +1271,7 @@ const AppMain: React.FC = () => {
           alreadyAuthenticatedRef.current = true;
           setIsInitialLoading(false);
           if (typeof console !== 'undefined' && import.meta.env.DEV) {
-            console.log('[USER SET MANUAL]');
+            observabilityConsole.log('[USER SET MANUAL]');
           }
         });
 
@@ -1300,7 +1300,7 @@ const AppMain: React.FC = () => {
         pendingLoginRoleRef.current = null;
 
         if (typeof console !== 'undefined' && import.meta.env.DEV) {
-          console.log('[REDIRECT CHECK]', {
+          observabilityConsole.log('[REDIRECT CHECK]', {
             userInState: !!result.user,
             targetRoute,
           });
@@ -1334,7 +1334,7 @@ const AppMain: React.FC = () => {
         endLoginTrace('success');
       }
     } catch (error: any) {
-      console.error('Erro no handleLogin:', error);
+      observabilityConsole.error('Erro no handleLogin:', error);
       const recovered = await hydrateUserFromSessionIfExists();
       if (recovered) {
         endLoginTrace('recovered_via_hydrate_after_exception');
@@ -1446,7 +1446,6 @@ const AppMain: React.FC = () => {
         elapsedMs: elapsed,
       });
       try {
-        if (!getToken()) return;
         const hydrated = await withTimeout(authService.getCurrentUser(), 7000, 'hydration_recovery');
         if (!hydrated) return;
         const selectedRole = pendingLoginRoleRef.current;
@@ -1521,7 +1520,6 @@ const AppMain: React.FC = () => {
       if (document.visibilityState !== 'visible') return;
       void (async () => {
         try {
-          if (!getToken()) return;
           if (isLoggingIn && loginStartedAtRef.current && Date.now() - loginStartedAtRef.current > 4000) {
             dispatchAuthFlow({ type: 'RELEASE_LOADING' });
             activeLoginAttemptIdRef.current = null;
@@ -1576,12 +1574,10 @@ const AppMain: React.FC = () => {
 
     const tenantScope = user ? { companyId: user.companyId, userId: user.id } : undefined;
 
-    if (getToken()) {
-      try {
-        await apiPost('/auth/logout', {});
-      } catch {
-        // revogação no servidor é best-effort
-      }
+    try {
+      await apiPost('/auth/logout', {});
+    } catch {
+      // revogação no servidor é best-effort
     }
     clearToken();
     clearSession();
@@ -1636,7 +1632,7 @@ const AppMain: React.FC = () => {
         // ignora falha ao limpar caches PWA
       }
     } catch (error) {
-      console.error('Erro ao fazer logout:', error);
+      observabilityConsole.error('Erro ao fazer logout:', error);
     } finally {
       window.setTimeout(() => {
         logoutInProgressRef.current = false;
@@ -1657,7 +1653,7 @@ const AppMain: React.FC = () => {
       const nextTheme = theme === 'light' ? 'dark' : 'light';
       setTheme(nextTheme);
     } catch (error) {
-      console.error('Erro ao alternar tema:', error);
+      observabilityConsole.error('Erro ao alternar tema:', error);
     }
   }, [theme]);
 
@@ -1743,7 +1739,7 @@ const AppMain: React.FC = () => {
     if (!isInitialLoading) return;
 
     const safetyTimeout = setTimeout(() => {
-      console.warn('Safety timeout triggered - forcing app to load');
+      observabilityConsole.warn('Safety timeout triggered - forcing app to load');
       setIsInitialLoading(false);
     }, 90000);
 
@@ -2247,7 +2243,7 @@ const AppMain: React.FC = () => {
             try {
               localStorage.setItem(`onboarding_${user.id}`, 'true');
             } catch (err) {
-              console.warn('[App] Falha ao salvar onboarding:', err);
+              observabilityConsole.warn('[App] Falha ao salvar onboarding:', err);
             }
             setShowOnboarding(false);
           }}

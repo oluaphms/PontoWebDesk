@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { GitBranch, Plus, Pencil, Trash2, UserPlus } from 'lucide-react';
@@ -50,7 +51,7 @@ const AdminEstruturas: React.FC = () => {
         nome: u.nome || u.email || u.id,
       })));
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
     }
   };
 
@@ -113,7 +114,7 @@ const AdminEstruturas: React.FC = () => {
       }
       setRows(list);
     } catch (e) {
-      console.error(e);
+      observabilityConsole.error(e);
       setMessage({ type: 'error', text: 'Erro ao carregar estruturas.' });
     } finally {
       setLoadingData(false);

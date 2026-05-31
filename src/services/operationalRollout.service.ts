@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 type RolloutContext = {
   featureName: string;
   companyId?: string | null;
@@ -20,7 +21,7 @@ function simpleHash(input: string): number {
 export function resolveOperationalRollout(ctx: RolloutContext): boolean {
   const id = ctx.companyId ?? ctx.tenantId ?? '';
   if (!id) {
-    console.info('[ROLLOUT SKIPPED]', { feature: ctx.featureName, reason: 'missing_tenant_or_company' });
+    observabilityConsole.info('[ROLLOUT SKIPPED]', { feature: ctx.featureName, reason: 'missing_tenant_or_company' });
     return false;
   }
   const key = `${ctx.featureName}:${id}:${ctx.percentage ?? 0}`;
@@ -28,7 +29,7 @@ export function resolveOperationalRollout(ctx: RolloutContext): boolean {
   if (cached != null) return cached;
 
   if (ctx.allowlist?.includes(id)) {
-    console.info('[ROLLOUT ENABLED]', { feature: ctx.featureName, target: id, mode: 'allowlist' });
+    observabilityConsole.info('[ROLLOUT ENABLED]', { feature: ctx.featureName, target: id, mode: 'allowlist' });
     rolloutCache.set(key, true);
     return true;
   }
@@ -36,14 +37,14 @@ export function resolveOperationalRollout(ctx: RolloutContext): boolean {
   const percentage = Math.max(0, Math.min(100, ctx.percentage ?? 0));
   const bucket = simpleHash(`${id}:${ctx.featureName}`) % 100;
   const enabled = bucket < percentage;
-  console.info(enabled ? '[ROLLOUT ENABLED]' : '[ROLLOUT SKIPPED]', {
+  observabilityConsole.info(enabled ? '[ROLLOUT ENABLED]' : '[ROLLOUT SKIPPED]', {
     feature: ctx.featureName,
     target: id,
     mode: 'percentage',
     bucket,
     percentage,
   });
-  console.info('[ROLLOUT PERCENTAGE]', { feature: ctx.featureName, percentage, bucket, enabled });
+  observabilityConsole.info('[ROLLOUT PERCENTAGE]', { feature: ctx.featureName, percentage, bucket, enabled });
   rolloutCache.set(key, enabled);
   return enabled;
 }

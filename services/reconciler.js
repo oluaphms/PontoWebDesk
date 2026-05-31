@@ -1,3 +1,4 @@
+import { observabilityConsole } from './observabilityConsole.js';
 /**
  * Reconciliação automática: clock_event_logs → time_records (espelho).
  *
@@ -152,7 +153,7 @@ export class Reconciler {
         this._queue.log(LOG_LEVEL.INFO, 'reconciler',
           `Ciclo concluído: ${totalPromoted} promovidos, ${totalErrors} erros (${elapsed}ms)`,
           { groups: uniqueGroups.length, totalPromoted, totalErrors, elapsedMs: elapsed });
-        console.log(`[RECONCILER] ✓ ${totalPromoted} evento(s) reconciliados em ${elapsed}ms`);
+        observabilityConsole.log(`[RECONCILER] ✓ ${totalPromoted} evento(s) reconciliados em ${elapsed}ms`);
       }
 
       // Salvar checkpoint

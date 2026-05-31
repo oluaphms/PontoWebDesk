@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { DailySummary } from "../types";
 import { getGeminiApiKey, getGeminiModelId, validateGeminiApiKey } from "./geminiEnv";
 
@@ -57,7 +58,7 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
   const validation = validateGeminiApiKey(apiKey);
   if (!validation.valid) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini] Validação da chave falhou:', validation.error);
+      observabilityConsole.warn('[Gemini] Validação da chave falhou:', validation.error);
     }
     return {
       insight: validation.error || FALLBACK_INSIGHT.insight,
@@ -90,7 +91,7 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
         isLikelyModelOrPayloadError(firstErr)
       ) {
         if (import.meta.env?.DEV) {
-          console.warn(
+          observabilityConsole.warn(
             `[Gemini] Modelo '${model}' indisponível (${code}); tentando '${GEMINI_MODEL_FALLBACK}'.`,
           );
         }
@@ -118,12 +119,12 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
 
     // Log detalhado em desenvolvimento
     if (import.meta.env?.DEV) {
-      console.warn(`[Gemini] Erro na API (status: ${statusCode || 'unknown'}):`, errorMsg);
+      observabilityConsole.warn(`[Gemini] Erro na API (status: ${statusCode || 'unknown'}):`, errorMsg);
     }
 
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
-        console.warn('[Gemini] Chave inválida ou sem permissão para o modelo.');
+        observabilityConsole.warn('[Gemini] Chave inválida ou sem permissão para o modelo.');
       }
       return {
         insight: FALLBACK_INSIGHT.insight,
@@ -134,7 +135,7 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
     // Tratamento específico para erro 400 (Bad Request)
     if (statusCode === 400 || statusCode === 404 || isLikelyModelOrPayloadError(error)) {
       if (import.meta.env?.DEV) {
-        console.warn(
+        observabilityConsole.warn(
           `[Gemini] Erro de modelo (400/404) — Possíveis causas:\n` +
           `  1. Modelo '${model}' não disponível para a chave. Defina VITE_GEMINI_MODEL (ex.: gemini-1.5-flash ou gemini-2.0-flash)\n` +
           `  2. Chave de API inválida ou sem acesso ao modelo\n` +
@@ -149,7 +150,7 @@ async function getWorkInsightsImpl(summaries: DailySummary[]): Promise<{ insight
     }
 
     if (import.meta.env?.DEV) {
-      console.warn("[Gemini] Insights - Erro genérico:", errorMsg);
+      observabilityConsole.warn("[Gemini] Insights - Erro genérico:", errorMsg);
     }
 
     return { insight: "Continue mantendo o registro regular do seu ponto para análises futuras.", score: 8 };
@@ -164,7 +165,7 @@ export async function getWorkInsights(summaries: DailySummary[]): Promise<{ insi
     return await getWorkInsightsImpl(summaries);
   } catch (error) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini] getWorkInsights falhou (isolado, sem impacto no app):', error);
+      observabilityConsole.warn('[Gemini] getWorkInsights falhou (isolado, sem impacto no app):', error);
     }
     return { ...FALLBACK_INSIGHT };
   }
@@ -186,7 +187,7 @@ async function sendHRChatMessageImpl(
   const validation = validateGeminiApiKey(apiKey);
   if (!validation.valid) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini Chat] Validação da chave falhou:', validation.error);
+      observabilityConsole.warn('[Gemini Chat] Validação da chave falhou:', validation.error);
     }
     return validation.error || 'O assistente de IA não está disponível neste ambiente.';
   }
@@ -219,7 +220,7 @@ async function sendHRChatMessageImpl(
         isLikelyModelOrPayloadError(firstErr)
       ) {
         if (import.meta.env?.DEV) {
-          console.warn(`[Gemini Chat] Modelo '${model}' falhou (${code}); tentando '${GEMINI_MODEL_FALLBACK}'.`);
+          observabilityConsole.warn(`[Gemini Chat] Modelo '${model}' falhou (${code}); tentando '${GEMINI_MODEL_FALLBACK}'.`);
         }
         response = await runChat(GEMINI_MODEL_FALLBACK);
       } else {
@@ -234,12 +235,12 @@ async function sendHRChatMessageImpl(
     const statusCode = getErrorStatusCode(error);
 
     if (import.meta.env?.DEV) {
-      console.warn(`[Gemini] Chat - Erro (status: ${statusCode || 'unknown'}):`, errorMsg);
+      observabilityConsole.warn(`[Gemini] Chat - Erro (status: ${statusCode || 'unknown'}):`, errorMsg);
     }
 
     if (isInvalidOrDeniedGeminiKey(error)) {
       if (import.meta.env?.DEV) {
-        console.warn('[Gemini] Chat: chave inválida ou sem permissão.');
+        observabilityConsole.warn('[Gemini] Chat: chave inválida ou sem permissão.');
       }
       return 'O assistente de IA não está disponível neste ambiente.';
     }
@@ -247,7 +248,7 @@ async function sendHRChatMessageImpl(
     // Tratamento específico para erro 400
     if (statusCode === 400 || statusCode === 404 || isLikelyModelOrPayloadError(error)) {
       if (import.meta.env?.DEV) {
-        console.warn(
+        observabilityConsole.warn(
           `[Gemini] Chat: modelo '${model}' ou payload — tente VITE_GEMINI_MODEL=gemini-1.5-flash ou gemini-2.0-flash`,
         );
       }
@@ -266,7 +267,7 @@ export async function sendHRChatMessage(
     return await sendHRChatMessageImpl(userMessage, history);
   } catch (error) {
     if (import.meta.env?.DEV) {
-      console.warn('[Gemini] Chat isolado (falha não propaga):', error);
+      observabilityConsole.warn('[Gemini] Chat isolado (falha não propaga):', error);
     }
     return 'O assistente de IA está temporariamente indisponível. Tente novamente em instantes.';
   }

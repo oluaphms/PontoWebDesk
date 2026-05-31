@@ -6,6 +6,7 @@ import dataRoutes from './dataRoutes.js';
 import adminRoutes from './adminRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import { pool } from '../db/index.js';
+import { logger } from '../logger/logger.js';
 
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
 const apiRouter = Router();
@@ -15,7 +16,12 @@ apiRouter.get('/health', async (_req, res) => {
     await pool.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected' });
   } catch (err) {
-    console.error('[HEALTH]', err);
+    logger.error({
+      module: 'http.health',
+      action: 'HEALTH_CHECK_FAILED',
+      message: 'Falha no health check',
+      error: err,
+    });
     res.status(503).json({ status: 'degraded', db: 'down' });
   }
 });
@@ -25,7 +31,12 @@ apiRouter.get('/health/db', async (_req, res) => {
     await pool.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected' });
   } catch (err) {
-    console.error('[HEALTH/db]', err);
+    logger.error({
+      module: 'http.health',
+      action: 'HEALTH_DB_CHECK_FAILED',
+      message: 'Falha no health/db check',
+      error: err,
+    });
     res.status(500).json({ status: 'error', db: 'down' });
   }
 });

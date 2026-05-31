@@ -1,3 +1,4 @@
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { MapPin, PlusCircle } from 'lucide-react';
@@ -54,7 +55,7 @@ const LocationsPage: React.FC = () => {
           })),
         );
       } catch (e) {
-        console.error('Erro ao carregar localizações:', e);
+        observabilityConsole.error('Erro ao carregar localizações:', e);
       } finally {
         setIsLoadingData(false);
       }
@@ -103,7 +104,7 @@ const LocationsPage: React.FC = () => {
 
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Erro ao criar localização:', err);
+      observabilityConsole.error('Erro ao criar localização:', err);
     }
   };
 
