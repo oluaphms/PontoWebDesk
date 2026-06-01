@@ -1,6 +1,7 @@
 import { pool } from '../db/index.js';
 import type { JwtPayload } from '../middlewares/authMiddleware.js';
 import { normalizeRole } from '../utils/authContext.js';
+import { tableHasColumn } from '../db/schemaColumns.js';
 
 export type CallerContext = {
   userId: string;
@@ -14,14 +15,21 @@ export type CallerContext = {
 export async function resolveCallerFromDb(jwt: JwtPayload): Promise<CallerContext | null> {
   const userId = String(jwt.sub || jwt.userId || '').trim();
   if (!userId) return null;
+  const [usersHasStatus, employeesHasStatus] = await Promise.all([
+    tableHasColumn('users', 'status'),
+    tableHasColumn('employees', 'status'),
+  ]);
 
   const fromUsers = await pool.query(
-    `SELECT company_id::text AS company_id, coalesce(nullif(trim(role), ''), 'employee') AS role
+    `SELECT company_id::text AS company_id,
+            coalesce(nullif(trim(role), ''), 'employee') AS role,
+            ${usersHasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} AS status
      FROM public.users WHERE id::text = $1 LIMIT 1`,
     [userId],
   );
   const uRow = fromUsers.rows[0];
   if (uRow?.company_id) {
+    if (String(uRow.status || 'active') !== 'active') return null;
     return {
       userId,
       companyId: String(uRow.company_id),
@@ -30,12 +38,15 @@ export async function resolveCallerFromDb(jwt: JwtPayload): Promise<CallerContex
   }
 
   const fromEmployees = await pool.query(
-    `SELECT company_id::text AS company_id, coalesce(nullif(trim(role), ''), 'employee') AS role
+    `SELECT company_id::text AS company_id,
+            coalesce(nullif(trim(role), ''), 'employee') AS role,
+            ${employeesHasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} AS status
      FROM public.employees WHERE id::text = $1 LIMIT 1`,
     [userId],
   );
   const eRow = fromEmployees.rows[0];
   if (eRow?.company_id) {
+    if (String(eRow.status || 'active') !== 'active') return null;
     return {
       userId,
       companyId: String(eRow.company_id),
@@ -43,11 +54,5 @@ export async function resolveCallerFromDb(jwt: JwtPayload): Promise<CallerContex
     };
   }
 
-  const jwtCompany = String(jwt.companyId || '').trim();
-  if (!jwtCompany) return null;
-  return {
-    userId,
-    companyId: jwtCompany,
-    role: normalizeRole(jwt.role),
-  };
+  return null;
 }

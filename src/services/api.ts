@@ -91,6 +91,8 @@ function extractApiErrorMessage(body: unknown, status: number): string {
     if (typeof message === 'string' && message.trim()) return message.trim();
     const error = record.error;
     if (typeof error === 'string' && error.trim()) return error.trim();
+    const code = record.code;
+    if (typeof code === 'string' && code.trim()) return code.trim();
   }
   return `HTTP ${status}`;
 }
@@ -152,7 +154,12 @@ async function parseResponse<T>(
       payloadKeys: payloadKeys(context.requestBody),
       correlationId: currentCorrelationId || undefined,
     };
-    console.error('API ERROR:', errorContext);
+    const consoleMessage = `API ERROR ${context.method} ${context.path} ${status}: ${errMsg}`;
+    if (status === 401 && normalizeApiPath(context.path) === '/auth/me') {
+      console.warn(consoleMessage, errorContext);
+    } else {
+      console.error(consoleMessage, errorContext);
+    }
     logger.error({
       module: 'frontend.api',
       action: 'API_REQUEST_FAILED',

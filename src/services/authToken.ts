@@ -1,5 +1,6 @@
 const COOKIE_SESSION_TOKEN = '__http_only_cookie_session__';
 const AUTH_TOKEN_STORAGE_KEY = 'pwd_auth_token';
+const LEGACY_AUTH_TOKEN_STORAGE_KEYS = ['token'] as const;
 
 let cookieSessionActive = false;
 let bearerTokenCache: string | null = null;
@@ -13,7 +14,17 @@ function readStoredToken(): string | null {
   try {
     const raw = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
     const value = String(raw || '').trim();
-    return value || null;
+    if (value && !isCookieMarker(value)) return value;
+
+    for (const key of LEGACY_AUTH_TOKEN_STORAGE_KEYS) {
+      const legacyRaw = window.localStorage.getItem(key);
+      const legacyValue = String(legacyRaw || '').trim();
+      if (legacyValue && !isCookieMarker(legacyValue)) {
+        persistStoredToken(legacyValue);
+        return legacyValue;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -22,8 +33,15 @@ function readStoredToken(): string | null {
 function persistStoredToken(token: string | null): void {
   if (!canUseBrowserStorage()) return;
   try {
-    if (token) window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-    else window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    if (token) {
+      window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+      window.localStorage.setItem('token', token);
+    } else {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      for (const key of LEGACY_AUTH_TOKEN_STORAGE_KEYS) {
+        window.localStorage.removeItem(key);
+      }
+    }
   } catch {
     // storage indisponivel nao deve quebrar auth
   }
@@ -52,7 +70,9 @@ export function setToken(token: string | null): void {
   }
 
   if (isCookieMarker(next)) {
+    bearerTokenCache = null;
     cookieSessionActive = true;
+    persistStoredToken(null);
     return;
   }
 

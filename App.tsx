@@ -1095,7 +1095,7 @@ const AppMain: React.FC = () => {
         }
       }
 
-      let result: { user: any; error: string | null; source?: 'remote' | 'local' | 'offline-forced' };
+      let result: { user: any; error: string | null; source?: 'api' | 'remote' | 'local' | 'offline-forced' };
       try {
         /**
          * Hard-lock anti-spinner infinito no mobile:

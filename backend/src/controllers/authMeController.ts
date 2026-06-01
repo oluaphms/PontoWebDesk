@@ -1,8 +1,8 @@
-import { observabilityConsole } from '../logger/observabilityConsole.js';
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
+import { logger } from '../logger/logger.js';
 
 async function usersSelectColumns(): Promise<string> {
   const optional = await Promise.all(
@@ -41,7 +41,13 @@ async function usersSelectColumns(): Promise<string> {
 export async function authMeController(req: AuthedRequest, res: Response): Promise<void> {
   const userId = String(req.auth?.sub || '').trim();
   if (!userId) {
-    res.status(401).json({ ok: false, error: 'missing_token' });
+    res.status(401).json({
+      ok: false,
+      success: false,
+      error: 'missing_token',
+      code: 'AUTH_MISSING_TOKEN',
+      message: 'Token ausente ou inválido.',
+    });
     return;
   }
 
@@ -70,6 +76,13 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
     }
 
     if (!row) {
+      logger.warn({
+        module: 'auth.me',
+        action: 'AUTH_ME_USER_NOT_FOUND',
+        message: 'Usuário autenticado não encontrado em users nem employees',
+        userId,
+        companyId: req.auth?.companyId ?? null,
+      });
       res.status(404).json({
         ok: false,
         success: false,
@@ -101,12 +114,23 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       data: user,
     });
   } catch (e) {
-    observabilityConsole.error('[AUTH ME]', e);
+    logger.error({
+      module: 'auth.me',
+      action: 'AUTH_ME_FAILED',
+      message: 'Falha ao consultar usuário autenticado',
+      userId,
+      companyId: req.auth?.companyId ?? null,
+      error: e,
+      meta: {
+        path: '/api/auth/me',
+      },
+    });
     res.status(500).json({
       ok: false,
       success: false,
       error: 'auth_me_failed',
       code: 'AUTH_ME_FAILED',
+      message: 'Falha ao consultar sessão autenticada.',
     });
   }
 }

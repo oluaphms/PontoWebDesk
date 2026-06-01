@@ -428,11 +428,27 @@ function getPasswordChecks(password: string): Array<{ label: string; ok: boolean
 function errorProps(err: unknown): { message: string; detail?: string; status: unknown; code: unknown } {
   if (err && typeof err === 'object') {
     const r = err as Record<string, unknown>;
+    const body = r.body && typeof r.body === 'object' ? (r.body as Record<string, unknown>) : null;
+    const details = body?.details && typeof body.details === 'object' ? (body.details as Record<string, unknown>) : null;
+    const bodyMessage =
+      typeof body?.message === 'string'
+        ? body.message
+        : typeof body?.error === 'string'
+          ? body.error
+          : undefined;
+    const detail =
+      typeof r.detail === 'string'
+        ? r.detail
+        : typeof body?.detail === 'string'
+          ? body.detail
+          : typeof details?.reason === 'string'
+            ? details.reason
+            : undefined;
     return {
-      message: typeof r.message === 'string' ? r.message : messageFromUnknown(err),
-      detail: typeof r.detail === 'string' ? r.detail : undefined,
+      message: bodyMessage || (typeof r.message === 'string' ? r.message : messageFromUnknown(err)),
+      detail,
       status: r.status ?? r.statusCode,
-      code: r.code,
+      code: r.code ?? body?.code,
     };
   }
   return { message: messageFromUnknown(err), detail: undefined, status: null, code: '' };
@@ -1127,7 +1143,7 @@ const AdminEmployees: React.FC = () => {
 
   const confirmInvisivel = async (id: string) => {
     try {
-      await updateEmployee(id, { status: 'inactive' });
+      await updateEmployee(id, { status: 'inactive', invisivel: true });
       setSuccess('Funcionário marcado como invisível (não aparecerá nos relatórios).');
       setAskInvisivel(null);
       setRows((prev) => prev.map((row) => (row.id === id ? { ...row, status: 'inactive', invisivel: true } : row)));

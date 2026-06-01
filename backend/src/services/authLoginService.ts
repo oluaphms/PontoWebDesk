@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { pool } from '../db/index.js';
 import { newTokenJti } from './tokenRevocationService.js';
+import { tableHasColumn } from '../db/schemaColumns.js';
 
 export type AuthLoginRow = {
   id: string;
@@ -11,6 +12,7 @@ export type AuthLoginRow = {
   role: string;
   password_hash: string;
   source: 'users' | 'employees';
+  status: string;
 };
 
 export type AuthLoginSuccess = {
@@ -57,13 +59,15 @@ async function employeesHasPasswordHash(): Promise<boolean> {
 }
 
 async function findInUsers(email: string): Promise<AuthLoginRow | null> {
+  const hasStatus = await tableHasColumn('users', 'status');
   const result = await pool.query(
     `select id::text,
             coalesce(nullif(trim(email), ''), $1) as email,
             coalesce(nullif(trim(nome), ''), nullif(trim(email), ''), $1) as nome,
             coalesce(nullif(trim(company_id::text), ''), '') as company_id,
             coalesce(nullif(trim(role), ''), 'employee') as role,
-            password_hash
+            password_hash,
+            ${hasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} as status
      from users
      where lower(trim(email)) = $1
      limit 1`,
@@ -79,11 +83,13 @@ async function findInUsers(email: string): Promise<AuthLoginRow | null> {
     role: String(row.role || 'employee'),
     password_hash: row.password_hash != null ? String(row.password_hash) : '',
     source: 'users',
+    status: String(row.status || 'active'),
   };
 }
 
 async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
   if (!(await employeesHasPasswordHash())) return null;
+  const hasStatus = await tableHasColumn('employees', 'status');
 
   const result = await pool.query(
     `select id::text,
@@ -91,7 +97,8 @@ async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
             coalesce(nullif(trim(nome), ''), nullif(trim(email), ''), $1) as nome,
             coalesce(nullif(trim(company_id::text), ''), '') as company_id,
             coalesce(nullif(trim(role), ''), 'employee') as role,
-            password_hash
+            password_hash,
+            ${hasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} as status
      from employees
      where lower(trim(email)) = $1
      limit 1`,
@@ -107,6 +114,7 @@ async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
     role: String(row.role || 'employee'),
     password_hash: row.password_hash != null ? String(row.password_hash) : '',
     source: 'employees',
+    status: String(row.status || 'active'),
   };
 }
 
@@ -128,6 +136,12 @@ export async function authenticateLogin(
   const user = (await findInUsers(identifier)) ?? (await findInEmployees(identifier));
   if (!user) {
     return { status: 401, error: 'Usuário não encontrado' };
+  }
+  if (!user.company_id) {
+    return { status: 401, error: 'Usuário sem empresa vinculada' };
+  }
+  if (user.status && user.status !== 'active') {
+    return { status: 401, error: 'Usuário inativo' };
   }
 
   if (!user.password_hash) {

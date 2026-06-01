@@ -74,6 +74,11 @@ export async function syncUserFieldsFromEmployeeBody(
 
   const set = (col: string, value: unknown) => {
     if (value === undefined) return;
+    const existing = mappings.find((item) => item.col === col);
+    if (existing) {
+      existing.value = value;
+      return;
+    }
     mappings.push({ col, value });
   };
   const nullableTrim = (value: unknown) => {
@@ -90,6 +95,11 @@ export async function syncUserFieldsFromEmployeeBody(
         ? null
         : String(body.numero_identificador).trim(),
     );
+  }
+  if ('pis' in body) {
+    const pis = body.pis == null || body.pis === '' ? null : String(body.pis).trim();
+    set('pis_pasep', pis);
+    set('pis', pis);
   }
   if ('pis_pasep' in body) set('pis_pasep', body.pis_pasep == null || body.pis_pasep === '' ? null : String(body.pis_pasep).trim());
   if ('telefone' in body) set('phone', body.telefone == null || body.telefone === '' ? null : String(body.telefone).trim());

@@ -408,39 +408,75 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
 
   const id = String(req.params.id || '').trim();
   if (!id) {
-    res.status(400).json({ ok: false, error: 'missing_fields' });
+    res.status(400).json({
+      ok: false,
+      success: false,
+      error: 'missing_fields',
+      code: 'EMPLOYEE_ID_REQUIRED',
+      message: 'ID do colaborador é obrigatório.',
+    });
+    return;
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({
+      ok: false,
+      success: false,
+      error: 'invalid_id',
+      code: 'EMPLOYEE_INVALID_ID',
+      message: 'ID do colaborador inválido.',
+      details: { employeeId: id },
+    });
     return;
   }
 
-  const validation = validateEmployeePatch(req.body);
-  if (!validation.ok) {
-    res.status(400).json({ ok: false, error: validation.error, field: validation.field });
-    return;
-  }
-
-  const partial = validation.partial ?? {};
-  const fields: string[] = [];
-  const values: unknown[] = [companyId, id];
-  let idx = 3;
   const body =
-    req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const hasUserSyncField = Object.keys(body).some((key) => USER_SYNC_PATCH_FIELDS.has(key));
-  const employeeLinks = await getTableLinkColumns('employees', pool);
-
-  for (const key of PATCHABLE) {
-    if (!(key in partial)) continue;
-    if (isEmployeeLinkColumn(key) && !employeeLinks[key]) continue;
-    fields.push(`${key} = $${idx++}`);
-    values.push(partial[key as keyof typeof partial]);
-  }
-
-  if (fields.length === 0 && !hasUserSyncField) {
-    res.status(400).json({ ok: false, error: 'no_updates' });
+    req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+      ? (req.body as Record<string, unknown>)
+      : {};
+  const validation = validateEmployeePatch(body);
+  if (!validation.ok) {
+    res.status(400).json({
+      ok: false,
+      success: false,
+      error: validation.error,
+      code: 'EMPLOYEE_VALIDATION_FAILED',
+      message: validation.error,
+      field: validation.field,
+    });
     return;
   }
 
-  const client = await pool.connect();
+  let client: PoolClient | null = null;
+  let updateSql = '';
+  let fields: string[] = [];
+  const values: unknown[] = [companyId, id];
+  let employeeLinks: LinkColumnMap = { schedule_id: false, shift_id: false };
   try {
+    const partial = validation.partial ?? {};
+    let idx = 3;
+    const hasUserSyncField = Object.keys(body).some((key) => USER_SYNC_PATCH_FIELDS.has(key));
+    employeeLinks = await getTableLinkColumns('employees', pool);
+
+    fields = [];
+    for (const key of PATCHABLE) {
+      if (!(key in partial)) continue;
+      if (isEmployeeLinkColumn(key) && !employeeLinks[key]) continue;
+      fields.push(`${key} = $${idx++}`);
+      values.push(partial[key as keyof typeof partial]);
+    }
+
+    if (fields.length === 0 && !hasUserSyncField) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'no_updates',
+        code: 'EMPLOYEE_NO_UPDATES',
+        message: 'Nenhum campo válido para atualizar.',
+      });
+      return;
+    }
+
+    client = await pool.connect();
     await client.query('begin');
     const existing = await client.query(
       `select ${buildEmployeeReturningColumns(employeeLinks)}
@@ -461,10 +497,11 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     }
     let employeeRow = existing.rows[0] as Record<string, unknown>;
     if (fields.length > 0) {
+      updateSql = `update employees set ${fields.join(', ')}
+         where id::text = $2 and company_id::text = $1
+         returning ${buildEmployeeReturningColumns(employeeLinks)}`;
       const updated = await client.query(
-        `update employees set ${fields.join(', ')}
-         where id = $2 and company_id = $1
-         returning ${buildEmployeeReturningColumns(employeeLinks)}`,
+        updateSql,
         values,
       );
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
@@ -523,18 +560,57 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     const employee = mapRow(refreshed ?? employeeRow);
     res.json({ ok: true, success: true, employee, data: employee });
   } catch (e: unknown) {
-    try {
-      await client.query('rollback');
-    } catch {
-      // noop
+    if (client) {
+      try {
+        await client.query('rollback');
+      } catch {
+        // noop
+      }
     }
-    const msg = String((e as { code?: string })?.code || '');
-    if (msg === '23505') {
-      res.status(400).json({
+    const dbCode = String((e as { code?: string })?.code || '');
+    if (dbCode === '23505') {
+      res.status(409).json({
         ok: false,
         success: false,
         error: 'CPF ou e-mail já cadastrado',
         code: 'EMPLOYEE_DUPLICATE',
+        message: 'CPF ou e-mail já cadastrado.',
+      });
+      return;
+    }
+    if (dbCode === '23503' || dbCode === '23514' || dbCode === '23502' || dbCode === '22P02') {
+      const constraintMessage =
+        dbCode === '23503' || dbCode === '23514'
+          ? 'Vínculo inválido de escala, horário ou empresa.'
+          : dbCode === '23502'
+            ? 'Campo obrigatório ausente para atualizar colaborador.'
+            : 'Valor inválido para o tipo esperado no banco.';
+      logger.warn({
+        module: 'employee.controller',
+        action: 'EMPLOYEE_UPDATE_REJECTED_BY_DB',
+        message: constraintMessage,
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: e,
+        meta: {
+          employeeId: id,
+          dbCode,
+          sql: updateSql || null,
+          payloadKeys: Object.keys(body).sort(),
+          patchFields: fields,
+        },
+      });
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'invalid_employee_update',
+        code: 'EMPLOYEE_UPDATE_REJECTED',
+        message: constraintMessage,
+        details: {
+          employeeId: id,
+          dbCode,
+          payloadKeys: Object.keys(body).sort(),
+        },
       });
       return;
     }
@@ -547,17 +623,30 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
-      meta: { employeeId: id, code },
+      meta: {
+        employeeId: id,
+        code,
+        dbCode: dbCode || null,
+        sql: updateSql || null,
+        payloadKeys: Object.keys(body).sort(),
+        patchFields: fields,
+      },
     });
     res.status(500).json({
       ok: false,
       success: false,
       error: 'update_failed',
       code,
-      details: { employeeId: id, reason: code },
+      message: 'Falha ao atualizar colaborador.',
+      details: {
+        employeeId: id,
+        reason: code,
+        dbCode: dbCode || undefined,
+        cause: message,
+      },
     });
   } finally {
-    client.release();
+    client?.release();
   }
 }
 

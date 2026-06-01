@@ -93,7 +93,7 @@ import { isLocalApiMode } from '../src/config/system';
 export interface AuthResult {
   user: User | null;
   error: string | null;
-  source?: 'remote' | 'local' | 'offline-forced';
+  source?: 'api' | 'remote' | 'local' | 'offline-forced';
 }
 
 /** Evita chamadas repetidas a auth.updateUser (causavam lentidão, refresh em loop e logout falso). */
