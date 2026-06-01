@@ -16,7 +16,6 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { User } from '../../types';
-import { authService } from '../../services/authService';
 import { fetchAuthMe } from '../services/authMe.service';
 import { clearToken } from '../services/authToken';
 import { setUnauthorizedHandler } from '../services/api';
@@ -25,6 +24,7 @@ import {
   readInitialSessionUser,
   readUserFromProfileStore,
   setSessionUserCache,
+  clearStoredSessionUser,
   isAuthLogoutGuardActive,
 } from './authSessionInternals';
 
@@ -62,7 +62,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearSession = useCallback(() => {
-    setSessionUserCache(null);
+    clearStoredSessionUser();
     setUser(null);
     setLoading(false);
   }, []);
@@ -94,9 +94,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (bootRefreshDoneRef.current) return;
     bootRefreshDoneRef.current = true;
-    if (!user) {
-      void refresh();
-    }
+    void refresh();
   }, [refresh, user]);
 
   useEffect(() => {

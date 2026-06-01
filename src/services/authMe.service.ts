@@ -1,10 +1,9 @@
-import { apiGet } from './apiClient';
+import { ApiError, apiGet } from './apiClient';
 import { clearToken, setToken } from './authToken';
 import type { User } from '../../types';
+import { logger } from '../shared/logger/logger';
 
-type MeResponse = {
-  ok?: boolean;
-  user?: {
+type MeUser = {
     id: string;
     nome: string;
     email: string;
@@ -16,10 +15,15 @@ type MeResponse = {
     preferences?: User['preferences'];
     schedule_id?: string | null;
   };
+type MeResponse = {
+  ok?: boolean;
+  success?: boolean;
+  data?: MeUser;
+  user?: MeUser;
   error?: string;
 };
 
-function mapMeUser(row: NonNullable<MeResponse['user']>): User {
+function mapMeUser(row: MeUser): User {
   return {
     id: row.id,
     nome: row.nome,
@@ -44,13 +48,33 @@ function mapMeUser(row: NonNullable<MeResponse['user']>): User {
 export async function fetchAuthMe(): Promise<User | null> {
   try {
     const res = (await apiGet('/auth/me')) as MeResponse;
-    if (!res?.ok || !res.user?.id) {
+    const user = res.user ?? res.data;
+    if ((!res?.ok && !res?.success) || !user?.id) {
       clearToken();
       return null;
     }
     setToken('cookie');
-    return mapMeUser(res.user);
-  } catch {
+    return mapMeUser(user);
+  } catch (error) {
+    const status = error instanceof ApiError ? error.status : undefined;
+    logger.warn({
+      module: 'auth.me',
+      action: 'AUTH_ME_FAILED',
+      message:
+        status === 401
+          ? 'Sessão expirada ou token ausente ao consultar /auth/me'
+          : 'Falha ao consultar /auth/me',
+      error,
+      meta:
+        error instanceof ApiError
+          ? {
+              status: error.status,
+              body: error.body,
+              path: error.path,
+              correlationId: error.correlationId,
+            }
+          : {},
+    });
     clearToken();
     return null;
   }

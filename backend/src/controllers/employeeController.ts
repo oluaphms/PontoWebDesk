@@ -9,7 +9,7 @@ import {
   validateEmployeePatch,
   type NormalizedEmployeeInput,
 } from '../utils/employeeValidation.js';
-import { rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
+import { authUserId, isAdminOrHr, rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
 import {
   ensureUserForEmployee,
   syncUserFieldsFromEmployeeBody,
@@ -19,6 +19,18 @@ import { logger } from '../logger/logger.js';
 const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
 type EmployeeLinkColumn = (typeof EMPLOYEE_LINK_COLUMNS)[number];
 type LinkColumnMap = Record<EmployeeLinkColumn, boolean>;
+const USER_VIEW_COLUMNS = [
+  'pis_pasep',
+  'phone',
+  'admissao',
+  'numero_folha',
+  'numero_identificador',
+  'demissao',
+  'invisivel',
+  'employee_config',
+] as const;
+type UserViewColumn = (typeof USER_VIEW_COLUMNS)[number];
+type UserViewColumnMap = Record<UserViewColumn, boolean>;
 
 function isEmployeeLinkColumn(key: keyof NormalizedEmployeeInput): key is EmployeeLinkColumn {
   return (EMPLOYEE_LINK_COLUMNS as readonly string[]).includes(key);
@@ -34,6 +46,24 @@ async function getTableLinkColumns(
   return Object.fromEntries(entries) as LinkColumnMap;
 }
 
+async function getUserViewColumns(
+  db: Pick<PoolClient, 'query'> | typeof pool = pool,
+): Promise<UserViewColumnMap> {
+  const entries = await Promise.all(
+    USER_VIEW_COLUMNS.map(async (column) => [column, await tableHasColumn('users', column, db)] as const),
+  );
+  return Object.fromEntries(entries) as UserViewColumnMap;
+}
+
+function userColumnSelect(
+  columns: UserViewColumnMap,
+  column: UserViewColumn,
+  alias = column,
+  fallback = 'null',
+): string {
+  return columns[column] ? `u.${column} as ${alias}` : `${fallback} as ${alias}`;
+}
+
 function buildEmployeeReturningColumns(employeeLinks: LinkColumnMap): string {
   const optionalColumns = EMPLOYEE_LINK_COLUMNS.filter((column) => employeeLinks[column]);
   return [EMPLOYEE_SELECT_COLUMNS, ...optionalColumns].join(', ');
@@ -47,21 +77,31 @@ function buildLinkSelect(column: EmployeeLinkColumn, employeeLinks: LinkColumnMa
 }
 
 async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof pool = pool): Promise<string> {
-  const [employeeLinks, userLinks] = await Promise.all([
+  const [employeeLinks, userLinks, userColumns] = await Promise.all([
     getTableLinkColumns('employees', db),
     getTableLinkColumns('users', db),
+    getUserViewColumns(db),
   ]);
   const linkColumns = EMPLOYEE_LINK_COLUMNS.map((column) => buildLinkSelect(column, employeeLinks, userLinks));
+  const pisSelect = userColumns.pis_pasep ? 'coalesce(e.pis, u.pis_pasep) as pis' : 'e.pis as pis';
+  const phoneSelect = userColumns.phone ? 'coalesce(e.telefone, u.phone) as telefone' : 'e.telefone as telefone';
+  const admissionSelect = userColumns.admissao
+    ? 'coalesce(e.data_admissao, u.admissao) as data_admissao'
+    : 'e.data_admissao as data_admissao';
 
   return `
     e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
     e.cpf,
-    coalesce(e.pis, u.pis_pasep) as pis,
-    coalesce(e.telefone, u.phone) as telefone,
-    coalesce(e.data_admissao, u.admissao) as data_admissao,
+    ${pisSelect},
+    ${phoneSelect},
+    ${admissionSelect},
     e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
     ${linkColumns.join(',\n    ')},
-    u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+    ${userColumnSelect(userColumns, 'numero_folha')},
+    ${userColumnSelect(userColumns, 'numero_identificador')},
+    ${userColumnSelect(userColumns, 'demissao')},
+    ${userColumnSelect(userColumns, 'invisivel', 'invisivel', 'false')},
+    ${userColumnSelect(userColumns, 'employee_config', 'employee_config', "'{}'::jsonb")}
   `.trim();
 }
 
@@ -105,7 +145,8 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        limit 1000`,
       [companyId],
     );
-    res.json({ ok: true, employees: result.rows.map(mapRow) });
+    const employees = result.rows.map(mapRow);
+    res.json({ ok: true, success: true, employees, data: employees });
   } catch (e) {
     logger.error({
       module: 'employee.controller',
@@ -115,7 +156,71 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
       companyId,
       error: e,
     });
-    res.status(500).json({ ok: false, error: 'employees_list_failed' });
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: 'employees_list_failed',
+      code: 'EMPLOYEES_LIST_FAILED',
+    });
+  }
+}
+
+export async function getEmployeeController(req: AuthedRequest, res: Response): Promise<void> {
+  if (rejectTenantOverride(req, res)) return;
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+
+  const id = String(req.params.id || '').trim();
+  if (!id) {
+    res.status(400).json({
+      ok: false,
+      success: false,
+      error: 'missing_fields',
+      code: 'EMPLOYEE_ID_REQUIRED',
+    });
+    return;
+  }
+
+  const selfAccess = authUserId(req.auth) === id;
+  if (!isAdminOrHr(req.auth?.role) && !selfAccess) {
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: 'EMPLOYEE_FORBIDDEN',
+    });
+    return;
+  }
+
+  try {
+    const row = await fetchEmployeeViewById(pool, id, companyId);
+    if (!row) {
+      res.status(404).json({
+        ok: false,
+        success: false,
+        error: 'not_found',
+        code: 'EMPLOYEE_NOT_FOUND',
+      });
+      return;
+    }
+    const employee = mapRow(row);
+    res.json({ ok: true, success: true, employee, data: employee });
+  } catch (e) {
+    logger.error({
+      module: 'employee.controller',
+      action: 'EMPLOYEE_GET_FAILED',
+      message: 'Falha ao buscar colaborador por id',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
+      error: e,
+      meta: { employeeId: id },
+    });
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: 'employee_get_failed',
+      code: 'EMPLOYEE_GET_FAILED',
+    });
   }
 }
 
@@ -196,11 +301,17 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
     });
     await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
     const refreshed = await fetchEmployeeViewById(pool, String(raw.id), companyId);
-    res.status(201).json({ ok: true, employee: mapRow(refreshed ?? raw) });
+    const employee = mapRow(refreshed ?? raw);
+    res.status(201).json({ ok: true, success: true, employee, data: employee });
   } catch (e: unknown) {
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
-      res.status(400).json({ ok: false, error: 'CPF ou e-mail já cadastrado nesta empresa' });
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'CPF ou e-mail já cadastrado nesta empresa',
+        code: 'EMPLOYEE_DUPLICATE',
+      });
       return;
     }
     logger.error({
@@ -211,7 +322,12 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       companyId,
       error: e,
     });
-    res.status(500).json({ ok: false, error: 'create_failed' });
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: 'create_failed',
+      code: 'EMPLOYEE_CREATE_FAILED',
+    });
   }
 }
 
@@ -256,7 +372,7 @@ async function fetchEmployeeViewById(
        ${viewSelect}
      from employees e
      left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
-     where e.id = $1 and e.company_id = $2
+     where e.id::text = $1 and e.company_id::text = $2
      limit 1`,
     [id, companyId],
   );
@@ -307,13 +423,18 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     const existing = await client.query(
       `select ${buildEmployeeReturningColumns(employeeLinks)}
        from employees
-       where id = $1 and company_id = $2
+       where id::text = $1 and company_id::text = $2
        limit 1`,
       [id, companyId],
     );
     if (!existing.rows[0]) {
       await client.query('rollback');
-      res.status(404).json({ ok: false, error: 'not_found' });
+      res.status(404).json({
+        ok: false,
+        success: false,
+        error: 'not_found',
+        code: 'EMPLOYEE_NOT_FOUND',
+      });
       return;
     }
     let employeeRow = existing.rows[0] as Record<string, unknown>;
@@ -344,8 +465,22 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       throw new Error('users_sync_no_rows_updated');
     }
     await client.query('commit');
-    const refreshed = await fetchEmployeeViewById(pool, id, companyId);
-    res.json({ ok: true, employee: mapRow(refreshed ?? employeeRow) });
+    let refreshed: Record<string, unknown> | null = null;
+    try {
+      refreshed = await fetchEmployeeViewById(pool, id, companyId);
+    } catch (refreshError) {
+      logger.warn({
+        module: 'employee.controller',
+        action: 'EMPLOYEE_UPDATE_REFRESH_FAILED',
+        message: 'Colaborador atualizado, mas a releitura falhou; usando retorno do UPDATE',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: refreshError,
+        meta: { employeeId: id },
+      });
+    }
+    const employee = mapRow(refreshed ?? employeeRow);
+    res.json({ ok: true, success: true, employee, data: employee });
   } catch (e: unknown) {
     try {
       await client.query('rollback');
@@ -354,9 +489,19 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     }
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
-      res.status(400).json({ ok: false, error: 'CPF ou e-mail já cadastrado' });
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'CPF ou e-mail já cadastrado',
+        code: 'EMPLOYEE_DUPLICATE',
+      });
       return;
     }
+    const message = e instanceof Error ? e.message : String(e);
+    const code =
+      message === 'users_sync_no_rows_updated'
+        ? 'EMPLOYEE_USER_SYNC_NO_ROWS'
+        : 'EMPLOYEE_UPDATE_FAILED';
     logger.error({
       module: 'employee.controller',
       action: 'EMPLOYEE_UPDATE_FAILED',
@@ -364,8 +509,15 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
+      meta: { employeeId: id, code },
     });
-    res.status(500).json({ ok: false, error: 'update_failed' });
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: 'update_failed',
+      code,
+      details: { employeeId: id, reason: code },
+    });
   } finally {
     client.release();
   }

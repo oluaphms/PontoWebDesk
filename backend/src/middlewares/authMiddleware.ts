@@ -17,17 +17,26 @@ export type AuthedRequest = Request & {
   auth?: JwtPayload;
 };
 
+function authError(res: Response, status: number, error: string, code = error): void {
+  res.status(status).json({
+    ok: false,
+    success: false,
+    error,
+    code,
+  });
+}
+
 export async function authMiddleware(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : null;
   const token = bearerToken || getAuthCookie(req);
   if (!token) {
-    res.status(401).json({ ok: false, error: 'missing_token' });
+    authError(res, 401, 'missing_token', 'AUTH_MISSING_TOKEN');
     return;
   }
   const secret = String(process.env.JWT_SECRET || '').trim();
   if (!secret) {
-    res.status(503).json({ ok: false, error: 'auth_not_configured' });
+    authError(res, 503, 'auth_not_configured', 'AUTH_NOT_CONFIGURED');
     return;
   }
 
@@ -35,7 +44,7 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
     const decoded = jwt.verify(token, secret) as JwtPayload;
 
     if (decoded.jti && (await isTokenRevoked(decoded.jti))) {
-      res.status(401).json({ ok: false, error: 'token_revoked' });
+      authError(res, 401, 'token_revoked', 'AUTH_TOKEN_REVOKED');
       return;
     }
 
@@ -43,11 +52,11 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
     if (revalidateDb) {
       const caller = await resolveCallerFromDb(decoded);
       if (!caller?.companyId) {
-        res.status(401).json({ ok: false, error: 'user_not_found' });
+        authError(res, 401, 'user_not_found', 'AUTH_USER_NOT_FOUND');
         return;
       }
       if (caller.companyId !== String(decoded.companyId || '').trim()) {
-        res.status(401).json({ ok: false, error: 'tenant_changed' });
+        authError(res, 401, 'tenant_changed', 'AUTH_TENANT_CHANGED');
         return;
       }
       req.auth = {
@@ -70,9 +79,9 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
   } catch (e) {
     const err = e as { name?: string };
     if (err?.name === 'TokenExpiredError') {
-      res.status(401).json({ ok: false, error: 'token_expired' });
+      authError(res, 401, 'token_expired', 'AUTH_TOKEN_EXPIRED');
       return;
     }
-    res.status(401).json({ ok: false, error: 'invalid_token' });
+    authError(res, 401, 'invalid_token', 'AUTH_INVALID_TOKEN');
   }
 }

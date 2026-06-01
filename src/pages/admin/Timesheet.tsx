@@ -500,7 +500,7 @@ const AdminTimesheet: React.FC = () => {
     }
     setLoadingEspelho(true);
     try {
-      const data = await buscarEspelhoAdmin(companyId, periodStart, periodEnd);
+      const data = await buscarEspelhoAdmin(companyId, periodStart, periodEnd, filterUserId);
       setEmployees(data.employees ?? []);
       setDepartments(data.departments ?? []);
       setRecords((data.records ?? []) as TimeRecord[]);
@@ -511,7 +511,7 @@ const AdminTimesheet: React.FC = () => {
     } finally {
       setLoadingEspelho(false);
     }
-  }, [companyId, periodStart, periodEnd, periodValid, toast]);
+  }, [companyId, filterUserId, periodStart, periodEnd, periodValid, toast]);
 
   useEffect(() => {
     if (!filtersHydrated) return;

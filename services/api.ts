@@ -162,6 +162,7 @@ export async function buscarEspelhoAdmin(
   companyId: string,
   periodStart: string,
   periodEnd: string,
+  employeeId?: string,
 ): Promise<{
   employees: AdminTimesheetEmployee[];
   departments: AdminTimesheetDepartment[];
@@ -170,15 +171,18 @@ export async function buscarEspelhoAdmin(
   holidays: AdminHolidayRow[];
 }> {
   const cid = String(companyId).trim();
+  const uid = String(employeeId || '').trim();
+  const recordFilters: Filter[] = [{ column: 'company_id', operator: 'eq', value: cid }];
+  if (uid) recordFilters.push({ column: 'user_id', operator: 'eq', value: uid });
 
   const [apiEmployees, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
     fetchEmployees(cid),
     fetchTimeRecordsForMirrorWindow(
-      [{ column: 'company_id', operator: 'eq', value: cid }],
+      recordFilters,
       periodStart,
       periodEnd,
       true,
-      8000
+      uid ? 2000 : 8000
     ) as Promise<DbRow[]>,
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
     db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,

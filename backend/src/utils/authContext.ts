@@ -11,7 +11,13 @@ export function authUserId(auth: AuthedRequest['auth']): string {
 export function requireCompanyId(req: AuthedRequest, res?: { status: (n: number) => { json: (b: unknown) => void } }): string | null {
   const companyId = String(req.auth?.companyId || '').trim();
   if (!companyId && res) {
-    res.status(403).json({ ok: false, error: 'missing_tenant', message: 'Token sem empresa.' });
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'missing_tenant',
+      code: 'AUTH_MISSING_TENANT',
+      message: 'Token sem empresa.',
+    });
     return null;
   }
   return companyId || null;
@@ -40,7 +46,13 @@ export function rejectTenantOverride(req: AuthedRequest, res: { status: (n: numb
       : '';
   const attempted = fromQuery || body;
   if (attempted && jwtCompany && attempted !== jwtCompany) {
-    res.status(403).json({ ok: false, error: 'tenant_mismatch', message: 'company_id não permitido.' });
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'tenant_mismatch',
+      code: 'AUTH_TENANT_MISMATCH',
+      message: 'company_id não permitido.',
+    });
     return true;
   }
   return false;

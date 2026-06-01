@@ -7,7 +7,8 @@ function isProduction(): boolean {
 }
 
 function sameSite(): 'lax' | 'strict' | 'none' {
-  const raw = String(process.env.AUTH_COOKIE_SAMESITE || 'lax').trim().toLowerCase();
+  const defaultSameSite = isProduction() ? 'none' : 'lax';
+  const raw = String(process.env.AUTH_COOKIE_SAMESITE || defaultSameSite).trim().toLowerCase();
   if (raw === 'strict' || raw === 'none') return raw;
   return 'lax';
 }

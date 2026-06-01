@@ -152,6 +152,16 @@ async function insertIntoTimeRecordsFallback(
   return { id: String(inserted.rows[0]?.id || '') };
 }
 
+async function promoteExistingPunchIfNeeded(client: PoolClient, punchId: string): Promise<void> {
+  const id = String(punchId || '').trim();
+  if (!id) return;
+  try {
+    await client.query('select public.promote_punch_to_time_record($1::uuid)', [id]);
+  } catch {
+    // Ambientes sem a migration continuam compatíveis; a API não deve falhar em duplicidade.
+  }
+}
+
 export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boolean; duplicate?: boolean; id?: string; punch_hash: string }> {
   const companyId = String(punch.company_id || punch.companyId || '').trim();
   const userId = String(punch.user_id || punch.userId || '').trim();
@@ -181,6 +191,7 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
         [punchHash],
       );
       if (existing.rowCount && existing.rows[0]?.id) {
+        await promoteExistingPunchIfNeeded(client, String(existing.rows[0].id));
         await client.query('commit');
         return { success: true, duplicate: true, id: String(existing.rows[0].id), punch_hash: punchHash };
       }

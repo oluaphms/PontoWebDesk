@@ -54,12 +54,25 @@ export type ApiResult<T = unknown> = {
 export class ApiError extends Error {
   status: number;
   body: unknown;
+  method?: string;
+  path?: string;
+  url?: string;
+  correlationId?: string | null;
 
-  constructor(message: string, status: number, body: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    body: unknown,
+    context?: { method?: string; path?: string; url?: string; correlationId?: string | null },
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.method = context?.method;
+    this.path = context?.path;
+    this.url = context?.url;
+    this.correlationId = context?.correlationId;
   }
 }
 
@@ -82,7 +95,15 @@ function extractApiErrorMessage(body: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
-async function parseResponse<T>(res: Response): Promise<T> {
+function payloadKeys(body: unknown): string[] | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  return Object.keys(body as Record<string, unknown>).sort();
+}
+
+async function parseResponse<T>(
+  res: Response,
+  context: { method: string; path: string; url: string; requestBody?: unknown },
+): Promise<T> {
   const resLike = res as unknown as {
     ok?: boolean;
     status?: number;
@@ -122,23 +143,44 @@ async function parseResponse<T>(res: Response): Promise<T> {
       unauthorizedHandler?.();
     }
     const errMsg = extractApiErrorMessage(body, status);
+    const errorContext = {
+      method: context.method,
+      path: context.path,
+      url: context.url,
+      status,
+      body,
+      payloadKeys: payloadKeys(context.requestBody),
+      correlationId: currentCorrelationId || undefined,
+    };
+    console.error('API ERROR:', errorContext);
     logger.error({
       module: 'frontend.api',
       action: 'API_REQUEST_FAILED',
       message: errMsg,
       correlationId: currentCorrelationId || undefined,
       meta: {
+        method: context.method,
+        path: context.path,
+        url: context.url,
         status,
+        response: body,
+        payloadKeys: payloadKeys(context.requestBody),
       },
     });
-    throw new ApiError(errMsg, status, body);
+    throw new ApiError(errMsg, status, body, {
+      method: context.method,
+      path: context.path,
+      url: context.url,
+      correlationId: currentCorrelationId,
+    });
   }
   return body as T;
 }
 
 export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
-  const res = await fetch(buildApiUrl(path), {
+  const url = buildApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     method: 'GET',
     credentials: 'include',
@@ -148,12 +190,13 @@ export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): P
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
-  return parseResponse<T>(res);
+  return parseResponse<T>(res, { method: 'GET', path, url });
 }
 
 export async function apiPost<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
-  const res = await fetch(buildApiUrl(path), {
+  const url = buildApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     method: 'POST',
     credentials: 'include',
@@ -165,12 +208,13 @@ export async function apiPost<T = ApiResult>(path: string, body: unknown, init?:
     },
     body: JSON.stringify(body),
   });
-  return parseResponse<T>(res);
+  return parseResponse<T>(res, { method: 'POST', path, url, requestBody: body });
 }
 
 export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
-  const res = await fetch(buildApiUrl(path), {
+  const url = buildApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     method: 'PATCH',
     credentials: 'include',
@@ -182,12 +226,13 @@ export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?
     },
     body: JSON.stringify(body),
   });
-  return parseResponse<T>(res);
+  return parseResponse<T>(res, { method: 'PATCH', path, url, requestBody: body });
 }
 
 export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
-  const res = await fetch(buildApiUrl(path), {
+  const url = buildApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     method: 'DELETE',
     credentials: 'include',
@@ -197,7 +242,7 @@ export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit)
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
-  return parseResponse<T>(res);
+  return parseResponse<T>(res, { method: 'DELETE', path, url });
 }
 
 /** @deprecated use getToken from authToken.ts */

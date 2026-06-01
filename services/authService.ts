@@ -88,6 +88,7 @@ import { logTenantLoginSuccess } from '../src/services/tenantAudit';
 import { resolveTenantId } from '../src/services/tenantScope';
 import { LoggingService } from './loggingService';
 import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/appShellBootstrap';
+import { isLocalApiMode } from '../src/config/system';
 
 export interface AuthResult {
   user: User | null;
@@ -1029,7 +1030,7 @@ class AuthService {
     let resolvedEmail = '';
     const isEmailInput = (identifier || '').trim().includes('@');
     const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
-    if (true) {
+    if (isLocalApiMode()) {
       try {
         const resolvedForApi = await this.resolveLoginEmail(identifier);
         const loginIdentifier = resolvedForApi || identifier.trim().toLowerCase();
@@ -1099,12 +1100,7 @@ class AuthService {
       }
       await clearLocalAuthSession();
 
-      let signPayload: { user: any; session: any };
-      try {
-        signPayload = await this.signInWithPasswordWithColdStartRetry(resolvedEmail, password);
-      } catch (signErr: unknown) {
-        throw signErr;
-      }
+      const signPayload = await this.signInWithPasswordWithColdStartRetry(resolvedEmail, password);
 
       const norm = normalizeAuthenticatedSession({
         session: signPayload.session,
@@ -1667,6 +1663,21 @@ class AuthService {
 
   /** Implementação interna de getCurrentUser (sem timeout). */
   private async getCurrentUserResolved(): Promise<User | null> {
+    if (isLocalApiMode()) {
+      const me = await fetchAuthMe();
+      if (me) {
+        persistCurrentUserToProfileStore(me);
+        return me;
+      }
+      try {
+        clearCurrentUserFromAllStorages();
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('current_user_changed'));
+      } catch {
+        // ignora
+      }
+      return null;
+    }
+
     // Verificar se Supabase está configurado antes de tentar (usando verificação dinâmica)
     if (!checkSupabaseConfigured()) {
       const me = await fetchAuthMe();

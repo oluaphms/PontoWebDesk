@@ -22,6 +22,17 @@ export function setSessionUserCache(user: User | null): void {
   sessionUserCache = user;
 }
 
+export function clearStoredSessionUser(): void {
+  sessionUserCache = null;
+  if (typeof window === 'undefined') return;
+  try {
+    getUserProfileStorage().removeItem('current_user');
+    window.dispatchEvent(new Event('current_user_changed'));
+  } catch {
+    // ignore
+  }
+}
+
 export function readUserFromProfileStore(): User | null {
   if (typeof window === 'undefined') return null;
   if (authLogoutGuard) return null;

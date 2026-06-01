@@ -76,17 +76,18 @@ async function buildWhere(
   let idx = 1;
 
   if (tableHasTenantScope(table) && companyId) {
-    const hasCompanyFilter = filters.some(
-      (f) => f.column === 'company_id' || f.column === 'tenant_id',
-    );
-    if (!hasCompanyFilter) {
-      const tenantClause = await tenantScopeSqlForTable(table, idx);
-      if (tenantClause) {
-        parts.push(tenantClause);
-        params.push(companyId);
-        idx += 1;
-      }
+    const tenantClause = await tenantScopeSqlForTable(table, idx);
+    if (tenantClause) {
+      parts.push(tenantClause);
+      params.push(companyId);
+      idx += 1;
     }
+  }
+
+  if (table === 'users' && companyId && (await tableHasColumn(table, 'company_id'))) {
+    parts.push(`company_id::text = ${sqlParamRef(idx, 'text')}`);
+    params.push(companyId);
+    idx += 1;
   }
 
   if (USER_SCOPED_TABLES.has(table) && !isAdminOrHr(role)) {
@@ -167,6 +168,41 @@ function denyTableAccess(
   return false;
 }
 
+async function dataWriteScopeSql(table: string, paramIndex: number): Promise<string | null> {
+  if (tableHasTenantScope(table)) return tenantScopeSqlForTable(table, paramIndex);
+  if (table === 'users' && (await tableHasColumn(table, 'company_id'))) {
+    return `company_id::text = ${sqlParamRef(paramIndex, 'text')}`;
+  }
+  return null;
+}
+
+function sanitizeGenericWritePayload(
+  table: string,
+  raw: Record<string, unknown>,
+  companyId: string,
+  role: string | undefined,
+): Record<string, unknown> {
+  const next = { ...raw };
+  if (table === 'users') {
+    next.company_id = companyId;
+    delete next.companyId;
+    if (normalizeRole(role) !== 'admin') {
+      delete next.role;
+    }
+  }
+  return next;
+}
+
+function failureBody(error: string, code: string, details?: Record<string, unknown>) {
+  return {
+    ok: false,
+    success: false,
+    error,
+    code,
+    ...(details ? { details } : {}),
+  };
+}
+
 export async function listDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
@@ -228,11 +264,11 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
     const sql = `SELECT ${columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const result = await pool.query(sql, [...params, limit, offset]);
-    res.json({ ok: true, data: result.rows });
+    res.json({ ok: true, success: true, data: result.rows });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
     if (pgMsg === 'user_scope_unavailable') {
-      res.status(403).json({ ok: false, error: 'forbidden' });
+      res.status(403).json(failureBody('forbidden', 'DATA_USER_SCOPE_FORBIDDEN'));
       return;
     }
     logger.error({
@@ -244,7 +280,7 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
       error: e,
       meta: { table, pgMsg },
     });
-    res.status(500).json({ ok: false, error: 'query_failed', message: pgMsg });
+    res.status(500).json(failureBody('query_failed', 'DATA_QUERY_FAILED', { table }));
   }
 }
 
@@ -268,7 +304,8 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const scoped = await applyTenantToRowAsync(table, raw, companyId);
+  const writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
+  const scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
   const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k));
   if (!keys.length) {
@@ -286,7 +323,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
     const sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
     const result = await pool.query(sql, values);
-    res.json({ ok: true, data: result.rows[0] ?? null });
+    res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
     logger.error({
@@ -298,7 +335,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
       error: e,
       meta: { table, pgMsg },
     });
-    res.status(500).json({ ok: false, error: 'insert_failed', message: pgMsg });
+    res.status(500).json(failureBody('insert_failed', 'DATA_INSERT_FAILED', { table }));
   }
 }
 
@@ -320,7 +357,8 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const scoped = await applyTenantToRowAsync(table, raw, companyId);
+  const writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
+  const scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
   const row = await filterRowToTableSchema(table, scoped);
   const keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
   if (!keys.length) {
@@ -335,22 +373,21 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   const values = keys.map((k) => row[k]);
 
   const tenantIdx = keys.length + 1;
-  const idIdx = keys.length + (tableHasTenantScope(table) ? 2 : 1);
-  const tenantScope =
-    tableHasTenantScope(table) ? await tenantScopeSqlForTable(table, tenantIdx) : null;
+  const tenantScope = await dataWriteScopeSql(table, tenantIdx);
+  const idIdx = keys.length + (tenantScope ? 2 : 1);
   const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
   const params = [...values, ...(tenantScope ? [companyId] : []), id];
 
   try {
-    const idCast = sqlParamRef(idIdx, colTypes.get('id') ?? 'text');
+    const idCast = sqlParamRef(idIdx, 'text');
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
     const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause}${returningSql}`;
     const result = await pool.query(sql, params);
     if (returningSql && !result.rows[0]) {
-      res.status(404).json({ ok: false, error: 'not_found' });
+      res.status(404).json(failureBody('not_found', 'DATA_NOT_FOUND', { table }));
       return;
     }
-    res.json({ ok: true, data: result.rows[0] ?? null });
+    res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
     logger.error({
@@ -362,7 +399,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
       error: e,
       meta: { table, pgMsg, id },
     });
-    res.status(500).json({ ok: false, error: 'update_failed', message: pgMsg });
+    res.status(500).json(failureBody('update_failed', 'DATA_UPDATE_FAILED', { table, id }));
   }
 }
 
@@ -384,8 +421,7 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   try {
-    const tenantScope =
-      tableHasTenantScope(table) ? await tenantScopeSqlForTable(table, 2) : null;
+    const tenantScope = await dataWriteScopeSql(table, 2);
     const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
     const params = tenantScope ? [id, companyId] : [id];
     const result = await pool.query(
@@ -393,10 +429,10 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
       params,
     );
     if (!result.rows[0]) {
-      res.status(404).json({ ok: false, error: 'not_found' });
+      res.status(404).json(failureBody('not_found', 'DATA_NOT_FOUND', { table }));
       return;
     }
-    res.json({ ok: true });
+    res.json({ ok: true, success: true });
   } catch (e) {
     logger.error({
       module: 'data.controller',
