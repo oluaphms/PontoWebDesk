@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
+import { tableHasColumn } from '../db/schemaColumns.js';
 import type { PoolClient } from 'pg';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import {
@@ -14,6 +15,55 @@ import {
   syncUserFieldsFromEmployeeBody,
 } from '../services/employeeUserSync.js';
 import { logger } from '../logger/logger.js';
+
+const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
+type EmployeeLinkColumn = (typeof EMPLOYEE_LINK_COLUMNS)[number];
+type LinkColumnMap = Record<EmployeeLinkColumn, boolean>;
+
+function isEmployeeLinkColumn(key: keyof NormalizedEmployeeInput): key is EmployeeLinkColumn {
+  return (EMPLOYEE_LINK_COLUMNS as readonly string[]).includes(key);
+}
+
+async function getTableLinkColumns(
+  tableName: 'employees' | 'users',
+  db: Pick<PoolClient, 'query'> | typeof pool = pool,
+): Promise<LinkColumnMap> {
+  const entries = await Promise.all(
+    EMPLOYEE_LINK_COLUMNS.map(async (column) => [column, await tableHasColumn(tableName, column, db)] as const),
+  );
+  return Object.fromEntries(entries) as LinkColumnMap;
+}
+
+function buildEmployeeReturningColumns(employeeLinks: LinkColumnMap): string {
+  const optionalColumns = EMPLOYEE_LINK_COLUMNS.filter((column) => employeeLinks[column]);
+  return [EMPLOYEE_SELECT_COLUMNS, ...optionalColumns].join(', ');
+}
+
+function buildLinkSelect(column: EmployeeLinkColumn, employeeLinks: LinkColumnMap, userLinks: LinkColumnMap): string {
+  if (employeeLinks[column] && userLinks[column]) return `coalesce(e.${column}, u.${column}) as ${column}`;
+  if (employeeLinks[column]) return `e.${column} as ${column}`;
+  if (userLinks[column]) return `u.${column} as ${column}`;
+  return `null as ${column}`;
+}
+
+async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof pool = pool): Promise<string> {
+  const [employeeLinks, userLinks] = await Promise.all([
+    getTableLinkColumns('employees', db),
+    getTableLinkColumns('users', db),
+  ]);
+  const linkColumns = EMPLOYEE_LINK_COLUMNS.map((column) => buildLinkSelect(column, employeeLinks, userLinks));
+
+  return `
+    e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
+    e.cpf,
+    coalesce(e.pis, u.pis_pasep) as pis,
+    coalesce(e.telefone, u.phone) as telefone,
+    coalesce(e.data_admissao, u.admissao) as data_admissao,
+    e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
+    ${linkColumns.join(',\n    ')},
+    u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+  `.trim();
+}
 
 function mapRow(row: Record<string, unknown>) {
   const pis = row.pis ?? row.pis_pasep;
@@ -44,15 +94,10 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
   if (!companyId) return;
 
   try {
+    const viewSelect = await buildEmployeeViewSelect(pool);
     const result = await pool.query(
       `select
-         e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
-         e.cpf,
-         coalesce(e.pis, u.pis_pasep) as pis,
-         coalesce(e.telefone, u.phone) as telefone,
-         coalesce(e.data_admissao, u.admissao) as data_admissao,
-         e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
-         u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+         ${viewSelect}
        from employees e
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
        where e.company_id = $1
@@ -87,32 +132,54 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
 
   const d = validation.data;
   try {
+    const employeeLinks = await getTableLinkColumns('employees', pool);
+    const insertColumns = [
+      'company_id',
+      'nome',
+      'email',
+      'role',
+      'status',
+      'cpf',
+      'pis',
+      'telefone',
+      'data_admissao',
+      'cargo',
+      'departamento',
+      'salario',
+      'jornada_tipo',
+      'carga_horaria',
+      'endereco',
+    ];
+    const insertValues: unknown[] = [
+      companyId,
+      d.nome,
+      d.email,
+      d.role,
+      d.status,
+      d.cpf,
+      d.pis,
+      d.telefone,
+      d.data_admissao,
+      d.cargo,
+      d.departamento,
+      d.salario,
+      d.jornada_tipo,
+      d.carga_horaria,
+      d.endereco,
+    ];
+
+    for (const column of EMPLOYEE_LINK_COLUMNS) {
+      if (!employeeLinks[column]) continue;
+      insertColumns.push(column);
+      insertValues.push(d[column]);
+    }
+
+    const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(',');
     const result = await pool.query(
-      `insert into employees (
-        company_id, nome, email, role, status,
-        cpf, pis, telefone, data_admissao, cargo, departamento,
-        salario, jornada_tipo, carga_horaria, endereco
-      ) values (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
-      )
-      returning ${EMPLOYEE_SELECT_COLUMNS}`,
-      [
-        companyId,
-        d.nome,
-        d.email,
-        d.role,
-        d.status,
-        d.cpf,
-        d.pis,
-        d.telefone,
-        d.data_admissao,
-        d.cargo,
-        d.departamento,
-        d.salario,
-        d.jornada_tipo,
-        d.carga_horaria,
-        d.endereco,
-      ],
+      `insert into employees (${insertColumns.join(', ')})
+       values (${placeholders})
+       returning ${buildEmployeeReturningColumns(employeeLinks)}`,
+      insertValues,
     );
     const raw = result.rows[0] as Record<string, unknown>;
     const body =
@@ -124,9 +191,12 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       email: String(raw.email || d.email),
       role: String(raw.role || d.role),
       status: String(raw.status || d.status),
+      schedule_id: raw.schedule_id ?? d.schedule_id,
+      shift_id: raw.shift_id ?? d.shift_id,
     });
     await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
-    res.status(201).json({ ok: true, employee: mapRow(raw) });
+    const refreshed = await fetchEmployeeViewById(pool, String(raw.id), companyId);
+    res.status(201).json({ ok: true, employee: mapRow(refreshed ?? raw) });
   } catch (e: unknown) {
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
@@ -160,15 +230,19 @@ const PATCHABLE: (keyof NormalizedEmployeeInput)[] = [
   'jornada_tipo',
   'carga_horaria',
   'endereco',
+  'schedule_id',
+  'shift_id',
 ];
 
-const USER_ONLY_PATCH_FIELDS = new Set([
+const USER_SYNC_PATCH_FIELDS = new Set([
   'numero_folha',
   'numero_identificador',
   'pis_pasep',
   'demissao',
   'invisivel',
   'employee_config',
+  'schedule_id',
+  'shift_id',
 ]);
 
 async function fetchEmployeeViewById(
@@ -176,15 +250,10 @@ async function fetchEmployeeViewById(
   id: string,
   companyId: string,
 ): Promise<Record<string, unknown> | null> {
+  const viewSelect = await buildEmployeeViewSelect(db);
   const refreshed = await db.query(
     `select
-       e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
-       e.cpf,
-       coalesce(e.pis, u.pis_pasep) as pis,
-       coalesce(e.telefone, u.phone) as telefone,
-       coalesce(e.data_admissao, u.admissao) as data_admissao,
-       e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
-       u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+       ${viewSelect}
      from employees e
      left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
      where e.id = $1 and e.company_id = $2
@@ -217,15 +286,17 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
   let idx = 3;
   const body =
     req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const hasUserOnlyField = Object.keys(body).some((key) => USER_ONLY_PATCH_FIELDS.has(key));
+  const hasUserSyncField = Object.keys(body).some((key) => USER_SYNC_PATCH_FIELDS.has(key));
+  const employeeLinks = await getTableLinkColumns('employees', pool);
 
   for (const key of PATCHABLE) {
     if (!(key in partial)) continue;
+    if (isEmployeeLinkColumn(key) && !employeeLinks[key]) continue;
     fields.push(`${key} = $${idx++}`);
     values.push(partial[key as keyof typeof partial]);
   }
 
-  if (fields.length === 0 && !hasUserOnlyField) {
+  if (fields.length === 0 && !hasUserSyncField) {
     res.status(400).json({ ok: false, error: 'no_updates' });
     return;
   }
@@ -234,7 +305,7 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
   try {
     await client.query('begin');
     const existing = await client.query(
-      `select ${EMPLOYEE_SELECT_COLUMNS}
+      `select ${buildEmployeeReturningColumns(employeeLinks)}
        from employees
        where id = $1 and company_id = $2
        limit 1`,
@@ -250,7 +321,7 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       const updated = await client.query(
         `update employees set ${fields.join(', ')}
          where id = $2 and company_id = $1
-         returning ${EMPLOYEE_SELECT_COLUMNS}`,
+         returning ${buildEmployeeReturningColumns(employeeLinks)}`,
         values,
       );
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
@@ -263,6 +334,8 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
         email: employeeRow.email != null ? String(employeeRow.email) : null,
         role: String(employeeRow.role || 'employee'),
         status: String(employeeRow.status || 'active'),
+        schedule_id: employeeRow.schedule_id,
+        shift_id: employeeRow.shift_id,
       },
       client,
     );

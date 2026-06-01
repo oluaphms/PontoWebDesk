@@ -17,7 +17,17 @@ export type ApiEmployee = {
   admission_date?: string | null;
   hire_date?: string | null;
   cargo?: string | null;
+  department_id?: string | null;
+  department_name?: string | null;
   departamento?: string | null;
+  schedule_id?: string | null;
+  schedule_name?: string | null;
+  shift_id?: string | null;
+  work_shift_id?: string | null;
+  shift_label?: string | null;
+  work_shift_label?: string | null;
+  estrutura_id?: string | null;
+  estrutura_name?: string | null;
   salario?: number | null;
   jornada_tipo?: string | null;
   carga_horaria?: number | null;
@@ -27,6 +37,8 @@ export type ApiEmployee = {
   demissao?: string | null;
   termination_date?: string | null;
   dismissal_date?: string | null;
+  motivo_demissao_id?: string | null;
+  motivo_demissao_name?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
 };
@@ -46,6 +58,8 @@ export type EmployeeWriteInput = {
   hire_date?: string | null;
   cargo?: string | null;
   departamento?: string | null;
+  schedule_id?: string | null;
+  shift_id?: string | null;
   salario?: number | null;
   jornada_tipo?: string | null;
   carga_horaria?: number | null;
@@ -92,6 +106,8 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   }
   if (input.cargo !== undefined) body.cargo = input.cargo?.trim() || null;
   if (input.departamento !== undefined) body.departamento = input.departamento?.trim() || null;
+  if (input.schedule_id !== undefined) body.schedule_id = input.schedule_id?.trim() || null;
+  if (input.shift_id !== undefined) body.shift_id = input.shift_id?.trim() || null;
   if (input.salario !== undefined) body.salario = input.salario;
   if (input.jornada_tipo !== undefined) body.jornada_tipo = input.jornada_tipo?.trim() || null;
   if (input.carga_horaria !== undefined) body.carga_horaria = input.carga_horaria;
@@ -113,6 +129,28 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   if (input.invisivel !== undefined) body.invisivel = input.invisivel;
   if (input.employee_config !== undefined) body.employee_config = input.employee_config;
   return body;
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function mergeInputScheduleFields(
+  employee: ApiEmployee,
+  input: EmployeeWriteInput | EmployeeUpdateInput,
+): ApiEmployee {
+  return {
+    ...employee,
+    schedule_id:
+      employee.schedule_id ??
+      (input.schedule_id !== undefined ? normalizeNullableString(input.schedule_id) : null),
+    shift_id:
+      employee.shift_id ??
+      employee.work_shift_id ??
+      (input.shift_id !== undefined ? normalizeNullableString(input.shift_id) : null),
+  };
 }
 
 /** Validação client-side antes do POST/PATCH (espelha regras do backend). */
@@ -170,7 +208,7 @@ export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmpl
   if (!data?.ok || !data?.employee) {
     throw new Error(String(data?.error || 'Erro ao criar colaborador'));
   }
-  return normalizeApiEmployee(data.employee);
+  return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
 }
 
 export async function updateEmployee(id: string, input: EmployeeUpdateInput): Promise<ApiEmployee> {
@@ -194,7 +232,7 @@ export async function updateEmployee(id: string, input: EmployeeUpdateInput): Pr
   if (!data?.ok || !data?.employee) {
     throw new Error(String(data?.error || 'Erro ao atualizar colaborador'));
   }
-  return normalizeApiEmployee(data.employee);
+  return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
 }
 
 export async function deleteEmployee(id: string): Promise<void> {
@@ -227,7 +265,17 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     admission_date: normalizedAdmission,
     hire_date: normalizedAdmission,
     cargo: row.cargo != null ? String(row.cargo) : null,
+    department_id: normalizeNullableString(row.department_id),
+    department_name: normalizeNullableString(row.department_name),
     departamento: row.departamento != null ? String(row.departamento) : null,
+    schedule_id: normalizeNullableString(row.schedule_id),
+    schedule_name: normalizeNullableString(row.schedule_name),
+    shift_id: normalizeNullableString(row.shift_id ?? row.work_shift_id),
+    work_shift_id: normalizeNullableString(row.work_shift_id ?? row.shift_id),
+    shift_label: normalizeNullableString(row.shift_label ?? row.work_shift_label),
+    work_shift_label: normalizeNullableString(row.work_shift_label ?? row.shift_label),
+    estrutura_id: normalizeNullableString(row.estrutura_id),
+    estrutura_name: normalizeNullableString(row.estrutura_name),
     salario: row.salario != null ? Number(row.salario) : null,
     jornada_tipo: row.jornada_tipo != null ? String(row.jornada_tipo) : null,
     carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
@@ -237,6 +285,8 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     demissao: normalizedDismissal,
     termination_date: normalizedDismissal,
     dismissal_date: normalizedDismissal,
+    motivo_demissao_id: normalizeNullableString(row.motivo_demissao_id),
+    motivo_demissao_name: normalizeNullableString(row.motivo_demissao_name),
     invisivel: row.invisivel === true,
     employee_config:
       row.employee_config && typeof row.employee_config === 'object'

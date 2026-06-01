@@ -54,6 +54,7 @@ import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { readFileHead } from '../../shared/upload/fileValidation';
 import { detectImageMime } from '../../shared/upload/magicBytes';
 import { logger } from '../../shared/logger/logger';
+import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
 import {
   TIPO_VINCULO_LABELS,
   TIPO_VINCULO_VALUES,
@@ -142,6 +143,36 @@ interface WorkShiftOption {
   label: string;
 }
 
+interface DepartmentOption {
+  id: string;
+  name: string;
+}
+
+interface EstruturaOption {
+  id: string;
+  codigo: string;
+  descricao: string;
+}
+
+interface MotivoDemissaoOption {
+  id: string;
+  name: string;
+}
+
+interface EmployeeLookupMaps {
+  schedulesById?: Map<string, ScheduleOption>;
+  workShiftsById?: Map<string, WorkShiftOption>;
+  departmentsById?: Map<string, DepartmentOption>;
+  estruturasById?: Map<string, EstruturaOption>;
+  motivosDemissaoById?: Map<string, MotivoDemissaoOption>;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const text = String(value).trim();
+  return text || undefined;
+}
+
 function formatWorkShiftLabel(s: {
   number?: string;
   description?: string;
@@ -168,9 +199,26 @@ const JORNADA_TIPO_OPTIONS = [
   { value: 'horista', label: 'Horista' },
 ] as const;
 
-function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
+function mapApiEmployeeToRow(e: ApiEmployee, lookups: EmployeeLookupMaps = {}): EmployeeRow {
   const admissao = normalizeDateToYmd(e.data_admissao ?? e.admissao ?? e.admission_date ?? e.hire_date);
   const demissao = normalizeDateToYmd(e.demissao ?? e.termination_date ?? e.dismissal_date);
+  const departmentId = optionalString(e.department_id);
+  const scheduleId = optionalString(e.schedule_id);
+  const shiftId = optionalString(e.shift_id);
+  const estruturaId = optionalString(e.estrutura_id);
+  const motivoDemissaoId = optionalString(e.motivo_demissao_id);
+  const departmentName =
+    optionalString(e.department_name) ??
+    optionalString(e.departamento) ??
+    (departmentId ? lookups.departmentsById?.get(departmentId)?.name : undefined);
+  const scheduleName =
+    optionalString(e.schedule_name) ?? (scheduleId ? lookups.schedulesById?.get(scheduleId)?.name : undefined);
+  const shiftLabel =
+    optionalString(e.shift_label) ?? (shiftId ? lookups.workShiftsById?.get(shiftId)?.label : undefined);
+  const estrutura = estruturaId ? lookups.estruturasById?.get(estruturaId) : undefined;
+  const motivoDemissaoName =
+    optionalString(e.motivo_demissao_name) ??
+    (motivoDemissaoId ? lookups.motivosDemissaoById?.get(motivoDemissaoId)?.name : undefined);
   return {
     id: e.id,
     nome: e.nome,
@@ -178,8 +226,15 @@ function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
     email: e.email || '',
     phone: e.telefone ?? undefined,
     cargo: e.cargo || 'Colaborador',
-    department_id: undefined,
-    department_name: e.departamento ?? undefined,
+    department_id: departmentId,
+    department_name: departmentName,
+    departamento: e.departamento ?? departmentName,
+    schedule_id: scheduleId,
+    schedule_name: scheduleName,
+    shift_id: shiftId,
+    shift_label: shiftLabel,
+    estrutura_id: estruturaId,
+    estrutura_name: optionalString(e.estrutura_name) ?? estrutura?.descricao ?? estrutura?.codigo,
     status: e.status || 'active',
     created_at: e.created_at || new Date().toISOString(),
     salario_base: e.salario ?? null,
@@ -191,6 +246,8 @@ function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
     numero_folha: e.numero_folha ?? undefined,
     numero_identificador: e.numero_identificador ?? undefined,
     demissao: demissao ?? undefined,
+    motivo_demissao_id: motivoDemissaoId,
+    motivo_demissao_name: motivoDemissaoName,
     invisivel: e.invisivel === true,
     employee_config: e.employee_config ?? {},
     reliability_score: calcularScoreConfiabilidade({
@@ -459,9 +516,9 @@ const AdminEmployees: React.FC = () => {
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
   const [workShifts, setWorkShifts] = useState<WorkShiftOption[]>([]);
   const [cargos, setCargos] = useState<{ id: string; name: string }[]>([]);
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
-  const [estruturas, setEstruturas] = useState<{ id: string; codigo: string; descricao: string }[]>([]);
-  const [motivosDemissao, setMotivosDemissao] = useState<{ id: string; name: string }[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [estruturas, setEstruturas] = useState<EstruturaOption[]>([]);
+  const [motivosDemissao, setMotivosDemissao] = useState<MotivoDemissaoOption[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -546,6 +603,16 @@ const AdminEmployees: React.FC = () => {
 
   const passwordStrengthInfo = useMemo(() => getPasswordStrengthInfo(passwordDraft), [passwordDraft]);
   const passwordChecks = useMemo(() => getPasswordChecks(passwordDraft), [passwordDraft]);
+  const employeeLookups = useMemo<EmployeeLookupMaps>(
+    () => ({
+      schedulesById: new Map(schedules.map((item) => [item.id, item])),
+      workShiftsById: new Map(workShifts.map((item) => [item.id, item])),
+      departmentsById: new Map(departments.map((item) => [item.id, item])),
+      estruturasById: new Map(estruturas.map((item) => [item.id, item])),
+      motivosDemissaoById: new Map(motivosDemissao.map((item) => [item.id, item])),
+    }),
+    [schedules, workShifts, departments, estruturas, motivosDemissao],
+  );
   const refreshEmployeesAfterMutation = async (companyId: string): Promise<void> => {
     invalidateCompanyListCaches(companyId);
     queryCache.invalidate(`employees-api:${companyId}`);
@@ -634,14 +701,125 @@ const AdminEmployees: React.FC = () => {
     setLoadingData(true);
     const loadingTimer = window.setTimeout(() => setLoadingData(false), 5000);
     try {
-      const apiEmployees = await fetchEmployees(effectiveCompanyId);
-      setRows(apiEmployees.map(mapApiEmployeeToRow));
-      setSchedules([]);
-      setWorkShifts([]);
-      setDepartments([]);
-      setEstruturas([]);
-      setCargos([]);
-      setMotivosDemissao([]);
+      let partialCatalogError = false;
+      const companyFilter: Filter[] = [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }];
+      const safeSelectRows = async <T extends Record<string, unknown>>(
+        table: string,
+        options?: { columns?: string; limit?: number; orderBy?: { column: string; ascending?: boolean } },
+      ): Promise<T[]> => {
+        if (!isSupabaseConfigured()) return [];
+        try {
+          return (await db.select(table, companyFilter, options)) as T[];
+        } catch (err) {
+          partialCatalogError = true;
+          observabilityConsole.warn(`[Employees] Falha ao carregar ${table}:`, err);
+          return [];
+        }
+      };
+      const [apiEmployees, userRows, scheduleRows, shiftRows, departmentRows, estruturaRows, cargoRows, motivoRows] =
+        await Promise.all([
+          fetchEmployees(effectiveCompanyId),
+          safeSelectRows('users', {
+            columns: 'id,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id',
+            limit: 1000,
+          }),
+          safeSelectRows('schedules', {
+            columns: 'id,name,shift_id,company_id',
+            limit: 1000,
+            orderBy: { column: 'name', ascending: true },
+          }),
+          safeSelectRows('work_shifts', {
+            columns: 'id,number,name,description,start_time,end_time,company_id',
+            limit: 1000,
+            orderBy: { column: 'name', ascending: true },
+          }),
+          safeSelectRows('departments', {
+            columns: 'id,name,company_id',
+            limit: 1000,
+            orderBy: { column: 'name', ascending: true },
+          }),
+          safeSelectRows('estruturas', {
+            columns: 'id,codigo,descricao,company_id',
+            limit: 1000,
+            orderBy: { column: 'codigo', ascending: true },
+          }),
+          safeSelectRows('job_titles', {
+            columns: 'id,name,company_id',
+            limit: 1000,
+            orderBy: { column: 'name', ascending: true },
+          }),
+          safeSelectRows('motivo_demissao', {
+            columns: 'id,name,company_id',
+            limit: 1000,
+            orderBy: { column: 'name', ascending: true },
+          }),
+        ]);
+
+      const scheduleOptions = (scheduleRows ?? [])
+        .map((row) => ({ id: optionalString(row.id) ?? '', name: optionalString(row.name) ?? 'Escala' }))
+        .filter((row) => row.id);
+      const workShiftOptions = (shiftRows ?? [])
+        .map((row) => ({
+          id: optionalString(row.id) ?? '',
+          label: formatWorkShiftLabel({
+            number: optionalString(row.number),
+            name: optionalString(row.name),
+            description: optionalString(row.description),
+            start_time: optionalString(row.start_time),
+            end_time: optionalString(row.end_time),
+          }),
+        }))
+        .filter((row) => row.id);
+      const departmentOptions = (departmentRows ?? [])
+        .map((row) => ({ id: optionalString(row.id) ?? '', name: optionalString(row.name) ?? 'Departamento' }))
+        .filter((row) => row.id);
+      const estruturaOptions = (estruturaRows ?? [])
+        .map((row) => ({
+          id: optionalString(row.id) ?? '',
+          codigo: optionalString(row.codigo) ?? '',
+          descricao: optionalString(row.descricao) ?? '',
+        }))
+        .filter((row) => row.id);
+      const cargoOptions = (cargoRows ?? [])
+        .map((row) => ({ id: optionalString(row.id) ?? '', name: optionalString(row.name) ?? 'Cargo' }))
+        .filter((row) => row.id);
+      const motivoOptions = (motivoRows ?? [])
+        .map((row) => ({ id: optionalString(row.id) ?? '', name: optionalString(row.name) ?? 'Motivo' }))
+        .filter((row) => row.id);
+      const lookups: EmployeeLookupMaps = {
+        schedulesById: new Map(scheduleOptions.map((item) => [item.id, item])),
+        workShiftsById: new Map(workShiftOptions.map((item) => [item.id, item])),
+        departmentsById: new Map(departmentOptions.map((item) => [item.id, item])),
+        estruturasById: new Map(estruturaOptions.map((item) => [item.id, item])),
+        motivosDemissaoById: new Map(motivoOptions.map((item) => [item.id, item])),
+      };
+      const userById = new Map<string, Record<string, unknown>>();
+      for (const row of userRows ?? []) {
+        const id = optionalString(row.id);
+        if (id) userById.set(id, row);
+      }
+      const enrichedEmployees = apiEmployees.map((employee) => {
+        const userLink = userById.get(employee.id);
+        return {
+          ...employee,
+          schedule_id: employee.schedule_id ?? optionalString(userLink?.schedule_id) ?? null,
+          shift_id: employee.shift_id ?? optionalString(userLink?.shift_id) ?? null,
+          department_id: employee.department_id ?? optionalString(userLink?.department_id) ?? null,
+          estrutura_id: employee.estrutura_id ?? optionalString(userLink?.estrutura_id) ?? null,
+          motivo_demissao_id: employee.motivo_demissao_id ?? optionalString(userLink?.motivo_demissao_id) ?? null,
+        };
+      });
+
+      setSchedules(scheduleOptions);
+      setWorkShifts(workShiftOptions);
+      setDepartments(departmentOptions);
+      setEstruturas(estruturaOptions);
+      setCargos(cargoOptions);
+      setMotivosDemissao(motivoOptions);
+      setRows(enrichedEmployees.map((employee) => mapApiEmployeeToRow(employee, lookups)));
+      if (partialCatalogError) {
+        setError('Algumas listas auxiliares não puderam ser carregadas. Recarregue a página se algum campo aparecer vazio.');
+      }
     } catch (e) {
       logger.error({
         module: 'admin.employees',
@@ -738,12 +916,17 @@ const AdminEmployees: React.FC = () => {
       phone: row.phone || '',
       pis_pasep: row.pis_pasep || '',
       cargo: row.cargo || '',
+      department_id: row.department_id || '',
+      estrutura_id: row.estrutura_id || '',
+      schedule_id: row.schedule_id || '',
+      shift_id: row.shift_id || '',
       departamento: row.department_name || row.departamento || '',
       jornada_tipo: row.jornada_tipo || '',
       carga_horaria: row.carga_horaria != null ? String(row.carga_horaria) : '',
       endereco: row.endereco || '',
       admissao: normalizeDateToYmd(row.admissao) || '',
       demissao: normalizeDateToYmd(row.demissao) || '',
+      motivo_demissao_id: row.motivo_demissao_id || '',
       tipo_vinculo: normalizeTipoVinculo(row.tipo_vinculo),
     });
     setModalOpen(true);
@@ -841,6 +1024,8 @@ const AdminEmployees: React.FC = () => {
       data_admissao: normalizeDateToYmd(form.admissao) || null,
       cargo: cargoFinal,
       departamento: form.departamento?.trim() || null,
+      schedule_id: form.schedule_id || null,
+      shift_id: form.shift_id || null,
       salario: salarioParsed,
       jornada_tipo: form.jornada_tipo || null,
       carga_horaria: cargaParsed,
@@ -848,7 +1033,7 @@ const AdminEmployees: React.FC = () => {
       numero_folha: form.numero_folha?.trim() || null,
       numero_identificador: form.numero_identificador?.trim() || null,
       demissao: normalizeDateToYmd(form.demissao) || null,
-      employee_config: buildEmployeeConfig(),
+      employee_config: buildEmployeeConfig() as unknown as Record<string, unknown>,
     };
 
     setSaving(true);
@@ -857,7 +1042,7 @@ const AdminEmployees: React.FC = () => {
     try {
       if (editingId) {
         const updated = await updateEmployee(editingId, apiPayload);
-        const updatedRow = mapApiEmployeeToRow(updated);
+        const updatedRow = mapApiEmployeeToRow(updated, employeeLookups);
         setRows((prev) => prev.map((item) => (item.id === editingId ? { ...item, ...updatedRow } : item)));
         setSuccess('Colaborador atualizado com sucesso.');
         await refreshEmployeesAfterMutation(effectiveCompanyId);
@@ -882,7 +1067,7 @@ const AdminEmployees: React.FC = () => {
         }
         setModalOpen(false);
         setForm({ ...form, password: '' });
-        setRows((prev) => [mapApiEmployeeToRow(created), ...prev]);
+        setRows((prev) => [mapApiEmployeeToRow(created, employeeLookups), ...prev]);
         await refreshEmployeesAfterMutation(effectiveCompanyId);
       }
     } catch (e: unknown) {
@@ -1087,8 +1272,7 @@ const AdminEmployees: React.FC = () => {
     }
     const failed: ImportResult['failed'] = [];
     let success = 0;
-    const deptByName = new Map(departments.map((d) => [d.name.trim().toLowerCase(), d.id]));
-    const schedByName = new Map(schedules.map((s) => [s.name.trim().toLowerCase(), s.id]));
+    const schedByName = new Map<string, string>(schedules.map((s) => [s.name.trim().toLowerCase(), s.id]));
     const stripCpf = (s: string) => (s || '').replace(/\D/g, '');
     const DELAY_BETWEEN_MS = 2500; // ~24 criações/min; Supabase free tier é restritivo
     const RETRY_AFTER_429_MS = 6000; // esperar 6s antes de retry ou antes de continuar
@@ -1106,10 +1290,9 @@ const AdminEmployees: React.FC = () => {
       const emailFinal = row.email.trim()
         || (row.cpf.trim() ? `import.${stripCpf(row.cpf)}@temp.local` : `import.${Date.now().toString(36)}.${i}@temp.local`);
       const nomeFinal = nome || 'Sem nome';
-      const senha = row.senha && row.senha.trim() ? row.senha.trim() : '';
       const cargoFinal = row.cargo || 'Colaborador';
-      const departmentId = row.departamento ? deptByName.get(row.departamento.trim().toLowerCase()) || '' : '';
       const scheduleId = row.escala ? schedByName.get(row.escala.trim().toLowerCase()) || '' : '';
+      const pisPasep = optionalString((row as NormalizedEmployeeRow & { pis_pasep?: string }).pis_pasep);
 
       const doCreateAndInsert = async (): Promise<boolean> => {
         await createEmployee({
@@ -1122,8 +1305,9 @@ const AdminEmployees: React.FC = () => {
           telefone: row.telefone?.trim() || null,
           cargo: cargoFinal,
           departamento: row.departamento?.trim() || null,
+          schedule_id: scheduleId || undefined,
           data_admissao: normalizeDateToYmd(row.admissao) || null,
-          pis: row.pis_pasep?.trim() || null,
+          pis: pisPasep,
         });
         return true;
       };

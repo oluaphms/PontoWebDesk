@@ -25,6 +25,8 @@ describe('employeeValidation', () => {
         salario: 4500,
         jornada_tipo: '44h_semanais',
         carga_horaria: 8,
+        schedule_id: '11111111-1111-4111-8111-111111111111',
+        shift_id: '22222222-2222-4222-8222-222222222222',
       },
       'company-1',
     );
@@ -32,6 +34,8 @@ describe('employeeValidation', () => {
     if (r.ok) {
       expect(r.data.cpf).toBe('52998224725');
       expect(r.data.data_admissao).toBe('2024-01-15');
+      expect(r.data.schedule_id).toBe('11111111-1111-4111-8111-111111111111');
+      expect(r.data.shift_id).toBe('22222222-2222-4222-8222-222222222222');
     }
   });
 
@@ -44,5 +48,23 @@ describe('employeeValidation', () => {
     const r = validateEmployeePatch({ cargo: 'Supervisor' });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.partial?.cargo).toBe('Supervisor');
+  });
+
+  it('aceita vínculos de escala nulos ou UUIDs no patch', () => {
+    const r = validateEmployeePatch({
+      schedule_id: '',
+      shift_id: '22222222-2222-4222-8222-222222222222',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.partial?.schedule_id).toBeNull();
+      expect(r.partial?.shift_id).toBe('22222222-2222-4222-8222-222222222222');
+    }
+  });
+
+  it('rejeita vínculo de escala inválido', () => {
+    const r = validateEmployeePatch({ schedule_id: 'agenda-1' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.field).toBe('schedule_id');
   });
 });

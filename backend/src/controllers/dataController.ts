@@ -112,9 +112,13 @@ async function buildWhere(
       continue;
     }
     if (op === 'is') {
-      parts.push(`${col} IS ${f.value === null ? 'NULL' : `$${idx}`}`);
-      if (f.value !== null) params.push(f.value);
-      idx += 1;
+      if (f.value === null) {
+        parts.push(`${col} IS NULL`);
+      } else {
+        parts.push(`${col} IS ${sqlParamRef(idx, typeof f.value === 'boolean' ? 'boolean' : 'text')}`);
+        params.push(f.value);
+        idx += 1;
+      }
       continue;
     }
     if (op === 'not_is') {

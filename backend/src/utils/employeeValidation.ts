@@ -14,6 +14,8 @@ export type EmployeeBody = {
   jornada_tipo?: unknown;
   carga_horaria?: unknown;
   endereco?: unknown;
+  schedule_id?: unknown;
+  shift_id?: unknown;
 };
 
 export type ValidationResult =
@@ -35,6 +37,8 @@ export type NormalizedEmployeeInput = {
   jornada_tipo: string | null;
   carga_horaria: number | null;
   endereco: string | null;
+  schedule_id: string | null;
+  shift_id: string | null;
 };
 
 export function stripCpf(cpf: string): string {
@@ -89,6 +93,15 @@ function parseCargaHoraria(value: unknown): number | null {
   return n;
 }
 
+function parseNullableUuid(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)
+    ? raw
+    : null;
+}
+
 /** Validação para POST (criação) — cpf e nome obrigatórios. */
 export function validateEmployeeCreate(body: EmployeeBody, companyId: string): ValidationResult {
   const nome = String(body.nome || '').trim();
@@ -116,9 +129,19 @@ export function validateEmployeeCreate(body: EmployeeBody, companyId: string): V
     return { ok: false, error: 'Carga horária inválida (0–60)', field: 'carga_horaria' };
   }
 
+  const scheduleId = parseNullableUuid(body.schedule_id);
+  if (body.schedule_id != null && String(body.schedule_id).trim() && scheduleId === null) {
+    return { ok: false, error: 'schedule_id inválido', field: 'schedule_id' };
+  }
+
+  const shiftId = parseNullableUuid(body.shift_id);
+  if (body.shift_id != null && String(body.shift_id).trim() && shiftId === null) {
+    return { ok: false, error: 'shift_id inválido', field: 'shift_id' };
+  }
+
   return {
     ok: true,
-    data: normalizeEmployeeFields(body, { nome, cpf: stripCpf(cpfRaw), dataAdmissao, salario, carga }),
+    data: normalizeEmployeeFields(body, { nome, cpf: stripCpf(cpfRaw), dataAdmissao, salario, carga, scheduleId, shiftId }),
   };
 }
 
@@ -170,6 +193,22 @@ export function validateEmployeePatch(
       return { ok: false, error: 'Carga horária inválida', field: 'carga_horaria' };
     }
     partial.carga_horaria = carga;
+  }
+
+  if ('schedule_id' in body) {
+    const scheduleId = parseNullableUuid(body.schedule_id);
+    if (body.schedule_id != null && String(body.schedule_id).trim() && scheduleId === null) {
+      return { ok: false, error: 'schedule_id inválido', field: 'schedule_id' };
+    }
+    partial.schedule_id = scheduleId;
+  }
+
+  if ('shift_id' in body) {
+    const shiftId = parseNullableUuid(body.shift_id);
+    if (body.shift_id != null && String(body.shift_id).trim() && shiftId === null) {
+      return { ok: false, error: 'shift_id inválido', field: 'shift_id' };
+    }
+    partial.shift_id = shiftId;
   }
 
   if ('pis' in body) {
@@ -226,6 +265,8 @@ function emptyEmployee(): NormalizedEmployeeInput {
     jornada_tipo: null,
     carga_horaria: null,
     endereco: null,
+    schedule_id: null,
+    shift_id: null,
   };
 }
 
@@ -237,6 +278,8 @@ function normalizeEmployeeFields(
     dataAdmissao?: string | null;
     salario?: number | null;
     carga?: number | null;
+    scheduleId?: string | null;
+    shiftId?: string | null;
   },
 ): NormalizedEmployeeInput {
   const email =
@@ -263,6 +306,8 @@ function normalizeEmployeeFields(
       body.jornada_tipo != null && String(body.jornada_tipo).trim() ? String(body.jornada_tipo).trim() : null,
     carga_horaria: overrides.carga !== undefined ? overrides.carga : parseCargaHoraria(body.carga_horaria),
     endereco: body.endereco != null && String(body.endereco).trim() ? String(body.endereco).trim() : null,
+    schedule_id: overrides.scheduleId !== undefined ? overrides.scheduleId : parseNullableUuid(body.schedule_id),
+    shift_id: overrides.shiftId !== undefined ? overrides.shiftId : parseNullableUuid(body.shift_id),
   };
 }
 

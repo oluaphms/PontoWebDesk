@@ -1,19 +1,10 @@
 import { pool } from '../db/index.js';
+import { tableHasColumn } from '../db/schemaColumns.js';
 
-const USER_COLUMN_CACHE = new Map<string, boolean>();
 type Queryable = Pick<typeof pool, 'query'>;
 
 async function usersHasColumn(column: string, db: Queryable = pool): Promise<boolean> {
-  const key = column.toLowerCase();
-  if (USER_COLUMN_CACHE.has(key)) return USER_COLUMN_CACHE.get(key)!;
-  const r = await db.query(
-    `select 1 from information_schema.columns
-     where table_schema = 'public' and table_name = 'users' and column_name = $1 limit 1`,
-    [key],
-  );
-  const ok = (r.rowCount ?? 0) > 0;
-  USER_COLUMN_CACHE.set(key, ok);
-  return ok;
+  return tableHasColumn('users', column, db);
 }
 
 /** Garante linha em public.users com o mesmo id do colaborador (login + campos do cadastro). */
@@ -24,6 +15,8 @@ export async function ensureUserForEmployee(row: {
   email: string | null;
   role: string;
   status: string;
+  schedule_id?: unknown;
+  shift_id?: unknown;
 }, db: Queryable = pool): Promise<void> {
   const id = String(row.id || '').trim();
   const companyId = String(row.company_id || '').trim();
@@ -43,6 +36,12 @@ export async function ensureUserForEmployee(row: {
   if (hasPwd) {
     cols.push('password_hash');
     vals.push('');
+    placeholders.push(`$${vals.length}`);
+  }
+  for (const column of ['schedule_id', 'shift_id'] as const) {
+    if (!(column in row) || !(await usersHasColumn(column, db))) continue;
+    cols.push(column);
+    vals.push(row[column] ?? null);
     placeholders.push(`$${vals.length}`);
   }
 
@@ -77,6 +76,11 @@ export async function syncUserFieldsFromEmployeeBody(
     if (value === undefined) return;
     mappings.push({ col, value });
   };
+  const nullableTrim = (value: unknown) => {
+    if (value == null) return null;
+    const raw = String(value).trim();
+    return raw ? raw : null;
+  };
 
   if ('numero_folha' in body) set('numero_folha', body.numero_folha == null || body.numero_folha === '' ? null : String(body.numero_folha).trim());
   if ('numero_identificador' in body) {
@@ -89,6 +93,8 @@ export async function syncUserFieldsFromEmployeeBody(
   }
   if ('pis_pasep' in body) set('pis_pasep', body.pis_pasep == null || body.pis_pasep === '' ? null : String(body.pis_pasep).trim());
   if ('telefone' in body) set('phone', body.telefone == null || body.telefone === '' ? null : String(body.telefone).trim());
+  if ('schedule_id' in body) set('schedule_id', nullableTrim(body.schedule_id));
+  if ('shift_id' in body) set('shift_id', nullableTrim(body.shift_id));
   if ('data_admissao' in body) {
     const admissaoRaw = body.data_admissao;
     const admissao =
@@ -125,6 +131,8 @@ export async function syncUserFieldsFromEmployeeBody(
     { col: 'company_id', value: cid },
     { col: 'role', value: employeeRow.role || 'employee' },
     { col: 'status', value: employeeRow.status || 'active' },
+    { col: 'schedule_id', value: employeeRow.schedule_id },
+    { col: 'shift_id', value: employeeRow.shift_id },
   ];
 
   for (const item of sharedFromRow) {
