@@ -8,6 +8,8 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  Copy,
+  Check,
   UserCheck,
   Search,
   Upload,
@@ -59,6 +61,7 @@ import {
   parseTipoVinculoImport,
   type TipoVinculo,
 } from '../../constants/cadastroTrabalhista';
+import { validatePassword as validateStrongPasswordRule } from '../../utils/passwordRules';
 
 /** Configuração adicional do funcionário (employee_config JSONB) */
 interface EmployeeConfig {
@@ -264,6 +267,88 @@ function dbOptionalText(v: unknown): string | undefined {
   return s || undefined;
 }
 
+const PASSWORD_LOWER = 'abcdefghijkmnopqrstuvwxyz';
+const PASSWORD_UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const PASSWORD_DIGITS = '23456789';
+const PASSWORD_SPECIAL = '!@#$%^&*()-_=+[]{};:,.?/|';
+const PASSWORD_ALL = `${PASSWORD_LOWER}${PASSWORD_UPPER}${PASSWORD_DIGITS}${PASSWORD_SPECIAL}`;
+
+type PasswordStrengthInfo = {
+  score: number;
+  label: 'Fraca' | 'Média' | 'Boa' | 'Forte';
+  barClass: string;
+  textClass: string;
+};
+
+function getSecureRandomIndex(limit: number): number {
+  if (limit <= 1) return 0;
+  const array = new Uint32Array(1);
+  const maxUnbiased = 0xffffffff - (0xffffffff % limit);
+  do {
+    globalThis.crypto.getRandomValues(array);
+  } while (array[0] >= maxUnbiased);
+  return array[0] % limit;
+}
+
+function pickRandomChar(chars: string): string {
+  return chars[getSecureRandomIndex(chars.length)];
+}
+
+function shuffleChars(chars: string[]): string[] {
+  const copy = [...chars];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = getSecureRandomIndex(i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function generateStrongTemporaryPassword(length = 16): string {
+  const size = Math.max(12, length);
+  const chars = [
+    pickRandomChar(PASSWORD_LOWER),
+    pickRandomChar(PASSWORD_UPPER),
+    pickRandomChar(PASSWORD_DIGITS),
+    pickRandomChar(PASSWORD_SPECIAL),
+  ];
+  while (chars.length < size) {
+    chars.push(pickRandomChar(PASSWORD_ALL));
+  }
+  return shuffleChars(chars).join('');
+}
+
+function getPasswordStrengthInfo(password: string): PasswordStrengthInfo {
+  const value = String(password || '');
+  let score = 0;
+  if (value.length >= 12) score += 25;
+  if (value.length >= 16) score += 10;
+  if (/[A-Z]/.test(value)) score += 15;
+  if (/[a-z]/.test(value)) score += 15;
+  if (/[0-9]/.test(value)) score += 15;
+  if (/[^A-Za-z0-9]/.test(value)) score += 20;
+
+  if (score < 40) {
+    return { score, label: 'Fraca', barClass: 'bg-red-500', textClass: 'text-red-600 dark:text-red-400' };
+  }
+  if (score < 70) {
+    return { score, label: 'Média', barClass: 'bg-amber-500', textClass: 'text-amber-600 dark:text-amber-400' };
+  }
+  if (score < 90) {
+    return { score, label: 'Boa', barClass: 'bg-sky-500', textClass: 'text-sky-600 dark:text-sky-400' };
+  }
+  return { score, label: 'Forte', barClass: 'bg-emerald-500', textClass: 'text-emerald-600 dark:text-emerald-400' };
+}
+
+function getPasswordChecks(password: string): Array<{ label: string; ok: boolean }> {
+  return [
+    { label: 'Mínimo de 12 caracteres', ok: password.length >= 12 },
+    { label: 'Pelo menos 1 letra maiúscula', ok: /[A-Z]/.test(password) },
+    { label: 'Pelo menos 1 letra minúscula', ok: /[a-z]/.test(password) },
+    { label: 'Pelo menos 1 número', ok: /[0-9]/.test(password) },
+    { label: 'Pelo menos 1 caractere especial', ok: /[^A-Za-z0-9]/.test(password) },
+  ];
+}
+
 /** Campos comuns em erros do Auth / PostgREST vindos de `catch (unknown)`. */
 function errorProps(err: unknown): { message: string; detail?: string; status: unknown; code: unknown } {
   if (err && typeof err === 'object') {
@@ -432,9 +517,92 @@ const AdminEmployees: React.FC = () => {
   const [askInvisivel, setAskInvisivel] = useState<string | null>(null);
   const [settingPassword, setSettingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [passwordMessageTone, setPasswordMessageTone] = useState<'success' | 'error' | 'info' | null>(null);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [showPasswordDraft, setShowPasswordDraft] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
   /** Painéis “Outras opções” (equivalente ao legado): fora do corpo principal do formulário. */
   const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'afast'>('none');
   const estruturaSelectRef = useRef<HTMLSelectElement>(null);
+
+  const passwordStrengthInfo = useMemo(() => getPasswordStrengthInfo(passwordDraft), [passwordDraft]);
+  const passwordChecks = useMemo(() => getPasswordChecks(passwordDraft), [passwordDraft]);
+  const passwordValidationMessage = useMemo(() => {
+    const trimmed = passwordDraft.trim();
+    if (!trimmed) return 'Informe a senha para salvar.';
+    return validateStrongPasswordRule(trimmed);
+  }, [passwordDraft]);
+
+  const resetPasswordModalState = () => {
+    setPasswordDraft('');
+    setShowPasswordDraft(false);
+    setPasswordCopied(false);
+    setPasswordMessage(null);
+    setPasswordMessageTone(null);
+  };
+
+  const openPasswordModal = () => {
+    resetPasswordModalState();
+    setPasswordModalOpen(true);
+  };
+
+  const handleGenerateStrongPassword = () => {
+    const generated = generateStrongTemporaryPassword();
+    setPasswordDraft(generated);
+    setShowPasswordDraft(true);
+    setPasswordCopied(false);
+    setPasswordMessage('Senha temporária forte gerada. Revise antes de salvar.');
+    setPasswordMessageTone('info');
+  };
+
+  const handleCopyPassword = async () => {
+    const value = passwordDraft.trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setPasswordCopied(true);
+      setPasswordMessage('Senha copiada. Compartilhe com o funcionário por canal seguro.');
+      setPasswordMessageTone('info');
+    } catch {
+      setPasswordMessage('Não foi possível copiar automaticamente. Copie manualmente.');
+      setPasswordMessageTone('error');
+    }
+  };
+
+  const handleSavePassword = async () => {
+    const email = form.email.trim();
+    const nextPassword = passwordDraft.trim();
+    if (!email) {
+      setPasswordMessage('E-mail do funcionário não encontrado.');
+      setPasswordMessageTone('error');
+      return;
+    }
+    const validation = validateStrongPasswordRule(nextPassword);
+    if (validation) {
+      setPasswordMessage(validation);
+      setPasswordMessageTone('error');
+      return;
+    }
+
+    setSettingPassword(true);
+    setPasswordMessage(null);
+    setPasswordMessageTone(null);
+    const result = await setEmployeePasswordInAuth(email, nextPassword);
+    setSettingPassword(false);
+
+    if (!result.success) {
+      setPasswordMessage(result.error || 'Falha ao salvar senha.');
+      setPasswordMessageTone('error');
+      return;
+    }
+
+    setSuccess('Senha atualizada com sucesso.');
+    setPasswordModalOpen(false);
+    resetPasswordModalState();
+    if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
+    void loadData();
+  };
 
   const loadData = async () => {
     if (!effectiveCompanyId) {
@@ -519,6 +687,8 @@ const AdminEmployees: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     setForm(defaultForm());
+    setPasswordModalOpen(false);
+    resetPasswordModalState();
     setPasswordMessage(null);
     setEmployeeModalExtra('adicional');
     setModalOpen(true);
@@ -528,6 +698,8 @@ const AdminEmployees: React.FC = () => {
 
   const openEdit = (row: EmployeeRow) => {
     setEditingId(row.id);
+    setPasswordModalOpen(false);
+    resetPasswordModalState();
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
     setForm({
@@ -1278,6 +1450,8 @@ const AdminEmployees: React.FC = () => {
             onClick={() => {
               if (!saving) {
                 setEmployeeModalExtra('none');
+                setPasswordModalOpen(false);
+                resetPasswordModalState();
                 setModalOpen(false);
               }
             }}
@@ -1872,24 +2046,19 @@ const AdminEmployees: React.FC = () => {
                         )}
                         {editingId && form.email?.trim() && (
                           <div className="space-y-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 mt-2">
+                            <p className="text-xs text-slate-600 dark:text-slate-400">
+                              A redefinição é manual e segura. Gere uma senha forte, ajuste se necessário e salve no modal.
+                            </p>
                             <button
                               type="button"
                               disabled={settingPassword}
-                              onClick={async () => {
-                                setPasswordMessage(null);
-                                setSettingPassword(true);
-                                const result = await setEmployeePasswordInAuth(form.email.trim(), '');
-                                setSettingPassword(false);
-                                setPasswordMessage(result.success
-                                  ? `Senha temporária gerada: ${result.temporaryPassword ?? 'verifique o canal seguro definido pela empresa'}`
-                                  : (result.error || 'Falha ao definir senha.'));
-                              }}
+                              onClick={openPasswordModal}
                               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium"
                             >
-                              {settingPassword ? 'Definindo...' : 'Gerar senha temporária forte'}
+                              Gerenciar senha
                             </button>
                             {passwordMessage && (
-                              <p className={`text-xs ${passwordMessage.startsWith('Senha') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{passwordMessage}</p>
+                              <p className={`text-xs ${passwordMessageTone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{passwordMessage}</p>
                             )}
                           </div>
                         )}
@@ -1929,6 +2098,8 @@ const AdminEmployees: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setEmployeeModalExtra('none');
+                      setPasswordModalOpen(false);
+                      resetPasswordModalState();
                       setModalOpen(false);
                     }}
                     className="min-w-[112px] py-2.5 px-4 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150"
@@ -1951,6 +2122,145 @@ const AdminEmployees: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {passwordModalOpen && editingId && form.email?.trim() && (
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => {
+              if (!settingPassword) {
+                setPasswordModalOpen(false);
+                resetPasswordModalState();
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-xl rounded-2xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-5 sm:p-6 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-1">
+                <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">Redefinir senha</h4>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                  Defina a nova senha de acesso para <strong>{form.email.trim()}</strong>.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Senha temporária</label>
+                <div className="flex items-stretch gap-2">
+                  <input
+                    type={showPasswordDraft ? 'text' : 'password'}
+                    value={passwordDraft}
+                    onChange={(e) => {
+                      setPasswordDraft(e.target.value);
+                      setPasswordCopied(false);
+                      if (passwordMessageTone !== 'error') {
+                        setPasswordMessage(null);
+                        setPasswordMessageTone(null);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordDraft((v) => !v)}
+                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    aria-label={showPasswordDraft ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showPasswordDraft ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyPassword}
+                    disabled={!passwordDraft.trim()}
+                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                    aria-label="Copiar senha"
+                    title="Copiar senha"
+                  >
+                    {passwordCopied ? <Check size={18} /> : <Copy size={18} />}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Após salvar, informe a senha ao funcionário por um canal seguro.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Força da senha</span>
+                  <span className={passwordStrengthInfo.textClass}>{passwordStrengthInfo.label}</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-200 ${passwordStrengthInfo.barClass}`}
+                    style={{ width: `${Math.max(6, passwordStrengthInfo.score)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+                {passwordChecks.map((item) => (
+                  <p key={item.label} className={`text-xs ${item.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {item.ok ? 'OK' : '-'} {item.label}
+                  </p>
+                ))}
+              </div>
+
+              {passwordValidationMessage && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">{passwordValidationMessage}</p>
+              )}
+
+              {passwordMessage && (
+                <p
+                  className={`text-xs ${
+                    passwordMessageTone === 'error'
+                      ? 'text-red-600 dark:text-red-400'
+                      : passwordMessageTone === 'success'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-sky-600 dark:text-sky-400'
+                  }`}
+                >
+                  {passwordMessage}
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={handleGenerateStrongPassword}
+                  disabled={settingPassword}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-sm"
+                >
+                  Gerar senha temporária forte
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!settingPassword) {
+                      setPasswordModalOpen(false);
+                      resetPasswordModalState();
+                    }
+                  }}
+                  disabled={settingPassword}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePassword}
+                  disabled={settingPassword || !!passwordValidationMessage}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium inline-flex items-center gap-2"
+                >
+                  {settingPassword ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : null}
+                  {settingPassword ? 'Salvando...' : 'Salvar Senha'}
+                </button>
+              </div>
             </div>
           </div>
         )}
