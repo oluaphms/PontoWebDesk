@@ -289,17 +289,39 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
     const raw = result.rows[0] as Record<string, unknown>;
     const body =
       req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-    await ensureUserForEmployee({
-      id: String(raw.id),
-      company_id: companyId,
-      nome: String(raw.nome),
-      email: String(raw.email || d.email),
-      role: String(raw.role || d.role),
-      status: String(raw.status || d.status),
-      schedule_id: raw.schedule_id ?? d.schedule_id,
-      shift_id: raw.shift_id ?? d.shift_id,
-    });
-    await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
+    try {
+      await ensureUserForEmployee({
+        id: String(raw.id),
+        company_id: companyId,
+        nome: String(raw.nome),
+        email: String(raw.email || d.email),
+        role: String(raw.role || d.role),
+        status: String(raw.status || d.status),
+        schedule_id: raw.schedule_id ?? d.schedule_id,
+        shift_id: raw.shift_id ?? d.shift_id,
+      });
+      const userSync = await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
+      if (userSync.attempted && userSync.updatedRows === 0) {
+        logger.warn({
+          module: 'employee.controller',
+          action: 'EMPLOYEE_CREATE_USER_SYNC_SKIPPED',
+          message: 'Colaborador criado sem sincronizar users; nenhum registro correspondente foi encontrado',
+          userId: req.auth?.userId ?? req.auth?.sub ?? null,
+          companyId,
+          meta: { employeeId: String(raw.id) },
+        });
+      }
+    } catch (userSyncError) {
+      logger.warn({
+        module: 'employee.controller',
+        action: 'EMPLOYEE_CREATE_USER_SYNC_FAILED',
+        message: 'Colaborador criado, mas sincronização auxiliar com users falhou',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: userSyncError,
+        meta: { employeeId: String(raw.id) },
+      });
+    }
     const refreshed = await fetchEmployeeViewById(pool, String(raw.id), companyId);
     const employee = mapRow(refreshed ?? raw);
     res.status(201).json({ ok: true, success: true, employee, data: employee });
@@ -447,31 +469,43 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       );
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
     }
-    await ensureUserForEmployee(
-      {
-        id,
-        company_id: companyId,
-        nome: String(employeeRow.nome || ''),
-        email: employeeRow.email != null ? String(employeeRow.email) : null,
-        role: String(employeeRow.role || 'employee'),
-        status: String(employeeRow.status || 'active'),
-        schedule_id: employeeRow.schedule_id,
-        shift_id: employeeRow.shift_id,
-      },
-      client,
-    );
-    const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
-    if (userSync.attempted && userSync.updatedRows === 0) {
+    await client.query('commit');
+    try {
+      await ensureUserForEmployee(
+        {
+          id,
+          company_id: companyId,
+          nome: String(employeeRow.nome || ''),
+          email: employeeRow.email != null ? String(employeeRow.email) : null,
+          role: String(employeeRow.role || 'employee'),
+          status: String(employeeRow.status || 'active'),
+          schedule_id: employeeRow.schedule_id,
+          shift_id: employeeRow.shift_id,
+        },
+        pool,
+      );
+      const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, pool);
+      if (userSync.attempted && userSync.updatedRows === 0) {
+        logger.warn({
+          module: 'employee.controller',
+          action: 'EMPLOYEE_USER_SYNC_SKIPPED',
+          message: 'Colaborador atualizado sem sincronizar users; nenhum registro correspondente foi encontrado',
+          userId: req.auth?.userId ?? req.auth?.sub ?? null,
+          companyId,
+          meta: { employeeId: id },
+        });
+      }
+    } catch (userSyncError) {
       logger.warn({
         module: 'employee.controller',
-        action: 'EMPLOYEE_USER_SYNC_SKIPPED',
-        message: 'Colaborador atualizado sem sincronizar users; nenhum registro correspondente foi encontrado',
+        action: 'EMPLOYEE_USER_SYNC_FAILED',
+        message: 'Colaborador atualizado, mas sincronização auxiliar com users falhou',
         userId: req.auth?.userId ?? req.auth?.sub ?? null,
         companyId,
+        error: userSyncError,
         meta: { employeeId: id },
       });
     }
-    await client.query('commit');
     let refreshed: Record<string, unknown> | null = null;
     try {
       refreshed = await fetchEmployeeViewById(pool, id, companyId);
@@ -505,10 +539,7 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       return;
     }
     const message = e instanceof Error ? e.message : String(e);
-    const code =
-      message === 'users_sync_no_rows_updated'
-        ? 'EMPLOYEE_USER_SYNC_NO_ROWS'
-        : 'EMPLOYEE_UPDATE_FAILED';
+    const code = 'EMPLOYEE_UPDATE_FAILED';
     logger.error({
       module: 'employee.controller',
       action: 'EMPLOYEE_UPDATE_FAILED',
