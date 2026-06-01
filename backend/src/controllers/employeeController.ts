@@ -462,7 +462,14 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     );
     const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
     if (userSync.attempted && userSync.updatedRows === 0) {
-      throw new Error('users_sync_no_rows_updated');
+      logger.warn({
+        module: 'employee.controller',
+        action: 'EMPLOYEE_USER_SYNC_SKIPPED',
+        message: 'Colaborador atualizado sem sincronizar users; nenhum registro correspondente foi encontrado',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        meta: { employeeId: id },
+      });
     }
     await client.query('commit');
     let refreshed: Record<string, unknown> | null = null;
