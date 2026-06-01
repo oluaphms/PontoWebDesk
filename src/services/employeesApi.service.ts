@@ -13,6 +13,9 @@ export type ApiEmployee = {
   pis?: string | null;
   telefone?: string | null;
   data_admissao?: string | null;
+  admissao?: string | null;
+  admission_date?: string | null;
+  hire_date?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   salario?: number | null;
@@ -22,6 +25,8 @@ export type ApiEmployee = {
   numero_folha?: string | null;
   numero_identificador?: string | null;
   demissao?: string | null;
+  termination_date?: string | null;
+  dismissal_date?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
 };
@@ -36,6 +41,9 @@ export type EmployeeWriteInput = {
   pis?: string | null;
   telefone?: string | null;
   data_admissao?: string | null;
+  admissao?: string | null;
+  admission_date?: string | null;
+  hire_date?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   salario?: number | null;
@@ -45,6 +53,8 @@ export type EmployeeWriteInput = {
   numero_folha?: string | null;
   numero_identificador?: string | null;
   demissao?: string | null;
+  termination_date?: string | null;
+  dismissal_date?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
 };
@@ -69,7 +79,17 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   if (input.companyId != null) body.company_id = input.companyId;
   if (input.pis !== undefined) body.pis = input.pis?.trim() || null;
   if (input.telefone !== undefined) body.telefone = input.telefone?.trim() || null;
-  if (input.data_admissao !== undefined) body.data_admissao = input.data_admissao || null;
+  const hasAdmissionField =
+    input.data_admissao !== undefined ||
+    input.admissao !== undefined ||
+    input.admission_date !== undefined ||
+    input.hire_date !== undefined;
+  if (hasAdmissionField) {
+    const normalizedAdmission = normalizeDateInput(
+      input.data_admissao ?? input.admissao ?? input.admission_date ?? input.hire_date,
+    );
+    body.data_admissao = normalizedAdmission;
+  }
   if (input.cargo !== undefined) body.cargo = input.cargo?.trim() || null;
   if (input.departamento !== undefined) body.departamento = input.departamento?.trim() || null;
   if (input.salario !== undefined) body.salario = input.salario;
@@ -80,7 +100,16 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   if (input.numero_identificador !== undefined) {
     body.numero_identificador = input.numero_identificador?.trim() || null;
   }
-  if (input.demissao !== undefined) body.demissao = input.demissao || null;
+  const hasDismissalField =
+    input.demissao !== undefined ||
+    input.termination_date !== undefined ||
+    input.dismissal_date !== undefined;
+  if (hasDismissalField) {
+    const normalizedDismissal = normalizeDateInput(
+      input.demissao ?? input.termination_date ?? input.dismissal_date,
+    );
+    body.demissao = normalizedDismissal;
+  }
   if (input.invisivel !== undefined) body.invisivel = input.invisivel;
   if (input.employee_config !== undefined) body.employee_config = input.employee_config;
   return body;
@@ -124,10 +153,13 @@ export async function fetchEmployees(companyId: string): Promise<ApiEmployee[]> 
 }
 
 export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmployee> {
+  const normalizedAdmission = normalizeDateInput(
+    input.data_admissao ?? input.admissao ?? input.admission_date ?? input.hire_date,
+  );
   const err = validateEmployeeFormClient({
     nome: input.nome,
     cpf: input.cpf,
-    data_admissao: input.data_admissao ?? undefined,
+    data_admissao: normalizedAdmission ?? undefined,
     salario: input.salario,
     carga_horaria: input.carga_horaria ?? undefined,
     requireCpf: true,
@@ -142,10 +174,14 @@ export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmpl
 }
 
 export async function updateEmployee(id: string, input: EmployeeUpdateInput): Promise<ApiEmployee> {
+  const normalizedAdmission = normalizeDateInput(
+    input.data_admissao ?? input.admissao ?? input.admission_date ?? input.hire_date,
+  );
   if (input.cpf != null) {
     const err = validateEmployeeFormClient({
       nome: input.nome || 'x',
       cpf: input.cpf,
+      data_admissao: normalizedAdmission ?? undefined,
       requireCpf: true,
     });
     if (err && err !== 'Nome é obrigatório') throw new Error(err);
@@ -169,6 +205,12 @@ export async function deleteEmployee(id: string): Promise<void> {
 }
 
 function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
+  const normalizedAdmission = normalizeDateInput(
+    row.data_admissao ?? row.admissao ?? row.admission_date ?? row.hire_date,
+  );
+  const normalizedDismissal = normalizeDateInput(
+    row.demissao ?? row.termination_date ?? row.dismissal_date,
+  );
   return {
     id: String(row.id ?? ''),
     nome: String(row.nome ?? ''),
@@ -180,7 +222,10 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     cpf: row.cpf != null ? String(row.cpf) : null,
     pis: row.pis != null ? String(row.pis) : null,
     telefone: row.telefone != null ? String(row.telefone) : null,
-    data_admissao: row.data_admissao != null ? String(row.data_admissao).slice(0, 10) : null,
+    data_admissao: normalizedAdmission,
+    admissao: normalizedAdmission,
+    admission_date: normalizedAdmission,
+    hire_date: normalizedAdmission,
     cargo: row.cargo != null ? String(row.cargo) : null,
     departamento: row.departamento != null ? String(row.departamento) : null,
     salario: row.salario != null ? Number(row.salario) : null,
@@ -189,11 +234,34 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     endereco: row.endereco != null ? String(row.endereco) : null,
     numero_folha: row.numero_folha != null ? String(row.numero_folha) : null,
     numero_identificador: row.numero_identificador != null ? String(row.numero_identificador) : null,
-    demissao: row.demissao != null ? String(row.demissao).slice(0, 10) : null,
+    demissao: normalizedDismissal,
+    termination_date: normalizedDismissal,
+    dismissal_date: normalizedDismissal,
     invisivel: row.invisivel === true,
     employee_config:
       row.employee_config && typeof row.employee_config === 'object'
         ? (row.employee_config as Record<string, unknown>)
         : {},
   };
+}
+
+function normalizeDateInput(value: unknown): string | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s].*$)/);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+
+  const br = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (br) {
+    const dd = br[1].padStart(2, '0');
+    const mm = br[2].padStart(2, '0');
+    return `${br[3]}-${mm}-${dd}`;
+  }
+
+  if (!/\d{4}/.test(raw)) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }

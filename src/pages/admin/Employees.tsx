@@ -36,7 +36,7 @@ import {
 import { setEmployeePasswordInAuth } from '../../services/authAdminApi.service';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { resolveTenantId } from '../../services/tenantScope';
-import { invalidateCompanyListCaches } from '../../services/queryCache';
+import { invalidateCompanyListCaches, queryCache } from '../../services/queryCache';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { parseFile, extractHeaders } from '../../services/fileParser';
@@ -169,6 +169,8 @@ const JORNADA_TIPO_OPTIONS = [
 ] as const;
 
 function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
+  const admissao = normalizeDateToYmd(e.data_admissao ?? e.admissao ?? e.admission_date ?? e.hire_date);
+  const demissao = normalizeDateToYmd(e.demissao ?? e.termination_date ?? e.dismissal_date);
   return {
     id: e.id,
     nome: e.nome,
@@ -182,13 +184,13 @@ function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
     created_at: e.created_at || new Date().toISOString(),
     salario_base: e.salario ?? null,
     pis_pasep: e.pis ?? undefined,
-    admissao: e.data_admissao ?? undefined,
+    admissao: admissao ?? undefined,
     jornada_tipo: e.jornada_tipo ?? undefined,
     carga_horaria: e.carga_horaria ?? undefined,
     endereco: e.endereco ?? undefined,
     numero_folha: e.numero_folha ?? undefined,
     numero_identificador: e.numero_identificador ?? undefined,
-    demissao: e.demissao ?? undefined,
+    demissao: demissao ?? undefined,
     invisivel: e.invisivel === true,
     employee_config: e.employee_config ?? {},
     reliability_score: calcularScoreConfiabilidade({
@@ -199,6 +201,22 @@ function mapApiEmployeeToRow(e: ApiEmployee): EmployeeRow {
     }),
     tipo_vinculo: 'clt',
   };
+}
+
+function normalizeDateToYmd(value: unknown): string | null {
+  const normalizedFlexible = parseFlexibleDate(String(value ?? '').trim());
+  if (normalizedFlexible) return normalizedFlexible;
+
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s].*$)/);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+
+  if (!/\d{4}/.test(raw)) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
 function buildEnderecoFromForm(form: {
@@ -528,6 +546,11 @@ const AdminEmployees: React.FC = () => {
 
   const passwordStrengthInfo = useMemo(() => getPasswordStrengthInfo(passwordDraft), [passwordDraft]);
   const passwordChecks = useMemo(() => getPasswordChecks(passwordDraft), [passwordDraft]);
+  const refreshEmployeesAfterMutation = async (companyId: string): Promise<void> => {
+    invalidateCompanyListCaches(companyId);
+    queryCache.invalidate(`employees-api:${companyId}`);
+    await loadData();
+  };
   const passwordValidationMessage = useMemo(() => {
     const trimmed = passwordDraft.trim();
     if (!trimmed) return 'Informe a senha para salvar.';
@@ -600,8 +623,7 @@ const AdminEmployees: React.FC = () => {
     setSuccess('Senha atualizada com sucesso.');
     setPasswordModalOpen(false);
     resetPasswordModalState();
-    if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
-    void loadData();
+    if (effectiveCompanyId) void refreshEmployeesAfterMutation(effectiveCompanyId);
   };
 
   const loadData = async () => {
@@ -720,8 +742,8 @@ const AdminEmployees: React.FC = () => {
       jornada_tipo: row.jornada_tipo || '',
       carga_horaria: row.carga_horaria != null ? String(row.carga_horaria) : '',
       endereco: row.endereco || '',
-      admissao: row.admissao || '',
-      demissao: row.demissao || '',
+      admissao: normalizeDateToYmd(row.admissao) || '',
+      demissao: normalizeDateToYmd(row.demissao) || '',
       tipo_vinculo: normalizeTipoVinculo(row.tipo_vinculo),
     });
     setModalOpen(true);
@@ -797,7 +819,7 @@ const AdminEmployees: React.FC = () => {
     const clientErr = validateEmployeeFormClient({
       nome: form.nome,
       cpf: form.cpf,
-      data_admissao: form.admissao || undefined,
+      data_admissao: normalizeDateToYmd(form.admissao) || undefined,
       salario: salarioParsed,
       carga_horaria: cargaParsed ?? undefined,
     });
@@ -816,7 +838,7 @@ const AdminEmployees: React.FC = () => {
       companyId: effectiveCompanyId,
       pis: form.pis_pasep?.trim() || null,
       telefone: form.phone?.trim() || null,
-      data_admissao: form.admissao || null,
+      data_admissao: normalizeDateToYmd(form.admissao) || null,
       cargo: cargoFinal,
       departamento: form.departamento?.trim() || null,
       salario: salarioParsed,
@@ -825,7 +847,7 @@ const AdminEmployees: React.FC = () => {
       endereco: buildEnderecoFromForm(form),
       numero_folha: form.numero_folha?.trim() || null,
       numero_identificador: form.numero_identificador?.trim() || null,
-      demissao: form.demissao?.trim() || null,
+      demissao: normalizeDateToYmd(form.demissao) || null,
       employee_config: buildEmployeeConfig(),
     };
 
@@ -834,14 +856,14 @@ const AdminEmployees: React.FC = () => {
     setSuccess(null);
     try {
       if (editingId) {
-        await updateEmployee(editingId, apiPayload);
+        const updated = await updateEmployee(editingId, apiPayload);
+        const updatedRow = mapApiEmployeeToRow(updated);
+        setRows((prev) => prev.map((item) => (item.id === editingId ? { ...item, ...updatedRow } : item)));
         setSuccess('Colaborador atualizado com sucesso.');
-        if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
+        await refreshEmployeesAfterMutation(effectiveCompanyId);
         setModalOpen(false);
         if (form.demissao?.trim()) {
           setAskInvisivel(editingId);
-        } else {
-          loadData();
         }
       } else {
         const created = await createEmployee(apiPayload);
@@ -860,8 +882,8 @@ const AdminEmployees: React.FC = () => {
         }
         setModalOpen(false);
         setForm({ ...form, password: '' });
-        invalidateCompanyListCaches(effectiveCompanyId);
-        loadData();
+        setRows((prev) => [mapApiEmployeeToRow(created), ...prev]);
+        await refreshEmployeesAfterMutation(effectiveCompanyId);
       }
     } catch (e: unknown) {
       logger.error({
@@ -923,8 +945,8 @@ const AdminEmployees: React.FC = () => {
       await updateEmployee(id, { status: 'inactive' });
       setSuccess('Funcionário marcado como invisível (não aparecerá nos relatórios).');
       setAskInvisivel(null);
-      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
-      loadData();
+      setRows((prev) => prev.map((row) => (row.id === id ? { ...row, status: 'inactive', invisivel: true } : row)));
+      if (effectiveCompanyId) await refreshEmployeesAfterMutation(effectiveCompanyId);
     } catch (e: unknown) {
       setError(messageFromUnknown(e, 'Erro ao atualizar'));
     }
@@ -935,8 +957,8 @@ const AdminEmployees: React.FC = () => {
     try {
       await updateEmployee(id, { status: 'inactive' });
       setSuccess('Funcionário desativado.');
-      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
-      loadData();
+      setRows((prev) => prev.map((row) => (row.id === id ? { ...row, status: 'inactive' } : row)));
+      if (effectiveCompanyId) await refreshEmployeesAfterMutation(effectiveCompanyId);
     } catch (e: unknown) {
       setError(messageFromUnknown(e, 'Erro ao desativar'));
     }
@@ -946,8 +968,8 @@ const AdminEmployees: React.FC = () => {
     try {
       await updateEmployee(id, { status: 'active' });
       setSuccess('Funcionário reativado.');
-      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
-      loadData();
+      setRows((prev) => prev.map((row) => (row.id === id ? { ...row, status: 'active' } : row)));
+      if (effectiveCompanyId) await refreshEmployeesAfterMutation(effectiveCompanyId);
     } catch (e: unknown) {
       setError(messageFromUnknown(e, 'Erro ao reativar'));
     }
@@ -989,8 +1011,8 @@ const AdminEmployees: React.FC = () => {
     try {
       await deleteEmployee(id);
       setSuccess('Funcionário excluído.');
-      if (effectiveCompanyId) invalidateCompanyListCaches(effectiveCompanyId);
-      loadData();
+      setRows((prev) => prev.filter((row) => row.id !== id));
+      if (effectiveCompanyId) await refreshEmployeesAfterMutation(effectiveCompanyId);
     } catch (e: unknown) {
       setError(messageFromUnknown(e, 'Erro ao excluir'));
     }
@@ -1100,7 +1122,7 @@ const AdminEmployees: React.FC = () => {
           telefone: row.telefone?.trim() || null,
           cargo: cargoFinal,
           departamento: row.departamento?.trim() || null,
-          data_admissao: row.admissao || null,
+          data_admissao: normalizeDateToYmd(row.admissao) || null,
           pis: row.pis_pasep?.trim() || null,
         });
         return true;
@@ -1156,8 +1178,7 @@ const AdminEmployees: React.FC = () => {
 
     setImportResult({ success, failed });
     if (success > 0) {
-      invalidateCompanyListCaches(effectiveCompanyId);
-      loadData();
+      await refreshEmployeesAfterMutation(effectiveCompanyId);
     }
   };
 

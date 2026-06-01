@@ -37,6 +37,13 @@ export function onWebPunchQueueSynced(
 
 function emitSynced(detail: { flushed: number; clientIds: string[] }) {
   for (const fn of syncListeners) fn(detail);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('pontowebdesk:web-punch-synced', {
+        detail,
+      }),
+    );
+  }
 }
 
 function newClientId(): string {
@@ -184,11 +191,74 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
   return { flushed, clientIds: syncedIds };
 }
 
+function mapRegisterPunchResult(
+  response: unknown,
+  fallback: { clientId: string; timestamp: string },
+): RegisterPunchResult & { pending?: boolean; clientId?: string } | null {
+  const payload = (response ?? {}) as {
+    ok?: boolean;
+    result?: RegisterPunchResult & { id?: string; timestamp?: string; receipt_id?: string };
+  };
+  if (payload.ok !== true || !payload.result) return null;
+  const result = payload.result;
+  const id = String(result.id ?? fallback.clientId).trim();
+  const timestamp = String(result.timestamp ?? fallback.timestamp).trim();
+  return {
+    id: id || fallback.clientId,
+    nsr: Number(result.nsr ?? 0),
+    hash: String(result.hash ?? `sync-${fallback.clientId}`),
+    previous_hash: String(result.previous_hash ?? '0'),
+    timestamp: timestamp || fallback.timestamp,
+    receipt_id: String(result.receipt_id ?? result.id ?? fallback.clientId),
+    pending: false,
+    clientId: fallback.clientId,
+  };
+}
+
+async function trySyncSingleWebPunch(
+  entry: QueuedWebPunch,
+): Promise<(RegisterPunchResult & { pending?: boolean; clientId?: string }) | null> {
+  if (!isCloudEnabled()) return null;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+
+  const provider = getProvider();
+  const accessToken = await provider.getAccessToken();
+  if (!accessToken) return null;
+
+  const response = await provider.registerPunch({
+    client_id: entry.id,
+    ...entry.params,
+    _evidence: entry.evidence ?? undefined,
+  });
+  const mapped = mapRegisterPunchResult(response, {
+    clientId: entry.id,
+    timestamp: new Date(entry.createdAt).toISOString(),
+  });
+  if (!mapped) return null;
+
+  entry.status = 'sent';
+  await idbUpdatePunch(entry);
+  await markLocalPunchSynced([entry.id]);
+  if (entry.evidence) {
+    try {
+      await savePunchEvidence({ ...entry.evidence, timeRecordId: mapped.id });
+    } catch {
+      /* best-effort */
+    }
+  }
+  emitSynced({ flushed: 1, clientIds: [entry.id] });
+  return mapped;
+}
+
 export async function enqueueAndMaybeSyncWebPunch(
   params: RegisterPunchSecureParams,
   evidence?: Omit<SavePunchEvidenceParams, 'timeRecordId'> | null,
 ): Promise<RegisterPunchResult & { pending?: boolean; clientId?: string }> {
   const entry = await savePunchLocal(params, evidence);
+  const singleSync = await trySyncSingleWebPunch(entry);
+  if (singleSync) {
+    return singleSync;
+  }
   const pending = await countPendingWebPunches();
   if (pending >= MIN_BATCH) {
     const flush = await flushWebPunchQueue({ force: true });

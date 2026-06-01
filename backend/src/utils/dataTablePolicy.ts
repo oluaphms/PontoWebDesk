@@ -3,6 +3,7 @@ import { buildPublicAllowedTables } from './dataTableAllowlist.js';
 
 /** Escopo por user_id (sem filtro company_id automático). */
 export const USER_SCOPED_TABLES = new Set([
+  'users',
   'notifications',
   'user_settings',
   'user_consents',

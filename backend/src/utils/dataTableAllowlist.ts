@@ -13,7 +13,6 @@ const MIGRATION_INTERNAL = new Set([
 ]);
 
 const GENERIC_DATA_API_BLOCKED_TABLES = new Set([
-  'users',
   'employees',
 ]);
 

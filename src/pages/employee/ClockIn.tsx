@@ -170,6 +170,19 @@ const EmployeeClockIn: React.FC = () => {
   }, [user?.id, user?.companyId, loadTodayState, toast]);
 
   useEffect(() => {
+    const onSynced = () => {
+      if (!user?.id || !user?.companyId) return;
+      void queryClient.invalidateQueries({ queryKey: ['records'] }, { force: true });
+      invalidateAfterPunch(user.id, user.companyId);
+      void loadTodayState();
+    };
+    window.addEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    return () => {
+      window.removeEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    };
+  }, [user?.id, user?.companyId, loadTodayState]);
+
+  useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         void flushPendingWebPunches();

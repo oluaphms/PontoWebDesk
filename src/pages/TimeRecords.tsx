@@ -22,12 +22,25 @@ interface TimeRecordRow {
   device_id?: string | null;
 }
 
+function localDateStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T00:00:00.000Z`;
+  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+}
+
+function localDateEndIso(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return `${ymd}T23:59:59.999Z`;
+  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
+}
+
 const TimeRecordsPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [rows, setRows] = useState<TimeRecordRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
@@ -39,10 +52,10 @@ const TimeRecordsPage: React.FC = () => {
           { column: 'user_id', operator: 'eq', value: user.id },
         ];
         if (dateFrom) {
-          filters.push({ column: 'created_at', operator: 'gte', value: dateFrom });
+          filters.push({ column: 'created_at', operator: 'gte', value: localDateStartIso(dateFrom) });
         }
         if (dateTo) {
-          filters.push({ column: 'created_at', operator: 'lte', value: `${dateTo}T23:59:59` });
+          filters.push({ column: 'created_at', operator: 'lte', value: localDateEndIso(dateTo) });
         }
 
         // Otimização: carregar apenas colunas necessárias com limite
@@ -72,7 +85,15 @@ const TimeRecordsPage: React.FC = () => {
     };
 
     load();
-  }, [user, dateFrom, dateTo]);
+  }, [user, dateFrom, dateTo, refreshNonce]);
+
+  useEffect(() => {
+    const onSynced = () => setRefreshNonce((n) => n + 1);
+    window.addEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    return () => {
+      window.removeEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    };
+  }, []);
 
   if (loading) {
     return <LoadingState message="Carregando registros..." />;

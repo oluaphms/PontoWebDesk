@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
+import type { PoolClient } from 'pg';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import {
   EMPLOYEE_SELECT_COLUMNS,
@@ -161,6 +162,38 @@ const PATCHABLE: (keyof NormalizedEmployeeInput)[] = [
   'endereco',
 ];
 
+const USER_ONLY_PATCH_FIELDS = new Set([
+  'numero_folha',
+  'numero_identificador',
+  'pis_pasep',
+  'demissao',
+  'invisivel',
+  'employee_config',
+]);
+
+async function fetchEmployeeViewById(
+  db: Pick<PoolClient, 'query'> | typeof pool,
+  id: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  const refreshed = await db.query(
+    `select
+       e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
+       e.cpf,
+       coalesce(e.pis, u.pis_pasep) as pis,
+       coalesce(e.telefone, u.phone) as telefone,
+       coalesce(e.data_admissao, u.admissao) as data_admissao,
+       e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
+       u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
+     from employees e
+     left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+     where e.id = $1 and e.company_id = $2
+     limit 1`,
+    [id, companyId],
+  );
+  return (refreshed.rows[0] as Record<string, unknown> | undefined) ?? null;
+}
+
 export async function updateEmployeeController(req: AuthedRequest, res: Response): Promise<void> {
   if (rejectTenantOverride(req, res)) return;
   const companyId = requireCompanyId(req, res);
@@ -182,6 +215,9 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
   const fields: string[] = [];
   const values: unknown[] = [companyId, id];
   let idx = 3;
+  const body =
+    req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const hasUserOnlyField = Object.keys(body).some((key) => USER_ONLY_PATCH_FIELDS.has(key));
 
   for (const key of PATCHABLE) {
     if (!(key in partial)) continue;
@@ -189,42 +225,60 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
     values.push(partial[key as keyof typeof partial]);
   }
 
-  if (fields.length === 0) {
+  if (fields.length === 0 && !hasUserOnlyField) {
     res.status(400).json({ ok: false, error: 'no_updates' });
     return;
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      `update employees set ${fields.join(', ')}
-       where id = $2 and company_id = $1
-       returning ${EMPLOYEE_SELECT_COLUMNS}`,
-      values,
-    );
-    if (!result.rows[0]) {
-      res.status(404).json({ ok: false, error: 'not_found' });
-      return;
-    }
-    const body =
-      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-    await syncUserFieldsFromEmployeeBody(id, companyId, body, result.rows[0]);
-    const refreshed = await pool.query(
-      `select
-         e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
-         e.cpf,
-         coalesce(e.pis, u.pis_pasep) as pis,
-         coalesce(e.telefone, u.phone) as telefone,
-         coalesce(e.data_admissao, u.admissao) as data_admissao,
-         e.cargo, e.departamento, e.salario, e.jornada_tipo, e.carga_horaria, e.endereco,
-         u.numero_folha, u.numero_identificador, u.demissao, u.invisivel, u.employee_config
-       from employees e
-       left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
-       where e.id = $1 and e.company_id = $2
+    await client.query('begin');
+    const existing = await client.query(
+      `select ${EMPLOYEE_SELECT_COLUMNS}
+       from employees
+       where id = $1 and company_id = $2
        limit 1`,
       [id, companyId],
     );
-    res.json({ ok: true, employee: mapRow(refreshed.rows[0] ?? result.rows[0]) });
+    if (!existing.rows[0]) {
+      await client.query('rollback');
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
+    let employeeRow = existing.rows[0] as Record<string, unknown>;
+    if (fields.length > 0) {
+      const updated = await client.query(
+        `update employees set ${fields.join(', ')}
+         where id = $2 and company_id = $1
+         returning ${EMPLOYEE_SELECT_COLUMNS}`,
+        values,
+      );
+      employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
+    }
+    await ensureUserForEmployee(
+      {
+        id,
+        company_id: companyId,
+        nome: String(employeeRow.nome || ''),
+        email: employeeRow.email != null ? String(employeeRow.email) : null,
+        role: String(employeeRow.role || 'employee'),
+        status: String(employeeRow.status || 'active'),
+      },
+      client,
+    );
+    const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
+    if (userSync.attempted && userSync.updatedRows === 0) {
+      throw new Error('users_sync_no_rows_updated');
+    }
+    await client.query('commit');
+    const refreshed = await fetchEmployeeViewById(pool, id, companyId);
+    res.json({ ok: true, employee: mapRow(refreshed ?? employeeRow) });
   } catch (e: unknown) {
+    try {
+      await client.query('rollback');
+    } catch {
+      // noop
+    }
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
       res.status(400).json({ ok: false, error: 'CPF ou e-mail já cadastrado' });
@@ -239,6 +293,8 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       error: e,
     });
     res.status(500).json({ ok: false, error: 'update_failed' });
+  } finally {
+    client.release();
   }
 }
 

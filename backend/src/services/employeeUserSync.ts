@@ -1,11 +1,12 @@
 import { pool } from '../db/index.js';
 
 const USER_COLUMN_CACHE = new Map<string, boolean>();
+type Queryable = Pick<typeof pool, 'query'>;
 
-async function usersHasColumn(column: string): Promise<boolean> {
+async function usersHasColumn(column: string, db: Queryable = pool): Promise<boolean> {
   const key = column.toLowerCase();
   if (USER_COLUMN_CACHE.has(key)) return USER_COLUMN_CACHE.get(key)!;
-  const r = await pool.query(
+  const r = await db.query(
     `select 1 from information_schema.columns
      where table_schema = 'public' and table_name = 'users' and column_name = $1 limit 1`,
     [key],
@@ -23,18 +24,18 @@ export async function ensureUserForEmployee(row: {
   email: string | null;
   role: string;
   status: string;
-}): Promise<void> {
+}, db: Queryable = pool): Promise<void> {
   const id = String(row.id || '').trim();
   const companyId = String(row.company_id || '').trim();
   const email = String(row.email || '').trim().toLowerCase();
   if (!id || !companyId || !email) return;
 
-  const hasPwd = await usersHasColumn('password_hash');
+  const hasPwd = await usersHasColumn('password_hash', db);
   const cols = ['id', 'company_id', 'nome', 'email', 'role'];
   const vals: unknown[] = [id, companyId, row.nome, email, row.role || 'employee'];
   const placeholders = cols.map((_, i) => `$${i + 1}`);
 
-  if (await usersHasColumn('status')) {
+  if (await usersHasColumn('status', db)) {
     cols.push('status');
     vals.push(row.status || 'active');
     placeholders.push(`$${vals.length}`);
@@ -50,7 +51,7 @@ export async function ensureUserForEmployee(row: {
     .map((c) => `${c} = EXCLUDED.${c}`)
     .join(', ');
 
-  await pool.query(
+  await db.query(
     `insert into public.users (${cols.join(', ')})
      values (${placeholders.join(', ')})
      on conflict (id) do update set ${updates}`,
@@ -64,10 +65,11 @@ export async function syncUserFieldsFromEmployeeBody(
   companyId: string,
   body: Record<string, unknown>,
   employeeRow: Record<string, unknown>,
-): Promise<void> {
+  db: Queryable = pool,
+): Promise<{ attempted: boolean; updatedRows: number }> {
   const id = String(employeeId || '').trim();
   const cid = String(companyId || '').trim();
-  if (!id || !cid) return;
+  if (!id || !cid) return { attempted: false, updatedRows: 0 };
 
   const mappings: Array<{ col: string; value: unknown }> = [];
 
@@ -87,11 +89,31 @@ export async function syncUserFieldsFromEmployeeBody(
   }
   if ('pis_pasep' in body) set('pis_pasep', body.pis_pasep == null || body.pis_pasep === '' ? null : String(body.pis_pasep).trim());
   if ('telefone' in body) set('phone', body.telefone == null || body.telefone === '' ? null : String(body.telefone).trim());
-  if ('data_admissao' in body) set('admissao', body.data_admissao || null);
-  if ('demissao' in body) set('demissao', body.demissao || null);
-  if ('status' in body) set('status', body.status || employeeRow.status || 'active');
-  if ('nome' in body) set('nome', body.nome || employeeRow.nome);
-  if ('email' in body) set('email', body.email || employeeRow.email);
+  if ('data_admissao' in body) {
+    const admissaoRaw = body.data_admissao;
+    const admissao =
+      admissaoRaw == null || admissaoRaw === '' ? null : String(admissaoRaw).trim().slice(0, 10);
+    set('admissao', admissao);
+  }
+  if ('demissao' in body) {
+    const demissaoRaw = body.demissao;
+    const demissao =
+      demissaoRaw == null || demissaoRaw === '' ? null : String(demissaoRaw).trim().slice(0, 10);
+    set('demissao', demissao);
+  }
+  if ('invisivel' in body) set('invisivel', body.invisivel === true);
+  if ('status' in body) {
+    const status = body.status == null || body.status === '' ? employeeRow.status || 'active' : body.status;
+    set('status', typeof status === 'string' ? status.trim() : status);
+  }
+  if ('nome' in body) {
+    const nome = body.nome == null || body.nome === '' ? employeeRow.nome : body.nome;
+    set('nome', typeof nome === 'string' ? nome.trim() : nome);
+  }
+  if ('email' in body) {
+    const email = body.email == null || body.email === '' ? employeeRow.email : body.email;
+    set('email', typeof email === 'string' ? email.trim().toLowerCase() : email);
+  }
   if ('cargo' in body) set('cargo', body.cargo ?? employeeRow.cargo);
   if ('employee_config' in body && body.employee_config != null) {
     set('employee_config', typeof body.employee_config === 'object' ? JSON.stringify(body.employee_config) : body.employee_config);
@@ -116,16 +138,17 @@ export async function syncUserFieldsFromEmployeeBody(
   let idx = 3;
 
   for (const { col, value } of mappings) {
-    if (!(await usersHasColumn(col))) continue;
+    if (!(await usersHasColumn(col, db))) continue;
     fields.push(`${col} = $${idx++}`);
     values.push(value);
   }
 
-  if (fields.length === 0) return;
+  if (fields.length === 0) return { attempted: false, updatedRows: 0 };
 
-  await pool.query(
+  const result = await db.query(
     `update public.users set ${fields.join(', ')}
      where id::text = $1 and company_id::text = $2`,
     values,
   );
+  return { attempted: true, updatedRows: result.rowCount ?? 0 };
 }

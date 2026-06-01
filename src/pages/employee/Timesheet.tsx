@@ -141,6 +141,14 @@ const EmployeeTimesheet: React.FC = () => {
   /** Força novo fetch ao clicar em «Atualizar batidas». */
   const [refreshNonce, setRefreshNonce] = useState(0);
 
+  useEffect(() => {
+    const onSynced = () => setRefreshNonce((n) => n + 1);
+    window.addEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    return () => {
+      window.removeEventListener('pontowebdesk:web-punch-synced', onSynced as EventListener);
+    };
+  }, []);
+
   /** Admin/RH: editar batidas manuais a partir do espelho (mesmo modal do admin). */
   const [recordToEdit, setRecordToEdit] = useState<{
     id: string;

@@ -1,10 +1,11 @@
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
-import { normalizeRole, requireCompanyId } from '../utils/authContext.js';
+import { authUserId, isAdminOrHr, normalizeRole, requireCompanyId } from '../utils/authContext.js';
 import { logAuthDenied } from '../services/authAuditService.js';
 import {
   ALLOWED_TABLES,
+  USER_SCOPED_TABLES,
   isTableReadable,
   isTableWritable,
   tableHasTenantScope,
@@ -37,6 +38,17 @@ const ALLOWED_OPS = new Set([
 
 type FilterInput = { column: string; operator: string; value: unknown };
 
+async function resolveUserScopeColumn(table: string): Promise<string | null> {
+  if (table === 'users') {
+    if (await tableHasColumn(table, 'id')) return 'id';
+    if (await tableHasColumn(table, 'user_id')) return 'user_id';
+    return null;
+  }
+  if (await tableHasColumn(table, 'user_id')) return 'user_id';
+  if (await tableHasColumn(table, 'id')) return 'id';
+  return null;
+}
+
 function safeIdent(name: string): string | null {
   if (!/^[a-z_][a-z0-9_]*$/i.test(name)) return null;
   return name;
@@ -56,6 +68,8 @@ async function buildWhere(
   table: string,
   filters: FilterInput[],
   companyId: string,
+  userId: string,
+  role: string | undefined,
 ): Promise<{ clause: string; params: unknown[] }> {
   const parts: string[] = [];
   const params: unknown[] = [];
@@ -73,6 +87,16 @@ async function buildWhere(
         idx += 1;
       }
     }
+  }
+
+  if (USER_SCOPED_TABLES.has(table) && !isAdminOrHr(role)) {
+    const userScopeColumn = await resolveUserScopeColumn(table);
+    if (!userScopeColumn || !userId) {
+      throw new Error('user_scope_unavailable');
+    }
+    parts.push(`${userScopeColumn}::text = ${sqlParamRef(idx, 'text')}`);
+    params.push(userId);
+    idx += 1;
   }
 
   for (const f of filters) {
@@ -142,6 +166,14 @@ function denyTableAccess(
 export async function listDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
+    if (table === 'employees') {
+      res.status(400).json({
+        ok: false,
+        error: 'table_not_allowed',
+        recommended_endpoint: '/api/employees',
+      });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
@@ -181,15 +213,24 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
   }
   const orderAsc = req.query.orderAsc !== 'false';
 
-  const { clause, params } = await buildWhere(table, filters, companyId);
-  const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
-
   try {
+    const { clause, params } = await buildWhere(
+      table,
+      filters,
+      companyId,
+      authUserId(req.auth),
+      req.auth?.role,
+    );
+    const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
     const sql = `SELECT ${columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const result = await pool.query(sql, [...params, limit, offset]);
     res.json({ ok: true, data: result.rows });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
+    if (pgMsg === 'user_scope_unavailable') {
+      res.status(403).json({ ok: false, error: 'forbidden' });
+      return;
+    }
     logger.error({
       module: 'data.controller',
       action: 'DATA_LIST_FAILED',
@@ -206,6 +247,14 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
 export async function insertDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
+    if (table === 'employees') {
+      res.status(400).json({
+        ok: false,
+        error: 'table_not_allowed',
+        recommended_endpoint: '/api/employees',
+      });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
@@ -257,6 +306,11 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     return;
   }
   if (denyTableAccess(req, res, table, 'write')) return;
+
+  if (USER_SCOPED_TABLES.has(table) && !isAdminOrHr(req.auth?.role)) {
+    res.status(403).json({ ok: false, error: 'forbidden' });
+    return;
+  }
 
   const companyId = requireCompanyId(req, res);
   if (companyId === null) return;
@@ -317,6 +371,11 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
   }
   if (denyTableAccess(req, res, table, 'write')) return;
 
+  if (USER_SCOPED_TABLES.has(table) && !isAdminOrHr(req.auth?.role)) {
+    res.status(403).json({ ok: false, error: 'forbidden' });
+    return;
+  }
+
   const companyId = requireCompanyId(req, res);
   if (companyId === null) return;
 
@@ -351,6 +410,14 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
 export async function countDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
+    if (table === 'employees') {
+      res.status(400).json({
+        ok: false,
+        error: 'table_not_allowed',
+        recommended_endpoint: '/api/employees',
+      });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'table_not_allowed' });
     return;
   }
@@ -360,12 +427,22 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
   if (companyId === null) return;
 
   const filters = parseFilters(typeof req.query.filters === 'string' ? req.query.filters : undefined);
-  const { clause, params } = await buildWhere(table, filters, companyId);
   try {
+    const { clause, params } = await buildWhere(
+      table,
+      filters,
+      companyId,
+      authUserId(req.auth),
+      req.auth?.role,
+    );
     const sql = `SELECT count(*)::int AS c FROM public.${table} ${clause}`;
     const result = await pool.query(sql, params);
     res.json({ ok: true, count: result.rows[0]?.c ?? 0 });
   } catch (e) {
+    if (e instanceof Error && e.message === 'user_scope_unavailable') {
+      res.status(403).json({ ok: false, error: 'forbidden' });
+      return;
+    }
     logger.error({
       module: 'data.controller',
       action: 'DATA_COUNT_FAILED',
