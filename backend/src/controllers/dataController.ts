@@ -183,6 +183,8 @@ function sanitizeGenericWritePayload(
   role: string | undefined,
 ): Record<string, unknown> {
   const next = { ...raw };
+  delete next.tenant_id;
+  delete next.tenantId;
   if (table === 'users') {
     next.company_id = companyId;
     delete next.companyId;

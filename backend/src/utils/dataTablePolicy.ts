@@ -61,7 +61,7 @@ export function tableHasTenantScope(table: string): boolean {
 
 /**
  * Força company_id do JWT em inserts/updates de tabelas tenant.
- * tenant_id só é aplicado em applyTenantToRowAsync (dataRowSchema), se a coluna existir.
+ * tenant_id é somente leitura (gerada/computada) e não deve entrar em payload de escrita.
  */
 export function applyTenantToRow(
   table: string,
@@ -69,7 +69,10 @@ export function applyTenantToRow(
   companyId: string,
 ): Record<string, unknown> {
   if (!tableHasTenantScope(table) || !companyId) return row;
-  return { ...row, company_id: companyId };
+  const next: Record<string, unknown> = { ...row, company_id: companyId };
+  delete next.tenant_id;
+  delete next.tenantId;
+  return next;
 }
 
 /** @deprecated Use tenantScopeSqlForTable — evita referenciar tenant_id inexistente. */

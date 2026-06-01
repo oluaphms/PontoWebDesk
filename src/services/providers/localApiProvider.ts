@@ -9,7 +9,8 @@ export const localApiProvider: IDataProvider = {
     if (!data?.ok) {
       throw new Error(String(data?.error || 'Falha no login'));
     }
-    setToken('cookie');
+    const token = String(data?.token || '').trim();
+    setToken(token || 'cookie');
     return data;
   },
 

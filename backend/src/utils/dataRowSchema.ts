@@ -152,7 +152,9 @@ export async function applyTenantToRowAsync(
   if (!tableHasTenantScope(table) || !companyId) return row;
   const next = { ...row };
   if (await tableHasWritableColumn(table, 'company_id')) next.company_id = companyId;
-  if (await tableHasWritableColumn(table, 'tenant_id')) next.tenant_id = companyId;
+  // tenant_id pode existir como generated/computed; nunca force escrita nele via API genérica.
+  delete next.tenant_id;
+  delete next.tenantId;
   return next;
 }
 

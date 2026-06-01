@@ -17,6 +17,8 @@ export async function loginController(req: Request, res: Response): Promise<void
     setAuthCookie(res, result.token);
     res.json({
       ok: true,
+      success: true,
+      token: result.token,
       user: result.user,
     });
   } catch (e) {
