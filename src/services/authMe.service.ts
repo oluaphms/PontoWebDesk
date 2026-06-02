@@ -14,6 +14,8 @@ type MeUser = {
     avatar?: string | null;
     preferences?: User['preferences'];
     schedule_id?: string | null;
+    shift_id?: string | null;
+    phone?: string | null;
   };
 type MeResponse = {
   ok?: boolean;
@@ -39,6 +41,8 @@ function mapMeUser(row: MeUser): User {
     departmentId: row.department_id ?? '',
     avatar: row.avatar ?? undefined,
     schedule_id: row.schedule_id,
+    shift_id: row.shift_id ?? undefined,
+    phone: row.phone ?? undefined,
     preferences: row.preferences ?? {
       notifications: true,
       theme: 'light',

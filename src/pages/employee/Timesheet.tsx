@@ -284,6 +284,15 @@ const EmployeeTimesheet: React.FC = () => {
           sample: (rows ?? []).slice(0, 5),
         });
         logTimesheetDebug('TIME RECORDS', rows ?? []);
+        logTimesheetDebug('PUNCHES', rows ?? []);
+        logTimesheetDebug('TIMESHEET', {
+          source: 'time_records',
+          endpoint: '/api/data/time_records',
+          filters: recordFilters,
+          periodStart: startDate,
+          periodEnd: endDate,
+          punches: rows?.length ?? 0,
+        });
         const holSet = new Set(
           (holidayRows ?? [])
             .map((h: any) => String(h.date || h.data || '').slice(0, 10))

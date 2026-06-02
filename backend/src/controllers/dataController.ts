@@ -40,6 +40,7 @@ type FilterInput = { column: string; operator: string; value: unknown };
 
 const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
 const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
+const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules']);
 
 async function resolveUserScopeColumn(table: string): Promise<string | null> {
   if (table === 'users') {
@@ -272,6 +273,36 @@ function sortedKeys(row: Record<string, unknown> | null | undefined): string[] {
   return Object.keys(row ?? {}).sort();
 }
 
+function logDataQuery(
+  req: AuthedRequest,
+  action: string,
+  message: string,
+  table: string,
+  companyId: string,
+  sql: string,
+  params: unknown[],
+  returnedRows: number,
+  extraMeta?: Record<string, unknown>,
+): void {
+  if (!DATA_QUERY_LOG_TABLES.has(table)) return;
+  logger.info({
+    module: 'data.controller',
+    action,
+    message,
+    requestId: requestId(req) ?? undefined,
+    userId: req.auth?.userId ?? req.auth?.sub ?? null,
+    companyId,
+    meta: {
+      employeeId: authUserId(req.auth),
+      table,
+      sql,
+      params,
+      returnedRows,
+      ...extraMeta,
+    },
+  });
+}
+
 export async function listDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
@@ -333,23 +364,17 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
     const sql = `SELECT ${columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const result = await pool.query(sql, [...params, limit, offset]);
-    if (table === 'time_records') {
-      logger.info({
-        module: 'data.controller',
-        action: 'TIME_RECORDS_LIST_QUERY',
-        message: 'Consulta de time_records executada',
-        requestId: requestId(req) ?? undefined,
-        userId: req.auth?.userId ?? req.auth?.sub ?? null,
-        companyId,
-        meta: {
-          employeeId: authUserId(req.auth),
-          filters,
-          sql,
-          params: [...params, limit, offset],
-          returnedRows: result.rowCount ?? result.rows.length,
-        },
-      });
-    }
+    logDataQuery(
+      req,
+      table === 'time_records' ? 'TIME_RECORDS_LIST_QUERY' : 'DATA_LIST_QUERY',
+      `Consulta de ${table} executada`,
+      table,
+      companyId,
+      sql,
+      [...params, limit, offset],
+      result.rowCount ?? result.rows.length,
+      { filters },
+    );
     res.json({ ok: true, success: true, data: result.rows });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
@@ -428,6 +453,17 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
     sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
     const result = await pool.query(sql, values);
+    logDataQuery(
+      req,
+      table === 'schedules' ? 'SCHEDULES_INSERT_QUERY' : 'DATA_INSERT_QUERY',
+      `Insert de ${table} executado`,
+      table,
+      companyId,
+      sql,
+      values,
+      result.rowCount ?? result.rows.length,
+      { payloadKeys: sortedKeys(raw), filteredKeys: keys },
+    );
     res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
     const dbError = describeDbError(e);
@@ -539,6 +575,17 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
     sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause}${returningSql}`;
     const result = await pool.query(sql, params);
+    logDataQuery(
+      req,
+      table === 'schedules' ? 'SCHEDULES_UPDATE_QUERY' : 'DATA_UPDATE_QUERY',
+      `Update de ${table} executado`,
+      table,
+      companyId,
+      sql,
+      params,
+      result.rowCount ?? result.rows.length,
+      { id, payloadKeys: sortedKeys(raw), filteredKeys: keys },
+    );
     if (returningSql && !result.rows[0]) {
       res.status(404).json(failureBody('not_found', 'DATA_NOT_FOUND', { table }));
       return;
@@ -666,23 +713,17 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
     );
     const sql = `SELECT count(*)::int AS c FROM public.${table} ${clause}`;
     const result = await pool.query(sql, params);
-    if (table === 'time_records') {
-      logger.info({
-        module: 'data.controller',
-        action: 'TIME_RECORDS_COUNT_QUERY',
-        message: 'Contagem de time_records executada',
-        requestId: requestId(req) ?? undefined,
-        userId: req.auth?.userId ?? req.auth?.sub ?? null,
-        companyId,
-        meta: {
-          employeeId: authUserId(req.auth),
-          filters,
-          sql,
-          params,
-          returnedRows: result.rows[0]?.c ?? 0,
-        },
-      });
-    }
+    logDataQuery(
+      req,
+      table === 'time_records' ? 'TIME_RECORDS_COUNT_QUERY' : 'DATA_COUNT_QUERY',
+      `Contagem de ${table} executada`,
+      table,
+      companyId,
+      sql,
+      params,
+      Number(result.rows[0]?.c ?? 0),
+      { filters },
+    );
     res.json({ ok: true, count: result.rows[0]?.c ?? 0 });
   } catch (e) {
     if (e instanceof Error && e.message === 'user_scope_unavailable') {

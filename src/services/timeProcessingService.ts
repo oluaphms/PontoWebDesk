@@ -683,7 +683,11 @@ async function getLegacyScheduleFromUser(
 /**
  * Busca registros de ponto do colaborador em uma data (timezone local do ISO).
  */
-export async function getDayRecords(employeeId: string, dateStr: string): Promise<RawTimeRecord[]> {
+export async function getDayRecords(
+  employeeId: string,
+  dateStr: string,
+  companyId?: string | null,
+): Promise<RawTimeRecord[]> {
   if (!isSupabaseConfigured()) return [];
 
   const prev = addDaysToYmdLocal(dateStr, -1);
@@ -692,7 +696,7 @@ export async function getDayRecords(employeeId: string, dateStr: string): Promis
   const end = `${next}T23:59:59.999`;
 
   try {
-    const rows = (await getTimeRecordsForUserDayRange(employeeId, start, end)) as RawTimeRecord[];
+    const rows = (await getTimeRecordsForUserDayRange(employeeId, start, end, companyId)) as RawTimeRecord[];
     const list = Array.isArray(rows) ? rows : [];
     return list.filter(
       (r) => getLocalDateString(new Date(recordEventInstantMs(r))) === dateStr,

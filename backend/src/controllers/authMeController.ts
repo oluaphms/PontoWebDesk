@@ -38,6 +38,48 @@ async function usersSelectColumns(): Promise<string> {
   ].join(', ');
 }
 
+async function employeesSelectColumns(): Promise<string> {
+  const optional = await Promise.all(
+    [
+      'cargo',
+      'department_id',
+      'avatar',
+      'preferences',
+      'schedule_id',
+      'shift_id',
+      'cpf',
+      'phone',
+      'telefone',
+      'status',
+    ].map(async (column) => [column, await tableHasColumn('employees', column)] as const),
+  );
+  const has = new Map(optional);
+  const col = (column: string, fallback = 'null') =>
+    has.get(column) ? column : `${fallback} as ${column}`;
+  const phoneExpr = has.get('phone')
+    ? 'phone'
+    : has.get('telefone')
+      ? 'telefone as phone'
+      : 'null as phone';
+
+  return [
+    'id',
+    'coalesce(nullif(trim(nome), \'\'), email) as nome',
+    'email',
+    col('cargo'),
+    'role',
+    'company_id',
+    col('department_id'),
+    col('avatar'),
+    col('preferences', "'{}'::jsonb"),
+    col('schedule_id'),
+    col('shift_id'),
+    col('cpf'),
+    phoneExpr,
+    col('status', "'active'"),
+  ].join(', ');
+}
+
 export async function authMeController(req: AuthedRequest, res: Response): Promise<void> {
   const userId = String(req.auth?.sub || '').trim();
   if (!userId) {
@@ -61,14 +103,9 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
     let row = result.rows[0];
 
     if (!row) {
+      const employeeColumns = await employeesSelectColumns();
       result = await pool.query(
-        `select id,
-                coalesce(nullif(trim(nome), ''), email) as nome,
-                email,
-                cargo,
-                role,
-                company_id,
-                status
+        `select ${employeeColumns}
          from employees where id::text = $1 limit 1`,
         [userId],
       );
@@ -103,6 +140,7 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       avatar: row.avatar != null ? String(row.avatar) : null,
       preferences: row.preferences ?? {},
       schedule_id: row.schedule_id != null ? String(row.schedule_id) : null,
+      shift_id: row.shift_id != null ? String(row.shift_id) : null,
       cpf: row.cpf != null ? String(row.cpf) : null,
       phone: row.phone != null ? String(row.phone) : null,
       status: row.status != null ? String(row.status) : 'active',

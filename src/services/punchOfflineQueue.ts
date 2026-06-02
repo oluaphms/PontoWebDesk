@@ -15,6 +15,7 @@ import {
   enqueueLocalSyncPunch,
   markLocalPunchSynced,
   putLocalPunch,
+  removeSyncQueueItems,
 } from './localDb';
 import { isCloudEnabled } from './cloudService';
 import type { QueuedWebPunch } from './punchOfflineQueue.types';
@@ -89,7 +90,7 @@ export async function savePunchLocal(
     status: 'pending',
   };
   await idbPutPunch(entry);
-  const timestamp = new Date(entry.createdAt).toISOString();
+  const timestamp = String(params.timestamp || '').trim() || new Date(entry.createdAt).toISOString();
   const local = await putLocalPunch({
     id,
     timestamp,
@@ -107,7 +108,7 @@ export async function savePunchLocal(
 /** Evita reenfileirar se já sincronizado (mesmo user+tipo+minuto). */
 async function findSentByParamsFingerprint(params: RegisterPunchSecureParams): Promise<QueuedWebPunch | undefined> {
   const sent = await idbListPunchesByStatus('sent');
-  const minuteKey = `${params.userId}|${params.companyId}|${params.type}|${new Date().toISOString().slice(0, 16)}`;
+  const minuteKey = `${params.userId}|${params.companyId}|${params.type}|${new Date(params.timestamp || Date.now()).toISOString().slice(0, 16)}`;
   return sent.find((s) => {
     const k = `${s.params.userId}|${s.params.companyId}|${s.params.type}|${new Date(s.createdAt).toISOString().slice(0, 16)}`;
     return k === minuteKey;
@@ -135,10 +136,6 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
     .slice(0, MAX_BATCH);
 
   const provider = getProvider();
-  const accessToken = await provider.getAccessToken();
-  if (!accessToken) {
-    return { flushed: 0, clientIds: [] };
-  }
 
   const data = (await provider.registerPunchBatch({
       punches: batch.map((b) => ({ client_id: b.id, ...b.params, _evidence: b.evidence ?? undefined })),
@@ -180,6 +177,7 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
       }
       await idbUpdatePunch(item);
       await markLocalPunchSynced([item.id]);
+      await removeSyncQueueItems([item.id]);
     } else if (r) {
       item.status = 'error';
       item.error = r.error;
@@ -222,8 +220,6 @@ async function trySyncSingleWebPunch(
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
 
   const provider = getProvider();
-  const accessToken = await provider.getAccessToken();
-  if (!accessToken) return null;
 
   const response = await provider.registerPunch({
     client_id: entry.id,
@@ -239,6 +235,7 @@ async function trySyncSingleWebPunch(
   entry.status = 'sent';
   await idbUpdatePunch(entry);
   await markLocalPunchSynced([entry.id]);
+  await removeSyncQueueItems([entry.id]);
   if (entry.evidence) {
     try {
       await savePunchEvidence({ ...entry.evidence, timeRecordId: mapped.id });

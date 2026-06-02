@@ -123,7 +123,14 @@ function mergeClosedMonth(
   return [...prev, { year, month }].sort((x, y) => x.year - y.year || x.month - y.month);
 }
 
-type AdminEmployee = { id: string; nome: string; department_id?: string; role?: string };
+type AdminEmployee = {
+  id: string;
+  nome: string;
+  email?: string | null;
+  department_id?: string | null;
+  role?: string;
+  record_user_ids?: string[];
+};
 
 /** Célula sem batida (pedido de UX). */
 const EMPTY_DASH = '----';
@@ -570,13 +577,20 @@ const AdminTimesheet: React.FC = () => {
     });
   }, [employees, filterDepartmentId]);
 
+  const selectedRecordUserIds = useMemo(() => {
+    if (!filterUserId) return [];
+    const selected = employees.find((employee) => sameUserId(employee.id, filterUserId));
+    const ids = selected?.record_user_ids?.length ? selected.record_user_ids : [filterUserId];
+    return ids.filter(Boolean);
+  }, [employees, filterUserId]);
+
   const displayRecords = useMemo(() => {
     if (!filterUserId) return [];
-    const byUser = records.filter((r) => sameUserId(r.user_id, filterUserId));
+    const byUser = records.filter((r) => selectedRecordUserIds.some((id) => sameUserId(r.user_id, id)));
     if (recordTypeFilter === 'all') return byUser;
     if (recordTypeFilter === 'manual') return byUser.filter((r) => isManualRecord(r));
     return byUser.filter((r) => !isManualRecord(r));
-  }, [records, filterUserId, recordTypeFilter]);
+  }, [records, filterUserId, selectedRecordUserIds, recordTypeFilter]);
 
   const empMirror = useMemo(() => {
     if (!periodValid) return new Map<string, DayMirror>();

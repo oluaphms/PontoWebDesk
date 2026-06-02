@@ -5,7 +5,7 @@
  */
 
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
-import { db } from '../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import {
   enqueueAndMaybeSyncWebPunch,
   flushWebPunchQueue,
@@ -28,6 +28,7 @@ export interface RegisterPunchParams {
   companyId: string;
   type: string;
   method: string;
+  timestamp?: string;
   recordId?: string;
   location?: { lat: number; lng: number; accuracy?: number };
   photoUrl?: string | null;
@@ -130,6 +131,7 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
     companyId,
     type,
     method,
+    timestamp,
     recordId,
     location,
     photoUrl,
@@ -145,6 +147,7 @@ export async function registerPunch(params: RegisterPunchParams): Promise<Regist
     company_id: companyId,
     type,
     method,
+    timestamp,
     record_id: recordId || null,
     location: location ? { lat: location.lat, lng: location.lng, accuracy: location.accuracy } : null,
     photo_url: photoUrl || null,
@@ -194,6 +197,7 @@ export async function registerPunchSecure(
     companyId,
     type,
     method,
+    timestamp,
     recordId,
     location,
     photoUrl,
@@ -216,6 +220,7 @@ export async function registerPunchSecure(
     companyId,
     type,
     method,
+    timestamp,
     recordId,
     location,
     photoUrl,

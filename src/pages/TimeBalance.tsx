@@ -175,6 +175,7 @@ const TimeBalancePage: React.FC = () => {
           sample: Array.isArray(recRows) ? recRows.slice(0, 5) : [],
         });
         logTimeBalanceDebug('TIME RECORDS', recRows);
+        logTimeBalanceDebug('PUNCHES', recRows);
 
         const mappedLedger: LedgerMonthRow[] = (Array.isArray(ledgerRows) ? ledgerRows : [])
           .map((r: any) => ({
@@ -202,6 +203,14 @@ const TimeBalancePage: React.FC = () => {
           extra_hours: Math.round((creditMinutes / 60) * 100) / 100,
           debit_hours: Math.round((debitMinutes / 60) * 100) / 100,
           final_balance: Math.round(finalBalanceHours * 100) / 100,
+        });
+        logTimeBalanceDebug('TIMESHEET', {
+          source: 'time_records',
+          periodStart: startYmd,
+          periodEnd: endYmd,
+          punches: Array.isArray(recRows) ? recRows.length : 0,
+          ledgerRows: mappedLedger.length,
+          finalBalanceHours,
         });
 
         const list = Array.isArray(recRows) ? recRows : [];

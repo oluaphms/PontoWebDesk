@@ -223,12 +223,19 @@ const AdminSchedules: React.FC = () => {
       setMessage({ type: 'error', text: 'Informe o nome da escala.' });
       return;
     }
+    const daysPayload = form.days
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+    if (daysPayload.length !== form.days.length) {
+      setMessage({ type: 'error', text: 'Dias da semana inválidos. Selecione novamente os dias da escala.' });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
       const payload = {
         name: form.name.trim(),
-        days: form.days,
+        days: daysPayload,
         shift_id: form.shift_id || null,
         tipo: form.tipo,
         dias_trabalho: form.dias_trabalho,
@@ -237,6 +244,7 @@ const AdminSchedules: React.FC = () => {
         ativo: form.ativo,
         updated_at: new Date().toISOString(),
       };
+      console.log('[Schedules] payload', payload);
       if (editingId) {
         await db.update('schedules', editingId, payload);
         setMessage({ type: 'success', text: 'Escala atualizada com sucesso.' });

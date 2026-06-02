@@ -10,6 +10,13 @@ export type AuthLoginRow = {
   nome: string;
   company_id: string;
   role: string;
+  cargo: string | null;
+  department_id: string | null;
+  schedule_id: string | null;
+  shift_id: string | null;
+  phone: string | null;
+  avatar: string | null;
+  preferences: unknown;
   password_hash: string;
   source: 'users' | 'employees';
   status: string;
@@ -23,6 +30,13 @@ export type AuthLoginSuccess = {
     email: string;
     role: string;
     company_id: string;
+    cargo: string | null;
+    department_id: string | null;
+    schedule_id: string | null;
+    shift_id: string | null;
+    phone: string | null;
+    avatar: string | null;
+    preferences: unknown;
   };
 };
 
@@ -60,12 +74,26 @@ async function employeesHasPasswordHash(): Promise<boolean> {
 
 async function findInUsers(email: string): Promise<AuthLoginRow | null> {
   const hasStatus = await tableHasColumn('users', 'status');
+  const hasCargo = await tableHasColumn('users', 'cargo');
+  const hasDepartment = await tableHasColumn('users', 'department_id');
+  const hasSchedule = await tableHasColumn('users', 'schedule_id');
+  const hasShift = await tableHasColumn('users', 'shift_id');
+  const hasPhone = await tableHasColumn('users', 'phone');
+  const hasAvatar = await tableHasColumn('users', 'avatar');
+  const hasPreferences = await tableHasColumn('users', 'preferences');
   const result = await pool.query(
     `select id::text,
             coalesce(nullif(trim(email), ''), $1) as email,
             coalesce(nullif(trim(nome), ''), nullif(trim(email), ''), $1) as nome,
             coalesce(nullif(trim(company_id::text), ''), '') as company_id,
             coalesce(nullif(trim(role), ''), 'employee') as role,
+            ${hasCargo ? 'cargo' : 'null'} as cargo,
+            ${hasDepartment ? 'department_id' : 'null'} as department_id,
+            ${hasSchedule ? 'schedule_id' : 'null'} as schedule_id,
+            ${hasShift ? 'shift_id' : 'null'} as shift_id,
+            ${hasPhone ? 'phone' : 'null'} as phone,
+            ${hasAvatar ? 'avatar' : 'null'} as avatar,
+            ${hasPreferences ? 'preferences' : "'{}'::jsonb"} as preferences,
             password_hash,
             ${hasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} as status
      from users
@@ -81,6 +109,13 @@ async function findInUsers(email: string): Promise<AuthLoginRow | null> {
     nome: String(row.nome || email),
     company_id: String(row.company_id || ''),
     role: String(row.role || 'employee'),
+    cargo: row.cargo != null ? String(row.cargo) : null,
+    department_id: row.department_id != null ? String(row.department_id) : null,
+    schedule_id: row.schedule_id != null ? String(row.schedule_id) : null,
+    shift_id: row.shift_id != null ? String(row.shift_id) : null,
+    phone: row.phone != null ? String(row.phone) : null,
+    avatar: row.avatar != null ? String(row.avatar) : null,
+    preferences: row.preferences ?? {},
     password_hash: row.password_hash != null ? String(row.password_hash) : '',
     source: 'users',
     status: String(row.status || 'active'),
@@ -90,6 +125,14 @@ async function findInUsers(email: string): Promise<AuthLoginRow | null> {
 async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
   if (!(await employeesHasPasswordHash())) return null;
   const hasStatus = await tableHasColumn('employees', 'status');
+  const hasCargo = await tableHasColumn('employees', 'cargo');
+  const hasDepartment = await tableHasColumn('employees', 'department_id');
+  const hasSchedule = await tableHasColumn('employees', 'schedule_id');
+  const hasShift = await tableHasColumn('employees', 'shift_id');
+  const hasPhone = await tableHasColumn('employees', 'phone');
+  const hasTelefone = await tableHasColumn('employees', 'telefone');
+  const hasAvatar = await tableHasColumn('employees', 'avatar');
+  const hasPreferences = await tableHasColumn('employees', 'preferences');
 
   const result = await pool.query(
     `select id::text,
@@ -97,6 +140,13 @@ async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
             coalesce(nullif(trim(nome), ''), nullif(trim(email), ''), $1) as nome,
             coalesce(nullif(trim(company_id::text), ''), '') as company_id,
             coalesce(nullif(trim(role), ''), 'employee') as role,
+            ${hasCargo ? 'cargo' : 'null'} as cargo,
+            ${hasDepartment ? 'department_id' : 'null'} as department_id,
+            ${hasSchedule ? 'schedule_id' : 'null'} as schedule_id,
+            ${hasShift ? 'shift_id' : 'null'} as shift_id,
+            ${hasPhone ? 'phone' : hasTelefone ? 'telefone' : 'null'} as phone,
+            ${hasAvatar ? 'avatar' : 'null'} as avatar,
+            ${hasPreferences ? 'preferences' : "'{}'::jsonb"} as preferences,
             password_hash,
             ${hasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} as status
      from employees
@@ -112,6 +162,13 @@ async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
     nome: String(row.nome || email),
     company_id: String(row.company_id || ''),
     role: String(row.role || 'employee'),
+    cargo: row.cargo != null ? String(row.cargo) : null,
+    department_id: row.department_id != null ? String(row.department_id) : null,
+    schedule_id: row.schedule_id != null ? String(row.schedule_id) : null,
+    shift_id: row.shift_id != null ? String(row.shift_id) : null,
+    phone: row.phone != null ? String(row.phone) : null,
+    avatar: row.avatar != null ? String(row.avatar) : null,
+    preferences: row.preferences ?? {},
     password_hash: row.password_hash != null ? String(row.password_hash) : '',
     source: 'employees',
     status: String(row.status || 'active'),
@@ -177,6 +234,13 @@ export async function authenticateLogin(
       email: user.email,
       role: user.role,
       company_id: user.company_id,
+      cargo: user.cargo,
+      department_id: user.department_id,
+      schedule_id: user.schedule_id,
+      shift_id: user.shift_id,
+      phone: user.phone,
+      avatar: user.avatar,
+      preferences: user.preferences,
     },
   };
 }

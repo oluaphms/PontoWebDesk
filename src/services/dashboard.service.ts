@@ -37,6 +37,7 @@ import {
   getLocalAdminLastRecords,
   type LocalDashboardLastRecord,
 } from './localDb';
+import { fetchEmployees, type ApiEmployee } from './employeesApi.service';
 
 export interface AdminDashboardCards {
   totalEmployees: number;
@@ -104,6 +105,23 @@ export interface AdminDashboardPayload {
 }
 
 const ADMIN_DASHBOARD_LAST_RECORDS_LIMIT = 8;
+
+function isVisibleDashboardEmployee(employee: ApiEmployee): boolean {
+  return employee.invisivel !== true;
+}
+
+function isActiveDashboardEmployee(employee: ApiEmployee): boolean {
+  const status = String(employee.status || 'active').trim().toLowerCase();
+  return isVisibleDashboardEmployee(employee) && status !== 'inactive' && status !== 'inativo';
+}
+
+async function fetchDashboardEmployees(companyId: string): Promise<ApiEmployee[]> {
+  return queryCache.getOrFetch(
+    `employees:${companyId}:dashboard`,
+    () => fetchEmployees(companyId),
+    TTL.SHORT,
+  );
+}
 
 function operationalDashboardTodayYmd(): string {
   return getOperationalTodayYmd();
@@ -538,17 +556,8 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
     try {
       const todayLocal = operationalDashboardTodayYmd();
       const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
-      const [usersRows, recentRecordsRaw] = await Promise.all([
-        queryCache.getOrFetch(
-          `users:${companyId}:minimal`,
-          () =>
-            db.select(
-              'users',
-              [{ column: 'company_id', operator: 'eq', value: companyId }],
-              { columns: 'id,nome,email,role,status', limit: 1000 },
-            ) as Promise<DbRow[]>,
-          TTL.SHORT,
-        ),
+      const [employeesRows, recentRecordsRaw] = await Promise.all([
+        fetchDashboardEmployees(companyId),
         queryCache.getOrFetch(
           `time_records:admin_dash:recent:${companyId}`,
           () =>
@@ -565,17 +574,22 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
           TTL.REALTIME,
         ),
       ]);
-      const users = usersRows ?? [];
-      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []);
-      const activeIds = new Set<string>();
+      const visibleEmployees = (employeesRows ?? []).filter(isVisibleDashboardEmployee);
+      const visibleEmployeeIds = new Set(visibleEmployees.map((employee) => String(employee.id)));
+      const activeEmployees = visibleEmployees.filter(isActiveDashboardEmployee);
+      const activeEmployeeIds = new Set(activeEmployees.map((employee) => String(employee.id)));
+      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []).filter((record: any) =>
+        visibleEmployeeIds.has(String(record?.user_id ?? '')),
+      );
+      const activeIdsWithPunch = new Set<string>();
       todayRecords.forEach((r: any) => {
-        if (r?.user_id) activeIds.add(String(r.user_id));
+        const id = String(r?.user_id ?? '');
+        if (activeEmployeeIds.has(id)) activeIdsWithPunch.add(id);
       });
-      const expectedEmployees = users.filter((u: any) => u.role !== 'admin' && u.role !== 'hr').length;
-      const absentToday = Math.max(0, expectedEmployees - activeIds.size);
+      const absentToday = Math.max(0, activeEmployees.length - activeIdsWithPunch.size);
       return {
-        totalEmployees: users.length,
-        activeEmployees: users.filter((u: any) => u.status !== 'inactive').length,
+        totalEmployees: visibleEmployees.length,
+        activeEmployees: activeEmployees.length,
         recordsToday: todayRecords.length,
         absentToday,
       };
@@ -694,16 +708,8 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
     const minInstantMs = startChart.getTime() - 36e6; // margem TZ
 
     // Otimização: buscar apenas campos necessários dos usuários
-    const [usersRows, recordsRaw, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
-      queryCache.getOrFetch(
-        `users:${companyId}:minimal`,
-        () =>
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: companyId }], {
-            columns: 'id,nome,email,role,status',
-            limit: 1000,
-          }) as Promise<DbRow[]>,
-        TTL.SHORT,
-      ),
+    const [employeesRows, recordsRaw, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
+      fetchDashboardEmployees(companyId),
       // Apenas registros dos últimos 14 dias para o gráfico
       queryCache.getOrFetch(
         `time_records:admin_dash:chart:${companyId}:${todayLocal}`,
@@ -743,9 +749,16 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       fetchLiveLocationsForCompany(companyId),
     ]);
 
-    const users = usersRows ?? [];
-    const records = dedupeTimeRecordsByRepKey(recordsRaw ?? []);
-    const recentRecords = recentRecordsRaw ?? [];
+    const visibleEmployees = (employeesRows ?? []).filter(isVisibleDashboardEmployee);
+    const visibleEmployeeIds = new Set(visibleEmployees.map((employee) => String(employee.id)));
+    const activeEmployees = visibleEmployees.filter(isActiveDashboardEmployee);
+    const activeEmployeeIds = new Set(activeEmployees.map((employee) => String(employee.id)));
+    const records = dedupeTimeRecordsByRepKey(recordsRaw ?? []).filter((record: any) =>
+      visibleEmployeeIds.has(String(record?.user_id ?? '')),
+    );
+    const recentRecords = (recentRecordsRaw ?? []).filter((record: any) =>
+      visibleEmployeeIds.has(String(record?.user_id ?? '')),
+    );
     const nowMsDash = operationalClockMs();
     const liveByDash = new Map(flagStaleLiveLocations(liveRaw, nowMsDash).map((r) => [r.employee_id, r]));
     const recordByIdDash = new Map(recentRecords.map((r: any) => [String(r.id), r]));
@@ -756,16 +769,16 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       return ymd === todayLocal;
     });
 
-    const activeIds = new Set<string>();
+    const activeIdsWithPunch = new Set<string>();
     todayRecords.forEach((r: any) => {
-      if (r?.user_id) activeIds.add(String(r.user_id));
+      const id = String(r?.user_id ?? '');
+      if (activeEmployeeIds.has(id)) activeIdsWithPunch.add(id);
     });
-    const expectedEmployees = users.filter((u: any) => u.role !== 'admin' && u.role !== 'hr').length;
-    const absentToday = Math.max(0, expectedEmployees - activeIds.size);
+    const absentToday = Math.max(0, activeEmployees.length - activeIdsWithPunch.size);
 
     const cards: AdminDashboardCards = {
-      totalEmployees: users.length,
-      activeEmployees: users.filter((u: any) => u.status !== 'inactive').length,
+      totalEmployees: visibleEmployees.length,
+      activeEmployees: activeEmployees.length,
       recordsToday: todayRecords.length,
       absentToday,
     };
@@ -842,13 +855,13 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
       lowCount: low.count,
     };
 
-    const baseLastRecords = buildAdminLastRecordsForToday(recentRecords, users, todayLocal);
+    const baseLastRecords = buildAdminLastRecordsForToday(recentRecords, visibleEmployees, todayLocal);
     const lastRecords =
       cosRows.length > 0
         ? enrichAdminLastRecordsWithCosGeo(baseLastRecords, cosByDash, recordByIdDash, liveByDash, nowMsDash)
         : baseLastRecords;
 
-    return { cards, users, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
+    return { cards, users: visibleEmployees, weeklyChart, weeklySummary, previousWeekTotal, lastRecords };
     } catch (e) {
       handleError(e, 'getAdminDashboardData');
       return null;

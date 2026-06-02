@@ -57,12 +57,6 @@ async function syncLoop(): Promise<void> {
     await updateSyncQueueStatus(ids, 'processing');
 
     const provider = getProvider();
-    const accessToken = await provider.getAccessToken();
-    if (!accessToken) {
-      await updateSyncQueueStatus(ids, 'pending');
-      schedule(SYNC_INTERVAL_MS);
-      return;
-    }
 
     const data = (await provider.registerPunchBatch({
         punches: ready.map((item) => ({
@@ -154,11 +148,6 @@ export async function flushAll(): Promise<void> {
     await updateSyncQueueStatus(ids, 'processing');
     try {
       const provider = getProvider();
-      const accessToken = await provider.getAccessToken();
-      if (!accessToken) {
-        await updateSyncQueueStatus(ids, 'pending');
-        return;
-      }
       const data = (await provider.registerPunchBatch({
           punches: ready.map((item) => ({
             client_id: item.id,

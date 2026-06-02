@@ -85,9 +85,38 @@ export async function getReadableTableColumns(table: string): Promise<string[]> 
     .filter((name) => !isSensitiveColumnName(name));
 }
 
+const PG_ARRAY_UDT_CASTS = new Map<string, string>([
+  ['_bool', 'boolean[]'],
+  ['_int2', 'smallint[]'],
+  ['_int4', 'integer[]'],
+  ['_int8', 'bigint[]'],
+  ['_float4', 'real[]'],
+  ['_float8', 'double precision[]'],
+  ['_numeric', 'numeric[]'],
+  ['_uuid', 'uuid[]'],
+  ['_text', 'text[]'],
+  ['_varchar', 'text[]'],
+  ['_bpchar', 'text[]'],
+  ['_date', 'date[]'],
+  ['_timestamp', 'timestamp[]'],
+  ['_timestamptz', 'timestamptz[]'],
+  ['_time', 'time[]'],
+  ['_json', 'json[]'],
+  ['_jsonb', 'jsonb[]'],
+]);
+
+export function normalizePgColumnType(dataType: string, udtName?: string | null): string {
+  const type = String(dataType || '').trim();
+  const udt = String(udtName || '').trim();
+  if (type === 'ARRAY') return PG_ARRAY_UDT_CASTS.get(udt) ?? `${udt.replace(/^_/, '') || 'text'}[]`;
+  return type;
+}
+
 /** Sufixo PG para cast explícito — evita "could not determine data type of parameter $N" com NULL. */
 function pgCastSuffix(dataType: string): string {
-  switch (dataType) {
+  const normalized = String(dataType || '').trim();
+  if (/^[a-z_][a-z0-9_ ]*(\[\])$/i.test(normalized)) return normalized;
+  switch (normalized) {
     case 'jsonb':
       return 'jsonb';
     case 'json':
@@ -116,6 +145,10 @@ function pgCastSuffix(dataType: string): string {
       return 'date';
     case 'time without time zone':
       return 'time';
+    case 'timestamptz':
+      return 'timestamptz';
+    case 'timestamp':
+      return 'timestamp';
     case 'text':
     case 'character varying':
     case 'character':
@@ -165,17 +198,18 @@ async function loadTableColumns(table: string): Promise<ColumnMeta[]> {
   const result = await pool.query<{
     column_name: string;
     data_type: string;
+    udt_name: string;
     is_generated: string;
     is_identity: string;
   }>(
-    `SELECT column_name, data_type, is_generated, is_identity
+    `SELECT column_name, data_type, udt_name, is_generated, is_identity
      FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = $1`,
     [table],
   );
   const cols = result.rows.map((r) => ({
     name: r.column_name,
-    dataType: r.data_type,
+    dataType: normalizePgColumnType(r.data_type, r.udt_name),
     isGenerated: r.is_generated !== 'NEVER',
     isIdentity: r.is_identity === 'YES',
   }));

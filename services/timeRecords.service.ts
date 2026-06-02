@@ -17,12 +17,96 @@ import { assertNoFutureOperationalPunch } from '../src/services/monitoring/monit
 import { assertValidUuid, insertTimeRecordForUser } from './insertTimeRecordRpc';
 import { isCloudEnabled } from '../src/services/cloudService';
 import { cloudFallback } from '../src/services/cloudFallback';
+import { fetchTimeRecordsForMirrorWindow } from './api';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
 
 function throwIfError(error: { message: string } | null, context: string): void {
   if (error) throw new Error(`${context}: ${error.message}`);
+}
+
+function uniqueStringIds(values: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of values) {
+    const value = String(raw ?? '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function normalizeEmail(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function companyFilter(companyId?: string | null): Filter[] {
+  const cid = String(companyId ?? '').trim();
+  return cid ? [{ column: 'company_id', operator: 'eq', value: cid }] : [];
+}
+
+async function resolveLinkedTimeRecordUserIds(userId: string, companyId?: string | null): Promise<string[]> {
+  const id = String(userId || '').trim();
+  if (!id || !isCloudEnabled()) return id ? [id] : [];
+
+  try {
+    const scope = companyFilter(companyId);
+    const [usersById, employeesById] = await Promise.all([
+      db
+        .select('users', [...scope, { column: 'id', operator: 'eq', value: id }], {
+          columns: 'id,email',
+          limit: 1,
+        })
+        .catch(() => []),
+      db
+        .select('employees', [...scope, { column: 'id', operator: 'eq', value: id }], {
+          columns: 'id,email',
+          limit: 1,
+        })
+        .catch(() => []),
+    ]);
+    const email = normalizeEmail(usersById?.[0]?.email ?? employeesById?.[0]?.email);
+    if (!email) return [id];
+
+    const [usersByEmail, employeesByEmail] = await Promise.all([
+      db
+        .select('users', [...scope, { column: 'email', operator: 'eq', value: email }], {
+          columns: 'id,email',
+          limit: 5,
+        })
+        .catch(() => []),
+      db
+        .select('employees', [...scope, { column: 'email', operator: 'eq', value: email }], {
+          columns: 'id,email',
+          limit: 5,
+        })
+        .catch(() => []),
+    ]);
+
+    return uniqueStringIds([
+      id,
+      ...(usersByEmail ?? []).map((row) => row.id),
+      ...(employeesByEmail ?? []).map((row) => row.id),
+    ]);
+  } catch {
+    return [id];
+  }
+}
+
+function dedupeRowsById(rows: any[]): any[] {
+  const byId = new Map<string, any>();
+  const out: any[] = [];
+  for (const row of rows ?? []) {
+    const id = String(row?.id ?? '').trim();
+    if (id) {
+      byId.set(id, row);
+      continue;
+    }
+    out.push(row);
+  }
+  return [...byId.values(), ...out];
 }
 
 /** Mesmo pipeline que `db.select` (sessão + RLS + timeout interno). */
@@ -92,44 +176,88 @@ export async function getTimeRecordsForUserDayRange(
   userId: string,
   startInclusive: string,
   endInclusive: string,
+  companyId?: string | null,
 ): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  return db.select(
-    'time_records',
-    [
-      { column: 'user_id', operator: 'eq', value: userId },
-      { column: 'created_at', operator: 'gte', value: startInclusive },
-      { column: 'created_at', operator: 'lte', value: endInclusive },
-    ],
-    { column: 'created_at', ascending: true },
+  const recordUserIds = await resolveLinkedTimeRecordUserIds(userId, companyId);
+  const rows = await Promise.all(
+    recordUserIds.map((recordUserId) =>
+      db.select(
+        'time_records',
+        [
+          ...companyFilter(companyId),
+          { column: 'user_id', operator: 'eq', value: recordUserId },
+          { column: 'created_at', operator: 'gte', value: startInclusive },
+          { column: 'created_at', operator: 'lte', value: endInclusive },
+        ],
+        { column: 'created_at', ascending: true },
+      ),
+    ),
+  );
+  return dedupeRowsById(rows.flat()).sort(
+    (a, b) => new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime() - new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime(),
   );
 }
 
 /** Histórico recente para validação antifraude no registro de ponto. */
-export async function getRecentTimeRecordsForUser(userId: string, limit = 50): Promise<any[]> {
+export async function getRecentTimeRecordsForUser(userId: string, limit = 50, companyId?: string | null): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  return db.select(
-    'time_records',
-    [{ column: 'user_id', operator: 'eq', value: userId }],
-    {
-      columns: 'id, type, timestamp, created_at, latitude, longitude, device_id',
-      orderBy: { column: 'created_at', ascending: false },
-      limit,
-    },
+  const recordUserIds = await resolveLinkedTimeRecordUserIds(userId, companyId);
+  const rows = await Promise.all(
+    recordUserIds.map((recordUserId) =>
+      db.select(
+        'time_records',
+        [...companyFilter(companyId), { column: 'user_id', operator: 'eq', value: recordUserId }],
+        {
+          columns: 'id, type, timestamp, created_at, latitude, longitude, device_id',
+          orderBy: { column: 'created_at', ascending: false },
+          limit,
+        },
+      ),
+    ),
   );
+  return dedupeRowsById(rows.flat())
+    .sort((a, b) => new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime() - new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime())
+    .slice(0, limit);
 }
 
-export async function getTimeRecordsForEmployeeDashboard(userId: string, companyId?: string | null): Promise<any[]> {
+export async function getTimeRecordsForEmployeeDashboard(
+  userId: string,
+  companyId?: string | null,
+  periodStartYmd?: string,
+  periodEndYmd?: string,
+): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  const filters: Filter[] = [
-    ...(companyId ? [{ column: 'company_id', operator: 'eq' as const, value: companyId }] : []),
-    { column: 'user_id', operator: 'eq', value: userId },
-  ];
-  return db.select('time_records', filters, {
-    columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
-    orderBy: { column: 'created_at', ascending: false },
-    limit: 500,
-  });
+  const recordUserIds = await resolveLinkedTimeRecordUserIds(userId, companyId);
+  const baseFilters: Filter[] = companyFilter(companyId);
+  if (periodStartYmd && periodEndYmd) {
+    const rows = await Promise.all(
+      recordUserIds.map((recordUserId) =>
+        fetchTimeRecordsForMirrorWindow(
+          [...baseFilters, { column: 'user_id', operator: 'eq', value: recordUserId }],
+          periodStartYmd,
+          periodEndYmd,
+          false,
+          2000,
+        ),
+      ),
+    );
+    return dedupeRowsById(rows.flat()).sort(
+      (a, b) => new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime() - new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime(),
+    );
+  }
+  const rows = await Promise.all(
+    recordUserIds.map((recordUserId) =>
+      db.select('time_records', [...baseFilters, { column: 'user_id', operator: 'eq', value: recordUserId }], {
+        columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
+        orderBy: { column: 'created_at', ascending: false },
+        limit: 500,
+      }),
+    ),
+  );
+  return dedupeRowsById(rows.flat()).sort(
+    (a, b) => new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime() - new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime(),
+  );
 }
 
 type TimeRecordLockRow = {

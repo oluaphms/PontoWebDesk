@@ -11,8 +11,15 @@ function toRawFromLocal(local: Awaited<ReturnType<typeof listLocalPunchesForDay>
   };
 }
 
-export async function getConsolidatedDayPunches(userId: string, dayYmd: string): Promise<RawTimeRecord[]> {
-  const [server, local] = await Promise.all([getDayRecords(userId, dayYmd), listLocalPunchesForDay(userId, dayYmd)]);
+export async function getConsolidatedDayPunches(
+  userId: string,
+  dayYmd: string,
+  companyId?: string | null,
+): Promise<RawTimeRecord[]> {
+  const [server, local] = await Promise.all([
+    getDayRecords(userId, dayYmd, companyId),
+    listLocalPunchesForDay(userId, dayYmd),
+  ]);
   const merged = [
     ...server.map((item) => ({ item, punchHash: String((item as { punch_hash?: string; hash?: string }).punch_hash || (item as { hash?: string }).hash || '') })),
     ...local.map((entry) => ({ item: toRawFromLocal(entry), punchHash: entry.punch_hash })),

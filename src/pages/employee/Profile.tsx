@@ -34,6 +34,19 @@ const EmployeeProfile: React.FC = () => {
   useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
     const load = async () => {
+      console.log('USER', user);
+      console.log('PROFILE', {
+        id: user.id,
+        nome: user.nome,
+        email: user.email,
+        phone: (user as any).phone ?? null,
+        cargo: user.cargo,
+        departmentId: (user as any).departmentId ?? null,
+        schedule_id: user.schedule_id ?? null,
+        status: (user as any).status ?? null,
+      });
+      setScheduleName('—');
+      setDepartmentName('—');
       if (user.schedule_id) {
         try {
           const sched = (await db.select('schedules', [{ column: 'id', operator: 'eq', value: user.schedule_id }])) as any[];

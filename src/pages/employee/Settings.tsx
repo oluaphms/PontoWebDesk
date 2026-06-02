@@ -11,7 +11,7 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { validatePassword } from '../../utils/passwordValidation';
 import { i18n } from '../../../lib/i18n';
-import { Lock, Globe2, Bell, Sun, Moon, Monitor, Info } from 'lucide-react';
+import { Lock, Globe2, Bell, Sun, Moon, Monitor, Info, Eye, EyeOff } from 'lucide-react';
 
 const APP_VERSION = '1.4.0';
 
@@ -25,6 +25,8 @@ const EmployeeSettings: React.FC = () => {
   const [notifications, setNotifications] = useState(true);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -124,6 +126,8 @@ const EmployeeSettings: React.FC = () => {
 
   const inputClass =
     'w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm';
+  const passwordInputClass =
+    'w-full px-3 py-2 pr-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm';
 
   if (loading) return <LoadingState message={i18n.t('common.loading')} />;
   if (!user) return <Navigate to="/" replace />;
@@ -158,27 +162,51 @@ const EmployeeSettings: React.FC = () => {
           </div>
           <div className="p-6 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('empSettings.newPassword')}</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className={inputClass}
-                placeholder="••••••••"
-                minLength={6}
-                autoComplete="new-password"
-              />
+              <label htmlFor="employee-new-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('empSettings.newPassword')}</label>
+              <div className="relative">
+                <input
+                  id="employee-new-password"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className={passwordInputClass}
+                  placeholder="••••••••"
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                  aria-label={showNewPassword ? i18n.t('app.hidePassword') : i18n.t('app.showPassword')}
+                  aria-pressed={showNewPassword}
+                >
+                  {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('empSettings.confirmPassword')}</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className={inputClass}
-                placeholder="••••••••"
-                autoComplete="new-password"
-              />
+              <label htmlFor="employee-confirm-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('empSettings.confirmPassword')}</label>
+              <div className="relative">
+                <input
+                  id="employee-confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={passwordInputClass}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                  aria-label={showConfirmPassword ? i18n.t('app.hidePassword') : i18n.t('app.showPassword')}
+                  aria-pressed={showConfirmPassword}
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             <button
               type="button"

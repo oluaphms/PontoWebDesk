@@ -133,7 +133,7 @@ const EmployeeClockIn: React.FC = () => {
     if (!user || !isSupabaseConfigured()) return;
     try {
       const today = getLocalDateString();
-      const dayRecords = await getConsolidatedDayPunches(user.id, today);
+      const dayRecords = await getConsolidatedDayPunches(user.id, today, user.companyId);
       if (!dayRecords.length) {
         setLastType(null);
         setLastRecordAt(null);
@@ -146,7 +146,7 @@ const EmployeeClockIn: React.FC = () => {
       setLastType(null);
       setLastRecordAt(null);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.companyId]);
 
   useEffect(() => {
     void loadTodayState();
@@ -444,16 +444,25 @@ const EmployeeClockIn: React.FC = () => {
     setError(null);
     try {
       const fingerprint: DeviceFingerprint = generateDeviceFingerprint();
+      const punchInstant = new Date();
 
       const today = getLocalDateString();
-      const dayRecords = await getConsolidatedDayPunches(user.id, today);
+      const dayRecords = await getConsolidatedDayPunches(user.id, today, user.companyId);
       const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
       const logicalTypeStr =
         type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
       const persistenceType = persistenceTypeFromClockWebAction(dayRecords, type);
+      console.log('USER', user);
+      console.log('EMPLOYEE', {
+        id: user.id,
+        employeeId: user.id,
+        companyId: user.companyId,
+        role: user.role,
+      });
+      console.log('LAST_PUNCH', lastLocal);
 
       const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
-        nextEventTime: new Date(),
+        nextEventTime: punchInstant,
       });
       if (!lastLocal.tipo && logicalTypeStr !== 'entrada') {
         setError('O primeiro registro do dia deve ser entrada.');
@@ -530,7 +539,7 @@ const EmployeeClockIn: React.FC = () => {
         const [locRows, devRows, histRows] = await Promise.all([
           db.select('work_locations', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
           db.select('trusted_devices', [{ column: 'employee_id', operator: 'eq', value: user.id }]) as Promise<any[]>,
-          getRecentTimeRecordsForUser(user.id, 50),
+          getRecentTimeRecordsForUser(user.id, 50, user.companyId),
         ]);
         allowedLocations = (locRows ?? []).map((r) => ({
           id: r.id,
@@ -553,7 +562,7 @@ const EmployeeClockIn: React.FC = () => {
         // continua sem zonas/dispositivos confiáveis
       }
 
-      const now = new Date();
+      const now = punchInstant;
       const lastGeoWithCoords =
         history.find(
           (h) =>
@@ -630,6 +639,7 @@ const EmployeeClockIn: React.FC = () => {
         userId: user.id,
         companyId: user.companyId,
         type: persistenceType,
+        timestamp: now.toISOString(),
         method,
         hasLocation: !!(geoPos?.latitude != null && geoPos?.longitude != null),
         hasPhoto: !!photoUrl,
@@ -654,6 +664,7 @@ const EmployeeClockIn: React.FC = () => {
           userId: user.id,
           companyId: user.companyId,
           type: persistenceType,
+          timestamp: now.toISOString(),
           method,
           location: geoPos ? { lat: geoPos.latitude, lng: geoPos.longitude, accuracy: geoPos.accuracy } : undefined,
           photoUrl: photoUrl || undefined,
@@ -843,10 +854,18 @@ const EmployeeClockIn: React.FC = () => {
     }
     setError(null);
     const today = getLocalDateString();
-    const dayRecords = await getConsolidatedDayPunches(user.id, today);
+    const dayRecords = await getConsolidatedDayPunches(user.id, today, user.companyId);
     const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
     const logicalTypeStr =
       type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
+    console.log('USER', user);
+    console.log('EMPLOYEE', {
+      id: user.id,
+      employeeId: user.id,
+      companyId: user.companyId,
+      role: user.role,
+    });
+    console.log('LAST_PUNCH', lastLocal);
     const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
       nextEventTime: new Date(),
     });

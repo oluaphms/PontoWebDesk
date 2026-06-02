@@ -27,7 +27,7 @@ const sqlFiles = ['ensure_companies.sql', 'ensure_rep_devices.sql'];
 
 const pool = new pg.Pool({ connectionString, ssl });
 
-async function runFile(name: string): Promise<void> {
+async function runFile(name) {
   const sqlPath = path.join(__dirname, '..', 'db', 'vps', name);
   const sql = fs.readFileSync(sqlPath, 'utf8');
   observabilityConsole.log('[db:ensure-vps] aplicando', name);

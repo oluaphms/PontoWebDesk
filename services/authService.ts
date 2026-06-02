@@ -1036,17 +1036,38 @@ class AuthService {
         const loginIdentifier = resolvedForApi || identifier.trim().toLowerCase();
         const apiRes = await getProvider().login({ identifier: loginIdentifier, password });
         const apiUser = apiRes?.user as
-          | { id?: string; email?: string; company_id?: string; role?: string }
+          | {
+              id?: string;
+              nome?: string;
+              email?: string;
+              company_id?: string;
+              role?: string;
+              cargo?: string | null;
+              department_id?: string | null;
+              schedule_id?: string | null;
+              shift_id?: string | null;
+              phone?: string | null;
+              avatar?: string | null;
+              preferences?: User['preferences'];
+            }
           | undefined;
         if (apiRes?.ok && apiUser?.id) {
           const mapped = mapLocalSessionToUser({
             user_id: String(apiUser.id),
-            name: String(apiUser.email || identifier),
+            name: String(apiUser.nome || apiUser.email || identifier),
             company_id: String(apiUser.company_id || ''),
             role: String(apiUser.role || 'employee'),
             last_login: Date.now(),
           });
           mapped.email = String(apiUser.email || identifier);
+          mapped.nome = String(apiUser.nome || mapped.nome || apiUser.email || identifier);
+          mapped.cargo = String(apiUser.cargo || mapped.cargo || 'Colaborador');
+          mapped.departmentId = apiUser.department_id != null ? String(apiUser.department_id) : '';
+          mapped.schedule_id = apiUser.schedule_id != null ? String(apiUser.schedule_id) : undefined;
+          mapped.shift_id = apiUser.shift_id != null ? String(apiUser.shift_id) : undefined;
+          mapped.phone = apiUser.phone != null ? String(apiUser.phone) : undefined;
+          mapped.avatar = apiUser.avatar != null ? String(apiUser.avatar) : mapped.avatar;
+          mapped.preferences = parseUserPreferences(apiUser.preferences);
           await saveLocalSession(mapUserToLocalSession(mapped));
           persistCurrentUserToProfileStore(mapped);
           try {

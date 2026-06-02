@@ -43,6 +43,65 @@ function normalizeType(raw: unknown): string {
   return type;
 }
 
+function statusFromLastPunchType(type: unknown): string {
+  const normalized = normalizeType(type);
+  if (!normalized) return 'empty_day';
+  if (normalized === 'entrada' || normalized === 'intervalo_volta') return 'working';
+  if (normalized === 'intervalo_saida') return 'break';
+  if (normalized === 'saida') return 'off_duty';
+  return 'unknown';
+}
+
+async function logLatestPunchBeforeInsert(
+  client: PoolClient,
+  input: { userId: string; companyId: string; timestamp: string; type: string },
+): Promise<void> {
+  const sql = `select id, user_id, company_id, type, timestamp, created_at
+     from time_records
+    where company_id::text = $1
+      and user_id::text = $2
+      and ((coalesce(timestamp, created_at) at time zone 'America/Sao_Paulo')::date =
+           (($3::timestamptz at time zone 'America/Sao_Paulo')::date))
+    order by coalesce(timestamp, created_at) desc
+    limit 1`;
+  try {
+    const result = await client.query(sql, [input.companyId, input.userId, input.timestamp]);
+    const latest = result.rows[0] ?? null;
+    logger.info({
+      module: 'punch.service',
+      action: 'PUNCH_SEQUENCE_CONTEXT',
+      message: 'Contexto de sequência antes de registrar ponto',
+      userId: input.userId,
+      companyId: input.companyId,
+      meta: {
+        employeeId: input.userId,
+        nextType: input.type,
+        nextTimestamp: input.timestamp,
+        latestPunch: latest,
+        calculatedStatus: statusFromLastPunchType(latest?.type),
+        sql,
+        params: [input.companyId, input.userId, input.timestamp],
+        returnedRows: result.rowCount ?? result.rows.length,
+      },
+    });
+  } catch (error) {
+    logger.warn({
+      module: 'punch.service',
+      action: 'PUNCH_SEQUENCE_CONTEXT_FAILED',
+      message: 'Falha ao consultar última batida antes do registro',
+      userId: input.userId,
+      companyId: input.companyId,
+      error,
+      meta: {
+        employeeId: input.userId,
+        nextType: input.type,
+        nextTimestamp: input.timestamp,
+        sql,
+      },
+    });
+  }
+}
+
 function buildRpcMetadata(punch: PunchInput, punchHash: string, photoUrl: string | null): Record<string, unknown> {
   return {
     method: String(punch.method || 'api').trim() || 'api',
@@ -210,6 +269,7 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
   const client = await pool.connect();
   try {
     await client.query('begin');
+    await logLatestPunchBeforeInsert(client, { userId, companyId, timestamp, type });
     if (cols.hasPunchHash) {
       const existing = await client.query(
         'select id from punches where punch_hash = $1 limit 1',

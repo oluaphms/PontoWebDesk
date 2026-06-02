@@ -91,6 +91,8 @@ const EmployeeDashboard: React.FC = () => {
           role: user.role,
         });
         const todayYmd = localTodayYmd();
+        const now = new Date();
+        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         let schedToday: WorkScheduleInfo | null = null;
         if (user.companyId) {
           try {
@@ -104,13 +106,16 @@ const EmployeeDashboard: React.FC = () => {
 
         let rows: any[] = [];
         try {
-          rows = (await getTimeRecordsForEmployeeDashboard(user.id, user.companyId)) as any[];
+          rows = (await getTimeRecordsForEmployeeDashboard(user.id, user.companyId, monthStart, todayYmd)) as any[];
           logDashboardDebug('API RESPONSE', {
             endpoint: '/api/data/time_records',
+            query: 'time_records por company_id e user_id, com alias users.id/employees.id resolvido por e-mail quando disponível',
             filters: [
               ...(user.companyId ? [{ column: 'company_id', operator: 'eq', value: user.companyId }] : []),
               { column: 'user_id', operator: 'eq', value: user.id },
             ],
+            periodStart: monthStart,
+            periodEnd: todayYmd,
             count: rows.length,
             sample: rows.slice(0, 5),
           });
@@ -140,12 +145,11 @@ const EmployeeDashboard: React.FC = () => {
           }
         }
         logDashboardDebug('TIME RECORDS', rows);
+        logDashboardDebug('PUNCHES', rows);
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
         const todayList = sortedAll.filter(
           (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) === todayYmd,
         );
-        const now = new Date();
-        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         const monthList = sortedAll.filter(
           (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) >= monthStart,
         );
@@ -226,13 +230,21 @@ const EmployeeDashboard: React.FC = () => {
             setBalanceHours('0h');
             setBankCreditDebit('Sem movimentações no banco ainda');
           }
-          logDashboardDebug('DASHBOARD DATA', {
+          logDashboardDebug('DASHBOARD_DATA', {
             todayRecords: todaySortedAsc.length,
             lastRecord: lastPick,
             todayHours: todaySortedAsc.length > 0 ? formatarTempoLegivel(calcularHorasHojeMs(todaySortedAsc)) : '0h 0m',
             monthRecords: monthList.length,
             ledgerRows: ledgerRows?.length ?? 0,
             pendingRequests,
+          });
+          logDashboardDebug('TIMESHEET_DATA', {
+            source: 'time_records',
+            periodStart: monthStart,
+            periodEnd: todayYmd,
+            todayRecords: todaySortedAsc.length,
+            monthRecords: monthList.length,
+            ledgerRows: ledgerRows?.length ?? 0,
           });
         } catch {
           setBalanceHours('—');

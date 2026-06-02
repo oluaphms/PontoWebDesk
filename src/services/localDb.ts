@@ -332,18 +332,20 @@ export async function getLocalAdminDashboardCards(companyId: string): Promise<Lo
   const employees = await listCachedEmployeesByCompany(companyId);
   const punches = await getLocalTimeRecords();
   const today = todayYmdLocal();
-  const todayPunches = punches.filter((p) => p.timestamp.slice(0, 10) === today);
-  const activeIds = new Set(todayPunches.map((p) => p.user_id));
-  const staff = employees.filter((u) => {
-    const role = String(u.role || '').toLowerCase();
-    return role !== 'admin' && role !== 'hr';
+  const visibleEmployees = employees.filter((u) => (u as { invisivel?: boolean }).invisivel !== true);
+  const visibleEmployeeIds = new Set(visibleEmployees.map((u) => String(u.id)));
+  const activeEmployees = visibleEmployees.filter((u) => {
+    const status = String(u.status || 'active').toLowerCase();
+    return status !== 'inactive' && status !== 'inativo';
   });
-  const expected = staff.length;
+  const activeEmployeeIds = new Set(activeEmployees.map((u) => String(u.id)));
+  const todayPunches = punches.filter((p) => p.timestamp.slice(0, 10) === today && visibleEmployeeIds.has(String(p.user_id)));
+  const activeIds = new Set(todayPunches.map((p) => String(p.user_id)).filter((id) => activeEmployeeIds.has(id)));
   return {
-    totalEmployees: employees.length,
-    activeEmployees: employees.filter((u) => String(u.status || 'active') !== 'inactive').length,
+    totalEmployees: visibleEmployees.length,
+    activeEmployees: activeEmployees.length,
     recordsToday: todayPunches.length,
-    absentToday: Math.max(0, expected - activeIds.size),
+    absentToday: Math.max(0, activeEmployees.length - activeIds.size),
   };
 }
 

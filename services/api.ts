@@ -83,20 +83,44 @@ export async function fetchTimeRecordsForMirrorWindow(
   });
 }
 
-export type AdminTimesheetEmployee = { id: string; nome: string; department_id?: string; role?: string };
+export type AdminTimesheetEmployee = {
+  id: string;
+  nome: string;
+  email?: string | null;
+  department_id?: string | null;
+  role?: string;
+  record_user_ids?: string[];
+};
 export type AdminTimesheetDepartment = { id: string; name: string };
 export type AdminHolidayRow = { id: string; date: string; name: string };
+
+function normalizeEmail(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isTimesheetVisibleEmployee(row: { role?: unknown; status?: unknown; invisivel?: unknown }): boolean {
+  const role = String(row.role ?? '').trim().toLowerCase();
+  if (role === 'admin' || role === 'administrador' || role === 'hr' || role === 'rh') return false;
+  return row.invisivel !== true;
+}
+
+function uniqueIds(ids: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of ids) {
+    const id = String(raw ?? '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 /** Colaboradores da empresa (admin / espelho) — API VPS. */
 export async function buscarColaboradores(companyId: string): Promise<AdminTimesheetEmployee[]> {
   const cid = String(companyId).trim();
   const rows = await fetchEmployees(cid);
-  return rows.map((u) => ({
-    id: u.id,
-    nome: u.nome || u.email || '',
-    department_id: undefined,
-    role: u.role,
-  }));
+  return mapApiEmployeesToEspelho(rows, []);
 }
 
 /** Departamentos da empresa. */
@@ -113,13 +137,30 @@ const ESPELHO_USERS_SELECT_OPTS = {
   orderBy: { column: 'nome', ascending: true },
 } as const;
 
-function mapApiEmployeesToEspelho(rows: Awaited<ReturnType<typeof fetchEmployees>>): AdminTimesheetEmployee[] {
-  return rows.map((u) => ({
-    id: u.id,
-    nome: u.nome || u.email || 'Colaborador',
-    department_id: undefined,
-    role: u.role,
-  }));
+function mapApiEmployeesToEspelho(
+  rows: Awaited<ReturnType<typeof fetchEmployees>>,
+  userRows: DbRow[],
+): AdminTimesheetEmployee[] {
+  const userIdByEmail = new Map<string, string>();
+  for (const user of userRows ?? []) {
+    const email = normalizeEmail(user.email);
+    const id = String(user.id ?? '').trim();
+    if (email && id && !userIdByEmail.has(email)) userIdByEmail.set(email, id);
+  }
+  return rows
+    .filter(isTimesheetVisibleEmployee)
+    .map((u) => {
+      const linkedUserId = userIdByEmail.get(normalizeEmail(u.email));
+      const ids = uniqueIds([u.id, linkedUserId]);
+      return {
+        id: u.id,
+        nome: u.nome || u.email || 'Colaborador',
+        email: u.email ?? null,
+        department_id: u.department_id ?? null,
+        role: u.role,
+        record_user_ids: ids,
+      };
+    });
 }
 
 /**
@@ -131,12 +172,13 @@ export async function buscarFiltrosEspelhoAdmin(companyId: string): Promise<{
   departments: AdminTimesheetDepartment[];
 }> {
   const cid = String(companyId).trim();
-  const [apiEmployees, departmentsRows] = await Promise.all([
+  const [apiEmployees, userRows, departmentsRows] = await Promise.all([
     fetchEmployees(cid),
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS).catch(() => []) as Promise<DbRow[]>,
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
   ]);
   return {
-    employees: mapApiEmployeesToEspelho(apiEmployees),
+    employees: mapApiEmployeesToEspelho(apiEmployees, userRows ?? []),
     departments: (departmentsRows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') })),
   };
 }
@@ -172,18 +214,10 @@ export async function buscarEspelhoAdmin(
 }> {
   const cid = String(companyId).trim();
   const uid = String(employeeId || '').trim();
-  const recordFilters: Filter[] = [{ column: 'company_id', operator: 'eq', value: cid }];
-  if (uid) recordFilters.push({ column: 'user_id', operator: 'eq', value: uid });
 
-  const [apiEmployees, recordsRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
+  const [apiEmployees, userRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
     fetchEmployees(cid),
-    fetchTimeRecordsForMirrorWindow(
-      recordFilters,
-      periodStart,
-      periodEnd,
-      true,
-      uid ? 2000 : 8000
-    ) as Promise<DbRow[]>,
+    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS).catch(() => []) as Promise<DbRow[]>,
     db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
     db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
     db
@@ -193,7 +227,30 @@ export async function buscarEspelhoAdmin(
       ) as Promise<DbRow[]>,
   ]);
 
-  const employees = mapApiEmployeesToEspelho(apiEmployees);
+  const employees = mapApiEmployeesToEspelho(apiEmployees, userRows ?? []);
+  const selectedEmployee = uid ? employees.find((employee) => employee.id === uid) : null;
+  const recordUserIds = selectedEmployee?.record_user_ids?.length ? selectedEmployee.record_user_ids : uid ? [uid] : [];
+  const recordFiltersBase: Filter[] = [{ column: 'company_id', operator: 'eq', value: cid }];
+  const recordsRows = uid
+    ? (
+        await Promise.all(
+          recordUserIds.map((recordUserId) =>
+            fetchTimeRecordsForMirrorWindow(
+              [...recordFiltersBase, { column: 'user_id', operator: 'eq', value: recordUserId }],
+              periodStart,
+              periodEnd,
+              true,
+              2000,
+            ),
+          ),
+        )
+      ).flat()
+    : await fetchTimeRecordsForMirrorWindow(recordFiltersBase, periodStart, periodEnd, true, 8000);
+  const recordsById = new Map<string, DbRow>();
+  for (const row of recordsRows ?? []) {
+    const id = String(row?.id ?? '').trim();
+    if (id) recordsById.set(id, row);
+  }
   const departments: AdminTimesheetDepartment[] = (departmentsRows ?? []).map((d: DbRow) => ({
     id: String(d.id ?? ''),
     name: String(d.name ?? ''),
@@ -218,7 +275,7 @@ export async function buscarEspelhoAdmin(
   return {
     employees,
     departments,
-    records: recordsRows ?? [],
+    records: Array.from(recordsById.values()),
     shiftSchedules: shiftsRows ?? [],
     holidays,
   };
