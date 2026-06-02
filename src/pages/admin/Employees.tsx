@@ -1526,7 +1526,7 @@ const AdminEmployees: React.FC = () => {
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
-            title="Colaborador"
+            title="Colaboradores"
             subtitle="Cadastro trabalhista: tipo de vínculo, documentos e datas para conformidade, REP e exportação à folha."
             helpSlug="colaboradores"
           />
@@ -1699,7 +1699,7 @@ const AdminEmployees: React.FC = () => {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                        <h3 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Funcionários | {editingId ? 'Editar' : 'Incluir'}</h3>
+                        <h3 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Colaboradores | {editingId ? 'Editar' : 'Incluir'}</h3>
                         {editingId && employeeModalStatusRow && (
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${

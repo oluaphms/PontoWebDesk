@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vitest';
-import { normalizePgColumnType, sqlParamRef } from './dataRowSchema.js';
+import { coerceArrayValue, DataRowValidationError, normalizePgColumnType, sqlParamRef } from './dataRowSchema.js';
 
 describe('dataRowSchema PostgreSQL casts', () => {
   it('normaliza integer[] do information_schema para cast PG correto', () => {
@@ -22,5 +22,11 @@ describe('dataRowSchema PostgreSQL casts', () => {
 
     expect(insertPlaceholders).toEqual(['$1::text', '$2::integer[]', '$3::timestamptz']);
     expect(updateSets).toContain('days = $2::integer[]');
+  });
+
+  it('valida payload de schedules.days como integer[] antes do SQL', () => {
+    expect(coerceArrayValue('days', 'integer[]', [1, '2', 3])).toEqual([1, 2, 3]);
+    expect(() => coerceArrayValue('days', 'integer[]', '1,2,3')).toThrow(DataRowValidationError);
+    expect(() => coerceArrayValue('days', 'integer[]', '[1,2,3]')).toThrow(DataRowValidationError);
   });
 });

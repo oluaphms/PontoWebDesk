@@ -7,6 +7,7 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
+import { fetchEmployees, type ApiEmployee } from '../../services/employeesApi.service';
 
 interface EstruturaRow {
   id: string;
@@ -24,6 +25,34 @@ interface UserOption {
   nome: string;
 }
 
+type UserLinkRow = { id?: unknown; email?: unknown };
+
+function normalizeEmail(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isSelectableEmployee(employee: ApiEmployee): boolean {
+  const role = String(employee.role ?? '').trim().toLowerCase();
+  const status = String(employee.status ?? 'active').trim().toLowerCase();
+  const dismissal = employee.demissao ?? employee.termination_date ?? employee.dismissal_date;
+  if (role === 'admin' || role === 'administrador' || role === 'hr' || role === 'rh') return false;
+  if (employee.invisivel === true) return false;
+  if (status && status !== 'active' && status !== 'ativo') return false;
+  if (dismissal != null && String(dismissal).trim()) return false;
+  return true;
+}
+
+function uniqueUserOptions(options: UserOption[]): UserOption[] {
+  const seen = new Set<string>();
+  const out: UserOption[] = [];
+  for (const option of options) {
+    if (!option.id || seen.has(option.id)) continue;
+    seen.add(option.id);
+    out.push(option);
+  }
+  return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 const AdminEstruturas: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [rows, setRows] = useState<EstruturaRow[]>([]);
@@ -38,21 +67,37 @@ const AdminEstruturas: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
-  const loadUsers = async () => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    try {
-      // Otimização: carregar apenas colunas necessárias
-      const data = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-        columns: 'id, nome, email',
-        limit: 500,
-      })) as any[];
-      setUsers((data ?? []).map((u: any) => ({
-        id: u.id,
-        nome: u.nome || u.email || u.id,
-      })));
-    } catch (e) {
-      observabilityConsole.error(e);
+
+  const loadActiveEmployeeOptions = async (companyId: string): Promise<UserOption[]> => {
+    const [employees, linkedUsers] = await Promise.all([
+      fetchEmployees(companyId),
+      db
+        .select('users', [{ column: 'company_id', operator: 'eq', value: companyId }], {
+          columns: 'id,email',
+          limit: 1000,
+        })
+        .catch(() => [] as UserLinkRow[]),
+    ]);
+    const activeEmployees = employees.filter(isSelectableEmployee);
+    console.log('EMPLOYEES', employees);
+    console.log('ACTIVE_EMPLOYEES', activeEmployees);
+
+    const userIdByEmail = new Map<string, string>();
+    for (const linked of linkedUsers ?? []) {
+      const email = normalizeEmail(linked.email);
+      const id = String(linked.id ?? '').trim();
+      if (email && id && !userIdByEmail.has(email)) userIdByEmail.set(email, id);
     }
+
+    return uniqueUserOptions(
+      activeEmployees.map((employee) => {
+        const linkedUserId = userIdByEmail.get(normalizeEmail(employee.email));
+        return {
+          id: linkedUserId || employee.id,
+          nome: employee.nome || employee.email || employee.id,
+        };
+      }),
+    );
   };
 
   const load = async () => {
@@ -63,10 +108,14 @@ const AdminEstruturas: React.FC = () => {
     setLoadingData(true);
     try {
       // Otimização: carregar apenas colunas necessárias
-      const estruturasData = (await db.select('estruturas', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-        columns: 'id, codigo, descricao, parent_id, company_id, created_at',
-        limit: 200,
-      })) as any[];
+      const [estruturasData, activeUsers] = await Promise.all([
+        db.select('estruturas', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
+          columns: 'id, codigo, descricao, parent_id, company_id, created_at',
+          limit: 200,
+        }) as Promise<any[]>,
+        loadActiveEmployeeOptions(user.companyId),
+      ]);
+      setUsers(activeUsers);
       const list: EstruturaRow[] = (estruturasData ?? []).map((r: any) => ({
         id: r.id,
         codigo: r.codigo || '',
@@ -83,35 +132,33 @@ const AdminEstruturas: React.FC = () => {
           if (parent) e.parent_descricao = parent.descricao;
         }
       });
-      if (supabase) {
-        const estruturaIds = list.map((e) => e.id);
-        const { data: respData } = estruturaIds.length
-          ? await supabase
-              .from('estrutura_responsaveis')
-              .select('estrutura_id, user_id')
-              .in('estrutura_id', estruturaIds)
-          : { data: [] as any[] };
-        const respMap = new Map<string, string[]>();
-        (respData ?? []).forEach((r: any) => {
-          if (!respMap.has(r.estrutura_id)) respMap.set(r.estrutura_id, []);
-          respMap.get(r.estrutura_id)!.push(r.user_id);
-        });
-        const responsibleUserIds = Array.from(
-          new Set((respData ?? []).map((r: any) => String(r.user_id ?? '')).filter(Boolean)),
-        );
-        const { data: userNames } = responsibleUserIds.length
-          ? await supabase
-              .from('users')
-              .select('id, nome, email')
-              .eq('company_id', user.companyId)
-              .in('id', responsibleUserIds)
-          : { data: [] as any[] };
-        const nameMap = new Map((userNames ?? []).map((u: any) => [u.id, u.nome || u.email || u.id]));
-        list.forEach((e) => {
-          const ids = respMap.get(e.id) ?? [];
-          e.responsaveis = ids.map((user_id) => ({ user_id, nome: nameMap.get(user_id) || user_id }));
-        });
-      }
+      const respRows = (
+        await Promise.all(
+          list.map((estrutura) =>
+            db
+              .select(
+                'estrutura_responsaveis',
+                [{ column: 'estrutura_id', operator: 'eq', value: estrutura.id }],
+                { columns: 'estrutura_id,user_id', limit: 500 },
+              )
+              .catch(() => [] as any[]),
+          ),
+        )
+      ).flat();
+      const activeNameById = new Map(activeUsers.map((option) => [option.id, option.nome]));
+      const respMap = new Map<string, string[]>();
+      (respRows ?? []).forEach((r: any) => {
+        const estruturaId = String(r.estrutura_id ?? '').trim();
+        const userId = String(r.user_id ?? '').trim();
+        if (!estruturaId || !userId || !activeNameById.has(userId)) return;
+        if (!respMap.has(estruturaId)) respMap.set(estruturaId, []);
+        respMap.get(estruturaId)!.push(userId);
+      });
+      list.forEach((e) => {
+        const ids = Array.from(new Set(respMap.get(e.id) ?? []));
+        e.responsaveis = ids.map((user_id) => ({ user_id, nome: activeNameById.get(user_id) || user_id }));
+      });
+      console.log('STRUCTURES', list);
       setRows(list);
     } catch (e) {
       observabilityConsole.error(e);
@@ -120,10 +167,6 @@ const AdminEstruturas: React.FC = () => {
       setLoadingData(false);
     }
   };
-
-  useEffect(() => {
-    loadUsers();
-  }, [user?.companyId]);
 
   useEffect(() => {
     load();
@@ -166,10 +209,6 @@ const AdminEstruturas: React.FC = () => {
     }
     const codigoTrim = codigo.trim();
     const descTrim = descricao.trim();
-    if (!codigoTrim) {
-      setModalError('Informe o código da estrutura. Não devem existir códigos repetidos.');
-      return;
-    }
     if (!descTrim) {
       setModalError('Informe a descrição da estrutura.');
       return;
@@ -228,7 +267,7 @@ const AdminEstruturas: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Excluir esta estrutura? Subordinados e vínculos de funcionários podem ficar órfãos.')) return;
+    if (!confirm('Excluir esta estrutura? Subordinados e vínculos de colaboradores podem ficar órfãos.')) return;
     try {
       await db.delete('estruturas', id);
       setMessage({ type: 'success', text: 'Estrutura excluída.' });
@@ -261,7 +300,7 @@ const AdminEstruturas: React.FC = () => {
           <PageHeader
             helpSlug="estruturas"
             title="Estruturas"
-            subtitle="Cadastro do organograma (cadeia de comando). Utilizado para filtro de relatórios. Vincule a pessoa em Cadastro > Funcionários."
+            subtitle="Cadastro do organograma (cadeia de comando). Utilizado para filtro de relatórios. Vincule a pessoa em Cadastro > Colaboradores."
             icon={<GitBranch size={24} />}
           />
           <button
@@ -338,7 +377,7 @@ const AdminEstruturas: React.FC = () => {
                   value={codigo}
                   onChange={(e) => { setCodigo(e.target.value); setModalError(null); }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  placeholder="Código único no sistema"
+                  placeholder="Deixe em branco para gerar automaticamente"
                 />
               </div>
               <div>
@@ -381,7 +420,7 @@ const AdminEstruturas: React.FC = () => {
                       <span className="text-sm text-slate-700 dark:text-slate-300">{u.nome}</span>
                     </label>
                   ))}
-                  {users.length === 0 && <span className="text-sm text-slate-500">Nenhum usuário na empresa.</span>}
+                  {users.length === 0 && <span className="text-sm text-slate-500">Nenhum colaborador ativo na empresa.</span>}
                 </div>
               </div>
               <div className="flex gap-3 pt-2">

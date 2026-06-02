@@ -54,7 +54,7 @@ const translations: Record<Language, Record<string, string>> = {
     'menu.registrarPonto': 'Registrar Ponto',
     'menu.timeBalance': 'Banco de Horas',
     'menu.perfil': 'Perfil',
-    'menu.importEmployees': 'Importar Funcionários',
+    'menu.importEmployees': 'Importar Colaboradores',
     'menu.timeAttendance': 'Jornada de Trabalho',
     'menu.timeAttendanceAudit': 'Auditoria — Jornada',
     'menu.adjustments': 'Ajustes de Ponto',

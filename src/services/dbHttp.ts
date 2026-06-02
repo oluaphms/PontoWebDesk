@@ -194,9 +194,9 @@ export const db = {
       await apiDelete(`/data/${table}/${idOrFilters}`);
       return;
     }
-    const rows = await fetchList(table, listQuery(idOrFilters, undefined, 1));
-    const id = rows[0]?.id;
-    if (id) await apiDelete(`/data/${table}/${String(id)}`);
+    const rows = await fetchList(table, listQuery(idOrFilters, undefined, 1000, 'id'));
+    const ids = rows.map((row) => row.id).filter((id) => id != null);
+    await Promise.all(ids.map((id) => apiDelete(`/data/${table}/${String(id)}`)));
   }) as DbInterface['delete'],
 
   findById: async <T extends DbRow = DbRow>(table: string, id: string, columns?: string): Promise<T | null> => {

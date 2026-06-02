@@ -10,6 +10,18 @@ type ColumnMeta = {
   isIdentity: boolean;
 };
 
+export class DataRowValidationError extends Error {
+  code: string;
+  details: Record<string, unknown>;
+
+  constructor(message: string, code: string, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'DataRowValidationError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 const TABLE_COLUMNS_CACHE_TTL_MS = Math.max(1000, Number(process.env.TABLE_COLUMNS_CACHE_TTL_MS) || 60_000);
 const tableColumnsCache = new Map<string, { columns: ColumnMeta[]; loadedAt: number }>();
 
@@ -253,6 +265,31 @@ function coerceBooleanValue(value: unknown): unknown {
   return Boolean(value);
 }
 
+export function coerceArrayValue(column: string, dataType: string, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value)) {
+    throw new DataRowValidationError(
+      `Campo ${column} deve ser enviado como array para a coluna ${dataType}.`,
+      'DATA_INVALID_ARRAY_PAYLOAD',
+      { column, expectedType: dataType, receivedType: typeof value },
+    );
+  }
+  if (dataType === 'integer[]' || dataType === 'smallint[]' || dataType === 'bigint[]') {
+    return value.map((item, index) => {
+      const n = Number(item);
+      if (!Number.isInteger(n)) {
+        throw new DataRowValidationError(
+          `Campo ${column} contém valor inválido na posição ${index}.`,
+          'DATA_INVALID_INTEGER_ARRAY_ITEM',
+          { column, expectedType: dataType, index, value: item },
+        );
+      }
+      return n;
+    });
+  }
+  return value;
+}
+
 /** Remove colunas inexistentes e ajusta tipos (ex.: string → jsonb). */
 export async function filterRowToTableSchema(
   table: string,
@@ -306,8 +343,8 @@ export async function filterRowToTableSchema(
       out[key] = Number.isFinite(n) ? n : null;
       continue;
     }
-    if ((dataType === 'ARRAY' || dataType.endsWith('[]')) && Array.isArray(value)) {
-      out[key] = value;
+    if (dataType === 'ARRAY' || dataType.endsWith('[]')) {
+      out[key] = coerceArrayValue(key, dataType, value);
       continue;
     }
     out[key] = value;

@@ -12,6 +12,8 @@ import {
 } from '../utils/dataTablePolicy.js';
 import {
   applyTenantToRowAsync,
+  coerceArrayValue,
+  DataRowValidationError,
   filterRowToTableSchema,
   getReadableTableColumns,
   getTableColumnTypes,
@@ -40,7 +42,7 @@ type FilterInput = { column: string; operator: string; value: unknown };
 
 const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
 const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
-const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules']);
+const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules', 'estruturas', 'estrutura_responsaveis']);
 
 async function resolveUserScopeColumn(table: string): Promise<string | null> {
   if (table === 'users') {
@@ -273,6 +275,81 @@ function sortedKeys(row: Record<string, unknown> | null | undefined): string[] {
   return Object.keys(row ?? {}).sort();
 }
 
+function writeColumnType(table: string, column: string, colTypes: Map<string, string>): string {
+  if (table === 'schedules' && column === 'days') return 'integer[]';
+  return colTypes.get(column) ?? 'text';
+}
+
+function prepareSchedulesPayload(row: Record<string, unknown>): Record<string, unknown> {
+  if (!('days' in row)) return row;
+  return {
+    ...row,
+    days: coerceArrayValue('days', 'integer[]', row.days),
+  };
+}
+
+function normalizeStructureCode(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function nextNumericStructureCode(existingCodes: Set<string>, preferredWidth: number): string {
+  let max = 0;
+  for (const code of existingCodes) {
+    if (/^\d+$/.test(code)) max = Math.max(max, Number(code));
+  }
+  const width = Math.max(3, preferredWidth);
+  let next = max + 1;
+  for (;;) {
+    const candidate = String(next).padStart(width, '0');
+    if (!existingCodes.has(candidate)) return candidate;
+    next += 1;
+  }
+}
+
+async function resolveStructureCode(input: {
+  companyId: string;
+  requestedCode: unknown;
+  excludeId?: string;
+}): Promise<string> {
+  const requested = normalizeStructureCode(input.requestedCode);
+  const params: unknown[] = [input.companyId];
+  let excludeClause = '';
+  if (input.excludeId) {
+    params.push(input.excludeId);
+    excludeClause = ` AND id::text <> ${sqlParamRef(2, 'text')}`;
+  }
+  const sql = `SELECT codigo FROM public.estruturas WHERE company_id::text = ${sqlParamRef(1, 'text')}${excludeClause}`;
+  const result = await pool.query(sql, params);
+  const existingCodes = new Set(result.rows.map((row) => normalizeStructureCode(row.codigo)).filter(Boolean));
+
+  if (!requested) return nextNumericStructureCode(existingCodes, 3);
+  if (!existingCodes.has(requested)) return requested;
+  if (/^\d+$/.test(requested)) return nextNumericStructureCode(existingCodes, requested.length);
+
+  let suffix = 2;
+  for (;;) {
+    const candidate = `${requested}-${suffix}`;
+    if (!existingCodes.has(candidate)) return candidate;
+    suffix += 1;
+  }
+}
+
+async function prepareEstruturasPayload(
+  row: Record<string, unknown>,
+  companyId: string,
+  excludeId?: string,
+): Promise<Record<string, unknown>> {
+  if (!('codigo' in row)) return row;
+  return {
+    ...row,
+    codigo: await resolveStructureCode({
+      companyId,
+      requestedCode: row.codigo,
+      excludeId,
+    }),
+  };
+}
+
 function logDataQuery(
   req: AuthedRequest,
   action: string,
@@ -425,6 +502,12 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
     scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
     row = await filterRowToTableSchema(table, scoped);
+    if (table === 'schedules') {
+      row = prepareSchedulesPayload(row);
+    }
+    if (table === 'estruturas') {
+      row = await prepareEstruturasPayload(row, companyId);
+    }
     keys = Object.keys(row).filter((k) => safeIdent(k));
     if (!keys.length) {
       res.status(400).json({
@@ -447,7 +530,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
     const cols = keys.join(', ');
     const placeholders = keys
-      .map((k, i) => sqlParamRef(i + 1, colTypes.get(k) ?? 'text'))
+      .map((k, i) => sqlParamRef(i + 1, writeColumnType(table, k, colTypes)))
       .join(', ');
     values = keys.map((k) => row[k]);
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
@@ -466,6 +549,20 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     );
     res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
+    if (e instanceof DataRowValidationError) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: e.message,
+        code: e.code,
+        message: e.message,
+        details: {
+          table,
+          ...e.details,
+        },
+      });
+      return;
+    }
     const dbError = describeDbError(e);
     logger.error({
       module: 'data.controller',
@@ -489,11 +586,12 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
         dbError,
       },
     });
-    res.status(500).json({
+    const isConflict = dbError.code === '23505';
+    res.status(isConflict ? 409 : 500).json({
       ok: false,
       success: false,
       error: dbError.message,
-      code: dbError.code || 'DATA_INSERT_FAILED',
+      code: isConflict ? 'DATA_UNIQUE_CONFLICT' : dbError.code || 'DATA_INSERT_FAILED',
       message: dbError.message,
       detail: dbError.detail,
       stack: dbError.stack,
@@ -539,6 +637,12 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
     scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
     row = await filterRowToTableSchema(table, scoped);
+    if (table === 'schedules') {
+      row = prepareSchedulesPayload(row);
+    }
+    if (table === 'estruturas') {
+      row = await prepareEstruturasPayload(row, companyId, id);
+    }
     keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
     if (!keys.length) {
       res.status(400).json({
@@ -561,7 +665,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     const colTypes = await getTableColumnTypes(table);
     const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
     const sets = keys
-      .map((k, i) => `${k} = ${sqlParamRef(i + 1, colTypes.get(k) ?? 'text')}`)
+      .map((k, i) => `${k} = ${sqlParamRef(i + 1, writeColumnType(table, k, colTypes))}`)
       .join(', ');
     const values = keys.map((k) => row[k]);
 
@@ -592,6 +696,21 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     }
     res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
+    if (e instanceof DataRowValidationError) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: e.message,
+        code: e.code,
+        message: e.message,
+        details: {
+          table,
+          id,
+          ...e.details,
+        },
+      });
+      return;
+    }
     const dbError = describeDbError(e);
     logger.error({
       module: 'data.controller',
@@ -616,11 +735,12 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
         dbError,
       },
     });
-    res.status(500).json({
+    const isConflict = dbError.code === '23505';
+    res.status(isConflict ? 409 : 500).json({
       ok: false,
       success: false,
       error: dbError.message,
-      code: dbError.code || 'DATA_UPDATE_FAILED',
+      code: isConflict ? 'DATA_UNIQUE_CONFLICT' : dbError.code || 'DATA_UPDATE_FAILED',
       message: dbError.message,
       detail: dbError.detail,
       stack: dbError.stack,
@@ -660,9 +780,18 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
     const tenantScope = await dataWriteScopeSql(table, 2);
     const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
     const params = tenantScope ? [id, companyId] : [id];
-    const result = await pool.query(
-      `DELETE FROM public.${table} WHERE id::text = ${sqlParamRef(1, 'text')}${tenantClause} RETURNING id`,
+    const sql = `DELETE FROM public.${table} WHERE id::text = ${sqlParamRef(1, 'text')}${tenantClause} RETURNING id`;
+    const result = await pool.query(sql, params);
+    logDataQuery(
+      req,
+      'DATA_DELETE_QUERY',
+      `Delete de ${table} executado`,
+      table,
+      companyId,
+      sql,
       params,
+      result.rowCount ?? result.rows.length,
+      { id },
     );
     if (!result.rows[0]) {
       res.status(404).json(failureBody('not_found', 'DATA_NOT_FOUND', { table }));
