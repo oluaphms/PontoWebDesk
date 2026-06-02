@@ -557,19 +557,8 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
     }
     try {
-      await ensureUserForEmployee(
-        {
-          id,
-          company_id: companyId,
-          nome: String(employeeRow.nome || ''),
-          email: employeeRow.email != null ? String(employeeRow.email) : null,
-          role: String(employeeRow.role || 'employee'),
-          status: String(employeeRow.status || 'active'),
-          schedule_id: employeeRow.schedule_id,
-          shift_id: employeeRow.shift_id,
-        },
-        client,
-      );
+      // Em bancos migrados do Supabase, public.users.id ainda pode ter FK para auth.users.
+      // Em edição, não crie users automaticamente: sincronize apenas se a linha já existir.
       const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
       if (userSync.attempted && userSync.updatedRows === 0) {
         logger.warn({
