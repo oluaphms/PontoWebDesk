@@ -105,10 +105,24 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
   `.trim();
 }
 
+function toDateYmd(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s].*)/);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
 function mapRow(row: Record<string, unknown>) {
   const pis = row.pis ?? row.pis_pasep;
   const telefone = row.telefone ?? row.phone;
   const dataAdmissao = row.data_admissao ?? row.admissao;
+  const demissao = row.demissao;
   let employeeConfig = row.employee_config;
   if (typeof employeeConfig === 'string') {
     try {
@@ -121,7 +135,9 @@ function mapRow(row: Record<string, unknown>) {
     ...row,
     pis,
     telefone,
-    data_admissao: dataAdmissao ? String(dataAdmissao).slice(0, 10) : null,
+    data_admissao: toDateYmd(dataAdmissao),
+    admissao: toDateYmd(dataAdmissao),
+    demissao: toDateYmd(demissao),
     salario: row.salario != null ? Number(row.salario) : null,
     carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
     employee_config: employeeConfig ?? {},
