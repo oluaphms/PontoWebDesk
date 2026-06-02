@@ -3,9 +3,8 @@
  * Padrão: retornar dados; em erro de PostgREST, lançar `Error` com mensagem clara.
  */
 
-import { getSupabaseClientOrThrow } from '../src/lib/supabaseClient';
 import { throwIfTimesheetClosedForPunchMutation } from '../src/services/timesheetClosure';
-import { db, type Filter } from './supabaseClient';
+import { db, getSupabaseClientOrThrow, type Filter } from './supabaseClient';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { appendTimeAttendanceTimelineEvent } from '../src/services/timeAttendanceTimeline.service';
 import {
@@ -120,10 +119,15 @@ export async function getRecentTimeRecordsForUser(userId: string, limit = 50): P
   );
 }
 
-export async function getTimeRecordsForEmployeeDashboard(userId: string): Promise<any[]> {
+export async function getTimeRecordsForEmployeeDashboard(userId: string, companyId?: string | null): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  return db.select('time_records', [{ column: 'user_id', operator: 'eq', value: userId }], {
+  const filters: Filter[] = [
+    ...(companyId ? [{ column: 'company_id', operator: 'eq' as const, value: companyId }] : []),
+    { column: 'user_id', operator: 'eq', value: userId },
+  ];
+  return db.select('time_records', filters, {
     columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
+    orderBy: { column: 'created_at', ascending: false },
     limit: 500,
   });
 }
@@ -368,7 +372,7 @@ export async function insertAdminMirrorTimeRecord(
     auditAction: 'INSERT_PUNCH',
   });
 
-  const sb = getSupabaseClientOrThrow();
+  const sb = getSupabaseClientOrThrow() as unknown as SupabaseClient;
   const inserted = await insertTimeRecordForUser(sb, {
     userId,
     companyId: companyUuid,

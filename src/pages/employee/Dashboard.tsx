@@ -19,7 +19,27 @@ import {
 } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
 import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
-import { SYSTEM_CONFIG } from '../../config/system';
+
+function logDashboardDebug(label: string, payload: unknown): void {
+  console.log(label, payload);
+}
+
+function formatSignedHours(hours: number): string {
+  const safe = Number.isFinite(hours) ? hours : 0;
+  const sign = safe > 0 ? '+' : '';
+  return `${sign}${safe.toFixed(1)}h`;
+}
+
+function computeLedgerAvailableBalanceMinutes(rows: any[]): number {
+  return (rows ?? []).reduce((acc: number, row: any) => {
+    const type = String(row?.type ?? '').toUpperCase();
+    const minutes = Math.max(0, Number(row?.minutes ?? 0));
+    const used = Math.max(0, Number(row?.used_minutes ?? 0));
+    if (type === 'CREDIT') return acc + Math.max(0, minutes - used);
+    if (type === 'DEBIT') return acc - minutes;
+    return acc;
+  }, 0);
+}
 
 function punchTypeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType): string {
   switch (norm) {
@@ -60,18 +80,16 @@ const EmployeeDashboard: React.FC = () => {
     async (options?: { showLoading?: boolean }) => {
       const showLoading = options?.showLoading !== false;
       if (!user) return;
-      if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
-        setTodayRecords([]);
-        setLastRecord(null);
-        setTodayHours('0h 0m');
-        setMonthHours('0h 0m');
-        setBalanceHours('—');
-        setPendingRequests(0);
-        setLoadingData(false);
-        return;
-      }
       if (showLoading) setLoadingData(true);
       try {
+        logDashboardDebug('USER', user);
+        logDashboardDebug('EMPLOYEE', {
+          id: user.id,
+          employeeId: user.id,
+          companyId: user.companyId,
+          tenantId: user.tenantId,
+          role: user.role,
+        });
         const todayYmd = localTodayYmd();
         let schedToday: WorkScheduleInfo | null = null;
         if (user.companyId) {
@@ -86,12 +104,19 @@ const EmployeeDashboard: React.FC = () => {
 
         let rows: any[] = [];
         try {
-          rows = (await getTimeRecordsForEmployeeDashboard(user.id)) as any[];
+          rows = (await getTimeRecordsForEmployeeDashboard(user.id, user.companyId)) as any[];
+          logDashboardDebug('API RESPONSE', {
+            endpoint: '/api/data/time_records',
+            filters: [
+              ...(user.companyId ? [{ column: 'company_id', operator: 'eq', value: user.companyId }] : []),
+              { column: 'user_id', operator: 'eq', value: user.id },
+            ],
+            count: rows.length,
+            sample: rows.slice(0, 5),
+          });
         } catch (error) {
-          // Não interrompe o dashboard por timeout transitório do Supabase.
-          observabilityConsole.warn('[EmployeeDashboard] time_records indisponível no momento:', error);
+          observabilityConsole.error('[EmployeeDashboard] time_records indisponível:', error);
           rows = [];
-          // Fallback local direto para evitar cards vazios quando a primeira consulta expira.
           try {
             rows =
               (await db.select(
@@ -103,10 +128,18 @@ const EmployeeDashboard: React.FC = () => {
                   limit: 500,
                 },
               )) ?? [];
+            logDashboardDebug('API RESPONSE', {
+              endpoint: '/api/data/time_records',
+              fallback: true,
+              filters: [{ column: 'user_id', operator: 'eq', value: user.id }],
+              count: rows.length,
+              sample: rows.slice(0, 5),
+            });
           } catch (fallbackErr) {
-            observabilityConsole.warn('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
+            observabilityConsole.error('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
           }
         }
+        logDashboardDebug('TIME RECORDS', rows);
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
         const todayList = sortedAll.filter(
           (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) === todayYmd,
@@ -168,26 +201,39 @@ const EmployeeDashboard: React.FC = () => {
         }
 
         try {
-          const bankRows = (await db.select(
-            'bank_hours',
-            [{ column: 'employee_id', operator: 'eq', value: user.id }],
-            { column: 'date', ascending: false },
-            200,
-          )) as any[];
-          const latest = bankRows?.[0];
-          const bal = latest != null && latest.balance != null ? Number(latest.balance) : null;
-          if (bal != null && !Number.isNaN(bal)) {
-            const sign = bal > 0 ? '+' : '';
-            setBalanceHours(`${sign}${bal.toFixed(1)}h`);
-            const monthPrefix = new Date().toISOString().slice(0, 7);
-            const monthMovs = (bankRows ?? []).filter((r: any) => (r.date || '').slice(0, 7) === monthPrefix);
-            const credit = monthMovs.reduce((s, r) => s + Number(r.hours_added ?? 0), 0);
-            const debit = monthMovs.reduce((s, r) => s + Number(r.hours_removed ?? 0), 0);
-            setBankCreditDebit(`Este mês: +${credit.toFixed(1)}h crédito · −${debit.toFixed(1)}h débito`);
+          const monthPrefix = new Date().toISOString().slice(0, 7);
+          const companyId = String(user.companyId ?? '').trim();
+          const ledgerFilters = [
+            { column: 'employee_id', operator: 'eq' as const, value: user.id },
+            { column: 'date', operator: 'gte' as const, value: `${monthPrefix}-01` },
+            { column: 'date', operator: 'lte' as const, value: `${monthPrefix}-31` },
+            ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
+          ];
+          const ledgerRows = await db
+            .select('bank_hours_ledger', ledgerFilters, { column: 'created_at', ascending: false }, 400)
+            .catch(() => [] as any[]);
+          if (ledgerRows?.length) {
+            const creditMin = ledgerRows
+              .filter((r: any) => String(r.type).toUpperCase() === 'CREDIT')
+              .reduce((s: number, r: any) => s + Math.max(0, Number(r.minutes ?? 0)), 0);
+            const debitMin = ledgerRows
+              .filter((r: any) => String(r.type).toUpperCase() === 'DEBIT')
+              .reduce((s: number, r: any) => s + Math.max(0, Number(r.minutes ?? 0)), 0);
+            const bal = computeLedgerAvailableBalanceMinutes(ledgerRows) / 60;
+            setBalanceHours(formatSignedHours(bal));
+            setBankCreditDebit(`Este mês: +${(creditMin / 60).toFixed(1)}h crédito · −${(debitMin / 60).toFixed(1)}h débito`);
           } else {
             setBalanceHours('0h');
             setBankCreditDebit('Sem movimentações no banco ainda');
           }
+          logDashboardDebug('DASHBOARD DATA', {
+            todayRecords: todaySortedAsc.length,
+            lastRecord: lastPick,
+            todayHours: todaySortedAsc.length > 0 ? formatarTempoLegivel(calcularHorasHojeMs(todaySortedAsc)) : '0h 0m',
+            monthRecords: monthList.length,
+            ledgerRows: ledgerRows?.length ?? 0,
+            pendingRequests,
+          });
         } catch {
           setBalanceHours('—');
           setBankCreditDebit('Indisponível');
@@ -216,7 +262,6 @@ const EmployeeDashboard: React.FC = () => {
 
   useEffect(() => {
     if (!user?.id) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     const t = window.setInterval(() => {
       void loadDashboard({ showLoading: false });
     }, 15_000);
@@ -224,8 +269,9 @@ const EmployeeDashboard: React.FC = () => {
   }, [user?.id, loadDashboard]);
 
   const statusLabel = (() => {
-    if (!lastRecord?.type) return i18n.t('dashboard.statusOff');
-    const op = deriveOperationalStatusFromLastPunch(lastRecord.type);
+    const latestToday = todayRecords.length > 0 ? todayRecords[todayRecords.length - 1] : null;
+    if (!latestToday?.type) return i18n.t('dashboard.statusOff');
+    const op = deriveOperationalStatusFromLastPunch(String(latestToday.type));
     if (op === EmployeeOperationalStatus.CLOSED || op === EmployeeOperationalStatus.OFF_DUTY) {
       return i18n.t('dashboard.statusOff');
     }
@@ -234,7 +280,7 @@ const EmployeeDashboard: React.FC = () => {
       op === EmployeeOperationalStatus.BREAK ||
       op === EmployeeOperationalStatus.LUNCH
     ) {
-      if (!todaySchedule || !isLocalClockWithinWorkSchedule(todaySchedule)) {
+      if (todaySchedule && !isLocalClockWithinWorkSchedule(todaySchedule)) {
         return i18n.t('dashboard.statusOff');
       }
     }

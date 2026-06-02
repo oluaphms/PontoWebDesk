@@ -1,33 +1,22 @@
-import { observabilityConsole } from '../../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Scale } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
-import { LoadingState, Input } from '../../../components/UI';
+import { Input, LoadingState } from '../../../components/UI';
 import { formatDateForTablePtBr } from '../../utils/timeCalculations';
 import { queryCache, TTL } from '../../services/queryCache';
+import { apiGet, apiPost } from '../../services/api';
+import { useToast } from '../../components/ToastProvider';
 
-interface BankHoursRow {
-  id: string;
-  employee_id: string;
-  date: string;
-  hours_added: number;
-  hours_removed: number;
-  balance: number;
-  source?: string;
-  created_at: string;
-}
-
-/** Motor atual: `applyDailyBankLedger` grava em `bank_hours_ledger` (FIFO). */
 interface BankHoursLedgerRow {
   id: string;
   employee_id: string;
   company_id: string;
   date: string;
   minutes: number;
-  type: string;
+  type: 'CREDIT' | 'DEBIT' | string;
   source: string;
   expires_at?: string | null;
   used_minutes: number;
@@ -39,6 +28,43 @@ interface EmployeeOption {
   nome: string;
 }
 
+type SummaryRow = {
+  employee_id: string;
+  movement_count: number;
+  credit_available_minutes: number;
+  debit_minutes: number;
+  balance_minutes: number;
+  last_movement_date: string | null;
+};
+
+type FormMode = 'manual' | 'overtime' | 'compensation';
+
+type PendingRequestRow = {
+  id: string;
+  user_id: string;
+  company_id: string;
+  type: 'overtime_request' | 'time_bank_compensation' | string;
+  status: string;
+  reason: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function parseMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === 'object') return value as Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function formatMonthYearPtBr(ym: string): string {
   const [y, m] = ym.split('-').map((x) => parseInt(x, 10));
   if (!y || !m || m < 1 || m > 12) return ym;
@@ -47,8 +73,11 @@ function formatMonthYearPtBr(ym: string): string {
 }
 
 function minutesToH(m: number): string {
-  const h = m / 60;
-  return `${h >= 0 ? '' : '−'}${Math.abs(h).toFixed(2)}h`;
+  const sign = m >= 0 ? '' : '−';
+  const abs = Math.abs(m);
+  const hh = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `${sign}${hh}h ${String(mm).padStart(2, '0')}m`;
 }
 
 function ledgerTypeLabel(t: string): string {
@@ -58,20 +87,36 @@ function ledgerTypeLabel(t: string): string {
   return t || '—';
 }
 
+function computeLedgerAvailableBalanceMinutes(rows: BankHoursLedgerRow[]): number {
+  return rows.reduce((acc, row) => {
+    const type = String(row.type ?? '').toUpperCase();
+    if (type === 'CREDIT') return acc + Math.max(0, row.minutes - row.used_minutes);
+    if (type === 'DEBIT') return acc - Math.max(0, row.minutes);
+    return acc;
+  }, 0);
+}
+
 const AdminBankHours: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const toast = useToast();
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [filterUserId, setFilterUserId] = useState('');
   const [monthFilter, setMonthFilter] = useState(() => {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [rows, setRows] = useState<BankHoursRow[]>([]);
+  const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
   const [ledgerRows, setLedgerRows] = useState<BankHoursLedgerRow[]>([]);
-  const [timeBalanceRows, setTimeBalanceRows] = useState<any[]>([]);
-  const [recentOutsideMonth, setRecentOutsideMonth] = useState<BankHoursRow[]>([]);
+  const [pendingRows, setPendingRows] = useState<PendingRequestRow[]>([]);
   const [recentLedgerOutside, setRecentLedgerOutside] = useState<BankHoursLedgerRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [formMode, setFormMode] = useState<FormMode>('manual');
+  const [formEmployeeId, setFormEmployeeId] = useState('');
+  const [formType, setFormType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
+  const [formMinutes, setFormMinutes] = useState('60');
+  const [formReason, setFormReason] = useState('');
+  const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [submittingForm, setSubmittingForm] = useState(false);
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
@@ -85,7 +130,7 @@ const AdminBankHours: React.FC = () => {
           }) as Promise<any[]>,
         TTL.NORMAL,
       );
-      setEmployees((usersRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email })));
+      setEmployees((usersRows ?? []).map((u: any) => ({ id: String(u.id), nome: String(u.nome || u.email || u.id) })));
     };
     void load();
   }, [user?.companyId]);
@@ -99,12 +144,10 @@ const AdminBankHours: React.FC = () => {
         const [yy, mm] = monthFilter.split('-').map((x) => parseInt(x, 10));
         const lastD = yy && mm ? new Date(yy, mm, 0).getDate() : 31;
         const monthStart = yy && mm ? `${yy}-${String(mm).padStart(2, '0')}-01` : `${monthFilter}-01`;
-        const monthEnd =
-          yy && mm ? `${yy}-${String(mm).padStart(2, '0')}-${String(lastD).padStart(2, '0')}` : `${monthFilter}-31`;
+        const monthEnd = yy && mm ? `${yy}-${String(mm).padStart(2, '0')}-${String(lastD).padStart(2, '0')}` : `${monthFilter}-31`;
 
-        const cacheKey = `admin_bank_hours:${cid}:${filterUserId || 'all'}:${monthFilter}:ledger_v1`;
-
-        const { bankRows, balanceRows, ledger } = await queryCache.getOrFetch(
+        const cacheKey = `admin_bank_hours:${cid}:${filterUserId || 'all'}:${monthFilter}:ledger_only_v2`;
+        const payload = await queryCache.getOrFetch(
           cacheKey,
           async () => {
             const baseFilters: Filter[] = [
@@ -115,29 +158,24 @@ const AdminBankHours: React.FC = () => {
             const empFilter: Filter[] = filterUserId
               ? [...baseFilters, { column: 'employee_id', operator: 'eq', value: filterUserId }]
               : baseFilters;
-
-            const [bank, led] = await Promise.all([
-              db.select('bank_hours', empFilter, { column: 'date', ascending: false }, 500).catch(() => [] as any[]),
-              db
-                .select('bank_hours_ledger', empFilter, { column: 'created_at', ascending: false }, 800)
-                .catch(() => [] as any[]),
+            const [ledgerData, summary, pending] = await Promise.all([
+              db.select('bank_hours_ledger', empFilter, { column: 'created_at', ascending: false }, 800).catch(() => [] as any[]),
+              apiGet<{ ok: boolean; data?: SummaryRow[] }>(
+                `/bank-hours/summary?month=${encodeURIComponent(monthFilter)}${
+                  filterUserId ? `&employeeId=${encodeURIComponent(filterUserId)}` : ''
+                }`,
+              ).catch(() => ({ ok: true, data: [] as SummaryRow[] })),
+              apiGet<{ ok: boolean; data?: PendingRequestRow[] }>('/bank-hours/requests?status=pending').catch(() => ({
+                ok: true,
+                data: [] as PendingRequestRow[],
+              })),
             ]);
-
-            let balances: any[] = [];
-            const userIds = filterUserId ? [filterUserId] : employees.map((e) => e.id);
-            if (userIds.length > 0) {
-              const balanceFilters: Filter[] = [
-                { column: 'month', operator: 'eq', value: monthFilter },
-                { column: 'user_id', operator: 'in', value: userIds },
-              ];
-              balances = ((await db.select('time_balance', balanceFilters, undefined, 200)) as any[]) ?? [];
-            }
-            return { bankRows: bank ?? [], balanceRows: balances, ledger: led ?? [] };
+            return { ledgerData: ledgerData ?? [], summary: summary.data ?? [], pending: pending.data ?? [] };
           },
           TTL.NORMAL,
         );
 
-        const mappedLedger: BankHoursLedgerRow[] = (ledger ?? []).map((r: any) => ({
+        const mappedLedger: BankHoursLedgerRow[] = (payload.ledgerData ?? []).map((r: any) => ({
           id: String(r.id),
           employee_id: String(r.employee_id),
           company_id: String(r.company_id ?? ''),
@@ -150,65 +188,218 @@ const AdminBankHours: React.FC = () => {
           created_at: String(r.created_at ?? ''),
         }));
 
-        setRows(bankRows ?? []);
         setLedgerRows(mappedLedger);
-        setTimeBalanceRows(balanceRows ?? []);
+        setSummaryRows((payload.summary ?? []).map((r) => ({ ...r })));
+        setPendingRows(
+          (payload.pending ?? []).map((r) => ({
+            ...r,
+            metadata: parseMetadata(r.metadata),
+          })),
+        );
 
-        const monthEmptyLegacy = !(bankRows ?? []).length;
-        const monthEmptyLedger = !mappedLedger.length;
-        if (monthEmptyLegacy && monthEmptyLedger) {
-          try {
-            const rf: Filter[] = [{ column: 'company_id', operator: 'eq', value: String(cid).trim() }];
-            if (filterUserId) rf.push({ column: 'employee_id', operator: 'eq', value: filterUserId });
-            const [recentBank, recentLed] = await Promise.all([
-              db.select('bank_hours', rf, { column: 'date', ascending: false }, 25).catch(() => [] as any[]),
-              db.select('bank_hours_ledger', rf, { column: 'created_at', ascending: false }, 40).catch(() => [] as any[]),
-            ]);
-            const outsideB = (recentBank ?? []).filter((r: any) => {
+        if (!mappedLedger.length) {
+          const rf: Filter[] = [{ column: 'company_id', operator: 'eq', value: String(cid).trim() }];
+          if (filterUserId) rf.push({ column: 'employee_id', operator: 'eq', value: filterUserId });
+          const recentLed = await db
+            .select('bank_hours_ledger', rf, { column: 'created_at', ascending: false }, 40)
+            .catch(() => [] as any[]);
+          const outsideL = (recentLed ?? [])
+            .filter((r: any) => {
               const d = String(r.date || '').slice(0, 10);
               return d && (d < monthStart || d > monthEnd);
-            }) as BankHoursRow[];
-            const outsideL = (recentLed ?? [])
-              .filter((r: any) => {
-                const d = String(r.date || '').slice(0, 10);
-                return d && (d < monthStart || d > monthEnd);
-              })
-              .map((r: any) => ({
-                id: String(r.id),
-                employee_id: String(r.employee_id),
-                company_id: String(r.company_id ?? ''),
-                date: String(r.date || '').slice(0, 10),
-                minutes: Number(r.minutes ?? 0),
-                type: String(r.type ?? ''),
-                source: String(r.source ?? ''),
-                expires_at: r.expires_at != null ? String(r.expires_at) : null,
-                used_minutes: Number(r.used_minutes ?? 0),
-                created_at: String(r.created_at ?? ''),
-              }));
-            setRecentOutsideMonth(outsideB);
-            setRecentLedgerOutside(outsideL);
-          } catch {
-            setRecentOutsideMonth([]);
-            setRecentLedgerOutside([]);
-          }
+            })
+            .map((r: any) => ({
+              id: String(r.id),
+              employee_id: String(r.employee_id),
+              company_id: String(r.company_id ?? ''),
+              date: String(r.date || '').slice(0, 10),
+              minutes: Number(r.minutes ?? 0),
+              type: String(r.type ?? ''),
+              source: String(r.source ?? ''),
+              expires_at: r.expires_at != null ? String(r.expires_at) : null,
+              used_minutes: Number(r.used_minutes ?? 0),
+              created_at: String(r.created_at ?? ''),
+            }));
+          setRecentLedgerOutside(outsideL);
         } else {
-          setRecentOutsideMonth([]);
           setRecentLedgerOutside([]);
         }
-      } catch (e) {
-        observabilityConsole.error(e);
       } finally {
         setLoadingData(false);
       }
     };
     void load();
-  }, [user?.companyId, filterUserId, monthFilter, employees]);
+  }, [user?.companyId, filterUserId, monthFilter]);
 
-  const employeeName = (id: string) => employees.find((e) => e.id === id)?.nome || id?.slice(0, 8) || '—';
-
+  const employeeName = (id: string) => employees.find((e) => e.id === id)?.nome || id.slice(0, 8) || '—';
   const hasLedgerInMonth = ledgerRows.length > 0;
-  const hasLegacyInMonth = rows.length > 0;
-  const hasAnyMovement = hasLedgerInMonth || hasLegacyInMonth;
+
+  const localSummary = useMemo<SummaryRow[]>(() => {
+    if (summaryRows.length > 0) return summaryRows;
+    const grouped = new Map<string, BankHoursLedgerRow[]>();
+    for (const row of ledgerRows) {
+      const arr = grouped.get(row.employee_id) ?? [];
+      arr.push(row);
+      grouped.set(row.employee_id, arr);
+    }
+    return Array.from(grouped.entries())
+      .map(([employee_id, rows]) => {
+        const creditAvailable = rows
+          .filter((r) => String(r.type).toUpperCase() === 'CREDIT')
+          .reduce((acc, r) => acc + Math.max(0, r.minutes - r.used_minutes), 0);
+        const debitMinutes = rows
+          .filter((r) => String(r.type).toUpperCase() === 'DEBIT')
+          .reduce((acc, r) => acc + Math.max(0, r.minutes), 0);
+        return {
+          employee_id,
+          movement_count: rows.length,
+          credit_available_minutes: creditAvailable,
+          debit_minutes: debitMinutes,
+          balance_minutes: computeLedgerAvailableBalanceMinutes(rows),
+          last_movement_date: rows[0]?.date ?? null,
+        };
+      })
+      .sort((a, b) => b.balance_minutes - a.balance_minutes);
+  }, [summaryRows, ledgerRows]);
+
+  const refreshCurrentData = async (): Promise<void> => {
+    if (!user?.companyId) return;
+    const keyPrefix = `admin_bank_hours:${user.companyId}:${filterUserId || 'all'}:${monthFilter}`;
+    queryCache.invalidate(keyPrefix);
+    const summaryKeyPrefix = `admin_bank_hours_summary:${user.companyId}:${monthFilter}:${filterUserId || 'all'}`;
+    queryCache.invalidate(summaryKeyPrefix);
+    setLoadingData(true);
+    try {
+      const [yy, mm] = monthFilter.split('-').map((x) => parseInt(x, 10));
+      const lastD = yy && mm ? new Date(yy, mm, 0).getDate() : 31;
+      const monthStart = yy && mm ? `${yy}-${String(mm).padStart(2, '0')}-01` : `${monthFilter}-01`;
+      const monthEnd = yy && mm ? `${yy}-${String(mm).padStart(2, '0')}-${String(lastD).padStart(2, '0')}` : `${monthFilter}-31`;
+      const baseFilters: Filter[] = [
+        { column: 'company_id', operator: 'eq', value: String(user.companyId).trim() },
+        { column: 'date', operator: 'gte', value: monthStart },
+        { column: 'date', operator: 'lte', value: monthEnd },
+      ];
+      const empFilter: Filter[] = filterUserId
+        ? [...baseFilters, { column: 'employee_id', operator: 'eq', value: filterUserId }]
+        : baseFilters;
+      const [ledgerData, summary, pending] = await Promise.all([
+        db.select('bank_hours_ledger', empFilter, { column: 'created_at', ascending: false }, 800).catch(() => [] as any[]),
+        apiGet<{ ok: boolean; data?: SummaryRow[] }>(
+          `/bank-hours/summary?month=${encodeURIComponent(monthFilter)}${
+            filterUserId ? `&employeeId=${encodeURIComponent(filterUserId)}` : ''
+          }`,
+        ).catch(() => ({ ok: true, data: [] as SummaryRow[] })),
+        apiGet<{ ok: boolean; data?: PendingRequestRow[] }>('/bank-hours/requests?status=pending').catch(() => ({
+          ok: true,
+          data: [] as PendingRequestRow[],
+        })),
+      ]);
+      const mappedLedger: BankHoursLedgerRow[] = (ledgerData ?? []).map((r: any) => ({
+        id: String(r.id),
+        employee_id: String(r.employee_id),
+        company_id: String(r.company_id ?? ''),
+        date: String(r.date || '').slice(0, 10),
+        minutes: Number(r.minutes ?? 0),
+        type: String(r.type ?? ''),
+        source: String(r.source ?? ''),
+        expires_at: r.expires_at != null ? String(r.expires_at) : null,
+        used_minutes: Number(r.used_minutes ?? 0),
+        created_at: String(r.created_at ?? ''),
+      }));
+      setLedgerRows(mappedLedger);
+      setSummaryRows((summary.data ?? []).map((r) => ({ ...r })));
+      setPendingRows(
+        (pending.data ?? []).map((r) => ({
+          ...r,
+          metadata: parseMetadata(r.metadata),
+        })),
+      );
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  const handleSubmitWorkflow = async (): Promise<void> => {
+    const employeeId = String(formEmployeeId || filterUserId || '').trim();
+    const minutes = Math.max(0, Math.round(Number(formMinutes || 0)));
+    const reason = formReason.trim();
+    if (!employeeId) {
+      toast.addToast('error', 'Selecione um colaborador.');
+      return;
+    }
+    if (!minutes) {
+      toast.addToast('error', 'Informe a quantidade de minutos.');
+      return;
+    }
+    if (reason.length < 3) {
+      toast.addToast('error', 'Informe uma justificativa com ao menos 3 caracteres.');
+      return;
+    }
+    setSubmittingForm(true);
+    try {
+      if (formMode === 'manual') {
+        await apiPost('/bank-hours/manual-adjustments', {
+          employeeId,
+          type: formType,
+          minutes,
+          reason,
+          date: formDate,
+        });
+        toast.addToast('success', 'Ajuste manual registrado no ledger.');
+      } else if (formMode === 'overtime') {
+        await apiPost('/bank-hours/overtime-requests', {
+          employeeId,
+          minutes,
+          reason,
+          requestedDate: formDate,
+        });
+        toast.addToast('success', 'Solicitação de hora extra criada.');
+      } else {
+        await apiPost('/bank-hours/compensation-requests', {
+          employeeId,
+          minutes,
+          reason,
+          requestedDate: formDate,
+        });
+        toast.addToast('success', 'Solicitação de compensação criada.');
+      }
+      setFormReason('');
+      await refreshCurrentData();
+    } catch (error) {
+      toast.addToast('error', 'Falha ao registrar operação no banco de horas.');
+      console.error(error);
+    } finally {
+      setSubmittingForm(false);
+    }
+  };
+
+  const handleReviewPending = async (row: PendingRequestRow, approve: boolean): Promise<void> => {
+    if (!row?.id) return;
+    try {
+      if (row.type === 'overtime_request') {
+        await apiPost('/bank-hours/overtime-requests/review', {
+          requestId: row.id,
+          approve,
+        });
+      } else if (row.type === 'time_bank_compensation') {
+        await apiPost('/bank-hours/compensation-requests/review', {
+          requestId: row.id,
+          approve,
+        });
+      } else {
+        toast.addToast('error', 'Tipo de solicitação não suportado para revisão.');
+        return;
+      }
+      toast.addToast('success', approve ? 'Solicitação aprovada.' : 'Solicitação rejeitada.');
+      await refreshCurrentData();
+    } catch (error) {
+      console.error(error);
+      toast.addToast('error', 'Falha ao revisar solicitação.');
+    }
+  };
+
+  if (loading) return <LoadingState message="Carregando..." />;
+  if (!user) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">
@@ -216,12 +407,12 @@ const AdminBankHours: React.FC = () => {
         helpSlug="banco-de-horas"
         helpSection="como-funciona"
         title="Banco de Horas"
-        subtitle="Ledger atual (FIFO) e registros legados; fechamento mensal quando existir."
+        subtitle="Fonte oficial: bank_hours_ledger (crédito disponível FIFO menos débitos)."
         icon={<Scale className="w-5 h-5" />}
       />
 
       <div className="glass-card rounded-[2.25rem] p-6 flex flex-wrap gap-4 items-end">
-        <div className="min-w-[200px]">
+        <div className="min-w-[220px]">
           <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Funcionário</label>
           <select
             className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
@@ -236,46 +427,263 @@ const AdminBankHours: React.FC = () => {
             ))}
           </select>
         </div>
-        <div className="min-w-[140px]">
-          <Input
-            label="Mês (movimentações e fechamento)"
-            type="month"
-            value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-          />
+        <div className="min-w-[160px]">
+          <Input label="Mês" type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
         </div>
       </div>
 
-      {loading ? (
-        <LoadingState message="Carregando..." />
-      ) : !user ? (
-        <Navigate to="/" replace />
-      ) : loadingData ? (
+      <div className="glass-card rounded-[2.25rem] p-6 space-y-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-[220px]">
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Fluxo RH</label>
+            <select
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+              value={formMode}
+              onChange={(e) => setFormMode(e.target.value as FormMode)}
+            >
+              <option value="manual">Ajuste manual</option>
+              <option value="overtime">Solicitar hora extra</option>
+              <option value="compensation">Solicitar compensação</option>
+            </select>
+          </div>
+          <div className="min-w-[220px]">
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Colaborador</label>
+            <select
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+              value={formEmployeeId}
+              onChange={(e) => setFormEmployeeId(e.target.value)}
+            >
+              <option value="">Selecione</option>
+              {employees.map((e) => (
+                <option key={`form-${e.id}`} value={e.id}>
+                  {e.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+          {formMode === 'manual' && (
+            <div className="min-w-[180px]">
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Tipo</label>
+              <select
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+                value={formType}
+                onChange={(e) => setFormType(e.target.value as 'CREDIT' | 'DEBIT')}
+              >
+                <option value="CREDIT">Crédito</option>
+                <option value="DEBIT">Débito</option>
+              </select>
+            </div>
+          )}
+          <div className="min-w-[160px]">
+            <Input
+              label="Minutos"
+              type="number"
+              min={1}
+              step={1}
+              value={formMinutes}
+              onChange={(e) => setFormMinutes(e.target.value)}
+            />
+          </div>
+          <div className="min-w-[180px]">
+            <Input label="Data referência" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Justificativa</label>
+          <textarea
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm min-h-[84px]"
+            value={formReason}
+            onChange={(e) => setFormReason(e.target.value)}
+            placeholder="Descreva o motivo da operação"
+          />
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              void handleSubmitWorkflow();
+            }}
+            disabled={submittingForm}
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {submittingForm ? 'Enviando...' : 'Registrar'}
+          </button>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-[2.25rem] p-6">
+        <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">Aprovações pendentes (RH)</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+          Fluxo oficial: solicitação pendente → aprovação/rejeição → lançamento no ledger (somente quando aprovado).
+        </p>
+        {pendingRows.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Sem pendências no momento.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
+                  <th className="text-left py-2 px-2">Data</th>
+                  <th className="text-left py-2 px-2">Colaborador</th>
+                  <th className="text-left py-2 px-2">Fluxo</th>
+                  <th className="text-right py-2 px-2">Minutos</th>
+                  <th className="text-left py-2 px-2">Data referência</th>
+                  <th className="text-left py-2 px-2">Motivo</th>
+                  <th className="text-right py-2 px-2">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingRows.map((row) => {
+                  const m = row.metadata ?? {};
+                  const requestedMinutes = Math.max(0, Number(m.requested_minutes ?? 0));
+                  const requestedDate = String(m.requested_date ?? '').slice(0, 10);
+                  return (
+                    <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
+                      <td className="py-2 px-2 whitespace-nowrap">{formatDateForTablePtBr(String(row.created_at).slice(0, 10))}</td>
+                      <td className="py-2 px-2">{employeeName(row.user_id)}</td>
+                      <td className="py-2 px-2">{row.type === 'overtime_request' ? 'Hora extra' : 'Compensação'}</td>
+                      <td className="py-2 px-2 text-right">{requestedMinutes}</td>
+                      <td className="py-2 px-2">{requestedDate ? formatDateForTablePtBr(requestedDate) : '—'}</td>
+                      <td className="py-2 px-2 max-w-[360px] truncate" title={row.reason || ''}>
+                        {row.reason || '—'}
+                      </td>
+                      <td className="py-2 px-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => {
+                              void handleReviewPending(row, true);
+                            }}
+                          >
+                            Aprovar
+                          </button>
+                          <button
+                            type="button"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-600 hover:bg-red-700 text-white"
+                            onClick={() => {
+                              void handleReviewPending(row, false);
+                            }}
+                          >
+                            Rejeitar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {loadingData ? (
         <LoadingState message="Carregando movimentações..." />
       ) : (
         <div className="space-y-6">
-          {timeBalanceRows.length > 0 && (
-            <div className="glass-card rounded-[2.25rem] p-6">
-              <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-4">Resumo mensal (fechamento)</h3>
-              <div className="overflow-x-auto">
+          <div className="glass-card rounded-[2.25rem] p-6">
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Resumo por colaborador</h3>
+            {localSummary.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">Sem saldo calculado no período selecionado.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
                       <th className="text-left py-2 px-2">Funcionário</th>
-                      <th className="text-right py-2 px-2">Total horas</th>
-                      <th className="text-right py-2 px-2">Extras</th>
+                      <th className="text-right py-2 px-2">Crédito disponível</th>
                       <th className="text-right py-2 px-2">Débito</th>
-                      <th className="text-right py-2 px-2">Saldo final</th>
+                      <th className="text-right py-2 px-2">Saldo</th>
+                      <th className="text-right py-2 px-2">Mov.</th>
+                      <th className="text-left py-2 px-2">Última data</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {timeBalanceRows.map((b: any) => (
-                      <tr key={b.id} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="py-2 px-2">{employeeName(b.user_id)}</td>
-                        <td className="text-right py-2 px-2">{Number(b.total_hours ?? 0).toFixed(1)}h</td>
-                        <td className="text-right py-2 px-2 text-emerald-600">{Number(b.extra_hours ?? 0).toFixed(1)}h</td>
-                        <td className="text-right py-2 px-2 text-amber-600">{Number(b.debit_hours ?? 0).toFixed(1)}h</td>
-                        <td className="text-right py-2 px-2 font-medium">{Number(b.final_balance ?? 0).toFixed(1)}h</td>
+                    {localSummary.map((r) => (
+                      <tr key={r.employee_id} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2">{employeeName(r.employee_id)}</td>
+                        <td className="py-2 px-2 text-right text-emerald-600 font-medium">{minutesToH(r.credit_available_minutes)}</td>
+                        <td className="py-2 px-2 text-right text-amber-700 font-medium">{minutesToH(r.debit_minutes)}</td>
+                        <td className={`py-2 px-2 text-right font-bold ${r.balance_minutes >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {minutesToH(r.balance_minutes)}
+                        </td>
+                        <td className="py-2 px-2 text-right">{r.movement_count}</td>
+                        <td className="py-2 px-2">{r.last_movement_date ? formatDateForTablePtBr(r.last_movement_date) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card rounded-[2.25rem] p-6">
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">Movimentações do ledger</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Créditos consideram consumo em FIFO via campo <code className="text-[10px]">used_minutes</code>.
+            </p>
+            {hasLedgerInMonth ? (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
+                      <th className="text-left py-2 px-2">Data</th>
+                      {!filterUserId ? <th className="text-left py-2 px-2">Funcionário</th> : null}
+                      <th className="text-left py-2 px-2">Tipo</th>
+                      <th className="text-left py-2 px-2">Origem</th>
+                      <th className="text-right py-2 px-2">Minutos</th>
+                      <th className="text-right py-2 px-2">Utilizado</th>
+                      <th className="text-left py-2 px-2">Expira</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledgerRows.map((r) => (
+                      <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2">{formatDateForTablePtBr(r.date)}</td>
+                        {!filterUserId ? <td className="py-2 px-2">{employeeName(r.employee_id)}</td> : null}
+                        <td className={`py-2 px-2 font-medium ${r.type === 'CREDIT' ? 'text-emerald-600' : 'text-amber-700'}`}>
+                          {ledgerTypeLabel(r.type)}
+                        </td>
+                        <td className="py-2 px-2">{r.source || '—'}</td>
+                        <td className="py-2 px-2 text-right">{minutesToH(r.minutes)}</td>
+                        <td className="py-2 px-2 text-right">{minutesToH(r.used_minutes)}</td>
+                        <td className="py-2 px-2">{r.expires_at ? formatDateForTablePtBr(r.expires_at.slice(0, 10)) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Nenhuma movimentação em <strong>{formatMonthYearPtBr(monthFilter)}</strong> para o filtro selecionado.
+              </p>
+            )}
+          </div>
+
+          {!hasLedgerInMonth && recentLedgerOutside.length > 0 && (
+            <div className="glass-card rounded-[2.25rem] p-6">
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Histórico fora do mês</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                Foram encontrados lançamentos em períodos diferentes de <strong>{formatMonthYearPtBr(monthFilter)}</strong>.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
+                      <th className="text-left py-2 px-2">Data</th>
+                      {!filterUserId ? <th className="text-left py-2 px-2">Funcionário</th> : null}
+                      <th className="text-left py-2 px-2">Tipo</th>
+                      <th className="text-right py-2 px-2">Minutos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentLedgerOutside.map((r) => (
+                      <tr key={`outside-${r.id}`} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2">{formatDateForTablePtBr(r.date)}</td>
+                        {!filterUserId ? <td className="py-2 px-2">{employeeName(r.employee_id)}</td> : null}
+                        <td className="py-2 px-2">{ledgerTypeLabel(r.type)}</td>
+                        <td className="py-2 px-2 text-right">{minutesToH(r.minutes)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -283,191 +691,6 @@ const AdminBankHours: React.FC = () => {
               </div>
             </div>
           )}
-
-          <div className="glass-card rounded-[2.25rem] p-6 space-y-8">
-            <div>
-              <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-1">Movimentações do ledger (motor atual)</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                O processamento diário grava créditos/débitos em <code className="text-[10px]">bank_hours_ledger</code> (saldo
-                FIFO com <code className="text-[10px]">used_minutes</code>).
-              </p>
-              {hasLedgerInMonth ? (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
-                        <th className="text-left py-2 px-2">Data ref.</th>
-                        {!filterUserId ? <th className="text-left py-2 px-2">Funcionário</th> : null}
-                        <th className="text-left py-2 px-2">Tipo</th>
-                        <th className="text-left py-2 px-2">Origem</th>
-                        <th className="text-right py-2 px-2">Minutos</th>
-                        <th className="text-right py-2 px-2">Utilizado</th>
-                        <th className="text-left py-2 px-2">Expira</th>
-                        <th className="text-left py-2 px-2">Registrado em</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ledgerRows.map((r) => (
-                        <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
-                          <td className="py-2 px-2 whitespace-nowrap">{formatDateForTablePtBr(r.date)}</td>
-                          {!filterUserId ? <td className="py-2 px-2">{employeeName(r.employee_id)}</td> : null}
-                          <td
-                            className={`py-2 px-2 font-medium ${
-                              r.type === 'CREDIT' ? 'text-emerald-600' : r.type === 'DEBIT' ? 'text-amber-700' : ''
-                            }`}
-                          >
-                            {ledgerTypeLabel(r.type)}
-                          </td>
-                          <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{r.source}</td>
-                          <td className="py-2 px-2 text-right tabular-nums">{minutesToH(r.minutes)}</td>
-                          <td className="py-2 px-2 text-right tabular-nums text-slate-500">{minutesToH(r.used_minutes)}</td>
-                          <td className="py-2 px-2 text-xs text-slate-500">
-                            {r.expires_at ? formatDateForTablePtBr(r.expires_at.slice(0, 10)) : '—'}
-                          </td>
-                          <td className="py-2 px-2 text-xs text-slate-500 whitespace-nowrap">
-                            {r.created_at ? new Date(r.created_at).toLocaleString('pt-BR') : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum lançamento no ledger neste mês para o filtro.</p>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-1">Registros legados (bank_hours)</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                Tabela antiga de movimentos cumulativos; pode coexistir com o ledger em migrações antigas.
-              </p>
-              {hasLegacyInMonth ? (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
-                        <th className="text-left py-2 px-2">Data</th>
-                        {!filterUserId ? <th className="text-left py-2 px-2">Funcionário</th> : null}
-                        <th className="text-right py-2 px-2">Crédito</th>
-                        <th className="text-right py-2 px-2">Débito</th>
-                        <th className="text-right py-2 px-2">Saldo</th>
-                        <th className="text-left py-2 px-2">Origem</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.slice(0, 200).map((r) => (
-                        <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
-                          <td className="py-2 px-2">{formatDateForTablePtBr(r.date)}</td>
-                          {!filterUserId ? <td className="py-2 px-2">{employeeName(r.employee_id)}</td> : null}
-                          <td className="text-right py-2 px-2 text-emerald-600">
-                            {(r.hours_added ?? 0) > 0 ? `+${Number(r.hours_added).toFixed(2)}h` : '—'}
-                          </td>
-                          <td className="text-right py-2 px-2 text-amber-600">
-                            {(r.hours_removed ?? 0) > 0 ? `−${Number(r.hours_removed).toFixed(2)}h` : '—'}
-                          </td>
-                          <td className="text-right py-2 px-2 font-medium">{Number(r.balance ?? 0).toFixed(2)}h</td>
-                          <td className="py-2 px-2 text-slate-500">{r.source || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum registro legado neste mês.</p>
-              )}
-            </div>
-
-            {!hasAnyMovement && (
-              <div className="space-y-4 text-sm text-slate-600 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-6">
-                <p>
-                  Nenhuma movimentação em{' '}
-                  <strong className="text-slate-800 dark:text-slate-200">{formatMonthYearPtBr(monthFilter)}</strong>
-                  {filterUserId ? (
-                    <>
-                      {' '}
-                      para <strong className="text-slate-800 dark:text-slate-200">{employeeName(filterUserId)}</strong>{' '}
-                      no ledger nem em bank_hours.
-                    </>
-                  ) : (
-                    <> para a empresa neste período (ledger e legado).</>
-                  )}
-                </p>
-                {(recentLedgerOutside.length > 0 || recentOutsideMonth.length > 0) && (
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-4">
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                      Histórico fora do mês selecionado
-                    </p>
-                    {recentLedgerOutside.length > 0 && (
-                      <div>
-                        <p className="text-xs text-slate-500 mb-2">Ledger ({recentLedgerOutside.length})</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs sm:text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200 dark:border-slate-700 text-left">
-                                <th className="py-2 pr-2">Data</th>
-                                {!filterUserId ? <th className="py-2 pr-2">Funcionário</th> : null}
-                                <th className="py-2 pr-2">Tipo</th>
-                                <th className="py-2 pr-2 text-right">Minutos</th>
-                                <th className="py-2">Origem</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {recentLedgerOutside.map((r) => (
-                                <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
-                                  <td className="py-2 pr-2 whitespace-nowrap">{formatDateForTablePtBr(r.date)}</td>
-                                  {!filterUserId ? <td className="py-2 pr-2">{employeeName(r.employee_id)}</td> : null}
-                                  <td className="py-2 pr-2">{ledgerTypeLabel(r.type)}</td>
-                                  <td className="py-2 pr-2 text-right tabular-nums">{minutesToH(r.minutes)}</td>
-                                  <td className="py-2 text-slate-500">{r.source}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                    {recentOutsideMonth.length > 0 && (
-                      <div>
-                        <p className="text-xs text-slate-500 mb-2">Legado bank_hours ({recentOutsideMonth.length})</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs sm:text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200 dark:border-slate-700 text-left">
-                                <th className="py-2 pr-2">Data</th>
-                                {!filterUserId ? <th className="py-2 pr-2">Funcionário</th> : null}
-                                <th className="py-2 pr-2 text-right">Saldo</th>
-                                <th className="py-2">Origem</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {recentOutsideMonth.map((r) => (
-                                <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800">
-                                  <td className="py-2 pr-2 whitespace-nowrap">{formatDateForTablePtBr(r.date)}</td>
-                                  {!filterUserId ? <td className="py-2 pr-2">{employeeName(r.employee_id)}</td> : null}
-                                  <td className="py-2 pr-2 text-right font-medium tabular-nums">
-                                    {Number(r.balance ?? 0).toFixed(2)}h
-                                  </td>
-                                  <td className="py-2 text-slate-500">{r.source || '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {!recentLedgerOutside.length && !recentOutsideMonth.length && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Também não há histórico anterior. Confirme em Configurações se o banco de horas está habilitado (
-                    <code className="text-[10px]">time_bank_enabled</code>) e se o processamento diário rodou para os dias
-                    com extras ou faltas.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>

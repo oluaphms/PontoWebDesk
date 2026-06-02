@@ -38,6 +38,9 @@ const ALLOWED_OPS = new Set([
 
 type FilterInput = { column: string; operator: string; value: unknown };
 
+const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
+const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
+
 async function resolveUserScopeColumn(table: string): Promise<string | null> {
   if (table === 'users') {
     if (await tableHasColumn(table, 'id')) return 'id';
@@ -88,6 +91,20 @@ async function buildWhere(
     parts.push(`company_id::text = ${sqlParamRef(idx, 'text')}`);
     params.push(companyId);
     idx += 1;
+  }
+
+  if (!isAdminOrHr(role) && userId) {
+    const selfScopeColumn =
+      SELF_SCOPED_USER_ID_TABLES.has(table) && (await tableHasColumn(table, 'user_id'))
+        ? 'user_id'
+        : SELF_SCOPED_EMPLOYEE_ID_TABLES.has(table) && (await tableHasColumn(table, 'employee_id'))
+          ? 'employee_id'
+          : null;
+    if (selfScopeColumn) {
+      parts.push(`${selfScopeColumn}::text = ${sqlParamRef(idx, 'text')}`);
+      params.push(userId);
+      idx += 1;
+    }
   }
 
   if (USER_SCOPED_TABLES.has(table) && !isAdminOrHr(role)) {
@@ -205,6 +222,11 @@ function failureBody(error: string, code: string, details?: Record<string, unkno
   };
 }
 
+function requestId(req: AuthedRequest): string | null {
+  const header = req.headers['x-correlation-id'] ?? req.headers['x-request-id'];
+  return Array.isArray(header) ? String(header[0] ?? '') || null : header ? String(header) : null;
+}
+
 type DbErrorDetails = {
   name?: string;
   message: string;
@@ -311,6 +333,23 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     const order = orderCol ? `ORDER BY ${orderCol} ${orderAsc ? 'ASC' : 'DESC'}` : '';
     const sql = `SELECT ${columns} FROM public.${table} ${clause} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const result = await pool.query(sql, [...params, limit, offset]);
+    if (table === 'time_records') {
+      logger.info({
+        module: 'data.controller',
+        action: 'TIME_RECORDS_LIST_QUERY',
+        message: 'Consulta de time_records executada',
+        requestId: requestId(req) ?? undefined,
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        meta: {
+          employeeId: authUserId(req.auth),
+          filters,
+          sql,
+          params: [...params, limit, offset],
+          returnedRows: result.rowCount ?? result.rows.length,
+        },
+      });
+    }
     res.json({ ok: true, success: true, data: result.rows });
   } catch (e) {
     const pgMsg = e instanceof Error ? e.message : String(e);
@@ -627,6 +666,23 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
     );
     const sql = `SELECT count(*)::int AS c FROM public.${table} ${clause}`;
     const result = await pool.query(sql, params);
+    if (table === 'time_records') {
+      logger.info({
+        module: 'data.controller',
+        action: 'TIME_RECORDS_COUNT_QUERY',
+        message: 'Contagem de time_records executada',
+        requestId: requestId(req) ?? undefined,
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        meta: {
+          employeeId: authUserId(req.auth),
+          filters,
+          sql,
+          params,
+          returnedRows: result.rows[0]?.c ?? 0,
+        },
+      });
+    }
     res.json({ ok: true, count: result.rows[0]?.c ?? 0 });
   } catch (e) {
     if (e instanceof Error && e.message === 'user_scope_unavailable') {

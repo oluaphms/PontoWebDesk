@@ -17,6 +17,7 @@ import {
 import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
 import { recordPunchInstantIso, recordPunchInstantMs } from '../utils/punchOrigin';
 import { calcularHorasHojeMs } from '../utils/workedHoursToday';
+import { fetchTimeRecordsForMirrorWindow } from '../../services/api';
 
 interface TimeBalanceRow {
   id: string;
@@ -26,14 +27,6 @@ interface TimeBalanceRow {
   debit_hours: number;
   final_balance: number;
 }
-
-type BankMovement = {
-  date: string;
-  hours_added: number;
-  hours_removed: number;
-  balance: number;
-  source?: string;
-};
 
 /** Linhas do motor diário (`bank_hours_ledger`); RLS permite ao colaborador SELECT próprio. */
 type LedgerMonthRow = {
@@ -62,6 +55,10 @@ function minutesToHoursLabel(m: number): string {
   return `${v.toFixed(2)}h`;
 }
 
+function logTimeBalanceDebug(label: string, payload: unknown): void {
+  console.log(label, payload);
+}
+
 type DailyRefRow = {
   id: string;
   dateYmd: string;
@@ -71,6 +68,14 @@ type DailyRefRow = {
   balanceHours: number;
   isWorkday: boolean;
 };
+
+function computeLedgerAvailableBalanceMinutes(rows: LedgerMonthRow[]): number {
+  return rows.reduce((acc, row) => {
+    if (row.type === 'CREDIT') return acc + Math.max(0, row.minutes - row.used_minutes);
+    if (row.type === 'DEBIT') return acc - Math.max(0, row.minutes);
+    return acc;
+  }, 0);
+}
 
 function padHhMm(t: string | undefined | null): string {
   const s = String(t ?? '').trim();
@@ -102,7 +107,6 @@ const TimeBalancePage: React.FC = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [bankMovements, setBankMovements] = useState<BankMovement[]>([]);
   const [ledgerMonthRows, setLedgerMonthRows] = useState<LedgerMonthRow[]>([]);
 
   const monthBounds = useMemo(() => {
@@ -123,15 +127,20 @@ const TimeBalancePage: React.FC = () => {
         const { startYmd, endYmd, year, month, lastDay } = monthBounds;
         if (!startYmd) {
           setDailyReference([]);
-          setBankMovements([]);
           setLedgerMonthRows([]);
           setSupabaseBalance(null);
           return;
         }
 
-        const monthStartIso = new Date(year, month - 1, 1, 0, 0, 0, 0).toISOString();
-
         const companyId = String(user.companyId ?? '').trim();
+        logTimeBalanceDebug('USER', user);
+        logTimeBalanceDebug('EMPLOYEE', {
+          id: user.id,
+          employeeId: user.id,
+          companyId,
+          tenantId: user.tenantId,
+          role: user.role,
+        });
         const ledgerFilters = [
           { column: 'employee_id', operator: 'eq' as const, value: user.id },
           { column: 'date', operator: 'gte' as const, value: startYmd },
@@ -139,67 +148,33 @@ const TimeBalancePage: React.FC = () => {
           ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
         ];
 
-        const [balanceResult, recRows, bankRows, ledgerRows] = await Promise.all([
-          db
-            .select(
-              'time_balance',
-              [
-                { column: 'user_id', operator: 'eq', value: user.id },
-                { column: 'month', operator: 'eq', value: monthInput },
-              ],
-              { column: 'month', ascending: false },
-              1,
-            )
-            .then((rows) => rows ?? [])
-            .catch(() => [] as any[]),
-          db.select(
-            'time_records',
+        const [recRows, ledgerRows] = await Promise.all([
+          fetchTimeRecordsForMirrorWindow(
             [
-              { column: 'user_id', operator: 'eq', value: user.id },
-              { column: 'created_at', operator: 'gte', value: monthStartIso },
+              ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
+              { column: 'user_id', operator: 'eq' as const, value: user.id },
             ],
-            { column: 'created_at', ascending: false },
+            startYmd,
+            endYmd,
+            true,
             1500,
           ).catch(() => [] as any[]),
-          db
-            .select(
-              'bank_hours',
-              [{ column: 'employee_id', operator: 'eq', value: user.id }],
-              { column: 'date', ascending: false },
-              200,
-            )
-            .catch(() => [] as any[]),
           db
             .select('bank_hours_ledger', ledgerFilters, { column: 'created_at', ascending: false }, 400)
             .catch(() => [] as any[]),
         ]);
-
-        const balanceRows = Array.isArray(balanceResult) ? balanceResult : [];
-        if (balanceRows.length > 0) {
-          const b = balanceRows[0];
-          setSupabaseBalance({
-            id: b.id,
-            month: b.month,
-            total_hours: b.total_hours ?? 0,
-            extra_hours: b.extra_hours ?? 0,
-            debit_hours: b.debit_hours ?? 0,
-            final_balance: b.final_balance ?? 0,
-          });
-        } else {
-          setSupabaseBalance(null);
-        }
-
-        const mappedBank =
-          (bankRows as any[] | undefined)
-            ?.map((b) => ({
-              date: (b.date || '').slice(0, 10),
-              hours_added: Number(b.hours_added ?? 0),
-              hours_removed: Number(b.hours_removed ?? 0),
-              balance: Number(b.balance ?? 0),
-              source: b.source,
-            }))
-            .filter((b) => b.date.startsWith(monthInput)) ?? [];
-        setBankMovements(mappedBank);
+        logTimeBalanceDebug('API RESPONSE', {
+          endpoint: '/api/data/time_records',
+          filters: [
+            ...(companyId ? [{ column: 'company_id', operator: 'eq', value: companyId }] : []),
+            { column: 'user_id', operator: 'eq', value: user.id },
+          ],
+          periodStart: startYmd,
+          periodEnd: endYmd,
+          count: Array.isArray(recRows) ? recRows.length : 0,
+          sample: Array.isArray(recRows) ? recRows.slice(0, 5) : [],
+        });
+        logTimeBalanceDebug('TIME RECORDS', recRows);
 
         const mappedLedger: LedgerMonthRow[] = (Array.isArray(ledgerRows) ? ledgerRows : [])
           .map((r: any) => ({
@@ -213,6 +188,21 @@ const TimeBalancePage: React.FC = () => {
           }))
           .filter((r) => r.id && r.date.startsWith(monthInput));
         setLedgerMonthRows(mappedLedger);
+        const creditMinutes = mappedLedger
+          .filter((r) => r.type === 'CREDIT')
+          .reduce((acc, r) => acc + Math.max(0, r.minutes), 0);
+        const debitMinutes = mappedLedger
+          .filter((r) => r.type === 'DEBIT')
+          .reduce((acc, r) => acc + Math.max(0, r.minutes), 0);
+        const finalBalanceHours = computeLedgerAvailableBalanceMinutes(mappedLedger) / 60;
+        setSupabaseBalance({
+          id: `ledger-${user.id}-${monthInput}`,
+          month: monthInput,
+          total_hours: 0,
+          extra_hours: Math.round((creditMinutes / 60) * 100) / 100,
+          debit_hours: Math.round((debitMinutes / 60) * 100) / 100,
+          final_balance: Math.round(finalBalanceHours * 100) / 100,
+        });
 
         const list = Array.isArray(recRows) ? recRows : [];
 
@@ -274,7 +264,7 @@ const TimeBalancePage: React.FC = () => {
   }, [user, monthInput, monthBounds]);
 
   const hasOfficialClosing = !!supabaseBalance;
-  const hasBankMovements = bankMovements.length > 0 || ledgerMonthRows.length > 0;
+  const hasBankMovements = ledgerMonthRows.length > 0;
   const showReferenceTable = dailyReference.length > 0;
 
   if (loading) {
@@ -347,46 +337,6 @@ const TimeBalancePage: React.FC = () => {
                           {row.type === 'CREDIT' && row.used_minutes > 0 ? minutesToHoursLabel(row.used_minutes) : '—'}
                         </td>
                         <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs">{ledgerSourceLabelPt(row.source)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {bankMovements.length > 0 && (
-            <div className="glass-card rounded-[2.25rem] p-6 space-y-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Movimentações legadas (bank_hours)</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Registros antigos na tabela <code className="text-[10px]">bank_hours</code>, se existirem. O saldo cumulativo refere-se a esse formato legado.
-              </p>
-              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                <table className="w-full text-sm min-w-[480px]">
-                  <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-left">
-                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400">Data</th>
-                      <th className="px-3 py-2 font-semibold text-emerald-600 text-right">Crédito (h)</th>
-                      <th className="px-3 py-2 font-semibold text-red-600 text-right">Débito (h)</th>
-                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 text-right">Saldo (h)</th>
-                      <th className="px-3 py-2 font-semibold text-slate-500 dark:text-slate-400">Origem</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bankMovements.slice(0, 60).map((m, i) => (
-                      <tr key={`${m.date}-${i}`} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-2 tabular-nums">{m.date ? formatDateForTablePtBr(m.date) : '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-emerald-600">
-                          {m.hours_added > 0 ? `+${m.hours_added.toFixed(2)}` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-red-600">
-                          {m.hours_removed > 0 ? `−${m.hours_removed.toFixed(2)}` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right font-medium tabular-nums">
-                          {m.balance >= 0 ? '+' : ''}
-                          {m.balance.toFixed(2)}
-                        </td>
-                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs">{m.source || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

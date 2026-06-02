@@ -4,6 +4,7 @@ import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { insertPunchBatchSafe, insertPunchSafe } from '../services/punchService.js';
 import { authUserId, isAdminOrHr, rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
 import { logAuthDenied } from '../services/authAuditService.js';
+import { logger } from '../logger/logger.js';
 
 type PunchBody = Record<string, unknown>;
 
@@ -71,6 +72,21 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
       res.status(400).json({ ok: false, error: 'missing_type', message: 'Informe type (ex.: entrada, saida, pausa).' });
       return;
     }
+    logger.info({
+      module: 'punch.controller',
+      action: 'PUNCH_CREATE_SCOPE',
+      message: 'Escopo usado para registrar ponto',
+      requestId: String(req.headers['x-correlation-id'] ?? req.headers['x-request-id'] ?? '') || undefined,
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId: req.auth?.companyId ?? null,
+      meta: {
+        employeeId: String(merged.user_id ?? ''),
+        bodyUserId: String(raw.user_id ?? raw.userId ?? ''),
+        bodyCompanyId: String(raw.company_id ?? raw.companyId ?? ''),
+        type: merged.type,
+        timestamp: merged.timestamp,
+      },
+    });
 
     const result = await insertPunchSafe(merged);
     if (!result.success) {

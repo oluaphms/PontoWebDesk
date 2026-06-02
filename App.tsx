@@ -115,6 +115,7 @@ import {
   AdminArquivarCalculos,
   AdminAusencias,
   AdminBankHours,
+  AdminBankHoursDashboard,
   AdminBackup,
   AdminCartaoPonto,
   AdminCidades,
@@ -2104,6 +2105,7 @@ const AppMain: React.FC = () => {
               <Route path="reports/bank-hours" element={<ReportBankHours />} />
               <Route path="reports/security" element={<ReportSecurity />} />
               <Route path="bank-hours" element={<AdminBankHours />} />
+              <Route path="bank-hours/dashboard" element={<AdminBankHoursDashboard />} />
               <Route path="ajuda" element={<AdminAjuda />} />
               <Route path="inteligencia-operacional" element={<AdminInteligenciaOperacional />} />
               <Route path="metricas-produto" element={<AdminMetricasProduto />} />

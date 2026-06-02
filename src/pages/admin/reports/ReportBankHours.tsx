@@ -13,6 +13,7 @@ import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
 import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
+import { exportReportToExcel, exportReportToPDF } from '../../../utils/reportExport';
 import {
   KPICards,
   FiltersBar,
@@ -28,6 +29,13 @@ interface BankRow {
   balance: number; // em minutos
   last_date: string;
   last_movement?: 'credit' | 'debit';
+}
+
+function toHoursAndMinutesLabel(minutes: number): string {
+  const abs = Math.abs(minutes);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
 }
 
 const ReportBankHours: React.FC = () => {
@@ -51,11 +59,11 @@ const ReportBankHours: React.FC = () => {
         const list = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const bankRows = (await db.select(
-              'bank_hours',
+            const ledgerRows = (await db.select(
+              'bank_hours_ledger',
               [{ column: 'company_id', operator: 'eq', value: cid }],
-              { column: 'date', ascending: false },
-              2000
+              { column: 'created_at', ascending: false },
+              5000,
             )) as any[];
 
             const empMap = new Map<string, string>();
@@ -64,14 +72,21 @@ const ReportBankHours: React.FC = () => {
             // Agrupar por funcionário (último saldo)
             const byEmployee = new Map<string, { balance: number; last_date: string; last_movement?: 'credit' | 'debit' }>();
 
-            (bankRows ?? []).forEach((r: any) => {
-              const balanceMinutes = (r.balance_hours || 0) * 60 + (r.balance_minutes || 0);
-              if (!byEmployee.has(r.employee_id)) {
-                byEmployee.set(r.employee_id, {
-                  balance: balanceMinutes,
-                  last_date: r.date ?? '',
-                  last_movement: r.movement_type,
-                });
+            (ledgerRows ?? []).forEach((r: any) => {
+              const employeeId = String(r.employee_id ?? '');
+              if (!employeeId) return;
+              if (!byEmployee.has(employeeId)) {
+                byEmployee.set(employeeId, { balance: 0, last_date: '', last_movement: undefined });
+              }
+              const current = byEmployee.get(employeeId)!;
+              const type = String(r.type ?? '').toUpperCase();
+              const minutes = Math.max(0, Number(r.minutes ?? 0));
+              const used = Math.max(0, Number(r.used_minutes ?? 0));
+              if (type === 'CREDIT') current.balance += Math.max(0, minutes - used);
+              if (type === 'DEBIT') current.balance -= minutes;
+              if (!current.last_date || String(r.date ?? '') > current.last_date) {
+                current.last_date = String(r.date ?? '');
+                current.last_movement = type === 'DEBIT' ? 'debit' : 'credit';
               }
             });
 
@@ -225,9 +240,7 @@ const ReportBankHours: React.FC = () => {
       sortable: true,
       render: (value: number) => {
         const isPositive = value >= 0;
-        const hours = Math.floor(Math.abs(value) / 60);
-        const minutes = Math.abs(value) % 60;
-        const formatted = `${hours}:${String(minutes).padStart(2, '0')}`;
+        const formatted = toHoursAndMinutesLabel(value);
 
         return (
           <div className={`flex items-center justify-end gap-1 font-medium ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -269,11 +282,57 @@ const ReportBankHours: React.FC = () => {
   };
 
   const handleExportPDF = () => {
-    observabilityConsole.log('Exportar PDF');
+    const report = {
+      header: {
+        title: 'Relatório de Banco de Horas',
+        company: user?.company?.name ?? user?.companyName ?? 'Empresa',
+        period: 'Saldo atual',
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalColaboradores: filteredRows.length,
+        totalPositivo: toHoursAndMinutesLabel(filteredRows.filter((r) => r.balance > 0).reduce((s, r) => s + r.balance, 0)),
+        totalNegativo: toHoursAndMinutesLabel(Math.abs(filteredRows.filter((r) => r.balance < 0).reduce((s, r) => s + r.balance, 0))),
+      },
+      rows: filteredRows.map((r) => ({
+        employee: r.employee_name,
+        previousBalance: '—',
+        credit: r.last_movement === 'credit' ? toHoursAndMinutesLabel(Math.max(0, r.balance)) : '0:00',
+        debit: r.last_movement === 'debit' ? toHoursAndMinutesLabel(Math.abs(Math.min(0, r.balance))) : '0:00',
+        currentBalance: `${r.balance >= 0 ? '+' : '-'}${toHoursAndMinutesLabel(r.balance)}`,
+      })),
+    } as any;
+    void exportReportToPDF(report, 'bankHours').catch((err) => {
+      observabilityConsole.error('Falha ao exportar PDF', err);
+    });
   };
 
   const handleExportExcel = () => {
-    observabilityConsole.log('Exportar Excel');
+    const report = {
+      header: {
+        title: 'Relatório de Banco de Horas',
+        company: user?.company?.name ?? user?.companyName ?? 'Empresa',
+        period: 'Saldo atual',
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalColaboradores: filteredRows.length,
+        totalPositivo: toHoursAndMinutesLabel(filteredRows.filter((r) => r.balance > 0).reduce((s, r) => s + r.balance, 0)),
+        totalNegativo: toHoursAndMinutesLabel(Math.abs(filteredRows.filter((r) => r.balance < 0).reduce((s, r) => s + r.balance, 0))),
+      },
+      rows: filteredRows.map((r) => ({
+        employee: r.employee_name,
+        previousBalance: '—',
+        credit: r.last_movement === 'credit' ? toHoursAndMinutesLabel(Math.max(0, r.balance)) : '0:00',
+        debit: r.last_movement === 'debit' ? toHoursAndMinutesLabel(Math.abs(Math.min(0, r.balance))) : '0:00',
+        currentBalance: `${r.balance >= 0 ? '+' : '-'}${toHoursAndMinutesLabel(r.balance)}`,
+      })),
+    } as any;
+    void exportReportToExcel(report, 'bankHours').catch((err) => {
+      observabilityConsole.error('Falha ao exportar Excel', err);
+    });
   };
 
   if (loading) return <LoadingState message="Carregando..." />;

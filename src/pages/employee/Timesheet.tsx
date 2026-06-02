@@ -41,6 +41,16 @@ function localDateKey(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+function localMonthStartKey(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
+function logTimesheetDebug(label: string, payload: unknown): void {
+  console.log(label, payload);
+}
+
 function formatDateBR(dateStr: string) {
   const [y, m, day] = dateStr.split('-');
   return `${day}/${m}/${y}`;
@@ -128,8 +138,8 @@ const EmployeeTimesheet: React.FC = () => {
   /** Linhas brutas do Supabase (inclui campos de GPS para o detalhe expansível). */
   const [records, setRecords] = useState<any[]>([]);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(() => new Set());
-  const [periodStart, setPeriodStart] = useState('');
-  const [periodEnd, setPeriodEnd] = useState('');
+  const [periodStart, setPeriodStart] = useState(() => localMonthStartKey());
+  const [periodEnd, setPeriodEnd] = useState(() => localDateKey());
   const [loadingData, setLoadingData] = useState(false);
   const todayMax = useMemo(() => localDateKey(), []);
   const [detailOpenByDate, setDetailOpenByDate] = useState<Record<string, boolean>>({});
@@ -231,8 +241,20 @@ const EmployeeTimesheet: React.FC = () => {
       try {
         const startDate = periodStart;
         const endDate = periodEnd;
+        logTimesheetDebug('USER', user);
+        logTimesheetDebug('EMPLOYEE', {
+          id: user.id,
+          employeeId: user.id,
+          companyId,
+          tenantId: user.tenantId,
+          role: user.role,
+        });
+        const recordFilters = [
+          ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
+          { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+        ];
         const rowsP = fetchTimeRecordsForMirrorWindow(
-          [{ column: 'user_id', operator: 'eq', value: user.id }],
+          recordFilters,
           startDate,
           endDate,
           false,
@@ -253,6 +275,15 @@ const EmployeeTimesheet: React.FC = () => {
         }
 
         const [rows] = await Promise.all([rowsP]);
+        logTimesheetDebug('API RESPONSE', {
+          endpoint: '/api/data/time_records',
+          filters: recordFilters,
+          periodStart: startDate,
+          periodEnd: endDate,
+          count: rows?.length ?? 0,
+          sample: (rows ?? []).slice(0, 5),
+        });
+        logTimesheetDebug('TIME RECORDS', rows ?? []);
         const holSet = new Set(
           (holidayRows ?? [])
             .map((h: any) => String(h.date || h.data || '').slice(0, 10))

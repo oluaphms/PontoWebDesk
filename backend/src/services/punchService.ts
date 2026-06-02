@@ -2,6 +2,7 @@ import { pool } from '../db/index.js';
 import { getPunchColumns, getTimeRecordColumns, getTimeRecordInsertRpc } from './punchSchema.js';
 import { validatePhotoUrl } from '../upload/fileValidation.js';
 import type { PoolClient } from 'pg';
+import { logger } from '../logger/logger.js';
 
 type PunchInput = {
   client_id?: string;
@@ -76,11 +77,23 @@ async function insertIntoTimeRecordsViaRpc(
     JSON.stringify(buildRpcMetadata(input.punch, input.punchHash, input.photoUrl)),
     false,
   ];
-  const result = await client.query(
-    `select public.${rpc.fnName}($1::uuid, $2::uuid, $3::timestamptz, $4::text, $5::text, $6::jsonb, $7::boolean) as result`,
-    args,
-  );
+  const sql = `select public.${rpc.fnName}($1::uuid, $2::uuid, $3::timestamptz, $4::text, $5::text, $6::jsonb, $7::boolean) as result`;
+  const result = await client.query(sql, args);
   const payload = result.rows[0]?.result;
+  logger.info({
+    module: 'punch.service',
+    action: 'TIME_RECORDS_INSERT_RPC',
+    message: 'RPC de insert em time_records executada',
+    userId: input.userId,
+    companyId: input.companyId,
+    meta: {
+      employeeId: input.userId,
+      sql,
+      params: args,
+      returnedRows: result.rowCount ?? result.rows.length,
+      result: payload ?? null,
+    },
+  });
   if (!payload || typeof payload !== 'object') return { id: null };
   const row = payload as Record<string, unknown>;
   const idValue = row.id ?? row.record_id ?? null;
@@ -143,12 +156,24 @@ async function insertIntoTimeRecordsFallback(
     cast.push(`$${values.length}::text`);
   }
 
-  const inserted = await client.query(
-    `insert into time_records (${columns.join(', ')})
+  const sql = `insert into time_records (${columns.join(', ')})
      values (${cast.join(', ')})
-     returning id`,
-    values,
-  );
+     returning id`;
+  const inserted = await client.query(sql, values);
+  logger.info({
+    module: 'punch.service',
+    action: 'TIME_RECORDS_INSERT_FALLBACK',
+    message: 'Insert fallback em time_records executado',
+    userId: input.userId,
+    companyId: input.companyId,
+    meta: {
+      employeeId: input.userId,
+      sql,
+      params: values,
+      returnedRows: inserted.rowCount ?? inserted.rows.length,
+      timeRecordId: inserted.rows[0]?.id ?? null,
+    },
+  });
   return { id: String(inserted.rows[0]?.id || '') };
 }
 
@@ -226,6 +251,20 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
       });
       mirrorRecordId = fallbackInsert.id;
     }
+    logger.info({
+      module: 'punch.service',
+      action: 'PUNCH_TIME_RECORD_CREATED',
+      message: 'Registro de ponto espelhado em time_records',
+      userId,
+      companyId,
+      meta: {
+        employeeId: userId,
+        timeRecordId: mirrorRecordId,
+        type,
+        timestamp,
+        source,
+      },
+    });
 
     if (cols.mode === 'api_legacy') {
       const payload = {
