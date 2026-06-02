@@ -205,6 +205,51 @@ function failureBody(error: string, code: string, details?: Record<string, unkno
   };
 }
 
+type DbErrorDetails = {
+  name?: string;
+  message: string;
+  code?: string;
+  detail?: string;
+  hint?: string;
+  schema?: string;
+  table?: string;
+  column?: string;
+  dataType?: string;
+  constraint?: string;
+  where?: string;
+  severity?: string;
+  routine?: string;
+  stack?: string;
+};
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function describeDbError(error: unknown): DbErrorDetails {
+  const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+  return {
+    name: error instanceof Error ? error.name : optionalString(record.name),
+    message: error instanceof Error ? error.message : String(error),
+    code: optionalString(record.code),
+    detail: optionalString(record.detail),
+    hint: optionalString(record.hint),
+    schema: optionalString(record.schema),
+    table: optionalString(record.table),
+    column: optionalString(record.column),
+    dataType: optionalString(record.dataType),
+    constraint: optionalString(record.constraint),
+    where: optionalString(record.where),
+    severity: optionalString(record.severity),
+    routine: optionalString(record.routine),
+    stack: error instanceof Error ? error.stack : optionalString(record.stack),
+  };
+}
+
+function sortedKeys(row: Record<string, unknown> | null | undefined): string[] {
+  return Object.keys(row ?? {}).sort();
+}
+
 export async function listDataController(req: AuthedRequest, res: Response): Promise<void> {
   const table = safeIdent(String(req.params.table || ''));
   if (!table || !ALLOWED_TABLES.has(table)) {
@@ -306,38 +351,88 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
-  const scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
-  const row = await filterRowToTableSchema(table, scoped);
-  const keys = Object.keys(row).filter((k) => safeIdent(k));
-  if (!keys.length) {
-    res.status(400).json({ ok: false, error: 'empty_payload' });
-    return;
-  }
-  const colTypes = await getTableColumnTypes(table);
-  const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
-  const cols = keys.join(', ');
-  const placeholders = keys
-    .map((k, i) => sqlParamRef(i + 1, colTypes.get(k) ?? 'text'))
-    .join(', ');
-  const values = keys.map((k) => row[k]);
+  let writeRaw: Record<string, unknown> = {};
+  let scoped: Record<string, unknown> = {};
+  let row: Record<string, unknown> = {};
+  let keys: string[] = [];
+  let values: unknown[] = [];
+  let sql = '';
   try {
+    writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
+    scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
+    row = await filterRowToTableSchema(table, scoped);
+    keys = Object.keys(row).filter((k) => safeIdent(k));
+    if (!keys.length) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'empty_payload',
+        code: 'DATA_EMPTY_INSERT_PAYLOAD',
+        message: 'Nenhum campo gravável permaneceu após validar o payload contra o schema da tabela.',
+        details: {
+          table,
+          payloadKeys: sortedKeys(raw),
+          sanitizedKeys: sortedKeys(writeRaw),
+          scopedKeys: sortedKeys(scoped),
+          filteredKeys: sortedKeys(row),
+        },
+      });
+      return;
+    }
+    const colTypes = await getTableColumnTypes(table);
+    const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
+    const cols = keys.join(', ');
+    const placeholders = keys
+      .map((k, i) => sqlParamRef(i + 1, colTypes.get(k) ?? 'text'))
+      .join(', ');
+    values = keys.map((k) => row[k]);
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
-    const sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
+    sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
     const result = await pool.query(sql, values);
     res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
-    const pgMsg = e instanceof Error ? e.message : String(e);
+    const dbError = describeDbError(e);
     logger.error({
       module: 'data.controller',
       action: 'DATA_INSERT_FAILED',
-      message: 'Falha ao inserir dados',
+      message: 'INSERT FAILURE',
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
-      meta: { table, pgMsg },
+      meta: {
+        endpoint: req.originalUrl,
+        method: req.method,
+        table,
+        sql: sql || null,
+        paramsCount: values.length,
+        payload: raw,
+        payloadKeys: sortedKeys(raw),
+        sanitizedPayload: writeRaw,
+        scopedPayload: scoped,
+        filteredPayload: row,
+        filteredKeys: keys,
+        dbError,
+      },
     });
-    res.status(500).json(failureBody('insert_failed', 'DATA_INSERT_FAILED', { table }));
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: dbError.message,
+      code: dbError.code || 'DATA_INSERT_FAILED',
+      message: dbError.message,
+      detail: dbError.detail,
+      stack: dbError.stack,
+      details: {
+        table,
+        reason: 'DATA_INSERT_FAILED',
+        sql,
+        payloadKeys: sortedKeys(raw),
+        sanitizedKeys: sortedKeys(writeRaw),
+        scopedKeys: sortedKeys(scoped),
+        filteredKeys: keys,
+        originalError: dbError,
+      },
+    });
   }
 }
 
@@ -359,31 +454,51 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
-  const scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
-  const row = await filterRowToTableSchema(table, scoped);
-  const keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
-  if (!keys.length) {
-    res.status(400).json({ ok: false, error: 'empty_payload' });
-    return;
-  }
-  const colTypes = await getTableColumnTypes(table);
-  const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
-  const sets = keys
-    .map((k, i) => `${k} = ${sqlParamRef(i + 1, colTypes.get(k) ?? 'text')}`)
-    .join(', ');
-  const values = keys.map((k) => row[k]);
-
-  const tenantIdx = keys.length + 1;
-  const tenantScope = await dataWriteScopeSql(table, tenantIdx);
-  const idIdx = keys.length + (tenantScope ? 2 : 1);
-  const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
-  const params = [...values, ...(tenantScope ? [companyId] : []), id];
-
+  let writeRaw: Record<string, unknown> = {};
+  let scoped: Record<string, unknown> = {};
+  let row: Record<string, unknown> = {};
+  let keys: string[] = [];
+  let params: unknown[] = [];
+  let sql = '';
   try {
+    writeRaw = sanitizeGenericWritePayload(table, raw, companyId, req.auth?.role);
+    scoped = await applyTenantToRowAsync(table, writeRaw, companyId);
+    row = await filterRowToTableSchema(table, scoped);
+    keys = Object.keys(row).filter((k) => safeIdent(k) && k !== 'id');
+    if (!keys.length) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'empty_payload',
+        code: 'DATA_EMPTY_UPDATE_PAYLOAD',
+        message: 'Nenhum campo gravável permaneceu após validar o payload contra o schema da tabela.',
+        details: {
+          table,
+          id,
+          payloadKeys: sortedKeys(raw),
+          sanitizedKeys: sortedKeys(writeRaw),
+          scopedKeys: sortedKeys(scoped),
+          filteredKeys: sortedKeys(row),
+        },
+      });
+      return;
+    }
+    const colTypes = await getTableColumnTypes(table);
+    const returningColumns = (await getReadableTableColumns(table)).filter((c) => safeIdent(c));
+    const sets = keys
+      .map((k, i) => `${k} = ${sqlParamRef(i + 1, colTypes.get(k) ?? 'text')}`)
+      .join(', ');
+    const values = keys.map((k) => row[k]);
+
+    const tenantIdx = keys.length + 1;
+    const tenantScope = await dataWriteScopeSql(table, tenantIdx);
+    const idIdx = keys.length + (tenantScope ? 2 : 1);
+    const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
+    params = [...values, ...(tenantScope ? [companyId] : []), id];
+
     const idCast = sqlParamRef(idIdx, 'text');
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
-    const sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause}${returningSql}`;
+    sql = `UPDATE public.${table} SET ${sets} WHERE id::text = ${idCast}${tenantClause}${returningSql}`;
     const result = await pool.query(sql, params);
     if (returningSql && !result.rows[0]) {
       res.status(404).json(failureBody('not_found', 'DATA_NOT_FOUND', { table }));
@@ -391,17 +506,50 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     }
     res.json({ ok: true, success: true, data: result.rows[0] ?? null });
   } catch (e) {
-    const pgMsg = e instanceof Error ? e.message : String(e);
+    const dbError = describeDbError(e);
     logger.error({
       module: 'data.controller',
       action: 'DATA_UPDATE_FAILED',
-      message: 'Falha ao atualizar dados',
+      message: 'UPDATE FAILURE',
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
-      meta: { table, pgMsg, id },
+      meta: {
+        endpoint: req.originalUrl,
+        method: req.method,
+        table,
+        id,
+        sql: sql || null,
+        paramsCount: params.length,
+        payload: raw,
+        payloadKeys: sortedKeys(raw),
+        sanitizedPayload: writeRaw,
+        scopedPayload: scoped,
+        filteredPayload: row,
+        filteredKeys: keys,
+        dbError,
+      },
     });
-    res.status(500).json(failureBody('update_failed', 'DATA_UPDATE_FAILED', { table, id }));
+    res.status(500).json({
+      ok: false,
+      success: false,
+      error: dbError.message,
+      code: dbError.code || 'DATA_UPDATE_FAILED',
+      message: dbError.message,
+      detail: dbError.detail,
+      stack: dbError.stack,
+      details: {
+        table,
+        id,
+        reason: 'DATA_UPDATE_FAILED',
+        sql,
+        payloadKeys: sortedKeys(raw),
+        sanitizedKeys: sortedKeys(writeRaw),
+        scopedKeys: sortedKeys(scoped),
+        filteredKeys: keys,
+        originalError: dbError,
+      },
+    });
   }
 }
 

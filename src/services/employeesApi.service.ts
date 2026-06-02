@@ -80,6 +80,8 @@ export type EmployeesListResponse = {
   employees?: ApiEmployee[];
   employee?: ApiEmployee;
   error?: string;
+  message?: string;
+  code?: string;
   field?: string;
 };
 
@@ -206,7 +208,7 @@ export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmpl
 
   const data = (await apiPost('/employees', toApiBody(input))) as EmployeesListResponse;
   if (!data?.ok || !data?.employee) {
-    throw new Error(String(data?.error || 'Erro ao criar colaborador'));
+    throw new Error(String(data?.message || data?.error || data?.code || 'Erro ao criar colaborador'));
   }
   return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
 }
@@ -230,7 +232,7 @@ export async function updateEmployee(id: string, input: EmployeeUpdateInput): Pr
     toApiBody(input),
   )) as EmployeesListResponse;
   if (!data?.ok || !data?.employee) {
-    throw new Error(String(data?.error || 'Erro ao atualizar colaborador'));
+    throw new Error(String(data?.message || data?.error || data?.code || 'Erro ao atualizar colaborador'));
   }
   return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
 }
@@ -238,7 +240,7 @@ export async function updateEmployee(id: string, input: EmployeeUpdateInput): Pr
 export async function deleteEmployee(id: string): Promise<void> {
   const data = (await apiDelete(`/employees/${encodeURIComponent(id)}`)) as EmployeesListResponse;
   if (!data?.ok) {
-    throw new Error(String(data?.error || 'Erro ao excluir colaborador'));
+    throw new Error(String(data?.message || data?.error || data?.code || 'Erro ao excluir colaborador'));
   }
 }
 

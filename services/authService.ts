@@ -1455,6 +1455,10 @@ class AuthService {
    */
   async updatePassword(newPassword: string): Promise<void> {
     try {
+      if (isLocalApiMode()) {
+        await getProvider().updatePassword(newPassword);
+        return;
+      }
       await auth.updatePassword(newPassword);
     } catch (error: any) {
       throw new Error(error.message || 'Erro ao alterar senha');
@@ -1475,6 +1479,13 @@ class AuthService {
         const message = apiError instanceof Error ? apiError.message : 'Erro ao enviar email de recuperação';
         return { success: false, error: message };
       }
+    }
+
+    if (isLocalApiMode()) {
+      return {
+        success: false,
+        error: 'Recuperação de senha por e-mail ainda não está disponível no modo API local. Solicite a redefinição ao administrador.',
+      };
     }
 
     try {

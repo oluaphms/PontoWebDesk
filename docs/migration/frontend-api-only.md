@@ -3,7 +3,7 @@
 ## Configuração
 
 ```env
-VITE_API_URL=http://177.7.51.209/api
+VITE_API_URL=https://api.phmsdev.com.br/api
 ```
 
 Token JWT: `localStorage['pontoweb:local_api_token']` via `src/services/authToken.ts`.

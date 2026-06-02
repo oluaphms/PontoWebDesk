@@ -20,6 +20,7 @@ export interface IDataProvider {
   getEmployees(companyId: string): Promise<ProviderEmployee[]>;
   registerPunch(payload: ProviderPunchPayload): Promise<any>;
   registerPunchBatch(payload: { punches: ProviderPunchPayload[] }): Promise<any>;
+  updatePassword(newPassword: string): Promise<any>;
   getAccessToken(): Promise<string | null>;
 }
 

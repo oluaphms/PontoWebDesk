@@ -1,7 +1,7 @@
 # Monitoramento em tempo real
 
-**Menu:** Gestão → Monitoramento (admin) · Mapa em tempo real (colaborador)  
-**Caminho:** `/admin/monitoring` · `/employee/monitoring`
+**Menu:** Gestão → Monitoramento
+**Caminho:** `/admin/monitoring`
 
 ---
 
@@ -38,7 +38,7 @@ O **Monitoramento** mostra onde cada colaborador está no expediente **agora**: 
 2. Aba **Hoje:** revise os cards e a lista por status.
 3. Aba **Mapa:** visualize colaboradores com localização; use zoom para regiões com muitos pins.
 4. Clique em um colaborador (quando disponível) para ver detalhe da última batida.
-5. Colaborador no portal vê versão simplificada em **Mapa em tempo real** (conforme permissões).
+5. O acesso direto de colaboradores ao mapa é bloqueado; a visão é restrita a papéis de gestão.
 
 ---
 

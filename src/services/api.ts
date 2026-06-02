@@ -102,6 +102,21 @@ function payloadKeys(body: unknown): string[] | undefined {
   return Object.keys(body as Record<string, unknown>).sort();
 }
 
+function responseStack(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const record = body as Record<string, unknown>;
+  if (typeof record.stack === 'string') return record.stack;
+  const details = record.details;
+  if (details && typeof details === 'object') {
+    const originalError = (details as Record<string, unknown>).originalError;
+    if (originalError && typeof originalError === 'object') {
+      const stack = (originalError as Record<string, unknown>).stack;
+      if (typeof stack === 'string') return stack;
+    }
+  }
+  return undefined;
+}
+
 async function parseResponse<T>(
   res: Response,
   context: { method: string; path: string; url: string; requestBody?: unknown },
@@ -159,6 +174,16 @@ async function parseResponse<T>(
       console.warn(consoleMessage, errorContext);
     } else {
       console.error(consoleMessage, errorContext);
+      if (context.method === 'PATCH' || context.method === 'PUT') {
+        console.error('UPDATE FAILURE', {
+          endpoint: context.path,
+          payload: context.requestBody,
+          response: body,
+          status,
+          error: errMsg,
+          stack: responseStack(body),
+        });
+      }
     }
     logger.error({
       module: 'frontend.api',

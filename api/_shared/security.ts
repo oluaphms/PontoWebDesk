@@ -21,6 +21,8 @@ import { noCache } from './cache.js';
 const PRODUCTION_ORIGINS = [
   'https://pontowebdesk.vercel.app',
   'https://api.phmsdev.com.br',
+  'https://pontowebdesk.com.br',
+  'https://www.pontowebdesk.com.br',
 ];
 
 /** Origens permitidas para desenvolvimento */
@@ -64,7 +66,7 @@ function inferAllowedOriginsFromEnv(): string[] {
  * Pode ser configurado via variável de ambiente CORS_ALLOWED_ORIGINS.
  */
 function getAllowedOrigins(): string[] {
-  const envOrigins = process.env.CORS_ALLOWED_ORIGINS;
+  const envOrigins = process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS;
   if (envOrigins) {
     return envOrigins.split(',').map(o => o.trim()).filter(Boolean);
   }

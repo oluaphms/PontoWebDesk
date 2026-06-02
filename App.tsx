@@ -2127,7 +2127,14 @@ const AppMain: React.FC = () => {
               <Route path="work-schedule" element={<MyWorkSchedule />} />
               <Route path="clock" element={<EmployeeClockIn />} />
               <Route path="timesheet" element={<EmployeeTimesheet />} />
-              <Route path="monitoring" element={<EmployeeMonitoring />} />
+              <Route
+                path="monitoring"
+                element={
+                  <RoleGuard user={user} allowedRoles={['supervisor']} redirectTo="/employee/dashboard">
+                    <EmployeeMonitoring />
+                  </RoleGuard>
+                }
+              />
               <Route path="requests" element={<RequestsPage />} />
               <Route path="absences" element={<AbsencesPage />} />
               <Route path="profile" element={<EmployeeProfile />} />
@@ -2183,7 +2190,10 @@ const AppMain: React.FC = () => {
                 </RoleGuard>
               }
             />
-            <Route path="/profile" element={<ProfileViewLazy user={user} />} />
+            <Route
+              path="/profile"
+              element={isAdminOrHr ? <ProfileViewLazy user={user} /> : <Navigate to="/employee/profile" replace />}
+            />
             <Route
               path="/employees"
               element={

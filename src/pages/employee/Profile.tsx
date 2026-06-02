@@ -11,6 +11,11 @@ import { detectImageMime } from '../../shared/upload/magicBytes';
 import { uploadPhotoViaApi } from '../../services/uploadPhotoApi';
 import { logger } from '../../shared/logger/logger';
 
+function canChangePasswordFromProfile(role: unknown): boolean {
+  const value = String(role || '').trim().toLowerCase();
+  return value === 'admin' || value === 'administrador' || value === 'hr' || value === 'rh' || value === 'supervisor' || value === 'gestor';
+}
+
 const EmployeeProfile: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const navigate = useNavigate();
@@ -135,6 +140,7 @@ const EmployeeProfile: React.FC = () => {
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
+  const showChangePassword = canChangePasswordFromProfile((user as any).role);
 
   return (
     <div className="space-y-4 sm:space-y-6 px-2 sm:px-0">
@@ -199,13 +205,15 @@ const EmployeeProfile: React.FC = () => {
           <button type="button" onClick={handleSave} disabled={saving} className="w-full py-2.5 sm:py-3 rounded-lg sm:rounded-xl bg-emerald-600 text-white text-sm sm:text-base font-medium hover:bg-emerald-700 disabled:opacity-50">
             Salvar alterações
           </button>
-          <button
-            type="button"
-            onClick={() => navigate('/employee/settings')}
-            className="w-full py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm sm:text-base font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2"
-          >
-            <Lock className="w-4 h-4" /> Alterar senha
-          </button>
+          {showChangePassword && (
+            <button
+              type="button"
+              onClick={() => navigate('/employee/settings')}
+              className="w-full py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm sm:text-base font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2"
+            >
+              <Lock className="w-4 h-4" /> Alterar senha
+            </button>
+          )}
         </div>
       </div>
     </div>

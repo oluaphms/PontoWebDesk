@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { loginController } from '../controllers/authController.js';
+import { authChangePasswordController } from '../controllers/authPasswordController.js';
 import { authMeController } from '../controllers/authMeController.js';
 import { authLogoutController } from '../controllers/authLogoutController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
@@ -17,6 +18,15 @@ router.post('/login', rateLimit({
   },
 }), loginController);
 router.get('/me', authMiddleware, authMeController);
+router.post('/change-password', authMiddleware, rateLimit({
+  keyPrefix: 'auth:change-password',
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000,
+  key: (req) => {
+    const auth = (req as { auth?: { sub?: string; userId?: string } }).auth;
+    return String(auth?.sub ?? auth?.userId ?? req.ip ?? '');
+  },
+}), authChangePasswordController);
 router.post('/logout', authMiddleware, authLogoutController);
 
 export default router;

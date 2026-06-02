@@ -30,6 +30,11 @@ interface ProfileViewProps {
   user: User;
 }
 
+function canChangePasswordInProfile(role: unknown): boolean {
+  const value = String(role || '').trim().toLowerCase();
+  return value === 'admin' || value === 'administrador' || value === 'hr' || value === 'rh' || value === 'supervisor' || value === 'gestor';
+}
+
 const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -172,6 +177,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
     const role = roles[user.role] || roles.employee;
     return <Badge color={role.color}>{role.label}</Badge>;
   };
+  const showPasswordSection = canChangePasswordInProfile(user.role);
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in slide-in-from-bottom-6 duration-700">
@@ -412,65 +418,66 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Alterar Senha */}
-      <div className="glass-card rounded-2xl sm:rounded-[2rem] md:rounded-[2.5rem] p-4 sm:p-6 md:p-10 space-y-6 md:space-y-8">
-        <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 sm:gap-3">
-          <Key size={20} className="sm:w-6 sm:h-6 text-indigo-600" />
-          Alterar Senha
-        </h3>
+      {showPasswordSection && (
+        <div className="glass-card rounded-2xl sm:rounded-[2rem] md:rounded-[2.5rem] p-4 sm:p-6 md:p-10 space-y-6 md:space-y-8">
+          <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 sm:gap-3">
+            <Key size={20} className="sm:w-6 sm:h-6 text-indigo-600" />
+            Alterar Senha
+          </h3>
 
-        <form onSubmit={handleChangePassword} className="space-y-5 sm:space-y-6">
-          {passwordSuccess && (
-            <div className="p-3 sm:p-4 bg-green-500/10 border border-green-500/20 rounded-lg sm:rounded-xl flex items-center gap-2 sm:gap-3 text-green-600 dark:text-green-400 text-xs sm:text-sm font-bold">
-              <CheckCircle2 size={18} className="sm:w-5 sm:h-5 shrink-0" /> Senha alterada com sucesso!
-            </div>
-          )}
-          {passwordError && (
-            <div className="p-3 sm:p-4 bg-red-500/10 border border-red-500/20 rounded-lg sm:rounded-xl flex items-center gap-2 sm:gap-3 text-red-600 dark:text-red-400 text-xs sm:text-sm font-bold">
-              <AlertTriangle size={18} className="sm:w-5 sm:h-5 shrink-0" /> {passwordError}
-            </div>
-          )}
+          <form onSubmit={handleChangePassword} className="space-y-5 sm:space-y-6">
+            {passwordSuccess && (
+              <div className="p-3 sm:p-4 bg-green-500/10 border border-green-500/20 rounded-lg sm:rounded-xl flex items-center gap-2 sm:gap-3 text-green-600 dark:text-green-400 text-xs sm:text-sm font-bold">
+                <CheckCircle2 size={18} className="sm:w-5 sm:h-5 shrink-0" /> Senha alterada com sucesso!
+              </div>
+            )}
+            {passwordError && (
+              <div className="p-3 sm:p-4 bg-red-500/10 border border-red-500/20 rounded-lg sm:rounded-xl flex items-center gap-2 sm:gap-3 text-red-600 dark:text-red-400 text-xs sm:text-sm font-bold">
+                <AlertTriangle size={18} className="sm:w-5 sm:h-5 shrink-0" /> {passwordError}
+              </div>
+            )}
 
-          <div className="space-y-3 sm:space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Senha Atual</label>
-              <Input
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={e => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
-                placeholder="Digite sua senha atual"
-                autoComplete="current-password"
-              />
+            <div className="space-y-3 sm:space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Senha Atual</label>
+                <Input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={e => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                  placeholder="Digite sua senha atual"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Nova Senha</label>
+                <Input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={e => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Confirmar Nova Senha</label>
+                <Input
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={e => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+                  placeholder="Digite a nova senha novamente"
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Nova Senha</label>
-              <Input
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={e => setPasswordForm({...passwordForm, newPassword: e.target.value})}
-                placeholder="Mínimo 6 caracteres"
-                minLength={6}
-                autoComplete="new-password"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Confirmar Nova Senha</label>
-              <Input
-                type="password"
-                value={passwordForm.confirmPassword}
-                onChange={e => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
-                placeholder="Digite a nova senha novamente"
-                minLength={6}
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
 
-          <Button loading={isChangingPassword} type="submit" className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8">
-            <Lock size={18} className="sm:w-5 sm:h-5" /> Alterar Senha
-          </Button>
-        </form>
-      </div>
+            <Button loading={isChangingPassword} type="submit" className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8">
+              <Lock size={18} className="sm:w-5 sm:h-5" /> Alterar Senha
+            </Button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

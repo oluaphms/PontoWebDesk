@@ -118,8 +118,8 @@ export const db = {
   },
 
   insert: async <T extends DbRow = DbRow>(table: string, data: DbRow): Promise<T> => {
-    const res = await apiPost<{ ok?: boolean; data?: T; error?: string }>(`/data/${table}`, data);
-    if (res.error || !res.data) throw new ApiError(res.error || 'insert_failed', 400, res);
+    const res = await apiPost<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(`/data/${table}`, data);
+    if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'insert_failed', 400, res);
     return res.data as T;
   },
 
@@ -175,11 +175,11 @@ export const db = {
     dataOrFilters?: DbRow | Filter[],
   ): Promise<T> => {
     if (typeof idOrData === 'string') {
-      const res = await apiPatch<{ ok?: boolean; data?: T; error?: string }>(
+      const res = await apiPatch<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(
         `/data/${table}/${idOrData}`,
         (dataOrFilters as DbRow) ?? {},
       );
-      if (res.error || !res.data) throw new ApiError(res.error || 'update_failed', 400, res);
+      if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'update_failed', 400, res);
       return res.data as T;
     }
     const filters = dataOrFilters as Filter[] | undefined;
@@ -502,7 +502,7 @@ export const supabase = {
           const row = await db.update(table, String(id), data);
           return { data: [row], error: null };
         } catch (e) {
-          const msg = e instanceof ApiError ? e.message : 'update_failed';
+          const msg = e instanceof Error ? e.message : 'update_failed';
           return { data: null, error: { message: msg } };
         }
       },

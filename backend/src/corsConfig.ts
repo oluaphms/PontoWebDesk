@@ -1,9 +1,11 @@
 /**
  * Origens permitidas para o frontend (Vercel + dev local).
- * CORS_ORIGINS no .env acrescenta mais URLs (separadas por vírgula).
+ * CORS_ORIGINS/CORS_ALLOWED_ORIGINS no .env acrescentam mais URLs (separadas por vírgula).
  */
 const DEFAULT_ORIGINS = [
   'https://pontowebdesk.vercel.app',
+  'https://pontowebdesk.com.br',
+  'https://www.pontowebdesk.com.br',
   'http://localhost:3010',
   'http://localhost:5173',
 ];
@@ -12,7 +14,7 @@ const DEFAULT_ORIGINS = [
 const VERCEL_PREVIEW_RE = /^https:\/\/pontowebdesk-[a-z0-9-]+\.vercel\.app$/i;
 
 export function buildCorsAllowList(): string[] {
-  const fromEnv = (process.env.CORS_ORIGINS || '')
+  const fromEnv = `${process.env.CORS_ORIGINS || ''},${process.env.CORS_ALLOWED_ORIGINS || ''}`
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);

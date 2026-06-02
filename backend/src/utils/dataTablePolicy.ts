@@ -1,4 +1,4 @@
-import { isAdminOrHr, normalizeRole } from './authContext.js';
+import { isAdminOrHr, isPrivilegedRole, normalizeRole } from './authContext.js';
 import { buildPublicAllowedTables } from './dataTableAllowlist.js';
 
 /** Escopo por user_id (sem filtro company_id automático). */
@@ -12,6 +12,53 @@ export const USER_SCOPED_TABLES = new Set([
 
 /** Somente admin/hr — sem filtro tenant automático. */
 export const ADMIN_ONLY_TABLES = new Set(['companies', 'global_settings', 'devices']);
+
+/** Monitoramento, logs e integrações não são recursos de colaborador. */
+const PRIVILEGED_ONLY_TABLES = new Set([
+  'audit_log',
+  'audit_logs',
+  'audit_trail',
+  'clock_event_logs',
+  'clock_sync_logs',
+  'company_backup_settings',
+  'consent_logs',
+  'current_operational_state',
+  'device_keys',
+  'device_operational_reputation',
+  'device_operational_reputation_history',
+  'employee_import_errors',
+  'employee_import_logs',
+  'engine_calc_audit',
+  'fraud_alerts',
+  'lgpd_security_events',
+  'live_employee_heartbeat',
+  'live_employee_location',
+  'operational_alerts',
+  'operational_audit_log',
+  'operational_dead_letters',
+  'operational_geo_forensics_history',
+  'operational_incidents',
+  'operational_legal_audit_trail',
+  'operational_sla_config',
+  'operational_state_history',
+  'operational_tasks',
+  'rep_device_audit_logs',
+  'rep_device_checkpoints',
+  'rep_device_commands',
+  'rep_device_heartbeats',
+  'rep_devices',
+  'rep_logs',
+  'rep_punch_logs',
+  'rep_unresolved_punches',
+  'tenant_audit_log',
+  'time_attendance_audit_reviews',
+  'time_attendance_audit_snapshots',
+  'time_attendance_incident_reviews',
+  'time_attendance_reliability_snapshots',
+  'time_attendance_timeline',
+  'time_engine_afd_audit',
+  'time_record_change_log',
+]);
 
 /** Todas as tabelas public do dump Supabase + extras do app (paridade com cloud). */
 export const ALLOWED_TABLES = buildPublicAllowedTables();
@@ -42,12 +89,14 @@ export function isGenericDataApiWritesEnabled(): boolean {
 export function isTableReadable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
   if (ADMIN_ONLY_TABLES.has(table)) return isAdminOrHr(role);
+  if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   return true;
 }
 
 export function isTableWritable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
   if (ADMIN_ONLY_TABLES.has(table)) return isAdminOrHr(role);
+  if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   if (WRITE_REQUIRES_ADMIN_HR.has(table)) return isAdminOrHr(role);
   return true;
 }

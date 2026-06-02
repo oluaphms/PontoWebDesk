@@ -5,6 +5,14 @@ import { useAuth } from '../../hooks/useAuth';
 
 export type AllowedRole = 'employee' | 'admin' | 'hr' | 'supervisor';
 
+function normalizeRoleForGuard(role: string | undefined): AllowedRole {
+  const value = String(role || 'employee').trim().toLowerCase();
+  if (value === 'admin' || value === 'administrador') return 'admin';
+  if (value === 'hr' || value === 'rh') return 'hr';
+  if (value === 'supervisor' || value === 'gestor') return 'supervisor';
+  return 'employee';
+}
+
 export interface RoleGuardProps {
   /** @deprecated Use sessão via `useAuth()` — mantido para compatibilidade pontual. */
   user?: User | null;
@@ -27,7 +35,7 @@ const RoleGuard: React.FC<RoleGuardProps> = ({
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  const hasRole = allowedRoles.includes(user.role as AllowedRole);
+  const hasRole = allowedRoles.includes(normalizeRoleForGuard(user.role));
   if (!hasRole) {
     return <Navigate to={redirectTo} state={{ from: location }} replace />;
   }

@@ -128,10 +128,60 @@ function mapRow(row: Record<string, unknown>) {
   };
 }
 
+type DbErrorDetails = {
+  name?: string;
+  message: string;
+  code?: string;
+  detail?: string;
+  hint?: string;
+  schema?: string;
+  table?: string;
+  column?: string;
+  dataType?: string;
+  constraint?: string;
+  where?: string;
+  severity?: string;
+  routine?: string;
+  stack?: string;
+};
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function describeDbError(error: unknown): DbErrorDetails {
+  const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+  return {
+    name: error instanceof Error ? error.name : optionalString(record.name),
+    message: error instanceof Error ? error.message : String(error),
+    code: optionalString(record.code),
+    detail: optionalString(record.detail),
+    hint: optionalString(record.hint),
+    schema: optionalString(record.schema),
+    table: optionalString(record.table),
+    column: optionalString(record.column),
+    dataType: optionalString(record.dataType),
+    constraint: optionalString(record.constraint),
+    where: optionalString(record.where),
+    severity: optionalString(record.severity),
+    routine: optionalString(record.routine),
+    stack: error instanceof Error ? error.stack : optionalString(record.stack),
+  };
+}
+
 export async function listEmployeesController(req: AuthedRequest, res: Response): Promise<void> {
   if (rejectTenantOverride(req, res)) return;
   const companyId = requireCompanyId(req, res);
   if (!companyId) return;
+  if (!isAdminOrHr(req.auth?.role)) {
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: 'EMPLOYEES_LIST_FORBIDDEN',
+    });
+    return;
+  }
 
   try {
     const viewSelect = await buildEmployeeViewSelect(pool);
@@ -506,7 +556,6 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       );
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
     }
-    await client.query('commit');
     try {
       await ensureUserForEmployee(
         {
@@ -519,9 +568,9 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
           schedule_id: employeeRow.schedule_id,
           shift_id: employeeRow.shift_id,
         },
-        pool,
+        client,
       );
-      const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, pool);
+      const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
       if (userSync.attempted && userSync.updatedRows === 0) {
         logger.warn({
           module: 'employee.controller',
@@ -533,16 +582,27 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
         });
       }
     } catch (userSyncError) {
-      logger.warn({
+      logger.error({
         module: 'employee.controller',
         action: 'EMPLOYEE_USER_SYNC_FAILED',
-        message: 'Colaborador atualizado, mas sincronização auxiliar com users falhou',
+        message: 'UPDATE FAILURE: sincronização auxiliar com users falhou',
         userId: req.auth?.userId ?? req.auth?.sub ?? null,
         companyId,
         error: userSyncError,
-        meta: { employeeId: id },
+        meta: {
+          endpoint: req.originalUrl,
+          method: req.method,
+          employeeId: id,
+          payload: body,
+          payloadKeys: Object.keys(body).sort(),
+          patchFields: fields,
+          sql: updateSql || null,
+          originalError: describeDbError(userSyncError),
+        },
       });
+      throw userSyncError;
     }
+    await client.query('commit');
     let refreshed: Record<string, unknown> | null = null;
     try {
       refreshed = await fetchEmployeeViewById(pool, id, companyId);
@@ -579,6 +639,7 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       return;
     }
     if (dbCode === '23503' || dbCode === '23514' || dbCode === '23502' || dbCode === '22P02') {
+      const dbError = describeDbError(e);
       const constraintMessage =
         dbCode === '23503' || dbCode === '23514'
           ? 'Vínculo inválido de escala, horário ou empresa.'
@@ -598,51 +659,67 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
           sql: updateSql || null,
           payloadKeys: Object.keys(body).sort(),
           patchFields: fields,
+          originalError: dbError,
         },
       });
       res.status(400).json({
         ok: false,
         success: false,
-        error: 'invalid_employee_update',
-        code: 'EMPLOYEE_UPDATE_REJECTED',
-        message: constraintMessage,
+        error: dbError.message || constraintMessage,
+        code: dbError.code || 'EMPLOYEE_UPDATE_REJECTED',
+        message: dbError.message || constraintMessage,
+        detail: dbError.detail,
+        stack: dbError.stack,
         details: {
           employeeId: id,
           dbCode,
           payloadKeys: Object.keys(body).sort(),
+          patchFields: fields,
+          sql: updateSql || null,
+          originalError: dbError,
         },
       });
       return;
     }
-    const message = e instanceof Error ? e.message : String(e);
+    const dbError = describeDbError(e);
+    const message = dbError.message;
     const code = 'EMPLOYEE_UPDATE_FAILED';
     logger.error({
       module: 'employee.controller',
       action: 'EMPLOYEE_UPDATE_FAILED',
-      message: 'Falha ao atualizar colaborador',
+      message: 'UPDATE FAILURE',
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
       meta: {
+        endpoint: req.originalUrl,
+        method: req.method,
         employeeId: id,
         code,
         dbCode: dbCode || null,
         sql: updateSql || null,
+        payload: body,
         payloadKeys: Object.keys(body).sort(),
         patchFields: fields,
+        originalError: dbError,
       },
     });
     res.status(500).json({
       ok: false,
       success: false,
-      error: 'update_failed',
-      code,
-      message: 'Falha ao atualizar colaborador.',
+      error: message,
+      code: dbError.code || code,
+      message,
+      detail: dbError.detail,
+      stack: dbError.stack,
       details: {
         employeeId: id,
         reason: code,
         dbCode: dbCode || undefined,
-        cause: message,
+        sql: updateSql || null,
+        payloadKeys: Object.keys(body).sort(),
+        patchFields: fields,
+        originalError: dbError,
       },
     });
   } finally {

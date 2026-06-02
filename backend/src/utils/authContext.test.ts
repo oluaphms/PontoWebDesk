@@ -4,12 +4,15 @@ import { isAdminOrHr, normalizeRole, rejectTenantOverride } from './authContext.
 describe('authContext', () => {
   it('isAdminOrHr', () => {
     expect(isAdminOrHr('admin')).toBe(true);
+    expect(isAdminOrHr('administrador')).toBe(true);
     expect(isAdminOrHr('hr')).toBe(true);
     expect(isAdminOrHr('employee')).toBe(false);
   });
 
   it('normalizeRole', () => {
     expect(normalizeRole('  HR ')).toBe('hr');
+    expect(normalizeRole('gestor')).toBe('supervisor');
+    expect(normalizeRole('funcionário')).toBe('employee');
   });
 
   it('rejectTenantOverride detects mismatch', () => {

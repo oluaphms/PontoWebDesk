@@ -171,7 +171,7 @@ SELECT count(*) FROM punches;
 
 ## 8. Testar frontend
 
-1. `.env.local`: `VITE_LOCAL_API_BASE_URL=http://177.7.51.209/api` (ou domínio Traefik)
+1. `.env.local`: `VITE_API_URL=https://api.phmsdev.com.br/api` (use domínio HTTPS com certificado válido, não o IP)
 2. Login com utilizador que tem `password_hash`
 3. Listagem de colaboradores, cartão de ponto, relatórios
 4. Registos de ponto vêm principalmente de **`time_records`** (não só `punches`)

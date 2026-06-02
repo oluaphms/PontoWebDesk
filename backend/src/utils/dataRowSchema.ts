@@ -10,7 +10,8 @@ type ColumnMeta = {
   isIdentity: boolean;
 };
 
-const tableColumnsCache = new Map<string, ColumnMeta[]>();
+const TABLE_COLUMNS_CACHE_TTL_MS = Math.max(1000, Number(process.env.TABLE_COLUMNS_CACHE_TTL_MS) || 60_000);
+const tableColumnsCache = new Map<string, { columns: ColumnMeta[]; loadedAt: number }>();
 
 const SENSITIVE_COLUMN_EXACT = new Set([
   'password',
@@ -160,7 +161,7 @@ export async function applyTenantToRowAsync(
 
 async function loadTableColumns(table: string): Promise<ColumnMeta[]> {
   const cached = tableColumnsCache.get(table);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.loadedAt < TABLE_COLUMNS_CACHE_TTL_MS) return cached.columns;
   const result = await pool.query<{
     column_name: string;
     data_type: string;
@@ -178,7 +179,7 @@ async function loadTableColumns(table: string): Promise<ColumnMeta[]> {
     isGenerated: r.is_generated !== 'NEVER',
     isIdentity: r.is_identity === 'YES',
   }));
-  tableColumnsCache.set(table, cols);
+  tableColumnsCache.set(table, { columns: cols, loadedAt: Date.now() });
   return cols;
 }
 

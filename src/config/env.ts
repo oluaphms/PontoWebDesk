@@ -2,7 +2,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { DEFAULT_PROVIDER, type DataProviderMode } from './providers';
 
 /** Fallback quando `VITE_API_URL` / `VITE_LOCAL_API_BASE_URL` estão ausentes. */
-export const DEFAULT_API_BASE = 'http://177.7.51.209/api';
+export const DEFAULT_API_BASE = 'https://api.phmsdev.com.br/api';
 
 export function parseDataProviderMode(raw: string | undefined): DataProviderMode {
   const normalized = String(raw ?? '')

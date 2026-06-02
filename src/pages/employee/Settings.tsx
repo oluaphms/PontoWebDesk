@@ -4,7 +4,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
-import { auth } from '../../services/supabaseClient';
+import { authService } from '../../../services/authService';
 import { ThemeService } from '../../../services/themeService';
 import type { Theme } from '../../../services/themeService';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -111,7 +111,7 @@ const EmployeeSettings: React.FC = () => {
     setSaving(true);
     setMessage(null);
     try {
-      await auth.updatePassword(newPassword);
+      await authService.updatePassword(newPassword);
       setNewPassword('');
       setConfirmPassword('');
       setMessage({ type: 'success', text: i18n.t('empSettings.passwordChanged') });
