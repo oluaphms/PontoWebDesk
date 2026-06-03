@@ -1039,6 +1039,14 @@ async function executeInsertTimeRecordRpc(
     await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [actorId]);
     await client.query(`select set_config('request.jwt.claim.company_id', $1, true)`, [companyId]);
     await client.query(`select set_config('request.jwt.claim.role', $1, true)`, [actorRole]);
+    await client.query(`select set_config('request.jwt.claims', $1, true)`, [
+      JSON.stringify({
+        sub: actorId,
+        user_id: actorId,
+        company_id: companyId,
+        role: actorRole,
+      }),
+    ]);
     const sql =
       `SELECT public.${fn}(` +
       '$1::uuid, $2::uuid, $3::timestamptz, $4::text, $5::text, $6::jsonb, $7::boolean' +
