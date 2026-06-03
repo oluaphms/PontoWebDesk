@@ -155,17 +155,29 @@ export const db = {
     }
   },
 
-  rpc: async <T = unknown>(fn: string, args?: DbRow): Promise<{ data: T | null; error: { message: string } | null }> => {
+  rpc: async <T = unknown>(
+    fn: string,
+    args?: DbRow,
+  ): Promise<{ data: T | null; error: { message: string; code?: string; details?: unknown } | null }> => {
     try {
-      const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null }>(
+      const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null; code?: string; details?: unknown }>(
         `/data/rpc/${fn}`,
         args ?? {},
       );
-      if (res.error) return { data: null, error: { message: String(res.error) } };
+      if (res.error) {
+        return { data: null, error: { message: String(res.error), code: res.code, details: res.details } };
+      }
       return { data: (res.data as T) ?? null, error: null };
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'rpc_failed';
-      return { data: null, error: { message: msg } };
+      return {
+        data: null,
+        error: {
+          message: msg,
+          code: e instanceof ApiError ? String((e.body as Record<string, unknown> | null)?.code ?? '') || undefined : undefined,
+          details: e instanceof ApiError ? (e.body as Record<string, unknown> | null)?.details : undefined,
+        },
+      };
     }
   },
 

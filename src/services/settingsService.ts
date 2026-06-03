@@ -4,7 +4,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  * Lê e atualiza a tabela global_settings (uma única linha).
  */
 
-import { supabase, checkSupabaseConfigured } from '../../services/supabaseClient';
+import { db, checkSupabaseConfigured } from '../../services/supabaseClient';
 import type { GlobalSettings, CompanyLocation } from '../types/settings';
 import { DEFAULT_GLOBAL_SETTINGS } from '../types/settings';
 import { COMPANY_LOCATION_COLUMNS, GLOBAL_SETTINGS_COLUMNS } from './egressSelectColumns';
@@ -65,9 +65,9 @@ function mapRow(row: any): GlobalSettings | null {
 }
 
 /**
- * Obtém as configurações globais (único registro).
+ * Obtém as configurações da empresa autenticada.
  */
-export async function getSettings(): Promise<GlobalSettings | null> {
+export async function getSettings(companyId?: string | null): Promise<GlobalSettings | null> {
   const localFallback = async () => {
     const cached = await getCachedSettings<GlobalSettings>();
     return cloudFallback(cached ?? DEFAULT_SETTINGS);
@@ -78,13 +78,29 @@ export async function getSettings(): Promise<GlobalSettings | null> {
   if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
   return cloudSafe(
     () =>
-      queryCache.getOrFetch('global_settings:singleton', async () => {
-        const { data, error } = await supabase
-          .from(TABLE)
-          .select(GLOBAL_SETTINGS_COLUMNS)
-          .limit(1)
-          .maybeSingle();
-        if (error) {
+      queryCache.getOrFetch(`global_settings:${companyId || 'session'}`, async () => {
+        try {
+          const filters = companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : [];
+          const rows = await db.select(TABLE, filters, {
+            columns: GLOBAL_SETTINGS_COLUMNS,
+            limit: 1,
+          });
+          let mapped = mapRow(rows?.[0]) ?? null;
+          if (!mapped && companyId) {
+            const inserted = await db.insert(TABLE, {
+              company_id: companyId,
+              ...DEFAULT_GLOBAL_SETTINGS,
+              allow_manual_punch: true,
+              late_tolerance_minutes: 10,
+              min_break_minutes: 60,
+              timezone: 'America/Sao_Paulo',
+            });
+            mapped = mapRow(inserted);
+          }
+          const finalSettings = mapped ?? DEFAULT_SETTINGS;
+          await cacheSettings(finalSettings as unknown as Record<string, unknown>);
+          return finalSettings;
+        } catch (error) {
           if (isSupabaseBlocked(error)) {
             enableDegradedMode();
             observabilityConsole.warn('[MODO LOCAL] settings');
@@ -93,9 +109,6 @@ export async function getSettings(): Promise<GlobalSettings | null> {
           observabilityConsole.warn('[settingsService] getSettings:', error);
           return await localFallback();
         }
-        const mapped = mapRow(data) ?? DEFAULT_SETTINGS;
-        await cacheSettings(mapped as unknown as Record<string, unknown>);
-        return mapped;
       }, TTL.STATIC),
     DEFAULT_SETTINGS,
   );
@@ -115,18 +128,16 @@ export async function updateSettings(
   const payload: any = { ...data, updated_at: new Date().toISOString() };
   if (payload.default_entry_time && !payload.default_entry_time.includes(':')) payload.default_entry_time = `${payload.default_entry_time}:00`;
   if (payload.default_exit_time && !payload.default_exit_time.includes(':')) payload.default_exit_time = `${payload.default_exit_time}:00`;
-  const { data: updated, error } = await supabase
-    .from(TABLE)
-    .update(payload)
-    .eq('id', id)
-    .select(GLOBAL_SETTINGS_COLUMNS)
-    .single();
-  if (error) {
+  try {
+    const updated = await db.update(TABLE, id, payload);
+    queryCache.invalidate('global_settings:');
+    const mapped = mapRow(updated);
+    if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+    return { data: mapped, error: null };
+  } catch (error) {
     observabilityConsole.error('[settingsService] updateSettings error:', error);
-    return { data: null, error };
+    return { data: null, error: error instanceof Error ? error : new Error('settings_update_failed') };
   }
-  queryCache.invalidate('global_settings:');
-  return { data: mapRow(updated), error: null };
 }
 
 /**

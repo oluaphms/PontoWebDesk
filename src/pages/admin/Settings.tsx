@@ -82,7 +82,7 @@ const AdminSettings: React.FC = () => {
     (async () => {
       setLoadingData(true);
       try {
-        const data = await getSettings();
+        const data = await getSettings(user?.companyId);
         if (data) {
           setSettingsId(data.id);
           setForm({

@@ -58,7 +58,7 @@ BEGIN
        AND conname = v_constraint
   ) THEN
     EXECUTE format(
-      'ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (company_id IS NOT NULL AND btrim(company_id) <> '''') NOT VALID',
+      'ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (company_id IS NOT NULL AND btrim(company_id::text) <> '''') NOT VALID',
       p_table,
       v_constraint
     );
@@ -110,7 +110,7 @@ BEGIN
        SET company_id = u.company_id
       FROM public.users u
      WHERE e.id::text = u.id::text
-       AND (e.company_id IS NULL OR btrim(e.company_id) = '')
+       AND (e.company_id IS NULL OR btrim(e.company_id::text) = '')
        AND u.company_id IS NOT NULL
        AND btrim(u.company_id::text) <> '';
   END IF;
@@ -120,7 +120,7 @@ BEGIN
        SET company_id = u.company_id
       FROM public.users u
      WHERE r.user_id::text = u.id::text
-       AND (r.company_id IS NULL OR btrim(r.company_id) = '')
+       AND (r.company_id IS NULL OR btrim(r.company_id::text) = '')
        AND u.company_id IS NOT NULL
        AND btrim(u.company_id::text) <> '';
   END IF;
@@ -130,7 +130,7 @@ BEGIN
        SET company_id = u.company_id
       FROM public.users u
      WHERE n.user_id::text = u.id::text
-       AND (n.company_id IS NULL OR btrim(n.company_id) = '')
+       AND (n.company_id IS NULL OR btrim(n.company_id::text) = '')
        AND u.company_id IS NOT NULL
        AND btrim(u.company_id::text) <> '';
   END IF;
@@ -140,7 +140,7 @@ BEGIN
        SET company_id = u.company_id
       FROM public.users u
      WHERE ta.user_id::text = u.id::text
-       AND (ta.company_id IS NULL OR btrim(ta.company_id) = '')
+       AND (ta.company_id IS NULL OR btrim(ta.company_id::text) = '')
        AND u.company_id IS NOT NULL
        AND btrim(u.company_id::text) <> '';
   END IF;
@@ -151,7 +151,7 @@ BEGIN
        SET company_id = e.company_id
       FROM public.estruturas e
      WHERE er.estrutura_id::text = e.id::text
-       AND (er.company_id IS NULL OR btrim(er.company_id) = '');
+       AND (er.company_id IS NULL OR btrim(er.company_id::text) = '');
   END IF;
 
   IF public._pwd_table_exists('feriado_departamentos') THEN
@@ -160,7 +160,7 @@ BEGIN
        SET company_id = f.company_id
       FROM public.feriados f
      WHERE fd.feriado_id::text = f.id::text
-       AND (fd.company_id IS NULL OR btrim(fd.company_id) = '');
+       AND (fd.company_id IS NULL OR btrim(fd.company_id::text) = '');
   END IF;
 
   IF public._pwd_table_exists('feriado_cidades') THEN
@@ -169,7 +169,7 @@ BEGIN
        SET company_id = f.company_id
       FROM public.feriados f
      WHERE fc.feriado_id::text = f.id::text
-       AND (fc.company_id IS NULL OR btrim(fc.company_id) = '');
+       AND (fc.company_id IS NULL OR btrim(fc.company_id::text) = '');
   END IF;
 END $$;
 
@@ -178,7 +178,7 @@ END $$;
 -- ---------------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS idx_global_settings_company_id_unique
   ON public.global_settings(company_id)
-  WHERE company_id IS NOT NULL AND btrim(company_id) <> '';
+  WHERE company_id IS NOT NULL AND btrim(company_id::text) <> '';
 
 DO $$
 DECLARE
@@ -351,6 +351,28 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- Bootstrap automático de nova empresa
 -- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public._pwd_company_param_ref(p_table text, p_ref text)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_udt text;
+BEGIN
+  SELECT udt_name INTO v_udt
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = p_table
+     AND column_name = 'company_id';
+
+  IF v_udt = 'uuid' THEN
+    RETURN p_ref || '::uuid';
+  END IF;
+
+  RETURN p_ref || '::text';
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.pwd_bootstrap_company_defaults(p_company_id text)
 RETURNS void
 LANGUAGE plpgsql
@@ -368,72 +390,77 @@ BEGIN
     RETURN;
   END IF;
 
-  INSERT INTO public.global_settings (
-    company_id,
-    gps_required,
-    photo_required,
-    allow_manual_punch,
-    late_tolerance_minutes,
-    min_break_minutes,
-    timezone,
-    language,
-    email_alerts,
-    daily_email_summary,
-    punch_reminder,
-    password_min_length,
-    require_numbers,
-    require_special_chars,
-    session_timeout_minutes,
-    default_entry_time,
-    default_exit_time,
-    allow_time_bank
-  )
-  VALUES (
-    v_company_id,
-    false,
-    false,
-    true,
-    10,
-    60,
-    'America/Sao_Paulo',
-    'pt-BR',
-    true,
-    false,
-    true,
-    8,
-    false,
-    false,
-    60,
-    '08:00'::time,
-    '18:00'::time,
-    true
-  )
-  ON CONFLICT DO NOTHING;
+  IF public._pwd_table_exists('global_settings') THEN
+    EXECUTE format(
+      'INSERT INTO public.global_settings (
+         company_id,
+         gps_required,
+         photo_required,
+         allow_manual_punch,
+         late_tolerance_minutes,
+         min_break_minutes,
+         timezone,
+         language,
+         email_alerts,
+         daily_email_summary,
+         punch_reminder,
+         password_min_length,
+         require_numbers,
+         require_special_chars,
+         session_timeout_minutes,
+         default_entry_time,
+         default_exit_time,
+         allow_time_bank
+       )
+       VALUES (%s, false, false, true, 10, 60, ''America/Sao_Paulo'', ''pt-BR'', true, false, true, 8, false, false, 60, ''08:00''::time, ''18:00''::time, true)
+       ON CONFLICT DO NOTHING',
+      public._pwd_company_param_ref('global_settings', '$1')
+    )
+    USING v_company_id;
+  END IF;
 
-  INSERT INTO public.estruturas (company_id, codigo, descricao)
-  VALUES (v_company_id, 'MATRIZ', 'Matriz')
-  ON CONFLICT (company_id, codigo) DO NOTHING;
+  IF public._pwd_table_exists('estruturas') THEN
+    EXECUTE format(
+      'INSERT INTO public.estruturas (company_id, codigo, descricao)
+       VALUES (%s, $2, $3)
+       ON CONFLICT (company_id, codigo) DO NOTHING',
+      public._pwd_company_param_ref('estruturas', '$1')
+    )
+    USING v_company_id, 'MATRIZ', 'Matriz';
+  END IF;
 
-  INSERT INTO public.departments (company_id, name)
-  SELECT v_company_id, 'Administrativo'
-  WHERE NOT EXISTS (
-    SELECT 1
-      FROM public.departments
-     WHERE company_id::text = v_company_id
-       AND lower(btrim(name)) = 'administrativo'
-  );
+  IF public._pwd_table_exists('departments') THEN
+    EXECUTE format(
+      'INSERT INTO public.departments (id, company_id, name)
+       SELECT gen_random_uuid(), %s, $2
+       WHERE NOT EXISTS (
+         SELECT 1
+           FROM public.departments
+          WHERE company_id::text = $1::text
+            AND lower(btrim(name)) = lower($2)
+       )',
+      public._pwd_company_param_ref('departments', '$1')
+    )
+    USING v_company_id, 'Administrativo';
+  END IF;
 
-  INSERT INTO public.company_rules (
-    company_id,
-    work_on_saturday,
-    saturday_overtime_type,
-    time_bank_enabled,
-    tolerance_minutes,
-    night_additional_percent,
-    dsr_enabled
-  )
-  VALUES (v_company_id, false, '100', true, 10, 20, true)
-  ON CONFLICT (company_id) DO NOTHING;
+  IF public._pwd_table_exists('company_rules') THEN
+    EXECUTE format(
+      'INSERT INTO public.company_rules (
+         company_id,
+         work_on_saturday,
+         saturday_overtime_type,
+         time_bank_enabled,
+         tolerance_minutes,
+         night_additional_percent,
+         dsr_enabled
+       )
+       VALUES (%s, false, ''100'', true, 10, 20, true)
+       ON CONFLICT (company_id) DO NOTHING',
+      public._pwd_company_param_ref('company_rules', '$1')
+    )
+    USING v_company_id;
+  END IF;
 
   IF public._pwd_table_exists('work_shifts') THEN
     SELECT id INTO v_shift_id
@@ -445,7 +472,7 @@ BEGIN
 
     IF v_shift_id IS NULL THEN
       v_columns := ARRAY['company_id', 'name'];
-      v_values := ARRAY['$1', '$2'];
+      v_values := ARRAY[public._pwd_company_param_ref('work_shifts', '$1'), '$2'];
 
       IF public._pwd_column_exists('work_shifts', 'start_time') THEN
         v_columns := v_columns || 'start_time';
@@ -494,14 +521,18 @@ BEGIN
   END IF;
 
   IF public._pwd_table_exists('schedules') THEN
-    INSERT INTO public.schedules (company_id, name, days, shift_id)
-    SELECT v_company_id, 'Segunda a Sexta', ARRAY[1,2,3,4,5]::integer[], v_shift_id
-    WHERE NOT EXISTS (
-      SELECT 1
-        FROM public.schedules
-       WHERE company_id::text = v_company_id
-         AND lower(btrim(name)) = 'segunda a sexta'
-    );
+    EXECUTE format(
+      'INSERT INTO public.schedules (company_id, name, days, shift_id)
+       SELECT %s, $2, ARRAY[1,2,3,4,5]::integer[], $3
+       WHERE NOT EXISTS (
+         SELECT 1
+           FROM public.schedules
+          WHERE company_id::text = $1::text
+            AND lower(btrim(name)) = lower($2)
+       )',
+      public._pwd_company_param_ref('schedules', '$1')
+    )
+    USING v_company_id, 'Segunda a Sexta', v_shift_id;
   END IF;
 END;
 $$;

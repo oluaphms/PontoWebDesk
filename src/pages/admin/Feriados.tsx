@@ -28,6 +28,15 @@ const FERIADOS_PADROES: { dia: number; mes: number; descricao: string }[] = [
   { dia: 25, mes: 12, descricao: 'Natal' },
 ];
 
+function normalizeHolidayDate(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? raw.slice(0, 10) : parsed.toISOString().slice(0, 10);
+}
+
 const AdminFeriados: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [rows, setRows] = useState<FeriadoRow[]>([]);
@@ -51,7 +60,7 @@ const AdminFeriados: React.FC = () => {
       const result = (await db.select('feriados', [{ column: 'company_id', operator: 'eq', value: user.companyId }], { column: 'data', ascending: true })) as any[];
       setRows((result ?? []).map((r: any) => ({
         id: r.id,
-        data: r.data,
+        data: normalizeHolidayDate(r.data),
         descricao: r.descricao || '',
         company_id: r.company_id,
         created_at: r.created_at,
@@ -79,7 +88,7 @@ const AdminFeriados: React.FC = () => {
 
   const openEdit = (row: FeriadoRow) => {
     setEditingId(row.id);
-    setData(row.data);
+    setData(normalizeHolidayDate(row.data));
     setDescricao(row.descricao);
     setModalOpen(true);
     setMessage(null);
@@ -106,13 +115,13 @@ const AdminFeriados: React.FC = () => {
     setMessage(null);
     try {
       if (editingId) {
-        await db.update('feriados', editingId, { data: data.trim(), descricao: descricao.trim() });
+        await db.update('feriados', editingId, { data: normalizeHolidayDate(data), descricao: descricao.trim() });
         setMessage({ type: 'success', text: 'Feriado atualizado com sucesso.' });
       } else {
         await db.insert('feriados', {
           id: crypto.randomUUID(),
           company_id: user.companyId,
-          data: data.trim(),
+          data: normalizeHolidayDate(data),
           descricao: descricao.trim(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -150,7 +159,7 @@ const AdminFeriados: React.FC = () => {
     setLoadingPadroes(true);
     setMessage(null);
     try {
-      const existentes = new Set(rows.map((r) => r.data));
+      const existentes = new Set(rows.map((r) => normalizeHolidayDate(r.data)));
       let inseridos = 0;
       for (const f of FERIADOS_PADROES) {
         const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
@@ -176,8 +185,10 @@ const AdminFeriados: React.FC = () => {
   };
 
   const formatData = (d: string) => {
-    if (!d) return '—';
-    const [y, m, day] = d.split('-');
+    const normalized = normalizeHolidayDate(d);
+    if (!normalized) return '—';
+    const [y, m, day] = normalized.split('-');
+    if (!y || !m || !day) return d || '—';
     return `${day}/${m}/${y}`;
   };
 
