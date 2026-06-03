@@ -10,6 +10,7 @@ import {
 } from './magicBytes.js';
 import { getFileExtension, sanitizeFilename } from './sanitizeFilename.js';
 import { UPLOAD_LIMITS, type UploadProfile } from './limits.js';
+import { verifySignedPhotoUrl } from '../services/uploadStorageService.js';
 
 export type ValidationResult =
   | { ok: true; sanitizedName: string; detectedMime?: string; ext: string }
@@ -183,6 +184,18 @@ export function validateImportDocument(input: {
   return { ok: true, sanitizedName, ext };
 }
 
+function isInternalUploadPhotoPath(pathname: string): boolean {
+  return /^\/api\/uploads\/files\/[\w-]+\/[\w.-]+$/.test(pathname);
+}
+
+function isSignedInternalUploadPhotoUrl(url: URL): boolean {
+  if (!isInternalUploadPhotoPath(url.pathname)) return false;
+  const parts = url.pathname.split('/').filter(Boolean);
+  const userId = decodeURIComponent(parts[3] || '');
+  const fileName = decodeURIComponent(parts[4] || '');
+  return verifySignedPhotoUrl(userId, fileName, url.searchParams.get('exp') || '', url.searchParams.get('sig') || '');
+}
+
 /** Valida URL de foto persistida (sem data: URLs). */
 export function validatePhotoUrl(url: string | null | undefined): ValidationResult | { ok: true; url: string } {
   if (url == null || url === '') return { ok: true, url: '' };
@@ -197,7 +210,7 @@ export function validatePhotoUrl(url: string | null | undefined): ValidationResu
     return { ok: false, code: 'INVALID_URL', message: 'URL da foto inválida.' };
   }
   if (trimmed.startsWith('/')) {
-    if (!/^\/api\/uploads\/files\/[\w-]+\/[\w.-]+(\?.*)?$/.test(trimmed.split('?')[0] || '')) {
+    if (!isInternalUploadPhotoPath(trimmed.split('?')[0] || '')) {
       return { ok: false, code: 'INVALID_URL', message: 'Caminho de foto não autorizado.' };
     }
     return { ok: true, url: trimmed };
@@ -206,6 +219,9 @@ export function validatePhotoUrl(url: string | null | undefined): ValidationResu
     const u = new URL(trimmed);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
       return { ok: false, code: 'INVALID_URL', message: 'Protocolo de URL não permitido.' };
+    }
+    if (isSignedInternalUploadPhotoUrl(u)) {
+      return { ok: true, url: trimmed };
     }
     const host = u.hostname.toLowerCase();
     const allowedHosts = buildAllowedPhotoHosts();
