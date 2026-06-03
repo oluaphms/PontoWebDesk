@@ -3,6 +3,7 @@
  * Padrão: retornar dados; em erro de PostgREST, lançar `Error` com mensagem clara.
  */
 
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { throwIfTimesheetClosedForPunchMutation } from '../src/services/timesheetClosure';
 import { db, getSupabaseClientOrThrow, type Filter } from './supabaseClient';
 import type { SupabaseClient } from '@supabase/supabase-js';
