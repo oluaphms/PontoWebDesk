@@ -124,26 +124,30 @@ export async function listTimeRecords(
 
 export async function getTimeRecordsByUser(userId: string, limit = 50, offset = 0): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  const { data, error } = await getSupabaseClientOrThrow()
-    .from('time_records')
-    .select('id, user_id, type, method, created_at, location, company_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-  throwIfError(error, 'getTimeRecordsByUser');
-  return data ?? [];
+  return db.select(
+    'time_records',
+    [{ column: 'user_id', operator: 'eq', value: userId }],
+    {
+      columns: 'id, user_id, type, method, created_at, timestamp, location, company_id, source, origin',
+      orderBy: { column: 'created_at', ascending: false },
+      limit,
+      offset,
+    },
+  );
 }
 
 export async function getTimeRecordsByCompany(companyId: string, limit = 50, offset = 0): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  const { data, error } = await getSupabaseClientOrThrow()
-    .from('time_records')
-    .select('id, user_id, type, created_at, company_id')
-    .eq('company_id', companyId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-  throwIfError(error, 'getTimeRecordsByCompany');
-  return data ?? [];
+  return db.select(
+    'time_records',
+    [{ column: 'company_id', operator: 'eq', value: companyId }],
+    {
+      columns: 'id, user_id, type, created_at, timestamp, company_id, source, origin',
+      orderBy: { column: 'created_at', ascending: false },
+      limit,
+      offset,
+    },
+  );
 }
 
 export async function getTimeRecordsByDateForUser(userId: string, date: string): Promise<any[]> {
@@ -153,15 +157,18 @@ export async function getTimeRecordsByDateForUser(userId: string, date: string):
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const { data, error } = await getSupabaseClientOrThrow()
-    .from('time_records')
-    .select('id, user_id, type, created_at, location, method')
-    .eq('user_id', userId)
-    .gte('created_at', startOfDay.toISOString())
-    .lte('created_at', endOfDay.toISOString())
-    .order('created_at', { ascending: true });
-  throwIfError(error, 'getTimeRecordsByDateForUser');
-  return data ?? [];
+  return db.select(
+    'time_records',
+    [
+      { column: 'user_id', operator: 'eq', value: userId },
+      { column: 'created_at', operator: 'gte', value: startOfDay.toISOString() },
+      { column: 'created_at', operator: 'lte', value: endOfDay.toISOString() },
+    ],
+    {
+      columns: 'id, user_id, type, created_at, timestamp, location, method',
+      orderBy: { column: 'created_at', ascending: true },
+    },
+  );
 }
 
 export async function countTimeRecordsByUser(userId: string): Promise<number> {

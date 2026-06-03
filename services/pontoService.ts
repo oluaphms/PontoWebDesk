@@ -16,6 +16,8 @@ import { ValidationService } from './validationService';
 import { LoggingService } from './loggingService';
 import { firestoreService } from './firestoreService';
 import { db, getUserProfileStorage, isSupabaseConfigured } from './supabaseClient';
+import { isLocalApiMode } from '../src/config/system';
+import { apiPost } from '../src/services/api';
 
 // In-memory cache to reduce localStorage access (simulating database indexing and caching)
 const cache = {
@@ -245,6 +247,58 @@ export const PontoService = {
     const serverTime = new Date();
     const company = await this.getCompany(companyId);
     if (!company) throw new Error("Empresa não identificada.");
+
+    if (isLocalApiMode()) {
+      const deviceId = this.getDeviceId();
+      const payload = {
+        user_id: userId,
+        company_id: companyId,
+        type,
+        method,
+        timestamp: serverTime.toISOString(),
+        source: method === PunchMethod.MANUAL ? 'manual' : 'web',
+        location: location ?? null,
+        photo_url: photoBase64 && !photoBase64.startsWith('data:image') ? photoBase64 : null,
+        justification: justification ?? null,
+        latitude: location?.lat ?? null,
+        longitude: location?.lng ?? null,
+        accuracy: location?.accuracy ?? null,
+        device_id: deviceId,
+      };
+      const response = (await apiPost('/punches', payload)) as {
+        ok?: boolean;
+        result?: { id?: string; punch_hash?: string };
+        error?: string;
+        message?: string;
+      };
+      if (!response?.ok) {
+        throw new Error(response?.message || response?.error || 'Erro ao registrar ponto.');
+      }
+      cache.records.delete(userId);
+      cache.allRecords = null;
+      cache.kpis.delete(companyId);
+      return {
+        id: String(response.result?.id || crypto.randomUUID()),
+        userId,
+        companyId,
+        type,
+        method,
+        photoUrl: payload.photo_url ?? undefined,
+        location,
+        justification,
+        createdAt: serverTime,
+        ipAddress: '',
+        deviceId,
+        fraudFlags: method === PunchMethod.MANUAL ? [FraudFlag.MANUAL_BYPASS] : [],
+        deviceInfo: {
+          browser: '',
+          os: '',
+          isMobile: typeof navigator !== 'undefined' ? /mobile/i.test(navigator.userAgent) : false,
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+        },
+        adjustments: [],
+      };
+    }
 
     const userRecords = await this.getRecords(userId);
     const last = userRecords[0];

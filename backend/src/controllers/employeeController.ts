@@ -207,6 +207,7 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        from employees e
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
        where e.company_id = $1
+         and coalesce(e.status, 'active') = 'active'
        order by e.created_at desc
        limit 1000`,
       [companyId],

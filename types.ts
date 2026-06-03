@@ -183,9 +183,17 @@ export interface User {
    */
   tenantId: string;
   departmentId: string;
+  departmentName?: string;
   schedule_id?: string;
+  scheduleName?: string;
   /** Horário de trabalho cadastrado (work_shifts), distinto da escala (schedules). */
   shift_id?: string;
+  shiftName?: string;
+  estrutura_id?: string;
+  estruturaName?: string;
+  departamento?: string;
+  jornada_tipo?: string;
+  carga_horaria?: number | null;
   phone?: string;
   avatar?: string;
   permissions?: string[]; // Permissões customizadas (sobrescreve role)

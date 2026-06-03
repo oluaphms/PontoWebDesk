@@ -26,7 +26,8 @@ describe('dataRowSchema PostgreSQL casts', () => {
 
   it('valida payload de schedules.days como integer[] antes do SQL', () => {
     expect(coerceArrayValue('days', 'integer[]', [1, '2', 3])).toEqual([1, 2, 3]);
-    expect(() => coerceArrayValue('days', 'integer[]', '1,2,3')).toThrow(DataRowValidationError);
-    expect(() => coerceArrayValue('days', 'integer[]', '[1,2,3]')).toThrow(DataRowValidationError);
+    expect(coerceArrayValue('days', 'integer[]', '1,2,3')).toEqual([1, 2, 3]);
+    expect(coerceArrayValue('days', 'integer[]', '[1,2,3]')).toEqual([1, 2, 3]);
+    expect(() => coerceArrayValue('days', 'integer[]', '1,terça,3')).toThrow(DataRowValidationError);
   });
 });

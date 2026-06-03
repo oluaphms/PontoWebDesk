@@ -267,7 +267,18 @@ function coerceBooleanValue(value: unknown): unknown {
 
 export function coerceArrayValue(column: string, dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return null;
-  if (!Array.isArray(value)) {
+  let arrayValue = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) arrayValue = parsed;
+    } catch {
+      arrayValue = trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  if (!Array.isArray(arrayValue)) {
     throw new DataRowValidationError(
       `Campo ${column} deve ser enviado como array para a coluna ${dataType}.`,
       'DATA_INVALID_ARRAY_PAYLOAD',
@@ -275,7 +286,7 @@ export function coerceArrayValue(column: string, dataType: string, value: unknow
     );
   }
   if (dataType === 'integer[]' || dataType === 'smallint[]' || dataType === 'bigint[]') {
-    return value.map((item, index) => {
+    return arrayValue.map((item, index) => {
       const n = Number(item);
       if (!Number.isInteger(n)) {
         throw new DataRowValidationError(
@@ -287,7 +298,7 @@ export function coerceArrayValue(column: string, dataType: string, value: unknow
       return n;
     });
   }
-  return value;
+  return arrayValue;
 }
 
 /** Remove colunas inexistentes e ajusta tipos (ex.: string → jsonb). */

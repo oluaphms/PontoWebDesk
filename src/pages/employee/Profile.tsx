@@ -23,6 +23,8 @@ const EmployeeProfile: React.FC = () => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [scheduleName, setScheduleName] = useState<string>('—');
   const [departmentName, setDepartmentName] = useState<string>('—');
+  const [shiftName, setShiftName] = useState<string>('—');
+  const [structureName, setStructureName] = useState<string>('—');
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
@@ -34,20 +36,11 @@ const EmployeeProfile: React.FC = () => {
   useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
     const load = async () => {
-      console.log('USER', user);
-      console.log('PROFILE', {
-        id: user.id,
-        nome: user.nome,
-        email: user.email,
-        phone: (user as any).phone ?? null,
-        cargo: user.cargo,
-        departmentId: (user as any).departmentId ?? null,
-        schedule_id: user.schedule_id ?? null,
-        status: (user as any).status ?? null,
-      });
-      setScheduleName('—');
-      setDepartmentName('—');
-      if (user.schedule_id) {
+      setScheduleName((user as any).scheduleName || '—');
+      setDepartmentName((user as any).departmentName || (user as any).departamento || '—');
+      setShiftName((user as any).shiftName || '—');
+      setStructureName((user as any).estruturaName || '—');
+      if (user.schedule_id && !(user as any).scheduleName) {
         try {
           const sched = (await db.select('schedules', [{ column: 'id', operator: 'eq', value: user.schedule_id }])) as any[];
           if (sched?.[0]) setScheduleName(sched[0].name || '—');
@@ -55,7 +48,7 @@ const EmployeeProfile: React.FC = () => {
           setScheduleName('—');
         }
       }
-      if ((user as any).departmentId) {
+      if ((user as any).departmentId && !(user as any).departmentName && !(user as any).departamento) {
         try {
           const depts = (await db.select('departments', [{ column: 'id', operator: 'eq', value: (user as any).departmentId }])) as any[];
           if (depts?.[0]) setDepartmentName(depts[0].name || '—');
@@ -63,9 +56,25 @@ const EmployeeProfile: React.FC = () => {
           setDepartmentName('—');
         }
       }
+      if ((user as any).shift_id && !(user as any).shiftName) {
+        try {
+          const shifts = (await db.select('work_shifts', [{ column: 'id', operator: 'eq', value: (user as any).shift_id }])) as any[];
+          if (shifts?.[0]) setShiftName(shifts[0].name || '—');
+        } catch {
+          setShiftName('—');
+        }
+      }
+      if ((user as any).estrutura_id && !(user as any).estruturaName) {
+        try {
+          const structures = (await db.select('estruturas', [{ column: 'id', operator: 'eq', value: (user as any).estrutura_id }])) as any[];
+          if (structures?.[0]) setStructureName(structures[0].descricao || structures[0].name || '—');
+        } catch {
+          setStructureName('—');
+        }
+      }
     };
     load();
-  }, [user?.schedule_id, (user as any)?.departmentId]);
+  }, [user]);
 
   const handleSave = async () => {
     if (!user || !isSupabaseConfigured()) return;
@@ -154,6 +163,9 @@ const EmployeeProfile: React.FC = () => {
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
   const showChangePassword = canChangePasswordFromProfile((user as any).role);
+  const journeyLabel =
+    (user as any).jornada_tipo ||
+    ((user as any).carga_horaria != null ? `${(user as any).carga_horaria}h semanais` : '—');
 
   return (
     <div className="space-y-4 sm:space-y-6 px-2 sm:px-0">
@@ -208,8 +220,16 @@ const EmployeeProfile: React.FC = () => {
             <span><strong>Departamento:</strong> {departmentName}</span>
           </div>
           <div className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base text-slate-700 dark:text-slate-300">
+            <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0 mt-0.5" />
+            <span><strong>Estrutura:</strong> {structureName}</span>
+          </div>
+          <div className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base text-slate-700 dark:text-slate-300">
             <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0 mt-0.5" />
             <span><strong>Escala:</strong> {scheduleName}</span>
+          </div>
+          <div className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base text-slate-700 dark:text-slate-300">
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0 mt-0.5" />
+            <span><strong>Jornada:</strong> {shiftName !== '—' ? shiftName : journeyLabel}</span>
           </div>
           <div className="pt-3 sm:pt-4 border-t border-slate-100 dark:border-slate-800">
             <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Telefone (editável)</label>

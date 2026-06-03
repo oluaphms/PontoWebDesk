@@ -105,6 +105,15 @@ export interface AdminDashboardPayload {
 }
 
 const ADMIN_DASHBOARD_LAST_RECORDS_LIMIT = 8;
+const ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT = 120;
+
+type DashboardRecordCandidate = DbRow & {
+  id?: string | null;
+  user_id?: string | null;
+  timestamp?: string | null;
+  created_at?: string | null;
+  type?: string | null;
+};
 
 function isVisibleDashboardEmployee(employee: ApiEmployee): boolean {
   return employee.invisivel !== true;
@@ -147,6 +156,63 @@ export function dedupeTimeRecordsByRepKey(records: any[]): any[] {
     out.push(r);
   }
   return out;
+}
+
+function mergeDashboardRecordRows(...recordGroups: DashboardRecordCandidate[][]): DashboardRecordCandidate[] {
+  const seen = new Set<string>();
+  const out: DashboardRecordCandidate[] = [];
+  for (const records of recordGroups) {
+    for (const record of records ?? []) {
+      const rawId = String(record?.id ?? '').trim();
+      const key = rawId || `${String(record?.user_id ?? '')}:${recordPunchInstantIso(record)}:${String(record?.type ?? '')}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(record);
+    }
+  }
+  return out;
+}
+
+async function fetchAdminDashboardDailyRecordCandidates(
+  companyId: string,
+  todayLocal: string,
+  startUtcIso: string,
+  endUtcIso: string,
+): Promise<DashboardRecordCandidate[]> {
+  const [byPunchInstant, byCreatedAtFallback] = await Promise.all([
+    queryCache.getOrFetch(
+      `time_records:admin_dash:daily:punch:${companyId}:${todayLocal}`,
+      () =>
+        db.select(
+          'time_records',
+          [
+            { column: 'company_id', operator: 'eq', value: companyId },
+            { column: 'timestamp', operator: 'gte', value: startUtcIso },
+            { column: 'timestamp', operator: 'lte', value: endUtcIso },
+          ],
+          { column: 'timestamp', ascending: false },
+          ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+        ) as Promise<DashboardRecordCandidate[]>,
+      TTL.REALTIME,
+    ),
+    queryCache.getOrFetch(
+      `time_records:admin_dash:daily:created:${companyId}:${todayLocal}`,
+      () =>
+        db.select(
+          'time_records',
+          [
+            { column: 'company_id', operator: 'eq', value: companyId },
+            { column: 'created_at', operator: 'gte', value: startUtcIso },
+            { column: 'created_at', operator: 'lte', value: endUtcIso },
+          ],
+          { column: 'created_at', ascending: false },
+          ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+        ) as Promise<DashboardRecordCandidate[]>,
+      TTL.REALTIME,
+    ),
+  ]);
+
+  return mergeDashboardRecordRows(byPunchInstant ?? [], byCreatedAtFallback ?? []);
 }
 
 function formatLatLng(r: any): string {
@@ -360,8 +426,8 @@ function buildAdminLastRecordsForToday(
 ): AdminDashboardLastRecord[] {
   const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
   const inferById = buildAdminLastRecordTypeInferenceMap(recentRecords, todayLocal);
-  const mobileRecentRecords = recentRecords.filter((record: any) => resolvePunchOrigin(record).kind === 'mobile');
-  const allRecentRecords: AdminDashboardLastRecord[] = mobileRecentRecords.map((r: any) => {
+  const todayRecords = recentRecords.filter((record: any) => punchInstantOperationalYmd(record) === todayLocal);
+  const allRecentRecords: AdminDashboardLastRecord[] = todayRecords.map((r: any) => {
     const tInfo = resolveDashboardDisplayInstant(r);
     const t = tInfo.instant;
     const geo = readGeoFromRecord(r);
@@ -408,12 +474,6 @@ function buildAdminLastRecordsForToday(
     };
   });
   return allRecentRecords
-    .filter((r) => {
-      if (r.date === '—') return false;
-      const [dd, mm, yyyy] = r.date.split('/');
-      const ymd = `${yyyy}-${mm}-${dd}`;
-      return ymd === todayLocal;
-    })
     .sort((a, b) => {
       const am = parseInt(a.time.replace(':', ''), 10);
       const bm = parseInt(b.time.replace(':', ''), 10);
@@ -611,9 +671,7 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
  */
 export async function getAdminDashboardLastRecordsOnly(companyId: string): Promise<AdminDashboardLastRecord[]> {
   const localFallback = async () =>
-    (await getLocalAdminLastRecords(companyId))
-      .map(mapLocalLastToAdmin)
-      .filter((record) => record.originLabel === 'App');
+    (await getLocalAdminLastRecords(companyId)).map(mapLocalLastToAdmin);
   if (!isCloudEnabled()) return cloudFallback(await localFallback());
   return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
     recordCriticalRequest('adminDashLastRecOnly');
@@ -632,21 +690,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
             ) as Promise<DbRow[]>,
           TTL.SHORT,
         ),
-        queryCache.getOrFetch(
-          `time_records:admin_dash:recent:${companyId}`,
-          () =>
-            db.select(
-              'time_records',
-              [
-                { column: 'company_id', operator: 'eq', value: companyId },
-                { column: 'created_at', operator: 'gte', value: startUtcIso },
-                { column: 'created_at', operator: 'lte', value: endUtcIso },
-              ],
-              { column: 'created_at', ascending: false },
-              40,
-            ) as Promise<DbRow[]>,
-          TTL.REALTIME,
-        ),
+        fetchAdminDashboardDailyRecordCandidates(companyId, todayLocal, startUtcIso, endUtcIso),
         queryCache.getOrFetch(
           currentOperationalStateCacheKey(companyId),
           () => fetchCurrentOperationalStateByCompany(companyId),
@@ -728,22 +772,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
           ) as Promise<DbRow[]>,
         TTL.SHORT,
       ),
-      // Apenas 5 registros mais recentes para "lastRecords"
-      queryCache.getOrFetch(
-        `time_records:admin_dash:recent:${companyId}`,
-        () =>
-          db.select(
-            'time_records',
-            [
-              { column: 'company_id', operator: 'eq', value: companyId },
-              { column: 'created_at', operator: 'gte', value: startUtcIso },
-              { column: 'created_at', operator: 'lte', value: endUtcIso },
-            ],
-            { column: 'created_at', ascending: false },
-            40,
-          ) as Promise<DbRow[]>,
-        TTL.REALTIME,
-      ),
+      fetchAdminDashboardDailyRecordCandidates(companyId, todayLocal, startUtcIso, endUtcIso),
       queryCache.getOrFetch(
         currentOperationalStateCacheKey(companyId),
         () => fetchCurrentOperationalStateByCompany(companyId),
