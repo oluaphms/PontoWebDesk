@@ -16,6 +16,7 @@ import {
   buildDayMirrorSummary,
   DayMirror,
   resolveMirrorSlotRecord,
+  isEditableManualMirrorRecord,
   isManualRecord,
   isRepMirrorRecord,
   isStatusRecord,
@@ -1137,7 +1138,7 @@ const AdminTimesheet: React.FC = () => {
     const fromRep = !!(record && isRepMirrorRecord(record));
     const display = time != null && String(time).trim() !== '' ? String(time).trim() : EMPTY_DASH;
     const isEmpty = display === EMPTY_DASH;
-    const clickable = !!(record && isManual && !periodClosedLock);
+    const clickable = !!(record && isEditableManualMirrorRecord(record) && !periodClosedLock);
     return (
       <span
         className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium ${

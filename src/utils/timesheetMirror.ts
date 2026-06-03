@@ -371,6 +371,19 @@ export function isManualRecord(record: TimeRecord): boolean {
   return !!(record.manual_reason && record.manual_reason.trim()) || record.is_manual === true;
 }
 
+/** Admin/RH podem editar somente batidas lançadas manualmente pelo espelho. */
+export function isEditableManualMirrorRecord(record: TimeRecord): boolean {
+  if (isRepMirrorRecord(record)) return false;
+  const o = String(record.origin ?? '').trim().toLowerCase();
+  const s = String(record.source ?? '').trim().toLowerCase();
+  const m = String(record.method ?? '').trim().toLowerCase();
+  const st = String(record.source_type ?? '').trim().toLowerCase();
+  if (o === 'mobile' || o === 'app' || s === 'web' || s === 'mobile' || m === 'gps' || m === 'foto' || m === 'biometric') {
+    return false;
+  }
+  return isManualRecord(record) || o === 'admin' || s === 'admin' || s === 'manual' || m === 'admin' || m === 'manual' || st === 'admin' || st === 'manual';
+}
+
 /**
  * Ordena registros por horário
  */
