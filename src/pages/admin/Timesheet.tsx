@@ -151,6 +151,7 @@ type TimeRecord = {
   source?: string | null;
   method?: string | null;
   origin?: string | null;
+  source_type?: string | null;
 };
 
 type DayIssuesModalState = {
@@ -1139,35 +1140,8 @@ const AdminTimesheet: React.FC = () => {
     const display = time != null && String(time).trim() !== '' ? String(time).trim() : EMPTY_DASH;
     const isEmpty = display === EMPTY_DASH;
     const clickable = !!(record && isEditableManualMirrorRecord(record) && !periodClosedLock);
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium ${
-          clickable
-            ? 'cursor-pointer'
-            : isEmpty
-              ? 'cursor-default text-slate-400 dark:text-slate-500'
-              : 'cursor-default text-slate-700 dark:text-slate-300'
-        } ${
-          isManual
-            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-300 dark:border-blue-700'
-            : ''
-        }`}
-        onClick={() => {
-          if (!clickable || !record) return;
-          const ts = (record.timestamp && String(record.timestamp).trim()) || record.created_at;
-          setRecordToEdit({ ...record, created_at: ts });
-          setShowEditModal(true);
-        }}
-        title={
-          isEmpty
-            ? 'Sem batida'
-            : isManual
-              ? periodClosedLock
-                ? `Batida manual: ${record?.manual_reason || 'Sem motivo'}. ${TOOLTIP_PERIODO_FECHADO_HARD_LOCK} Origem: ${resolvePunchOrigin(record!).label}`
-                : `Batida manual: ${record?.manual_reason || 'Sem motivo'}. Clique para editar. · Origem: ${resolvePunchOrigin(record!).label}`
-              : `${fromRep ? 'Batida do registrador (REP / relógio)' : 'Batida pelo app/dispositivo'}. Não editável no espelho. · Origem: ${record ? resolvePunchOrigin(record).label : '—'}`
-        }
-      >
+    const content = (
+      <>
         {display}
         {isManual && <span className="text-blue-500 font-bold">*</span>}
         {fromRep && !isManual && (
@@ -1178,6 +1152,48 @@ const AdminTimesheet: React.FC = () => {
             REP
           </span>
         )}
+      </>
+    );
+    const title = isEmpty
+      ? 'Sem batida'
+      : isManual
+        ? periodClosedLock
+          ? `Batida manual: ${record?.manual_reason || 'Sem motivo'}. ${TOOLTIP_PERIODO_FECHADO_HARD_LOCK} Origem: ${resolvePunchOrigin(record!).label}`
+          : `Batida manual: ${record?.manual_reason || 'Sem motivo'}. Clique para editar. · Origem: ${resolvePunchOrigin(record!).label}`
+        : `${fromRep ? 'Batida do registrador (REP / relógio)' : 'Batida pelo app/dispositivo'}. Não editável no espelho. · Origem: ${record ? resolvePunchOrigin(record).label : '—'}`;
+    const className = `inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium w-full text-left ${
+      clickable
+        ? 'cursor-pointer hover:ring-2 hover:ring-indigo-300 dark:hover:ring-indigo-700'
+        : isEmpty
+          ? 'cursor-default text-slate-400 dark:text-slate-500'
+          : 'cursor-default text-slate-700 dark:text-slate-300'
+    } ${
+      isManual
+        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-300 dark:border-blue-700'
+        : ''
+    }`;
+    if (clickable && record) {
+      return (
+        <button
+          type="button"
+          className={className}
+          onClick={() => {
+            const ts = (record.timestamp && String(record.timestamp).trim()) || record.created_at;
+            setRecordToEdit({ ...record, created_at: ts });
+            setShowEditModal(true);
+          }}
+          title={title}
+        >
+          {content}
+        </button>
+      );
+    }
+    return (
+      <span
+        className={className}
+        title={title}
+      >
+        {content}
       </span>
     );
   };
@@ -1719,14 +1735,33 @@ const AdminTimesheet: React.FC = () => {
                     if (!time) return undefined;
                     return day.inconsistencias.find((r) => fmtRecord(r) === time);
                   };
+                  const pickDisplayedRecord = (
+                    time: string | null,
+                    expectedType: 'entrada' | 'intervalo_saida' | 'intervalo_volta' | 'saida',
+                  ): TimeRecord | undefined => {
+                    if (!time) return undefined;
+                    const candidates = day.records
+                      .filter((r) => !isStatusRecord(r))
+                      .filter((r) => fmtRecord(r) === time);
+                    return (
+                      candidates.find((r) => isEditableManualMirrorRecord(r) && normalizeRecordTypeForMirror(r.type) === expectedType) ||
+                      candidates.find((r) => normalizeRecordTypeForMirror(r.type) === expectedType) ||
+                      candidates.find((r) => isEditableManualMirrorRecord(r)) ||
+                      candidates[0]
+                    );
+                  };
                   const entradaSlotTime = day.entradaInicio || nextFallbackTime();
                   const saidaIntSlotTime = day.saidaIntervalo || nextFallbackTime();
                   const voltaIntSlotTime = voltaSlotTime || nextFallbackTime();
                   const saidaFinalSlotTime = day.saidaFinal || nextFallbackTime();
-                  const entradaSlotRecord = entradaRecord || pickInconsistentRecord(entradaSlotTime);
-                  const saidaIntSlotRecord = saidaIntRecord || pickInconsistentRecord(saidaIntSlotTime);
-                  const voltaIntSlotRecord = voltaIntRecord || pickInconsistentRecord(voltaIntSlotTime);
-                  const saidaFinalSlotRecord = saidaRecord || pickInconsistentRecord(saidaFinalSlotTime);
+                  const entradaSlotRecord =
+                    entradaRecord || pickDisplayedRecord(entradaSlotTime, 'entrada') || pickInconsistentRecord(entradaSlotTime);
+                  const saidaIntSlotRecord =
+                    saidaIntRecord || pickDisplayedRecord(saidaIntSlotTime, 'intervalo_saida') || pickInconsistentRecord(saidaIntSlotTime);
+                  const voltaIntSlotRecord =
+                    voltaIntRecord || pickDisplayedRecord(voltaIntSlotTime, 'intervalo_volta') || pickInconsistentRecord(voltaIntSlotTime);
+                  const saidaFinalSlotRecord =
+                    saidaRecord || pickDisplayedRecord(saidaFinalSlotTime, 'saida') || pickInconsistentRecord(saidaFinalSlotTime);
                   let fallbackWorkedMinutes = 0;
                   if (hasRealRecords && day.workedMinutes <= 0) {
                     const start = hhmmToMin(entradaSlotTime);
