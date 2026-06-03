@@ -30,11 +30,11 @@ const DepartmentsPage: React.FC = () => {
   const [modalError, setModalError] = useState<string | null>(null);
 
   const load = async () => {
-    if (!user || !isSupabaseConfigured()) {
+    if (!user || !user.companyId || !isSupabaseConfigured()) {
       setLoadingData(false);
       return;
     }
-    const companyId = user.companyId || user.id;
+    const companyId = user.companyId;
     setLoadingData(true);
     try {
       const data = (await db.select(
@@ -91,7 +91,11 @@ const DepartmentsPage: React.FC = () => {
       setModalError('Usuário não identificado. Faça login novamente.');
       return;
     }
-    const companyId = user.companyId || user.id;
+    const companyId = user.companyId;
+    if (!companyId) {
+      setModalError('Usuário sem empresa na sessão. Faça login novamente.');
+      return;
+    }
     const trimmed = name.trim();
     if (!trimmed) {
       setModalError('Informe o nome do departamento.');

@@ -9,6 +9,7 @@ import {
   getOperationalWallClockOffsetMs,
   setOperationalWallClockOffsetMs,
 } from '../utils/operationalDateHardLock';
+import { apiGet } from './api';
 
 const DRIFT_WARN_MS = 120_000;
 
@@ -22,18 +23,30 @@ export function wasOperationalServerClockSyncedRecently(withinMs: number = 120_0
 
 /** Offset aplicado em `operationalClockMs()` após sync bem-sucedido. */
 export async function syncServerOperationalClockOffset(): Promise<void> {
-  if (isLocalApiDataProvider()) return;
-  const client = getSupabaseClient();
-  if (!client) return;
   const t0 = Date.now();
-  const { data, error } = await client.rpc('operational_server_epoch_ms');
-  const t1 = Date.now();
-  lastServerSyncedAt = t1;
-  if (error || data == null) {
+  let serverMs: number | null = null;
+  try {
+    if (isLocalApiDataProvider()) {
+      const res = await apiGet<{ ok?: boolean; serverEpochMs?: number; dbEpochMs?: number }>('/health/time');
+      serverMs = Number(res.dbEpochMs ?? res.serverEpochMs);
+    } else {
+      const client = getSupabaseClient();
+      if (!client) return;
+      const { data, error } = await client.rpc('operational_server_epoch_ms');
+      if (error || data == null) {
+        lastServerSyncOk = false;
+        lastServerSyncedAt = Date.now();
+        return;
+      }
+      serverMs = typeof data === 'bigint' ? Number(data) : typeof data === 'number' ? data : Number(data);
+    }
+  } catch {
     lastServerSyncOk = false;
+    lastServerSyncedAt = Date.now();
     return;
   }
-  const serverMs = typeof data === 'bigint' ? Number(data) : typeof data === 'number' ? data : Number(data);
+  const t1 = Date.now();
+  lastServerSyncedAt = t1;
   if (!Number.isFinite(serverMs)) {
     lastServerSyncOk = false;
     return;

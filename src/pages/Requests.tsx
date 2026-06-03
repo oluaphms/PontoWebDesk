@@ -75,9 +75,14 @@ const RequestsPage: React.FC = () => {
     if (!user || !isSupabaseConfigured()) return;
 
     const load = async () => {
+      if (!user.companyId) {
+        setRows([]);
+        setIsLoadingData(false);
+        return;
+      }
       setIsLoadingData(true);
       try {
-        const filters: Filter[] = [];
+        const filters: Filter[] = [{ column: 'company_id', operator: 'eq', value: user.companyId }];
         if (!isAdminView) {
           filters.push({ column: 'user_id', operator: 'eq', value: user.id });
         }
@@ -270,6 +275,10 @@ const RequestsPage: React.FC = () => {
       toast.addToast('error', 'Empresa não identificada para esta solicitação.');
       return;
     }
+    if (companyId !== user.companyId) {
+      toast.addToast('error', 'Solicitação fora da empresa da sua sessão.');
+      return;
+    }
 
     if (status === 'approved' && row.type === 'adjustment') {
       const adj = getAdjustmentMeta(row);
@@ -368,6 +377,10 @@ const RequestsPage: React.FC = () => {
 
   const handleDeleteRequest = async (row: RequestRow) => {
     if (!user || !isSupabaseConfigured()) return;
+    if (row.company_id && row.company_id !== user.companyId) {
+      toast.addToast('error', 'Solicitação fora da empresa da sua sessão.');
+      return;
+    }
     if (!window.confirm('Excluir esta solicitação permanentemente? Esta ação não pode ser desfeita.')) return;
     try {
       await db.delete('requests', row.id);

@@ -123,10 +123,14 @@ const EmployeeDashboard: React.FC = () => {
           observabilityConsole.error('[EmployeeDashboard] time_records indisponível:', error);
           rows = [];
           try {
+            const fallbackFilters = [
+              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+              { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+            ];
             rows =
               (await db.select(
                 'time_records',
-                [{ column: 'user_id', operator: 'eq', value: user.id }],
+                fallbackFilters,
                 {
                   columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
                   orderBy: { column: 'created_at', ascending: false },
@@ -136,7 +140,7 @@ const EmployeeDashboard: React.FC = () => {
             logDashboardDebug('API RESPONSE', {
               endpoint: '/api/data/time_records',
               fallback: true,
-              filters: [{ column: 'user_id', operator: 'eq', value: user.id }],
+              filters: fallbackFilters,
               count: rows.length,
               sample: rows.slice(0, 5),
             });
@@ -253,7 +257,10 @@ const EmployeeDashboard: React.FC = () => {
 
         if (user.schedule_id) {
           try {
-            const sched = (await db.select('schedules', [{ column: 'id', operator: 'eq', value: user.schedule_id }])) as any[];
+            const sched = (await db.select('schedules', [
+              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+              { column: 'id' as const, operator: 'eq' as const, value: user.schedule_id },
+            ])) as any[];
             if (sched?.[0]) setScheduleName(sched[0].name || '—');
           } catch {
             setScheduleName('—');

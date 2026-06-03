@@ -97,6 +97,30 @@ function extractApiErrorMessage(body: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
+function authFailureCode(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const record = body as Record<string, unknown>;
+  const code = typeof record.code === 'string' ? record.code : '';
+  const error = typeof record.error === 'string' ? record.error : '';
+  return (code || error).trim();
+}
+
+function shouldClearSessionOnUnauthorized(body: unknown): boolean {
+  const code = authFailureCode(body);
+  return (
+    code === 'AUTH_INVALID_TOKEN' ||
+    code === 'AUTH_TOKEN_EXPIRED' ||
+    code === 'AUTH_TOKEN_REVOKED' ||
+    code === 'AUTH_USER_NOT_FOUND' ||
+    code === 'AUTH_TENANT_CHANGED' ||
+    code === 'invalid_token' ||
+    code === 'token_expired' ||
+    code === 'token_revoked' ||
+    code === 'user_not_found' ||
+    code === 'tenant_changed'
+  );
+}
+
 function payloadKeys(body: unknown): string[] | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
   return Object.keys(body as Record<string, unknown>).sort();
@@ -155,7 +179,7 @@ async function parseResponse<T>(
   const status = typeof resLike.status === 'number' ? resLike.status : 200;
   const ok = typeof resLike.ok === 'boolean' ? resLike.ok : status >= 200 && status < 300;
   if (!ok) {
-    if (status === 401) {
+    if (status === 401 && shouldClearSessionOnUnauthorized(body)) {
       clearToken();
       unauthorizedHandler?.();
     }

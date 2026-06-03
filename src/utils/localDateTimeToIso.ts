@@ -1,8 +1,16 @@
+import { DateTime } from 'luxon';
+
+const DEFAULT_OPERATIONAL_TIMEZONE = 'America/Sao_Paulo';
+
 /**
- * Converte data (YYYY-MM-DD) + hora (HH:mm) no **fuso local do navegador** em ISO UTC
- * para gravar em `timestamptz` (alinhado ao que o colaborador/admin escolhe no calendário).
+ * Converte data (YYYY-MM-DD) + hora (HH:mm) no fuso operacional da empresa em ISO UTC.
+ * O padrão fixo evita que navegador/host em UTC reprocesse uma batida digitada no horário do Brasil.
  */
-export function localDateAndTimeToIsoUtc(dateYmd: string, timeHm: string): string {
+export function localDateAndTimeToIsoUtc(
+  dateYmd: string,
+  timeHm: string,
+  timezone: string = DEFAULT_OPERATIONAL_TIMEZONE,
+): string {
   const datePart = (dateYmd || '').trim().slice(0, 10);
   const timePart = ((timeHm || '').trim() || '00:00').slice(0, 5);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
@@ -24,11 +32,18 @@ export function localDateAndTimeToIsoUtc(dateYmd: string, timeHm: string): strin
   ) {
     throw new RangeError(`Data ou horário inválido: "${dateYmd}" "${timeHm}"`);
   }
-  const dt = new Date(y, mo - 1, d, hh, mm, 0, 0);
-  if (Number.isNaN(dt.getTime())) {
+  const dt = DateTime.fromObject(
+    { year: y, month: mo, day: d, hour: hh, minute: mm, second: 0, millisecond: 0 },
+    { zone: timezone || DEFAULT_OPERATIONAL_TIMEZONE },
+  );
+  if (!dt.isValid) {
     throw new RangeError(`Combinação data/hora inválida no calendário local: ${datePart} ${timePart}`);
   }
-  return dt.toISOString();
+  const iso = dt.toUTC().toISO();
+  if (!iso) {
+    throw new RangeError(`Não foi possível normalizar data/hora: ${datePart} ${timePart}`);
+  }
+  return iso;
 }
 
 /** YYYY-MM-DD no calendário local (não UTC) — alinha agrupamento do espelho com a data escolhida no formulário. */

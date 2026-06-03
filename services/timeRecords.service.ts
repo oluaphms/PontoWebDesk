@@ -18,6 +18,8 @@ import { assertValidUuid, insertTimeRecordForUser } from './insertTimeRecordRpc'
 import { isCloudEnabled } from '../src/services/cloudService';
 import { cloudFallback } from '../src/services/cloudFallback';
 import { fetchTimeRecordsForMirrorWindow } from './api';
+import { syncServerOperationalClockOffset } from '../src/services/serverOperationalClock.service';
+import { operationalClockMs, OPERATIONAL_TIMEZONE } from '../src/utils/operationalClock';
 
 type DbSelectArg2 = Parameters<typeof db.select>[2];
 type DbSelectArg3 = Parameters<typeof db.select>[3];
@@ -489,6 +491,18 @@ export async function insertAdminMirrorTimeRecord(
   if (!type || !createdAt) {
     throw new Error('insertAdminMirrorTimeRecord: type e created_at são obrigatórios.');
   }
+
+  await syncServerOperationalClockOffset();
+  const serverAlignedNowMs = operationalClockMs();
+  const requestMs = new Date(createdAt).getTime();
+  observabilityConsole.info('[MANUAL PUNCH TIME DIAG]', {
+    CLIENT_TIME: new Date().toISOString(),
+    PAYLOAD_TIME: createdAt,
+    serverAlignedNow: new Date(serverAlignedNowMs).toISOString(),
+    timezone: OPERATIONAL_TIMEZONE,
+    differenceSeconds: Number.isFinite(requestMs) ? Math.round((requestMs - serverAlignedNowMs) / 1000) : null,
+    source: 'insertAdminMirrorTimeRecord',
+  });
 
   assertNoFutureOperationalPunch(createdAt);
 

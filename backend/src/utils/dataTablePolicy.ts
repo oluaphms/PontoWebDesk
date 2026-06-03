@@ -4,14 +4,13 @@ import { buildPublicAllowedTables } from './dataTableAllowlist.js';
 /** Escopo por user_id (sem filtro company_id automático). */
 export const USER_SCOPED_TABLES = new Set([
   'users',
-  'notifications',
   'user_settings',
   'user_consents',
   'login_attempts',
 ]);
 
 /** Somente admin/hr — sem filtro tenant automático. */
-export const ADMIN_ONLY_TABLES = new Set(['companies', 'global_settings', 'devices']);
+export const ADMIN_ONLY_TABLES = new Set(['companies', 'devices']);
 
 /** Monitoramento, logs e integrações não são recursos de colaborador. */
 const PRIVILEGED_ONLY_TABLES = new Set([
@@ -88,6 +87,7 @@ export function isGenericDataApiWritesEnabled(): boolean {
 
 export function isTableReadable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
+  if (table === 'global_settings') return true;
   if (ADMIN_ONLY_TABLES.has(table)) return isAdminOrHr(role);
   if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   return true;

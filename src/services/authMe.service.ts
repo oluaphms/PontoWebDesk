@@ -29,6 +29,16 @@ let authMeInflight: Promise<User | null> | null = null;
 let lastUnauthorizedAt = 0;
 const AUTH_ME_401_COOLDOWN_MS = 10_000;
 
+function shouldClearTokenForAuthMe401(authCode: string): boolean {
+  return (
+    authCode === 'AUTH_INVALID_TOKEN' ||
+    authCode === 'AUTH_TOKEN_EXPIRED' ||
+    authCode === 'AUTH_TOKEN_REVOKED' ||
+    authCode === 'AUTH_USER_NOT_FOUND' ||
+    authCode === 'AUTH_TENANT_CHANGED'
+  );
+}
+
 function mapMeUser(row: MeUser): User {
   return {
     id: row.id,
@@ -79,7 +89,7 @@ async function fetchAuthMeOnce(): Promise<User | null> {
     if (
       status === 401 &&
       hasLocalToken &&
-      (authCode === 'AUTH_INVALID_TOKEN' || authCode === 'AUTH_TOKEN_EXPIRED')
+      shouldClearTokenForAuthMe401(authCode)
     ) {
       clearToken();
       try {
@@ -112,7 +122,7 @@ async function fetchAuthMeOnce(): Promise<User | null> {
             }
           : {},
     });
-    if (status === 401) clearToken();
+    if (status === 401 && shouldClearTokenForAuthMe401(authCode)) clearToken();
     return null;
   }
 }

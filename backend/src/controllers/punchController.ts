@@ -28,10 +28,7 @@ function mergePunchBody(req: AuthedRequest, item: PunchBody): PunchBody | { erro
   }
 
   if (companyFromBody && companyFromBody !== jwtCompany) {
-    if (!privileged) {
-      return { error: 'forbidden_tenant' };
-    }
-    companyId = companyFromBody;
+    return { error: 'forbidden_tenant' };
   }
 
   if (!userId || !companyId) {
@@ -57,7 +54,14 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
     if ('error' in merged) {
       if (merged.error === 'forbidden_user' || merged.error === 'forbidden_tenant') {
         void logAuthDenied(req, 403, String(merged.error));
-        res.status(403).json({ ok: false, error: merged.error, message: 'Não pode registrar ponto para outro usuário.' });
+        res.status(403).json({
+          ok: false,
+          error: merged.error,
+          message:
+            merged.error === 'forbidden_tenant'
+              ? 'Não pode registrar ponto para outra empresa.'
+              : 'Não pode registrar ponto para outro usuário.',
+        });
         return;
       }
       res.status(400).json({

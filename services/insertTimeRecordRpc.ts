@@ -190,7 +190,11 @@ export async function insertTimeRecordForUser(
   });
 
   const { data: sessionData } = await client.auth.getSession();
-  if (!sessionData?.session?.user?.id) {
+  const hasSessionIdentity = Boolean(
+    sessionData?.session?.user?.id ||
+      (sessionData?.session as { access_token?: string } | null | undefined)?.access_token,
+  );
+  if (!hasSessionIdentity) {
     throw new Error('Sessão inválida — abortando RPC');
   }
 

@@ -90,6 +90,12 @@ async function buildWhere(
     }
   }
 
+  if (table === 'companies' && companyId) {
+    parts.push(`id::text = ${sqlParamRef(idx, 'text')}`);
+    params.push(companyId);
+    idx += 1;
+  }
+
   if (table === 'users' && companyId && (await tableHasColumn(table, 'company_id'))) {
     parts.push(`company_id::text = ${sqlParamRef(idx, 'text')}`);
     params.push(companyId);
@@ -190,6 +196,7 @@ function denyTableAccess(
 
 async function dataWriteScopeSql(table: string, paramIndex: number): Promise<string | null> {
   if (tableHasTenantScope(table)) return tenantScopeSqlForTable(table, paramIndex);
+  if (table === 'companies') return `id::text = ${sqlParamRef(paramIndex, 'text')}`;
   if (table === 'users' && (await tableHasColumn(table, 'company_id'))) {
     return `company_id::text = ${sqlParamRef(paramIndex, 'text')}`;
   }
@@ -490,6 +497,16 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
 
   const companyId = requireCompanyId(req, res);
   if (companyId === null) return;
+  if (table === 'companies') {
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: 'COMPANY_GENERIC_INSERT_FORBIDDEN',
+      message: 'Criação de empresas deve usar o fluxo de onboarding multi-tenant.',
+    });
+    return;
+  }
 
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
   let writeRaw: Record<string, unknown> = {};
@@ -875,9 +892,167 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
 const ALLOWED_RPC = new Set([
   'get_my_company_id',
   'insert_time_record_for_user',
-  'rep_register_punch',
-  'rep_ingest_punch',
+  'insert_time_record_for_user_v2',
 ]);
+
+const INSERT_TIME_RECORD_RPC = new Set(['insert_time_record_for_user', 'insert_time_record_for_user_v2']);
+const FUTURE_PUNCH_TOLERANCE_MS = 5 * 60 * 1000;
+
+class RpcHttpError extends Error {
+  status: number;
+  code: string;
+  details?: Record<string, unknown>;
+
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = 'RpcHttpError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function requiredRpcString(args: Record<string, unknown>, keys: string[], label: string): string {
+  for (const key of keys) {
+    const value = String(args[key] ?? '').trim();
+    if (value) return value;
+  }
+  throw new RpcHttpError(400, 'RPC_MISSING_ARG', `${label} é obrigatório.`, { label, keys });
+}
+
+async function dbClockEpochMs(): Promise<number> {
+  const result = await pool.query('select extract(epoch from clock_timestamp()) * 1000 as epoch_ms');
+  const value = Number(result.rows[0]?.epoch_ms);
+  return Number.isFinite(value) ? value : Date.now();
+}
+
+function monthYearFromIsoInSaoPaulo(iso: string): { year: number; month: number } | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  return year && month >= 1 && month <= 12 ? { year, month } : null;
+}
+
+async function assertTimesheetOpenForManualPunch(input: {
+  companyId: string;
+  userId: string;
+  timestamp: string;
+}): Promise<void> {
+  const period = monthYearFromIsoInSaoPaulo(input.timestamp);
+  if (!period) return;
+  const table = await pool.query("select to_regclass('public.timesheet_closures') as table_name");
+  if (!table.rows[0]?.table_name) return;
+  const closed = await pool.query(
+    `select 1
+       from public.timesheet_closures
+      where company_id::text = $1
+        and employee_id::text = $2
+        and month = $3
+        and year = $4
+      limit 1`,
+    [input.companyId, input.userId, period.month, period.year],
+  );
+  if ((closed.rowCount ?? 0) > 0) {
+    throw new RpcHttpError(403, 'PERIODO_FECHADO', 'PERIODO_FECHADO', {
+      month: period.month,
+      year: period.year,
+      userId: input.userId,
+    });
+  }
+}
+
+async function buildInsertTimeRecordRpcParams(
+  req: AuthedRequest,
+  args: Record<string, unknown>,
+  companyId: string,
+): Promise<unknown[]> {
+  const role = normalizeRole(req.auth?.role);
+  const selfId = String(req.auth?.sub || req.auth?.userId || '').trim();
+  const requestedUserId = requiredRpcString(args, ['p_user_id', 'user_id'], 'p_user_id');
+  if (!isAdminOrHr(role) && requestedUserId !== selfId) {
+    throw new RpcHttpError(403, 'RPC_FORBIDDEN_USER', 'Sem permissão para registrar ponto para outro usuário.');
+  }
+  const userId = isAdminOrHr(role) ? requestedUserId : selfId;
+  const timestamp = requiredRpcString(args, ['p_timestamp', 'timestamp', 'created_at'], 'p_timestamp');
+  const type = requiredRpcString(args, ['p_type', 'type'], 'p_type');
+  const source = String(args.p_source ?? args.source ?? 'manual').trim() || 'manual';
+  const metadata = args.p_metadata ?? args.metadata ?? {};
+  const allowOutOfOrder = Boolean(args.p_allow_out_of_order ?? args.allow_out_of_order ?? args.allowOutOfOrder ?? false);
+
+  const requestMs = new Date(timestamp).getTime();
+  if (!Number.isFinite(requestMs)) {
+    throw new RpcHttpError(400, 'RPC_INVALID_TIMESTAMP', 'Timestamp inválido para batida manual.', {
+      requestTime: timestamp,
+    });
+  }
+  const serverTimeMs = await dbClockEpochMs();
+  const differenceSeconds = Math.round((requestMs - serverTimeMs) / 1000);
+  logger.info({
+    module: 'data.controller',
+    action: 'MANUAL_PUNCH_TIME_DIAG',
+    message: 'Diagnóstico temporal da batida manual',
+    userId: req.auth?.userId ?? req.auth?.sub ?? null,
+    companyId,
+    meta: {
+      serverTime: new Date(serverTimeMs).toISOString(),
+      requestTime: timestamp,
+      timezone: 'America/Sao_Paulo',
+      differenceSeconds,
+    },
+  });
+  if (requestMs - serverTimeMs > FUTURE_PUNCH_TOLERANCE_MS) {
+    throw new RpcHttpError(
+      400,
+      'PUNCH_FUTURE_NOT_ALLOWED',
+      `Batida recusada: horário futuro além do permitido (${differenceSeconds}s). Ajuste o relógio do dispositivo ou o horário informado.`,
+      {
+        serverTime: new Date(serverTimeMs).toISOString(),
+        requestTime: timestamp,
+        timezone: 'America/Sao_Paulo',
+        differenceSeconds,
+      },
+    );
+  }
+  await assertTimesheetOpenForManualPunch({ companyId, userId, timestamp });
+
+  return [userId, companyId, timestamp, type, source, JSON.stringify(metadata), allowOutOfOrder];
+}
+
+async function executeInsertTimeRecordRpc(
+  req: AuthedRequest,
+  fn: string,
+  args: Record<string, unknown>,
+  companyId: string,
+): Promise<unknown> {
+  const params = await buildInsertTimeRecordRpcParams(req, args, companyId);
+  const actorId = String(req.auth?.sub || req.auth?.userId || '').trim();
+  const actorRole = normalizeRole(req.auth?.role);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [actorId]);
+    await client.query(`select set_config('request.jwt.claim.company_id', $1, true)`, [companyId]);
+    await client.query(`select set_config('request.jwt.claim.role', $1, true)`, [actorRole]);
+    const sql =
+      `SELECT public.${fn}(` +
+      '$1::uuid, $2::uuid, $3::timestamptz, $4::text, $5::text, $6::jsonb, $7::boolean' +
+      ') AS result';
+    const result = await client.query(sql, params);
+    await client.query('commit');
+    return result.rows[0]?.result ?? null;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export async function rpcDataController(req: AuthedRequest, res: Response): Promise<void> {
   const fn = safeIdent(String(req.params.fn || ''));
@@ -897,16 +1072,33 @@ export async function rpcDataController(req: AuthedRequest, res: Response): Prom
     return;
   }
 
-  const role = normalizeRole(req.auth?.role);
-  if (fn === 'insert_time_record_for_user' && role !== 'admin' && role !== 'hr') {
-    const targetUser = String(args.user_id ?? args.p_user_id ?? '').trim();
-    const selfId = String(req.auth?.sub || '').trim();
-    if (targetUser && targetUser !== selfId) {
-      res.status(403).json({ ok: false, error: 'forbidden', data: null });
-      return;
+  if (INSERT_TIME_RECORD_RPC.has(fn)) {
+    try {
+      const data = await executeInsertTimeRecordRpc(req, fn, args, companyId);
+      res.json({ ok: true, data, error: null });
+    } catch (e) {
+      if (e instanceof RpcHttpError) {
+        res.status(e.status).json({
+          ok: false,
+          data: null,
+          error: e.message,
+          code: e.code,
+          details: e.details,
+        });
+        return;
+      }
+      logger.error({
+        module: 'data.controller',
+        action: 'DATA_RPC_FAILED',
+        message: 'Falha em RPC de batida manual',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: e,
+        meta: { fn },
+      });
+      res.status(500).json({ ok: false, data: null, error: e instanceof Error ? e.message : 'rpc_failed' });
     }
-    args.user_id = selfId;
-    args.company_id = companyId;
+    return;
   }
 
   const params = Object.values(args);
