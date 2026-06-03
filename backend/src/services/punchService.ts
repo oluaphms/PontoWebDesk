@@ -3,6 +3,7 @@ import { getPunchColumns, getTimeRecordColumns, getTimeRecordInsertRpc } from '.
 import { validatePhotoUrl } from '../upload/fileValidation.js';
 import type { PoolClient } from 'pg';
 import { logger } from '../logger/logger.js';
+import { verifySignedPhotoUrl } from './uploadStorageService.js';
 
 type PunchInput = {
   client_id?: string;
@@ -41,6 +42,19 @@ function normalizeType(raw: unknown): string {
   if (type === 'break_start' || type === 'intervalo_saida') return 'intervalo_saida';
   if (type === 'break_end' || type === 'intervalo_volta') return 'intervalo_volta';
   return type;
+}
+
+function isSignedInternalUploadPhotoUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw.startsWith('/') ? raw : raw, 'https://internal-upload.local');
+    if (!/^\/api\/uploads\/files\/[\w-]+\/[\w.-]+$/.test(url.pathname)) return true;
+    const parts = url.pathname.split('/').filter(Boolean);
+    const userId = decodeURIComponent(parts[3] || '');
+    const fileName = decodeURIComponent(parts[4] || '');
+    return verifySignedPhotoUrl(userId, fileName, url.searchParams.get('exp') || '', url.searchParams.get('sig') || '');
+  } catch {
+    return false;
+  }
 }
 
 function statusFromLastPunchType(type: unknown): string {
@@ -263,6 +277,9 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
     return { success: false, punch_hash: punchHash };
   }
   const photoUrl = 'url' in photoCheck ? photoCheck.url || null : null;
+  if (photoUrl && !isSignedInternalUploadPhotoUrl(photoUrl)) {
+    return { success: false, punch_hash: punchHash };
+  }
 
   const cols = await getPunchColumns();
   const source = normalizeSource(punch.source);

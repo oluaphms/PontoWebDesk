@@ -10,7 +10,6 @@ import {
 } from './magicBytes.js';
 import { getFileExtension, sanitizeFilename } from './sanitizeFilename.js';
 import { UPLOAD_LIMITS, type UploadProfile } from './limits.js';
-import { verifySignedPhotoUrl } from '../services/uploadStorageService.js';
 
 export type ValidationResult =
   | { ok: true; sanitizedName: string; detectedMime?: string; ext: string }
@@ -188,14 +187,6 @@ function isInternalUploadPhotoPath(pathname: string): boolean {
   return /^\/api\/uploads\/files\/[\w-]+\/[\w.-]+$/.test(pathname);
 }
 
-function isSignedInternalUploadPhotoUrl(url: URL): boolean {
-  if (!isInternalUploadPhotoPath(url.pathname)) return false;
-  const parts = url.pathname.split('/').filter(Boolean);
-  const userId = decodeURIComponent(parts[3] || '');
-  const fileName = decodeURIComponent(parts[4] || '');
-  return verifySignedPhotoUrl(userId, fileName, url.searchParams.get('exp') || '', url.searchParams.get('sig') || '');
-}
-
 /** Valida URL de foto persistida (sem data: URLs). */
 export function validatePhotoUrl(url: string | null | undefined): ValidationResult | { ok: true; url: string } {
   if (url == null || url === '') return { ok: true, url: '' };
@@ -220,7 +211,7 @@ export function validatePhotoUrl(url: string | null | undefined): ValidationResu
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
       return { ok: false, code: 'INVALID_URL', message: 'Protocolo de URL não permitido.' };
     }
-    if (isSignedInternalUploadPhotoUrl(u)) {
+    if (isInternalUploadPhotoPath(u.pathname)) {
       return { ok: true, url: trimmed };
     }
     const host = u.hostname.toLowerCase();
