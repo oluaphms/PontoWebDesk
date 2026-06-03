@@ -9,6 +9,7 @@ import { formatDateForTablePtBr } from '../../utils/timeCalculations';
 import { queryCache, TTL } from '../../services/queryCache';
 import { apiGet, apiPost } from '../../services/api';
 import { useToast } from '../../components/ToastProvider';
+import { fetchEmployees } from '../../services/employeesApi.service';
 
 interface BankHoursLedgerRow {
   id: string;
@@ -119,21 +120,26 @@ const AdminBankHours: React.FC = () => {
   const [submittingForm, setSubmittingForm] = useState(false);
 
   useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
+    if (!user?.companyId) return;
     const load = async () => {
-      const usersRows = await queryCache.getOrFetch(
-        `users:${user.companyId}`,
-        () =>
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }], {
-            columns: 'id, nome, email',
-            limit: 500,
-          }) as Promise<any[]>,
+      const employeeRows = await queryCache.getOrFetch(
+        `employees:${user.companyId}:bank_hours_options`,
+        () => fetchEmployees(user.companyId),
         TTL.NORMAL,
       );
-      setEmployees((usersRows ?? []).map((u: any) => ({ id: String(u.id), nome: String(u.nome || u.email || u.id) })));
+      const activeEmployees = (employeeRows ?? [])
+        .filter((employee) => employee.status !== 'inactive' && employee.status !== 'inativo' && employee.invisivel !== true)
+        .map((employee) => ({
+          id: String(employee.id),
+          nome: String(employee.nome || employee.email || employee.id),
+        }));
+      setEmployees(activeEmployees);
+      if (filterUserId && !activeEmployees.some((employee) => employee.id === filterUserId)) {
+        setFilterUserId('');
+      }
     };
     void load();
-  }, [user?.companyId]);
+  }, [filterUserId, user?.companyId]);
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
@@ -413,7 +419,7 @@ const AdminBankHours: React.FC = () => {
 
       <div className="glass-card rounded-[2.25rem] p-6 flex flex-wrap gap-4 items-end">
         <div className="min-w-[220px]">
-          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Funcionário</label>
+          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Colaboradores</label>
           <select
             className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
             value={filterUserId}

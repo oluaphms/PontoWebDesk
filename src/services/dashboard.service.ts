@@ -360,7 +360,8 @@ function buildAdminLastRecordsForToday(
 ): AdminDashboardLastRecord[] {
   const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
   const inferById = buildAdminLastRecordTypeInferenceMap(recentRecords, todayLocal);
-  const allRecentRecords: AdminDashboardLastRecord[] = recentRecords.map((r: any) => {
+  const mobileRecentRecords = recentRecords.filter((record: any) => resolvePunchOrigin(record).kind === 'mobile');
+  const allRecentRecords: AdminDashboardLastRecord[] = mobileRecentRecords.map((r: any) => {
     const tInfo = resolveDashboardDisplayInstant(r);
     const t = tInfo.instant;
     const geo = readGeoFromRecord(r);
@@ -610,7 +611,9 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
  */
 export async function getAdminDashboardLastRecordsOnly(companyId: string): Promise<AdminDashboardLastRecord[]> {
   const localFallback = async () =>
-    (await getLocalAdminLastRecords(companyId)).map(mapLocalLastToAdmin);
+    (await getLocalAdminLastRecords(companyId))
+      .map(mapLocalLastToAdmin)
+      .filter((record) => record.originLabel === 'App');
   if (!isCloudEnabled()) return cloudFallback(await localFallback());
   return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
     recordCriticalRequest('adminDashLastRecOnly');
