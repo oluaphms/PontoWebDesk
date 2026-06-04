@@ -27,6 +27,48 @@ export async function sha256Hex(input: string): Promise<string> {
   return '';
 }
 
+async function resolveValidAuditEmployeeId(employeeId: string, companyId: string): Promise<string | null> {
+  const id = String(employeeId || '').trim();
+  const cid = String(companyId || '').trim();
+  if (!id || !cid) return null;
+
+  try {
+    const direct = (await db.select(
+      'employees',
+      [
+        { column: 'company_id', operator: 'eq', value: cid },
+        { column: 'id', operator: 'eq', value: id },
+      ],
+      { columns: 'id,email', limit: 1 },
+    )) as Array<{ id?: string; email?: string | null }>;
+    if (direct?.[0]?.id) return String(direct[0].id);
+
+    const users = (await db.select(
+      'users',
+      [
+        { column: 'company_id', operator: 'eq', value: cid },
+        { column: 'id', operator: 'eq', value: id },
+      ],
+      { columns: 'id,email', limit: 1 },
+    )) as Array<{ id?: string; email?: string | null }>;
+    const email = String(users?.[0]?.email ?? '').trim().toLowerCase();
+    if (!email) return null;
+
+    const byEmail = (await db.select(
+      'employees',
+      [
+        { column: 'company_id', operator: 'eq', value: cid },
+        { column: 'email', operator: 'eq', value: email },
+      ],
+      { columns: 'id,email', limit: 1 },
+    )) as Array<{ id?: string; email?: string | null }>;
+    return byEmail?.[0]?.id ? String(byEmail[0].id) : null;
+  } catch (err) {
+    observabilityConsole.error('[AUDIT CRITICAL] resolução de employee_id falhou', err);
+    return null;
+  }
+}
+
 /** Grava uma linha; `employee_id`, `action` e `payload` são obrigatórios pela validação pré-insert. */
 export async function appendAfdTimeEngineAudit(params: {
   employeeId: string;
@@ -49,10 +91,18 @@ export async function appendAfdTimeEngineAudit(params: {
   const preimage = `${params.employeeId}|${params.action}|${canonical}|${createdAt}`;
   const hash = await sha256Hex(preimage);
   if (!hash) return;
+  const auditEmployeeId = await resolveValidAuditEmployeeId(params.employeeId, params.companyId);
+  if (!auditEmployeeId) {
+    observabilityConsole.error('[AUDIT CRITICAL] time_engine_afd_audit ignorado — employee_id sem FK válida', {
+      employee_id: params.employeeId,
+      company_id: params.companyId,
+    });
+    return;
+  }
 
   await db
     .insert('time_engine_afd_audit', {
-      employee_id: params.employeeId,
+      employee_id: auditEmployeeId,
       company_id: params.companyId,
       action: params.action,
       payload: p,
@@ -63,5 +113,5 @@ export async function appendAfdTimeEngineAudit(params: {
       observabilityConsole.error('[AUDIT CRITICAL] time_engine_afd_audit insert falhou', err?.message ?? err);
     });
 
-  observabilityConsole.log('[AUDIT]', { action: params.action, emp: params.employeeId.slice(0, 8), hash_preview: `${hash.slice(0, 12)}…` });
+  observabilityConsole.log('[AUDIT]', { action: params.action, emp: auditEmployeeId.slice(0, 8), hash_preview: `${hash.slice(0, 12)}…` });
 }

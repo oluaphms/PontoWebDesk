@@ -12,9 +12,7 @@ const MIGRATION_INTERNAL = new Set([
   '_uuid_migration_view_backup',
 ]);
 
-const GENERIC_DATA_API_BLOCKED_TABLES = new Set([
-  'employees',
-]);
+const GENERIC_DATA_API_BLOCKED_TABLES = new Set<string>();
 
 /** Presentes no dump Supabase (2026-05-25) — dados de produção. */
 export const DUMP_PUBLIC_TABLES = [

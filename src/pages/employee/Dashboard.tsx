@@ -41,6 +41,13 @@ function computeLedgerAvailableBalanceMinutes(rows: any[]): number {
   }, 0);
 }
 
+function monthEndYmd(monthPrefix: string): string {
+  const [year, month] = monthPrefix.split('-').map(Number);
+  if (!year || !month) return `${monthPrefix}-31`;
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+}
+
 function punchTypeLabelFromMirrorNorm(norm: NormalizedMirrorRecordType): string {
   switch (norm) {
     case 'entrada':
@@ -214,7 +221,7 @@ const EmployeeDashboard: React.FC = () => {
           const ledgerFilters = [
             { column: 'employee_id', operator: 'eq' as const, value: user.id },
             { column: 'date', operator: 'gte' as const, value: `${monthPrefix}-01` },
-            { column: 'date', operator: 'lte' as const, value: `${monthPrefix}-31` },
+            { column: 'date', operator: 'lte' as const, value: monthEndYmd(monthPrefix) },
             ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
           ];
           const ledgerRows = await db

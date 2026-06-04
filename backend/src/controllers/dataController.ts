@@ -102,6 +102,18 @@ async function buildWhere(
     idx += 1;
   }
 
+  if (table === 'employees' && !isAdminOrHr(role) && userId) {
+    if (await tableHasColumn(table, 'email')) {
+      parts.push(
+        `(id::text = ${sqlParamRef(idx, 'text')} OR email = (select email from public.users where id::text = ${sqlParamRef(idx, 'text')} limit 1))`,
+      );
+    } else {
+      parts.push(`id::text = ${sqlParamRef(idx, 'text')}`);
+    }
+    params.push(userId);
+    idx += 1;
+  }
+
   if (!isAdminOrHr(role) && userId) {
     const selfScopeColumn =
       SELF_SCOPED_USER_ID_TABLES.has(table) && (await tableHasColumn(table, 'user_id'))
@@ -285,6 +297,12 @@ function sortedKeys(row: Record<string, unknown> | null | undefined): string[] {
 function writeColumnType(table: string, column: string, colTypes: Map<string, string>): string {
   if (table === 'schedules' && column === 'days') return 'integer[]';
   return colTypes.get(column) ?? 'text';
+}
+
+function sqlValueForColumn(value: unknown, dataType: string): unknown {
+  if (value === null || value === undefined) return null;
+  if (dataType === 'json' || dataType === 'jsonb') return JSON.stringify(value);
+  return value;
 }
 
 function prepareSchedulesPayload(row: Record<string, unknown>): Record<string, unknown> {
@@ -549,7 +567,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     const placeholders = keys
       .map((k, i) => sqlParamRef(i + 1, writeColumnType(table, k, colTypes)))
       .join(', ');
-    values = keys.map((k) => row[k]);
+    values = keys.map((k) => sqlValueForColumn(row[k], writeColumnType(table, k, colTypes)));
     const returningSql = returningColumns.length ? ` RETURNING ${returningColumns.join(', ')}` : '';
     sql = `INSERT INTO public.${table} (${cols}) VALUES (${placeholders})${returningSql}`;
     const result = await pool.query(sql, values);
@@ -684,7 +702,7 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
     const sets = keys
       .map((k, i) => `${k} = ${sqlParamRef(i + 1, writeColumnType(table, k, colTypes))}`)
       .join(', ');
-    const values = keys.map((k) => row[k]);
+    const values = keys.map((k) => sqlValueForColumn(row[k], writeColumnType(table, k, colTypes)));
 
     const tenantIdx = keys.length + 1;
     const tenantScope = await dataWriteScopeSql(table, tenantIdx);
@@ -893,6 +911,7 @@ const ALLOWED_RPC = new Set([
   'get_my_company_id',
   'insert_time_record_for_user',
   'insert_time_record_for_user_v2',
+  'timesheet_is_closed_for_stamp',
 ]);
 
 const INSERT_TIME_RECORD_RPC = new Set(['insert_time_record_for_user', 'insert_time_record_for_user_v2']);
@@ -965,6 +984,31 @@ async function assertTimesheetOpenForManualPunch(input: {
       userId: input.userId,
     });
   }
+}
+
+async function executeTimesheetClosedForStampRpc(
+  args: Record<string, unknown>,
+  companyId: string,
+): Promise<boolean> {
+  const employeeId = requiredRpcString(args, ['p_employee_id', 'employee_id'], 'p_employee_id');
+  const refTs = requiredRpcString(args, ['p_ref_ts', 'ref_ts', 'timestamp'], 'p_ref_ts');
+  const period = monthYearFromIsoInSaoPaulo(refTs);
+  if (!period) return false;
+
+  const table = await pool.query("select to_regclass('public.timesheet_closures') as table_name");
+  if (!table.rows[0]?.table_name) return false;
+
+  const result = await pool.query(
+    `select 1
+       from public.timesheet_closures
+      where company_id::text = $1
+        and employee_id::text = $2
+        and month = $3
+        and year = $4
+      limit 1`,
+    [companyId, employeeId, period.month, period.year],
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 async function buildInsertTimeRecordRpcParams(
@@ -1077,6 +1121,35 @@ export async function rpcDataController(req: AuthedRequest, res: Response): Prom
 
   if (fn === 'get_my_company_id') {
     res.json({ ok: true, data: companyId, error: null });
+    return;
+  }
+
+  if (fn === 'timesheet_is_closed_for_stamp') {
+    try {
+      const data = await executeTimesheetClosedForStampRpc(args, companyId);
+      res.json({ ok: true, data, error: null });
+    } catch (e) {
+      if (e instanceof RpcHttpError) {
+        res.status(e.status).json({
+          ok: false,
+          data: null,
+          error: e.message,
+          code: e.code,
+          details: e.details,
+        });
+        return;
+      }
+      logger.error({
+        module: 'data.controller',
+        action: 'DATA_RPC_FAILED',
+        message: 'Falha em RPC de fechamento de espelho',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: e,
+        meta: { fn },
+      });
+      res.status(500).json({ ok: false, data: null, error: 'rpc_failed' });
+    }
     return;
   }
 

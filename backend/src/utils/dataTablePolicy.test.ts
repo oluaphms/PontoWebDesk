@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyTenantToRow, isTableReadable, isTableWritable, tableHasTenantScope } from './dataTablePolicy.js';
+import { ALLOWED_TABLES, applyTenantToRow, isTableReadable, isTableWritable, tableHasTenantScope } from './dataTablePolicy.js';
 
 describe('dataTablePolicy multi-tenant hardening', () => {
   it('treats global_settings as tenant-scoped and readable by authenticated users', () => {
@@ -20,5 +20,11 @@ describe('dataTablePolicy multi-tenant hardening', () => {
     expect(
       applyTenantToRow('departments', { name: 'RH', company_id: 'other', tenant_id: 'other' }, 'company-a'),
     ).toEqual({ name: 'RH', company_id: 'company-a' });
+  });
+
+  it('keeps employees readable through the generic API for legacy dashboard links', () => {
+    expect(ALLOWED_TABLES.has('employees')).toBe(true);
+    expect(isTableReadable('employees', 'admin')).toBe(true);
+    expect(tableHasTenantScope('employees')).toBe(true);
   });
 });
