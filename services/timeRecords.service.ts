@@ -152,22 +152,13 @@ export async function getTimeRecordsByCompany(companyId: string, limit = 50, off
 
 export async function getTimeRecordsByDateForUser(userId: string, date: string): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  return db.select(
-    'time_records',
-    [
-      { column: 'user_id', operator: 'eq', value: userId },
-      { column: 'created_at', operator: 'gte', value: startOfDay.toISOString() },
-      { column: 'created_at', operator: 'lte', value: endOfDay.toISOString() },
-    ],
-    {
-      columns: 'id, user_id, type, created_at, timestamp, location, method',
-      orderBy: { column: 'created_at', ascending: true },
-    },
+  const dayYmd = date.slice(0, 10);
+  return fetchTimeRecordsForMirrorWindow(
+    [{ column: 'user_id', operator: 'eq', value: userId }],
+    dayYmd,
+    dayYmd,
+    true,
+    500,
   );
 }
 
@@ -181,7 +172,7 @@ export async function countTimeRecordsByUser(userId: string): Promise<number> {
   return count ?? 0;
 }
 
-/** Faixa `created_at` inclusive — usada por `getDayRecords` com margem de ±1 dia e filtro pelo instante do evento (timestamp primeiro). */
+/** Faixa de dia civil inclusiva — usa `timestamp` primeiro e `created_at` como fallback de espelho. */
 export async function getTimeRecordsForUserDayRange(
   userId: string,
   startInclusive: string,
@@ -190,17 +181,16 @@ export async function getTimeRecordsForUserDayRange(
 ): Promise<any[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
   const recordUserIds = await resolveLinkedTimeRecordUserIds(userId, companyId);
+  const periodStartYmd = startInclusive.slice(0, 10);
+  const periodEndYmd = endInclusive.slice(0, 10);
   const rows = await Promise.all(
     recordUserIds.map((recordUserId) =>
-      db.select(
-        'time_records',
-        [
-          ...companyFilter(companyId),
-          { column: 'user_id', operator: 'eq', value: recordUserId },
-          { column: 'created_at', operator: 'gte', value: startInclusive },
-          { column: 'created_at', operator: 'lte', value: endInclusive },
-        ],
-        { column: 'created_at', ascending: true },
+      fetchTimeRecordsForMirrorWindow(
+        [...companyFilter(companyId), { column: 'user_id', operator: 'eq', value: recordUserId }],
+        periodStartYmd,
+        periodEndYmd,
+        true,
+        2000,
       ),
     ),
   );

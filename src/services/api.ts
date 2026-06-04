@@ -113,11 +113,13 @@ function shouldClearSessionOnUnauthorized(body: unknown): boolean {
     code === 'AUTH_TOKEN_REVOKED' ||
     code === 'AUTH_USER_NOT_FOUND' ||
     code === 'AUTH_TENANT_CHANGED' ||
+    code === 'AUTH_MISSING_TOKEN' ||
     code === 'invalid_token' ||
     code === 'token_expired' ||
     code === 'token_revoked' ||
     code === 'user_not_found' ||
-    code === 'tenant_changed'
+    code === 'tenant_changed' ||
+    code === 'missing_token'
   );
 }
 

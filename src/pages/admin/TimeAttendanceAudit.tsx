@@ -10,8 +10,9 @@ import PageHeader from '../../components/PageHeader';
 import { Button, EmptyState, LoadingState } from '../../../components/UI';
 import { useToast } from '../../components/ToastProvider';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
-import { auth, db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { auth, isSupabaseConfigured } from '../../services/supabaseClient';
 import { resolveTenantId } from '../../services/tenantScope';
+import { fetchEmployees } from '../../services/employeesApi.service';
 import { recalculate_period } from '../../engine/timeEngine';
 import { resolvePunchOrigin, recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
 import {
@@ -554,22 +555,11 @@ const TimeAttendanceAuditPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<
-          Record<string, unknown>[]
-        >,
-        (
-          db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<
-            Record<string, unknown>[]
-          >
-        ).catch(() => [] as Record<string, unknown>[]),
-      ]);
-      const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
-      const uniqueUsers = Array.from(new Map(employeeRows.map((e) => [e.id, e])).values());
-      const displayName = (e: Record<string, unknown>) =>
-        (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
+      const uniqueUsers = await fetchEmployees(effectiveCompanyId);
+      const displayName = (e: { nome?: unknown; email?: unknown }) =>
+        (e.nome || e.email || 'Sem nome') as string;
       const empList = uniqueUsers
-        .filter((e) => String(e.role || '').toLowerCase() !== 'admin')
+        .filter((e) => !['admin', 'administrador', 'hr', 'rh'].includes(String(e.role || '').toLowerCase()))
         .map((e) => ({ id: String(e.id), nome: displayName(e) }));
       empList.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
       const nameMap = new Map(empList.map((e) => [e.id, e.nome]));

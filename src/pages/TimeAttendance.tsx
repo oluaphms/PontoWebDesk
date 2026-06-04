@@ -7,9 +7,9 @@ import DataTable from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db } from '../services/supabaseClient';
 import { resolveTenantId } from '../services/tenantScope';
 import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
+import { fetchEmployees } from '../services/employeesApi.service';
 import {
   getTimeAttendanceData,
   getTimeAttendanceStatusDetail,
@@ -79,20 +79,11 @@ const TimeAttendancePage: React.FC = () => {
         return;
       }
 
-      const [employeeByCompanyRows, employeeByTenantRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>,
-        (
-          db.select('users', [{ column: 'tenant_id', operator: 'eq', value: effectiveCompanyId }]) as Promise<any[]>
-        ).catch(() => [] as any[]),
-      ]);
+      const employeeRows = await fetchEmployees(effectiveCompanyId);
+      const displayName = (e: any) => (e.nome || e.email || 'Sem nome') as string;
 
-      const employeeRows = [...(employeeByCompanyRows ?? []), ...(employeeByTenantRows ?? [])];
-      const uniqueUsers = Array.from(new Map(employeeRows.map((e: any) => [e.id, e])).values());
-
-      const displayName = (e: any) => (e.nome || e.name || e.full_name || e.email || 'Sem nome') as string;
-
-      const empList: EmployeeRow[] = uniqueUsers
-        .filter((e: any) => (e.role || '').toLowerCase() !== 'admin')
+      const empList: EmployeeRow[] = employeeRows
+        .filter((e: any) => !['admin', 'administrador', 'hr', 'rh'].includes(String(e.role || '').toLowerCase()))
         .map((e: any) => ({
           id: e.id,
           nome: displayName(e),

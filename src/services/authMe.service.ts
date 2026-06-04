@@ -41,7 +41,9 @@ function shouldClearTokenForAuthMe401(authCode: string): boolean {
     authCode === 'AUTH_TOKEN_EXPIRED' ||
     authCode === 'AUTH_TOKEN_REVOKED' ||
     authCode === 'AUTH_USER_NOT_FOUND' ||
-    authCode === 'AUTH_TENANT_CHANGED'
+    authCode === 'AUTH_TENANT_CHANGED' ||
+    authCode === 'AUTH_MISSING_TOKEN' ||
+    authCode === 'missing_token'
   );
 }
 

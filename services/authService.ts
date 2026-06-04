@@ -44,7 +44,7 @@ import {
 import { isSupabaseBlocked } from '../src/utils/supabaseGuard';
 import { enableDegradedMode } from '../src/services/systemMode';
 import { fetchAuthMe } from '../src/services/authMe.service';
-import { clearToken } from '../src/services/authToken';
+import { clearToken, getToken } from '../src/services/authToken';
 import { cacheEmployees } from '../src/services/localDb';
 import { getProvider } from '../src/services/getProvider';
 import { apiPost, ApiError } from '../src/services/api';
@@ -1377,11 +1377,13 @@ class AuthService {
    */
   async signOut(): Promise<void> {
     const startedAt = Date.now();
-    try {
-      const { apiPost } = await import('../src/services/api');
-      await apiPost('/auth/logout', {});
-    } catch {
-      // revogação no servidor é best-effort
+    if (getToken()) {
+      try {
+        const { apiPost } = await import('../src/services/api');
+        await apiPost('/auth/logout', {});
+      } catch {
+        // revogação no servidor é best-effort
+      }
     }
     clearToken();
     try {

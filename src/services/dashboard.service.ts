@@ -124,6 +124,27 @@ function isActiveDashboardEmployee(employee: ApiEmployee): boolean {
   return isVisibleDashboardEmployee(employee) && status !== 'inactive' && status !== 'inativo';
 }
 
+function normalizeEmail(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function buildDashboardUserIdByEmployeeEmail(users: DbRow[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const user of users ?? []) {
+    const email = normalizeEmail(user.email);
+    const id = String(user.id ?? '').trim();
+    if (email && id && !out.has(email)) out.set(email, id);
+  }
+  return out;
+}
+
+function recordUserIdsForEmployee(employee: ApiEmployee, userIdByEmail: Map<string, string>): string[] {
+  const ids = [employee.id, userIdByEmail.get(normalizeEmail(employee.email))]
+    .map((id) => String(id ?? '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
 async function fetchDashboardEmployees(companyId: string): Promise<ApiEmployee[]> {
   return queryCache.getOrFetch(
     `employees:${companyId}:dashboard`,
@@ -617,28 +638,39 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
     try {
       const todayLocal = operationalDashboardTodayYmd();
       const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
-      const [employeesRows, recentRecordsRaw] = await Promise.all([
+      const [employeesRows, usersRows, recentRecordsRaw] = await Promise.all([
         fetchDashboardEmployees(companyId),
+        queryCache.getOrFetch(
+          `users:${companyId}:dashboard-link`,
+          () =>
+            db.select(
+              'users',
+              [{ column: 'company_id', operator: 'eq', value: companyId }],
+              { columns: 'id,email', limit: 1000 },
+            ) as Promise<DbRow[]>,
+          TTL.SHORT,
+        ),
         queryCache.getOrFetch(
           `time_records:admin_dash:recent:${companyId}`,
           () =>
-            db.select(
-              'time_records',
-              [
-                { column: 'company_id', operator: 'eq', value: companyId },
-                { column: 'created_at', operator: 'gte', value: startUtcIso },
-                { column: 'created_at', operator: 'lte', value: endUtcIso },
-              ],
-              { column: 'created_at', ascending: false },
-              40,
+            fetchAdminDashboardDailyRecordCandidates(
+              companyId,
+              todayLocal,
+              startUtcIso,
+              endUtcIso,
             ) as Promise<DbRow[]>,
           TTL.REALTIME,
         ),
       ]);
+      const userIdByEmail = buildDashboardUserIdByEmployeeEmail(usersRows ?? []);
       const visibleEmployees = (employeesRows ?? []).filter(isVisibleDashboardEmployee);
-      const visibleEmployeeIds = new Set(visibleEmployees.map((employee) => String(employee.id)));
+      const visibleEmployeeIds = new Set(
+        visibleEmployees.flatMap((employee) => recordUserIdsForEmployee(employee, userIdByEmail)),
+      );
       const activeEmployees = visibleEmployees.filter(isActiveDashboardEmployee);
-      const activeEmployeeIds = new Set(activeEmployees.map((employee) => String(employee.id)));
+      const activeEmployeeIds = new Set(
+        activeEmployees.flatMap((employee) => recordUserIdsForEmployee(employee, userIdByEmail)),
+      );
       const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []).filter((record: any) =>
         visibleEmployeeIds.has(String(record?.user_id ?? '')),
       );
@@ -679,7 +711,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
       const todayLocal = operationalDashboardTodayYmd();
       const { startUtcIso, endUtcIso } = operationalDayQueryBounds(todayLocal);
       const nowMs = operationalClockMs();
-      const [usersRows, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
+      const [usersRows, employeesRows, recentRecordsRaw, cosRows, liveRaw] = await Promise.all([
         queryCache.getOrFetch(
           `users:${companyId}:minimal`,
           () =>
@@ -690,6 +722,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
             ) as Promise<DbRow[]>,
           TTL.SHORT,
         ),
+        fetchDashboardEmployees(companyId),
         fetchAdminDashboardDailyRecordCandidates(companyId, todayLocal, startUtcIso, endUtcIso),
         queryCache.getOrFetch(
           currentOperationalStateCacheKey(companyId),
@@ -698,7 +731,7 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
         ),
         fetchLiveLocationsForCompany(companyId),
       ]);
-      const users = usersRows ?? [];
+      const users = [...(usersRows ?? []), ...(employeesRows ?? [])];
       const recentRecords = recentRecordsRaw ?? [];
       const liveBy = new Map(flagStaleLiveLocations(liveRaw, nowMs).map((r) => [r.employee_id, r]));
       const recordById = new Map(recentRecords.map((r: any) => [String(r.id), r]));

@@ -7,6 +7,7 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { safeAsyncAction } from '../../utils/safeAsyncAction';
+import { fetchEmployees } from '../../services/employeesApi.service';
 
 const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -120,10 +121,14 @@ const AdminSchedules: React.FC = () => {
         );
         return result ?? [];
       };
-      const [schedRows, shiftRows, userRows, ciclicasRows, mensalRow] = await Promise.all([
+      const [schedRows, shiftRows, employeeRows, ciclicasRows, mensalRow] = await Promise.all([
         safeSelectRows('schedules', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
         safeSelectRows('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
-        safeSelectRows('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
+        fetchEmployees(user.companyId).catch((e) => {
+          partialError = true;
+          observabilityConsole.error('[Schedules] Falha ao carregar colaboradores:', e);
+          return [];
+        }),
         safeSelectRows('escala_ciclica', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
         safeSelectRows('escala_mensal', [
           { column: 'company_id', operator: 'eq', value: user.companyId },
@@ -144,7 +149,7 @@ const AdminSchedules: React.FC = () => {
         ativo: r.ativo ?? true,
       })));
       setShifts((shiftRows ?? []).map((s: any) => ({ id: s.id, name: s.name })));
-      setEmployees((userRows ?? []).filter((u: any) => u.role === 'employee' || u.role === 'hr' || u.role === 'admin').map((u: any) => ({ id: u.id, nome: u.nome || u.email || '' })));
+      setEmployees((employeeRows ?? []).map((u: any) => ({ id: u.id, nome: u.nome || u.email || '' })));
       setCiclicas((ciclicasRows ?? []).map((r: any) => ({
         id: r.id,
         name: r.name,

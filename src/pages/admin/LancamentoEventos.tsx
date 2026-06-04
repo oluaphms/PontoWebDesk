@@ -15,6 +15,7 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured, type Filter as DbFilter } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
+import { fetchEmployees } from '../../services/employeesApi.service';
 
 type EventoFolha = { id: string; codigo: string; descricao: string; unitario_padrao?: number | null };
 type Employee = { id: string; nome: string; numero_folha?: string };
@@ -85,7 +86,7 @@ const AdminLancamentoEventos: React.FC = () => {
   const loadEmployees = useCallback(async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     try {
-      const rows = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+      const rows = await fetchEmployees(user.companyId);
       setEmployees(
         (rows ?? []).map((u: any) => ({
           id: u.id,
@@ -132,7 +133,7 @@ const AdminLancamentoEventos: React.FC = () => {
       const userMap = new Map<string, string>();
       const eventoMap = new Map<string, { codigo: string; descricao: string }>();
       if (userIds.length) {
-        const usersData = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+        const usersData = await fetchEmployees(user.companyId);
         (usersData ?? []).forEach((u: any) => userMap.set(u.id, u.nome || u.email || ''));
       }
       if (eventoIds.length) {

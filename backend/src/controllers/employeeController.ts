@@ -744,17 +744,48 @@ export async function deleteEmployeeController(req: AuthedRequest, res: Response
     return;
   }
 
+  let client: PoolClient | null = null;
   try {
-    const result = await pool.query('delete from employees where id = $1 and company_id = $2 returning id', [
-      id,
-      companyId,
-    ]);
+    client = await pool.connect();
+    await client.query('begin');
+    const hasEmployeeStatus = await tableHasColumn('employees', 'status', client);
+    const result = hasEmployeeStatus
+      ? await client.query(
+          `update employees
+             set status = 'inactive'
+           where id::text = $1 and company_id::text = $2
+           returning id`,
+          [id, companyId],
+        )
+      : await client.query('delete from employees where id::text = $1 and company_id::text = $2 returning id', [
+          id,
+          companyId,
+        ]);
     if (!result.rows[0]) {
+      await client.query('rollback');
       res.status(404).json({ ok: false, error: 'not_found' });
       return;
     }
+
+    if (await tableHasColumn('users', 'status', client)) {
+      await client.query(
+        `update users
+           set status = 'inactive'
+         where id::text = $1 and company_id::text = $2`,
+        [id, companyId],
+      );
+    }
+
+    await client.query('commit');
     res.json({ ok: true });
   } catch (e) {
+    if (client) {
+      try {
+        await client.query('rollback');
+      } catch {
+        // noop
+      }
+    }
     logger.error({
       module: 'employee.controller',
       action: 'EMPLOYEE_DELETE_FAILED',
@@ -764,5 +795,7 @@ export async function deleteEmployeeController(req: AuthedRequest, res: Response
       error: e,
     });
     res.status(500).json({ ok: false, error: 'delete_failed' });
+  } finally {
+    client?.release();
   }
 }

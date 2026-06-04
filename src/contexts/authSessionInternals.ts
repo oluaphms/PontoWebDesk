@@ -45,11 +45,9 @@ export function readUserFromProfileStore(): User | null {
     const companyId = String(parsed.companyId ?? parsed.company_id ?? '').trim();
     const roleRaw = String(parsed.role ?? 'employee').toLowerCase();
     const role =
-      roleRaw === 'admin' || roleRaw === 'hr' || roleRaw === 'employee'
+      roleRaw === 'admin' || roleRaw === 'hr' || roleRaw === 'employee' || roleRaw === 'supervisor'
         ? (roleRaw as User['role'])
-        : roleRaw === 'supervisor'
-          ? 'hr'
-          : 'employee';
+        : 'employee';
     return {
       id,
       nome: String(parsed.nome ?? parsed.email ?? 'Usuário'),
