@@ -70,9 +70,9 @@ export function setToken(token: string | null): void {
   }
 
   if (isCookieMarker(next)) {
-    bearerTokenCache = null;
+    // Não apaga bearer já persistido: em produção podemos alternar entre cookie e JWT
+    // conforme domínio/origem e precisamos manter o header Authorization estável.
     cookieSessionActive = true;
-    persistStoredToken(null);
     return;
   }
 

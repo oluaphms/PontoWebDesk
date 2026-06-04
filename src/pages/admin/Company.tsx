@@ -109,6 +109,19 @@ function buildCompanyDbPayload(form: CompanyFormState): Record<string, unknown> 
   };
 }
 
+function cleanCompanyPayloadForApi(payload: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    // Compat: em bancos antigos esses campos podem ser text, e objeto quebra cast no backend.
+    if (key === 'endereco') {
+      next[key] = typeof value === 'string' || value == null ? value : parseEnderecoField(value);
+      continue;
+    }
+    next[key] = value;
+  }
+  return next;
+}
+
 function resolveCompanyRecordId(
   companyIdState: string | null,
   userCompanyId: string | undefined,
@@ -323,7 +336,7 @@ const AdminCompany: React.FC = () => {
           observabilityConsole.warn('[Company] Falha ao salvar empresa no storage:', err);
         }
       } else {
-        const payload = buildCompanyDbPayload(form);
+        const payload = cleanCompanyPayloadForApi(buildCompanyDbPayload(form));
         try {
           const existing = await db.select('companies', [{ column: 'id', operator: 'eq', value: idToUse }]);
           if (existing?.length) {
