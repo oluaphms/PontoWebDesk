@@ -452,14 +452,14 @@ const EmployeeClockIn: React.FC = () => {
       const logicalTypeStr =
         type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
       const persistenceType = persistenceTypeFromClockWebAction(dayRecords, type);
-      console.log('USER', user);
-      console.log('EMPLOYEE', {
-        id: user.id,
-        employeeId: user.id,
-        companyId: user.companyId,
-        role: user.role,
-      });
-      console.log('LAST_PUNCH', lastLocal);
+      if (import.meta.env?.DEV) {
+        observabilityConsole.info('[ClockIn] sequência local', {
+          userId: user.id,
+          companyId: user.companyId,
+          role: user.role,
+          lastPunchType: lastLocal.tipo ?? null,
+        });
+      }
 
       const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
         nextEventTime: punchInstant,
@@ -544,10 +544,10 @@ const EmployeeClockIn: React.FC = () => {
         allowedLocations = (locRows ?? []).map((r) => ({
           id: r.id,
           company_id: r.company_id,
-          name: r.name,
+          name: r.name ?? r.label ?? 'Local permitido',
           latitude: r.latitude,
           longitude: r.longitude,
-          radius: r.radius ?? 200,
+          radius: r.radius ?? r.allowed_radius ?? 200,
         }));
         trustedDeviceIds = (devRows ?? []).map((d) => d.device_id).filter(Boolean);
         history = (histRows ?? []).map((r) => ({
@@ -858,14 +858,14 @@ const EmployeeClockIn: React.FC = () => {
     const lastLocal = getLastPunchLocal(dayRecords, lastType, lastRecordAt);
     const logicalTypeStr =
       type === LogType.IN ? 'entrada' : type === LogType.OUT ? 'saída' : 'pausa';
-    console.log('USER', user);
-    console.log('EMPLOYEE', {
-      id: user.id,
-      employeeId: user.id,
-      companyId: user.companyId,
-      role: user.role,
-    });
-    console.log('LAST_PUNCH', lastLocal);
+    if (import.meta.env?.DEV) {
+      observabilityConsole.info('[ClockIn] início da batida', {
+        userId: user.id,
+        companyId: user.companyId,
+        role: user.role,
+        lastPunchType: lastLocal.tipo ?? null,
+      });
+    }
     const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
       nextEventTime: new Date(),
     });

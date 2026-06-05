@@ -147,27 +147,27 @@ export async function getCompanyLocations(companyId: string): Promise<CompanyLoc
   if (!checkSupabaseConfigured()) return [];
   const cacheKey = `company_locations:${companyId}`;
   return queryCache.getOrFetch(cacheKey, async () => {
-  const { data, error } = await supabase
-    .from(LOCATIONS_TABLE)
-    .select(COMPANY_LOCATION_COLUMNS)
-    .eq('company_id', companyId)
-    .order('is_default', { ascending: false })
-    .limit(100);
-  if (error) {
-    observabilityConsole.error('[settingsService] getCompanyLocations error:', error);
-    return [];
-  }
-  return (data ?? []).map((row: any) => ({
-    id: row.id,
-    company_id: row.company_id,
-    latitude: Number(row.latitude),
-    longitude: Number(row.longitude),
-    allowed_radius: Number(row.allowed_radius) ?? 200,
-    label: row.label ?? null,
-    is_default: Boolean(row.is_default),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  }));
+    try {
+      const rows = await db.select(LOCATIONS_TABLE, [{ column: 'company_id', operator: 'eq', value: companyId }], {
+        columns: COMPANY_LOCATION_COLUMNS,
+        orderBy: { column: 'is_default', ascending: false },
+        limit: 100,
+      });
+      return (rows ?? []).map((row: any) => ({
+        id: row.id,
+        company_id: row.company_id,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        allowed_radius: Number(row.allowed_radius ?? row.radius ?? 200),
+        label: row.label ?? row.name ?? null,
+        is_default: Boolean(row.is_default),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }));
+    } catch (error) {
+      observabilityConsole.error('[settingsService] getCompanyLocations error:', error);
+      return [];
+    }
   }, TTL.STATIC);
 }
 
