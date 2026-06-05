@@ -204,6 +204,18 @@ export async function markLocalPunchSynced(ids: string[]): Promise<void> {
   await txDone(tx);
 }
 
+export async function removeLocalPunches(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openLocalDb();
+  if (!db) return;
+  const tx = db.transaction([STORES.punches], 'readwrite');
+  const store = tx.objectStore(STORES.punches);
+  for (const id of ids) {
+    store.delete(id);
+  }
+  await txDone(tx);
+}
+
 export async function listReadySyncQueueItems(limit: number): Promise<LocalSyncQueueItem[]> {
   const db = await openLocalDb();
   if (!db) return [];

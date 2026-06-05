@@ -16,13 +16,16 @@ export async function getConsolidatedDayPunches(
   dayYmd: string,
   companyId?: string | null,
 ): Promise<RawTimeRecord[]> {
+  const includeUnsyncedLocal =
+    typeof navigator !== 'undefined' && navigator.onLine === false;
   const [server, local] = await Promise.all([
     getDayRecords(userId, dayYmd, companyId),
     listLocalPunchesForDay(userId, dayYmd),
   ]);
+  const visibleLocal = includeUnsyncedLocal ? local : local.filter((entry) => entry.synced);
   const merged = [
     ...server.map((item) => ({ item, punchHash: String((item as { punch_hash?: string; hash?: string }).punch_hash || (item as { hash?: string }).hash || '') })),
-    ...local.map((entry) => ({ item: toRawFromLocal(entry), punchHash: entry.punch_hash })),
+    ...visibleLocal.map((entry) => ({ item: toRawFromLocal(entry), punchHash: entry.punch_hash })),
   ];
 
   const seen = new Set<string>();

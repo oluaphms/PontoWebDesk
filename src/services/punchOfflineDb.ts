@@ -112,6 +112,13 @@ export async function idbUpdatePunch(item: QueuedWebPunch): Promise<void> {
   await idbPutPunch(item);
 }
 
+export async function idbDeletePunch(id: string): Promise<void> {
+  const db = await idbOpen();
+  if (!db) return;
+  const tx = db.transaction(STORE, 'readwrite');
+  await idbReq(tx.objectStore(STORE).delete(id));
+}
+
 export async function ensurePunchOfflineDbReady(): Promise<void> {
   await migrateLegacyPunchQueueFromLocalStorage();
 }

@@ -6,6 +6,7 @@ import { savePunchEvidence, type SavePunchEvidenceParams } from './punchEvidence
 import {
   ensurePunchOfflineDbReady,
   idbCountPending,
+  idbDeletePunch,
   idbGetPunch,
   idbListPunchesByStatus,
   idbPutPunch,
@@ -15,6 +16,7 @@ import {
   enqueueLocalSyncPunch,
   markLocalPunchSynced,
   putLocalPunch,
+  removeLocalPunches,
   removeSyncQueueItems,
 } from './localDb';
 import { isCloudEnabled } from './cloudService';
@@ -64,6 +66,14 @@ function optimisticResult(entry: QueuedWebPunch): RegisterPunchResult & { pendin
     pending: true,
     clientId: entry.id,
   };
+}
+
+async function rollbackQueuedPunch(id: string): Promise<void> {
+  await Promise.all([
+    idbDeletePunch(id),
+    removeLocalPunches([id]),
+    removeSyncQueueItems([id]),
+  ]);
 }
 
 export async function countPendingWebPunches(): Promise<number> {
@@ -182,6 +192,7 @@ export async function flushWebPunchQueue(opts?: { force?: boolean }): Promise<{
       item.status = 'error';
       item.error = r.error;
       await idbUpdatePunch(item);
+      await rollbackQueuedPunch(item.id);
     }
   }
 
@@ -252,7 +263,16 @@ export async function enqueueAndMaybeSyncWebPunch(
   evidence?: Omit<SavePunchEvidenceParams, 'timeRecordId'> | null,
 ): Promise<RegisterPunchResult & { pending?: boolean; clientId?: string }> {
   const entry = await savePunchLocal(params, evidence);
-  const singleSync = await trySyncSingleWebPunch(entry);
+  let singleSync: (RegisterPunchResult & { pending?: boolean; clientId?: string }) | null = null;
+  try {
+    singleSync = await trySyncSingleWebPunch(entry);
+  } catch (error) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return optimisticResult(entry);
+    }
+    await rollbackQueuedPunch(entry.id);
+    throw error;
+  }
   if (singleSync) {
     return singleSync;
   }
