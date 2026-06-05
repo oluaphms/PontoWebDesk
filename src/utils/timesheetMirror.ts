@@ -7,6 +7,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { localCalendarYmd } from './localDateTimeToIso';
 import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 import { isDevVerboseLogsEnabled } from './devVerboseLogs';
+import { resolvePunchOrigin } from './punchOrigin';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 
@@ -28,6 +29,8 @@ export interface TimeRecord {
   /** Migração: `rep` | `mobile` | `admin` — reforço semântico além de `source`. */
   origin?: string | null;
   source_type?: string | null;
+  metadata?: unknown;
+  raw_data?: unknown;
 }
 
 /** Batida vinda do REP / relógio (origem para rótulo e auditoria — não altera slot no espelho). */
@@ -368,12 +371,18 @@ function recordIso(record: TimeRecord): string {
  * Verifica se um registro é manual (tem manual_reason ou is_manual=true)
  */
 export function isManualRecord(record: TimeRecord): boolean {
+  if (STATUS_TAG_REGEX.test(String(record.manual_reason || ''))) return true;
+  const origin = resolvePunchOrigin(record).kind;
+  if (origin === 'mobile' || origin === 'rep') return false;
   return !!(record.manual_reason && record.manual_reason.trim()) || record.is_manual === true;
 }
 
 /** Admin/RH podem editar somente batidas lançadas manualmente pelo espelho. */
 export function isEditableManualMirrorRecord(record: TimeRecord): boolean {
   if (isRepMirrorRecord(record)) return false;
+  const origin = resolvePunchOrigin(record);
+  if (origin.kind === 'mobile' || origin.kind === 'rep') return false;
+  if (origin.kind === 'admin') return true;
   const o = String(record.origin ?? '').trim().toLowerCase();
   const s = String(record.source ?? '').trim().toLowerCase();
   const m = String(record.method ?? '').trim().toLowerCase();

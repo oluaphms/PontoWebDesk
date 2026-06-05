@@ -5,6 +5,7 @@ import { isSupabaseConfigured, db } from '../services/supabaseClient';
 import { deleteTimeRecord, updateTimeRecord } from '../../services/timeRecords.service';
 import { TIPOS_BATIDA, mapPunchTypeToDb, mapDbToPunchType } from '../constants/punchTypes';
 import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
+import { resolvePunchOrigin } from '../utils/punchOrigin';
 
 const STATUS_TAG_REGEX = /\[STATUS:(FOLGA|FALTA|EXTRA)\]/i;
 
@@ -68,6 +69,9 @@ interface EditTimeRecordModalProps {
     source?: string | null;
     method?: string | null;
     origin?: string | null;
+    source_type?: string | null;
+    metadata?: unknown;
+    raw_data?: unknown;
   } | null;
   onSave: () => void;
   onUpdated?: (payload: { recordId: string; userId: string; date: string; time: string; type: string }) => void;
@@ -85,20 +89,20 @@ interface AdjustmentRequestOption {
   punch_type: string;
 }
 
-function resolveLaunchedByLabel(record: {
-  source?: string | null;
-  method?: string | null;
-  origin?: string | null;
-}): string {
-  const o = String(record.origin || '').trim().toLowerCase();
-  const s = String(record.source || '').trim().toLowerCase();
-  const m = String(record.method || '').trim().toLowerCase();
-  if (o === 'admin' || s === 'admin' || m === 'admin') return 'RH/Admin';
-  if (o === 'mobile' || s === 'web' || m === 'foto' || m === 'gps' || m === 'manual' || m === 'biometric') {
-    return 'Colaborador';
-  }
-  if (o === 'rep' || s === 'rep' || m === 'rep' || s === 'clock') return 'Relógio REP';
+function resolveLaunchedByLabel(record: NonNullable<EditTimeRecordModalProps['record']>): string {
+  const origin = resolvePunchOrigin(record);
+  if (origin.kind === 'mobile') return 'Colaborador (App)';
+  if (origin.kind === 'rep') return 'Relógio de ponto';
+  if (origin.kind === 'admin') return 'RH/Admin';
   return 'Sistema';
+}
+
+function resolveObservationLabel(record: NonNullable<EditTimeRecordModalProps['record']>): string {
+  const origin = resolvePunchOrigin(record);
+  if (origin.kind === 'mobile') return 'Observação do app';
+  if (origin.kind === 'rep') return 'Observação do relógio';
+  if (origin.kind === 'admin') return 'Motivo / Observação (informado pelo RH/Admin)';
+  return 'Motivo / Observação';
 }
 
 export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
@@ -363,7 +367,7 @@ export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
 
               <div>
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                  Motivo / Observação (informado pelo RH/Admin)
+                  {resolveObservationLabel(record)}
                 </p>
                 <p className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm whitespace-pre-wrap">
                   {getReadableManualReason(record.manual_reason) || 'Sem observação informada'}
