@@ -343,27 +343,48 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
       },
     });
 
-    if (cols.mode === 'api_legacy') {
-      const payload = {
-        ...punch,
-        punch_hash: punchHash,
-        photo_url: photoUrl,
-        mirror_record_id: mirrorRecordId,
-      };
-      const inserted = await client.query(
-        `insert into punches (company_id, user_id, type, timestamp, punch_hash, payload)
-         values ($1, $2, $3, $4, $5, $6)
-         returning id`,
-        [companyId, userId, type, timestamp, punchHash, JSON.stringify(payload)],
-      );
-      await client.query('commit');
-      return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
-    }
+    await client.query('savepoint punch_audit_optional');
+    try {
+      if (cols.mode === 'api_legacy') {
+        const payload = {
+          ...punch,
+          punch_hash: punchHash,
+          photo_url: photoUrl,
+          mirror_record_id: mirrorRecordId,
+        };
+        const inserted = await client.query(
+          `insert into punches (company_id, user_id, type, timestamp, punch_hash, payload)
+           values ($1, $2, $3, $4, $5, $6)
+           returning id`,
+          [companyId, userId, type, timestamp, punchHash, JSON.stringify(payload)],
+        );
+        await client.query('commit');
+        return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+      }
 
-    if (cols.hasPhotoUrl) {
+      if (cols.hasPhotoUrl) {
+        const inserted = await client.query(
+          `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data, photo_url)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)
+           returning id`,
+          [
+            userId,
+            companyId,
+            type,
+            String(punch.method || 'api').trim() || 'api',
+            timestamp,
+            source,
+            JSON.stringify({ ...punch, punch_hash: punchHash, mirror_record_id: mirrorRecordId }),
+            photoUrl,
+          ],
+        );
+        await client.query('commit');
+        return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+      }
+
       const inserted = await client.query(
-        `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data, photo_url)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data)
+         values ($1, $2, $3, $4, $5, $6, $7)
          returning id`,
         [
           userId,
@@ -372,35 +393,35 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
           String(punch.method || 'api').trim() || 'api',
           timestamp,
           source,
-          JSON.stringify({ ...punch, punch_hash: punchHash, mirror_record_id: mirrorRecordId }),
-          photoUrl,
+          JSON.stringify({
+            ...punch,
+            punch_hash: punchHash,
+            photo_url: photoUrl,
+            mirror_record_id: mirrorRecordId,
+          }),
         ],
       );
       await client.query('commit');
-      return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
-    }
-
-    const inserted = await client.query(
-      `insert into punches (employee_id, company_id, type, method, created_at, source, raw_data)
-       values ($1, $2, $3, $4, $5, $6, $7)
-       returning id`,
-      [
+      return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+    } catch (error) {
+      await client.query('rollback to savepoint punch_audit_optional');
+      logger.warn({
+        module: 'punch.service',
+        action: 'PUNCH_AUDIT_INSERT_SKIPPED',
+        message: 'Falha ao gravar tabela auxiliar punches; time_records foi preservado',
         userId,
         companyId,
-        type,
-        String(punch.method || 'api').trim() || 'api',
-        timestamp,
-        source,
-        JSON.stringify({
-          ...punch,
-          punch_hash: punchHash,
-          photo_url: photoUrl,
-          mirror_record_id: mirrorRecordId,
-        }),
-      ],
-    );
+        error,
+        meta: {
+          employeeId: userId,
+          timeRecordId: mirrorRecordId,
+          type,
+          timestamp,
+        },
+      });
+    }
     await client.query('commit');
-    return { success: true, id: String(inserted.rows[0]?.id || ''), punch_hash: punchHash };
+    return { success: true, id: String(mirrorRecordId || ''), punch_hash: punchHash };
   } catch (error) {
     await client.query('rollback');
     throw error;
