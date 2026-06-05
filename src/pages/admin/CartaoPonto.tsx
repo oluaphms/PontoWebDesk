@@ -17,6 +17,7 @@ import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
+import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
 
 type DayMeta = {
   comp: boolean;
@@ -497,6 +498,7 @@ const AdminCartaoPonto: React.FC = () => {
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400">Saída 1</th>
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400">Saída 2</th>
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400">Saída 3</th>
+                  <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400">Fotos</th>
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400" title="Compensado">Comp</th>
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400" title="Almoço Livre">Alm Liv</th>
                   <th className="text-left px-2 py-2 font-bold text-slate-500 dark:text-slate-400">Neutro</th>
@@ -515,6 +517,9 @@ const AdminCartaoPonto: React.FC = () => {
                   const punches = getPunchesForDay(date);
                   const meta = getMetaForDay(date);
                   const isDirty = dirty.has(date);
+                  const photoRecords = [punches.e1, punches.e2, punches.e3, punches.s1, punches.s2, punches.s3].filter((record) =>
+                    resolvePunchPhotoUrl(record),
+                  );
                   return (
                     <tr key={date} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                       <td className="px-2 py-1.5 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">{formatDateBr(date)}</td>
@@ -531,6 +536,21 @@ const AdminCartaoPonto: React.FC = () => {
                       <td className="px-2 py-1.5 tabular-nums">{punches.s1 ? timeStr(punches.s1.created_at) : '—'}</td>
                       <td className="px-2 py-1.5 tabular-nums">{punches.s2 ? timeStr(punches.s2.created_at) : '—'}</td>
                       <td className="px-2 py-1.5 tabular-nums">{punches.s3 ? timeStr(punches.s3.created_at) : '—'}</td>
+                      <td className="px-2 py-1.5">
+                        {photoRecords.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {photoRecords.map((record: any) => (
+                              <AdminPunchPhotoViewer
+                                key={String(record.id ?? `${record.created_at}-${record.type}`)}
+                                photoUrl={resolvePunchPhotoUrl(record)}
+                                label={timeStr(record.created_at)}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="px-2 py-1.5">
                         <input
                           type="checkbox"
