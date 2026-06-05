@@ -8,6 +8,6 @@ import { coordinateOperationalAutoRecovery } from '../../domain/operational/reco
 import { getSupabaseClient } from '../supabaseClient';
 
 export async function runOperationalAutoRecovery(reason: string): Promise<void> {
-  const client = getSupabaseClient() as SupabaseClient | null;
+  const client = getSupabaseClient() as unknown as SupabaseClient | null;
   return coordinateOperationalAutoRecovery(reason, client);
 }
