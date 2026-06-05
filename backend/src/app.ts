@@ -54,7 +54,7 @@ app.use('/api', apiRouter);
  * Rotas legadas sem /api (ex.: proxy_pass errado ou cliente antigo).
  * Evita confusão com "Cannot POST /auth/login" genérico do Express.
  */
-const legacyApiPaths = ['/auth', '/employees', '/punches', '/data'];
+const legacyApiPaths = ['/auth', '/employees', '/punches', '/rep', '/data'];
 for (const prefix of legacyApiPaths) {
   app.use(prefix, (_req, res) => {
     res.status(404).json({

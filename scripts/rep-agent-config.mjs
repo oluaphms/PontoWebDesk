@@ -151,7 +151,7 @@ export function validateProductionAgentConfig() {
   const deviceIp = trimStr(process.env.REP_DEVICE_IP);
 
   if (!saasUrl) {
-    return { ok: false, message: 'config.json: saas_url é obrigatório (ex.: https://pontowebdesk.vercel.app).' };
+    return { ok: false, message: 'config.json: saas_url é obrigatório (ex.: https://api.seudominio.com.br, sem /api).' };
   }
   if (!apiKey) {
     return { ok: false, message: 'config.json: api_key é obrigatório.' };
@@ -165,7 +165,7 @@ export function validateProductionAgentConfig() {
     if (lower.includes('localhost') || lower.includes('127.0.0.1') || lower.includes('::1')) {
       return {
         ok: false,
-        message: 'Produção: saas_url não pode apontar para localhost. Use https://pontowebdesk.vercel.app',
+        message: 'Produção: saas_url não pode apontar para localhost. Use a URL pública da API/SaaS, sem /api.',
       };
     }
   }
