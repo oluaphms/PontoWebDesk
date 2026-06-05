@@ -29,6 +29,12 @@ if (!password) {
 }
 const companyIdEnv = (process.env.SEED_COMPANY_ID || '').trim();
 const role = process.env.SEED_ADMIN_ROLE || 'admin';
+const defaultProfile =
+  email === 'desenvolvedor@smartponto.com'
+    ? { name: 'Desenvolvedor', cargo: 'Desenvolvedor Full Stack' }
+    : { name: 'Administrador', cargo: 'Administrador' };
+const displayName = (process.env.SEED_ADMIN_NAME || defaultProfile.name).trim();
+const displayCargo = (process.env.SEED_ADMIN_CARGO || defaultProfile.cargo).trim();
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -186,6 +192,9 @@ try {
 
     const hasNome = await tableHasColumn(client, 'users', 'nome');
     const hasPasswordHash = await tableHasColumn(client, 'users', 'password_hash');
+    const hasCargo = await tableHasColumn(client, 'users', 'cargo');
+    const hasStatus = await tableHasColumn(client, 'users', 'status');
+    const hasUpdatedAt = await tableHasColumn(client, 'users', 'updated_at');
     const useAuthUsers = await authUsersExists(client);
     const companyId = await resolveCompanyId(client);
 
@@ -215,10 +224,22 @@ try {
         observabilityConsole.warn('[seed-admin] Tabela users sem password_hash — rode db:migrate:full ou 003_api_local_auth.sql');
       }
       if (hasNome) {
-        await client.query(
-          `update users set nome = coalesce(nullif(trim(nome), ''), $1) where id = $2`,
-          ['Administrador', userId],
-        );
+        const fields = ['nome = $2'];
+        const values = [userId, displayName];
+        if (hasCargo) {
+          values.push(displayCargo);
+          fields.push(`cargo = $${values.length}`);
+        }
+        if (hasStatus) {
+          values.push('active');
+          fields.push(`status = $${values.length}`);
+        }
+        if (hasUpdatedAt) {
+          fields.push('updated_at = now()');
+        }
+        await client.query(`update users set ${fields.join(', ')} where id = $1`, values);
+      } else if (hasStatus) {
+        await client.query('update users set status = $1 where id = $2', ['active', userId]);
       }
       observabilityConsole.log('[seed-admin] Senha/perfil atualizados para', email);
     } else if (hasNome && useAuthUsers) {
@@ -228,10 +249,18 @@ try {
       );
       const userId = authInsert.rows[0].id;
       const cols = ['id', 'nome', 'email', 'company_id', 'role'];
-      const vals = [userId, 'Administrador', email, companyId, role];
+      const vals = [userId, displayName, email, companyId, role];
       if (hasPasswordHash) {
         cols.push('password_hash');
         vals.push(hash);
+      }
+      if (hasCargo) {
+        cols.push('cargo');
+        vals.push(displayCargo);
+      }
+      if (hasStatus) {
+        cols.push('status');
+        vals.push('active');
       }
       const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
       await client.query(
@@ -241,16 +270,23 @@ try {
       observabilityConsole.log('[seed-admin] Usuário criado (schema Supabase):', email);
     } else {
       if (hasPasswordHash) {
-        await client.query(
-          `insert into users (email, password_hash, company_id, role)
-           values ($1, $2, $3, $4)`,
-          [email, hash, companyId, role],
-        );
+        const cols = ['email', 'password_hash', 'company_id', 'role'];
+        const vals = [email, hash, companyId, role];
+        if (hasStatus) {
+          cols.push('status');
+          vals.push('active');
+        }
+        const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+        await client.query(`insert into users (${cols.join(', ')}) values (${placeholders})`, vals);
       } else {
-        await client.query(
-          `insert into users (email, company_id, role) values ($1, $2, $3)`,
-          [email, companyId, role],
-        );
+        const cols = ['email', 'company_id', 'role'];
+        const vals = [email, companyId, role];
+        if (hasStatus) {
+          cols.push('status');
+          vals.push('active');
+        }
+        const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+        await client.query(`insert into users (${cols.join(', ')}) values (${placeholders})`, vals);
       }
       observabilityConsole.log('[seed-admin] Usuário criado (schema mínimo):', email);
     }

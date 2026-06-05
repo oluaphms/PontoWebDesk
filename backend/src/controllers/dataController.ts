@@ -43,6 +43,10 @@ type FilterInput = { column: string; operator: string; value: unknown };
 const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
 const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
 const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules', 'estruturas', 'estrutura_responsaveis']);
+const PROTECTED_SYSTEM_USER_EMAILS = new Set([
+  'admin@pontowebdesk.com',
+  'desenvolvedor@smartponto.com',
+]);
 
 async function resolveUserScopeColumn(table: string): Promise<string | null> {
   if (table === 'users') {
@@ -58,6 +62,10 @@ async function resolveUserScopeColumn(table: string): Promise<string | null> {
 function safeIdent(name: string): string | null {
   if (!/^[a-z_][a-z0-9_]*$/i.test(name)) return null;
   return name;
+}
+
+function isProtectedSystemUserEmail(email: unknown): boolean {
+  return PROTECTED_SYSTEM_USER_EMAILS.has(String(email || '').trim().toLowerCase());
 }
 
 function parseFilters(raw: string | undefined): FilterInput[] {
@@ -812,6 +820,23 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
   if (companyId === null) return;
 
   try {
+    if (table === 'users') {
+      const target = await pool.query(
+        `select email from public.users where id::text = $1 and company_id::text = $2 limit 1`,
+        [id, companyId],
+      );
+      if (isProtectedSystemUserEmail(target.rows[0]?.email)) {
+        res.status(403).json({
+          ok: false,
+          success: false,
+          error: 'protected_system_user',
+          code: 'DATA_PROTECTED_SYSTEM_USER',
+          message: 'Conta administrativa protegida não pode ser excluída.',
+        });
+        return;
+      }
+    }
+
     const tenantScope = await dataWriteScopeSql(table, 2);
     const tenantClause = tenantScope ? ` AND ${tenantScope}` : '';
     const params = tenantScope ? [id, companyId] : [id];

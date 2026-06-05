@@ -19,6 +19,10 @@ import { logger } from '../logger/logger.js';
 const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
 type EmployeeLinkColumn = (typeof EMPLOYEE_LINK_COLUMNS)[number];
 type LinkColumnMap = Record<EmployeeLinkColumn, boolean>;
+const PROTECTED_SYSTEM_USER_EMAILS = new Set([
+  'admin@pontowebdesk.com',
+  'desenvolvedor@smartponto.com',
+]);
 const USER_VIEW_COLUMNS = [
   'pis_pasep',
   'phone',
@@ -34,6 +38,10 @@ type UserViewColumnMap = Record<UserViewColumn, boolean>;
 
 function isEmployeeLinkColumn(key: keyof NormalizedEmployeeInput): key is EmployeeLinkColumn {
   return (EMPLOYEE_LINK_COLUMNS as readonly string[]).includes(key);
+}
+
+function isProtectedSystemUserEmail(email: unknown): boolean {
+  return PROTECTED_SYSTEM_USER_EMAILS.has(String(email || '').trim().toLowerCase());
 }
 
 async function getTableLinkColumns(
@@ -208,9 +216,10 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
        where e.company_id = $1
          and coalesce(e.status, 'active') = 'active'
+         and lower(coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), ''), '')) <> all($2::text[])
        order by e.created_at desc
        limit 1000`,
-      [companyId],
+      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS)],
     );
     const employees = result.rows.map(mapRow);
     res.json({ ok: true, success: true, employees, data: employees });
@@ -748,6 +757,33 @@ export async function deleteEmployeeController(req: AuthedRequest, res: Response
   try {
     client = await pool.connect();
     await client.query('begin');
+    const target = await client.query(
+      `select
+         e.id::text as id,
+         coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), '')) as email
+       from employees e
+       left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+       where e.id::text = $1 and e.company_id::text = $2
+       limit 1`,
+      [id, companyId],
+    );
+    if (!target.rows[0]) {
+      await client.query('rollback');
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
+    if (isProtectedSystemUserEmail(target.rows[0].email)) {
+      await client.query('rollback');
+      res.status(403).json({
+        ok: false,
+        success: false,
+        error: 'protected_system_user',
+        code: 'EMPLOYEE_PROTECTED_SYSTEM_USER',
+        message: 'Conta administrativa protegida não pode ser excluída pela tela de colaboradores.',
+      });
+      return;
+    }
+
     const hasEmployeeStatus = await tableHasColumn('employees', 'status', client);
     const result = hasEmployeeStatus
       ? await client.query(
@@ -761,11 +797,6 @@ export async function deleteEmployeeController(req: AuthedRequest, res: Response
           id,
           companyId,
         ]);
-    if (!result.rows[0]) {
-      await client.query('rollback');
-      res.status(404).json({ ok: false, error: 'not_found' });
-      return;
-    }
 
     if (await tableHasColumn('users', 'status', client)) {
       await client.query(
