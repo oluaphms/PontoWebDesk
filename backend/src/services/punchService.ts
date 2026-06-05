@@ -173,6 +173,10 @@ async function insertIntoTimeRecordsViaRpc(
     punch: PunchInput;
   },
 ): Promise<{ id: string | null }> {
+  const source = normalizeSource(input.source);
+  if (source !== 'admin' && source !== 'manual') {
+    return { id: null };
+  }
   const rpc = await getTimeRecordInsertRpc();
   if (!rpc.fnName) return { id: null };
   const args = [

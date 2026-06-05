@@ -77,6 +77,8 @@ import {
 const TOOLTIP_PERIODO_FECHADO_HARD_LOCK =
   'Período fechado. Reabra oficialmente para editar/importar batidas.';
 
+const WEEKDAY_LABELS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'] as const;
+
 /** Filtros do espelho por utilizador — sobrevivem a novo login na mesma aba/navegador. */
 function adminTimesheetFiltersKey(userId: string) {
   return `pontowebdesk:admin-timesheet-filters:${userId}`;
@@ -700,6 +702,26 @@ const AdminTimesheet: React.FC = () => {
   const formatDateBR = (dateStr: string) => {
     const [y, m, day] = dateStr.split('-');
     return `${day}/${m}/${y}`;
+  };
+
+  const formatWeekdayBR = (dateStr: string) => {
+    const [y, m, day] = dateStr.split('-').map(Number);
+    if (!y || !m || !day) return '';
+    return WEEKDAY_LABELS[new Date(y, m - 1, day).getDay()] ?? '';
+  };
+
+  const renderDateWithWeekday = (dateStr: string) => {
+    const weekday = formatWeekdayBR(dateStr);
+    return (
+      <span className="inline-flex items-center gap-2">
+        {weekday && (
+          <span className="inline-flex min-w-9 justify-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {weekday}
+          </span>
+        )}
+        <span>{formatDateBR(dateStr)}</span>
+      </span>
+    );
   };
 
   const handleAddRecord = async (data: {
@@ -1639,7 +1661,7 @@ const AdminTimesheet: React.FC = () => {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Data</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Data / Dia</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Entrada</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Saída int.</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Volta int.</th>
@@ -1848,10 +1870,10 @@ const AdminTimesheet: React.FC = () => {
                               ) : (
                                 <ChevronRight className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
                               )}
-                              <span>{formatDateBR(date)}</span>
+                              {renderDateWithWeekday(date)}
                             </button>
                           ) : (
-                            <span>{formatDateBR(date)}</span>
+                            renderDateWithWeekday(date)
                           )}
                           {dailyCalcUiByDate.has(date) &&
                             (() => {
