@@ -134,7 +134,7 @@ export async function recordDeviceOperationalReputationSignal(
   let client: SupabaseClient | null = clientOverride ?? null;
   if (!client) {
     try {
-      client = getSupabaseClient() as SupabaseClient;
+      client = getSupabaseClient() as unknown as SupabaseClient;
     } catch {
       return { ok: false, error: 'no_client' };
     }

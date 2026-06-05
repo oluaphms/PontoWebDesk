@@ -505,6 +505,23 @@ export const supabase = {
         },
       }),
     }),
+    upsert: async (
+      data: DbRow | DbRow[],
+      options?: { onConflict?: string; ignoreDuplicates?: boolean },
+    ) => {
+      try {
+        const onConflict = String(options?.onConflict || 'id');
+        const rows = Array.isArray(data) ? data : [data];
+        await Promise.all(rows.map((row) => db.upsert(table, row, onConflict)));
+        return { data: Array.isArray(data) ? rows : rows[0] ?? null, error: null };
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'upsert_failed';
+        if (options?.ignoreDuplicates && msg.toLowerCase().includes('duplicate')) {
+          return { data, error: null };
+        }
+        return { data: null, error: { message: msg } };
+      }
+    },
     update: (data: DbRow) => ({
       eq: async (column: string, value: FilterValue) => {
         try {

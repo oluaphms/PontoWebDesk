@@ -1,4 +1,5 @@
 import { invalidateOperationalGeoCaches, invalidateRealtimeGeoEntity } from '../queryCache';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { refreshCurrentOperationalStateRpc } from '../currentOperationalState.service';
 import { reconcileCurrentOperationalState } from '../../domain/operational/reconciliation/currentOperationalStateReconciler';
 import { getSupabaseClient } from '../supabaseClient';
@@ -56,7 +57,7 @@ export async function runGeoSelfHeal(input: {
       );
     }
     if (input.companyId) {
-      const client = getSupabaseClient();
+      const client = getSupabaseClient() as unknown as SupabaseClient | null;
       await refreshCurrentOperationalStateRpc(input.companyId, input.employeeId, { force: true, source: 'geo_self_heal', client });
       if (client) {
         await reconcileCurrentOperationalState(client, input.companyId, [input.employeeId]);
