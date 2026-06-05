@@ -116,6 +116,21 @@ async function logLatestPunchBeforeInsert(
   }
 }
 
+async function setRequestJwtContext(client: PoolClient, input: { userId: string; companyId: string }): Promise<void> {
+  await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [input.userId]);
+  await client.query(`select set_config('request.jwt.claim.user_id', $1, true)`, [input.userId]);
+  await client.query(`select set_config('request.jwt.claim.company_id', $1, true)`, [input.companyId]);
+  await client.query(`select set_config('request.jwt.claim.role', $1, true)`, ['employee']);
+  await client.query(`select set_config('request.jwt.claims', $1, true)`, [
+    JSON.stringify({
+      sub: input.userId,
+      user_id: input.userId,
+      company_id: input.companyId,
+      role: 'employee',
+    }),
+  ]);
+}
+
 function buildRpcMetadata(punch: PunchInput, punchHash: string, photoUrl: string | null): Record<string, unknown> {
   return {
     method: String(punch.method || 'api').trim() || 'api',
@@ -124,6 +139,25 @@ function buildRpcMetadata(punch: PunchInput, punchHash: string, photoUrl: string
     punch_hash: punchHash,
     payload: punch,
   };
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function appendInsertValue(
+  columns: string[],
+  values: unknown[],
+  casts: string[],
+  column: string,
+  value: unknown,
+  sqlCast: string,
+): void {
+  columns.push(column);
+  values.push(value);
+  casts.push(`$${values.length}::${sqlCast}`);
 }
 
 async function insertIntoTimeRecordsViaRpc(
@@ -192,41 +226,75 @@ async function insertIntoTimeRecordsFallback(
   const columns = ['user_id', 'company_id', 'type'];
   const values: unknown[] = [input.userId, input.companyId, input.type];
   const cast: string[] = [`$1::${userIdCast}`, `$2::${companyIdCast}`, '$3::text'];
+  const metadata = buildRpcMetadata(input.punch, input.punchHash, input.photoUrl);
+  const method = String(input.punch.method || 'api').trim() || 'api';
 
   if (cols.hasTimestamp) {
-    columns.push('timestamp');
-    values.push(input.timestamp);
-    cast.push(`$${values.length}::timestamptz`);
-  } else if (cols.hasCreatedAt) {
-    columns.push('created_at');
-    values.push(input.timestamp);
-    cast.push(`$${values.length}::timestamptz`);
+    appendInsertValue(columns, values, cast, 'timestamp', input.timestamp, 'timestamptz');
+  }
+  if (cols.hasCreatedAt) {
+    appendInsertValue(columns, values, cast, 'created_at', input.timestamp, 'timestamptz');
+  }
+  if (cols.hasUpdatedAt) {
+    appendInsertValue(columns, values, cast, 'updated_at', input.timestamp, 'timestamptz');
   }
 
   if (cols.hasMethod) {
-    columns.push('method');
-    values.push(String(input.punch.method || 'api').trim() || 'api');
-    cast.push(`$${values.length}::text`);
+    appendInsertValue(columns, values, cast, 'method', method, 'text');
   }
   if (cols.hasSource) {
-    columns.push('source');
-    values.push(input.source);
-    cast.push(`$${values.length}::text`);
+    appendInsertValue(columns, values, cast, 'source', input.source, 'text');
   }
   if (cols.hasPunchHash) {
-    columns.push('punch_hash');
-    values.push(input.punchHash);
-    cast.push(`$${values.length}::text`);
+    appendInsertValue(columns, values, cast, 'punch_hash', input.punchHash, 'text');
   }
   if (cols.hasMetadata) {
-    columns.push('metadata');
-    values.push(JSON.stringify(buildRpcMetadata(input.punch, input.punchHash, input.photoUrl)));
-    cast.push(`$${values.length}::jsonb`);
+    appendInsertValue(columns, values, cast, 'metadata', JSON.stringify(metadata), 'jsonb');
+  }
+  if (cols.hasRawData) {
+    appendInsertValue(columns, values, cast, 'raw_data', JSON.stringify(metadata), 'jsonb');
   }
   if (cols.hasPhotoUrl) {
-    columns.push('photo_url');
-    values.push(input.photoUrl);
-    cast.push(`$${values.length}::text`);
+    appendInsertValue(columns, values, cast, 'photo_url', input.photoUrl, 'text');
+  }
+  if (cols.hasLocation) {
+    appendInsertValue(columns, values, cast, 'location', JSON.stringify(input.punch.location ?? null), 'jsonb');
+  }
+  if (cols.hasLatitude) {
+    appendInsertValue(columns, values, cast, 'latitude', finiteNumberOrNull(input.punch.latitude), 'numeric');
+  }
+  if (cols.hasLongitude) {
+    appendInsertValue(columns, values, cast, 'longitude', finiteNumberOrNull(input.punch.longitude), 'numeric');
+  }
+  if (cols.hasAccuracy) {
+    appendInsertValue(columns, values, cast, 'accuracy', finiteNumberOrNull(input.punch.accuracy), 'numeric');
+  }
+  if (cols.hasDeviceId) {
+    appendInsertValue(columns, values, cast, 'device_id', input.punch.deviceId ?? null, 'text');
+  }
+  if (cols.hasDeviceType) {
+    appendInsertValue(columns, values, cast, 'device_type', input.punch.deviceType ?? 'web', 'text');
+  }
+  if (cols.hasIpAddress) {
+    appendInsertValue(columns, values, cast, 'ip_address', input.punch.ipAddress ?? null, 'text');
+  }
+  if (cols.hasFraudScore) {
+    appendInsertValue(columns, values, cast, 'fraud_score', finiteNumberOrNull(input.punch.fraudScore) ?? 0, 'numeric');
+  }
+  if (cols.hasFraudFlags) {
+    appendInsertValue(columns, values, cast, 'fraud_flags', JSON.stringify(input.punch.fraudFlags ?? []), 'jsonb');
+  }
+  if (cols.hasIsManual) {
+    appendInsertValue(columns, values, cast, 'is_manual', method === 'manual', 'boolean');
+  }
+  if (cols.hasManualReason) {
+    appendInsertValue(columns, values, cast, 'manual_reason', input.punch.manualReason ?? input.punch.justification ?? null, 'text');
+  }
+  if (cols.hasOrigin) {
+    appendInsertValue(columns, values, cast, 'origin', 'mobile', 'text');
+  }
+  if (cols.hasSourceType) {
+    appendInsertValue(columns, values, cast, 'source_type', 'app', 'text');
   }
 
   const sql = `insert into time_records (${columns.join(', ')})
@@ -286,6 +354,7 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
   const client = await pool.connect();
   try {
     await client.query('begin');
+    await setRequestJwtContext(client, { userId, companyId });
     await logLatestPunchBeforeInsert(client, { userId, companyId, timestamp, type });
     if (cols.hasPunchHash) {
       const existing = await client.query(

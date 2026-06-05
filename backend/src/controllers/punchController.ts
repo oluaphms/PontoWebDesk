@@ -8,6 +8,12 @@ import { logger } from '../logger/logger.js';
 
 type PunchBody = Record<string, unknown>;
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 300);
+  const message = String(error || '').trim();
+  return message ? message.slice(0, 300) : 'Falha ao registrar ponto.';
+}
+
 function mergePunchBody(req: AuthedRequest, item: PunchBody): PunchBody | { error: string } {
   const auth = req.auth;
   const selfId = authUserId(auth);
@@ -106,7 +112,12 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
     res.json({ ok: true, result });
   } catch (e) {
     observabilityConsole.error('[PUNCH]', e);
-    res.status(500).json({ ok: false, error: 'punch_failed' });
+    res.status(500).json({
+      ok: false,
+      error: 'punch_failed',
+      message: errorMessage(e),
+      code: typeof (e as { code?: unknown })?.code === 'string' ? (e as { code: string }).code : undefined,
+    });
   }
 }
 

@@ -12,10 +12,25 @@ type TimeRecordColumns = {
   hasPunchHash: boolean;
   hasTimestamp: boolean;
   hasCreatedAt: boolean;
+  hasUpdatedAt: boolean;
   hasMethod: boolean;
   hasSource: boolean;
   hasMetadata: boolean;
+  hasRawData: boolean;
   hasPhotoUrl: boolean;
+  hasLocation: boolean;
+  hasLatitude: boolean;
+  hasLongitude: boolean;
+  hasAccuracy: boolean;
+  hasDeviceId: boolean;
+  hasDeviceType: boolean;
+  hasIpAddress: boolean;
+  hasFraudScore: boolean;
+  hasFraudFlags: boolean;
+  hasIsManual: boolean;
+  hasManualReason: boolean;
+  hasOrigin: boolean;
+  hasSourceType: boolean;
   userIdType: string;
   companyIdType: string;
 };
@@ -57,10 +72,25 @@ export async function getTimeRecordColumns(): Promise<TimeRecordColumns> {
     hasPunchHash: names.has('punch_hash'),
     hasTimestamp: names.has('timestamp'),
     hasCreatedAt: names.has('created_at'),
+    hasUpdatedAt: names.has('updated_at'),
     hasMethod: names.has('method'),
     hasSource: names.has('source'),
     hasMetadata: names.has('metadata'),
+    hasRawData: names.has('raw_data'),
     hasPhotoUrl: names.has('photo_url'),
+    hasLocation: names.has('location'),
+    hasLatitude: names.has('latitude'),
+    hasLongitude: names.has('longitude'),
+    hasAccuracy: names.has('accuracy'),
+    hasDeviceId: names.has('device_id'),
+    hasDeviceType: names.has('device_type'),
+    hasIpAddress: names.has('ip_address'),
+    hasFraudScore: names.has('fraud_score'),
+    hasFraudFlags: names.has('fraud_flags'),
+    hasIsManual: names.has('is_manual'),
+    hasManualReason: names.has('manual_reason'),
+    hasOrigin: names.has('origin'),
+    hasSourceType: names.has('source_type'),
     userIdType: String(typeByColumn.get('user_id') || 'text').toLowerCase(),
     companyIdType: String(typeByColumn.get('company_id') || 'text').toLowerCase(),
   };
