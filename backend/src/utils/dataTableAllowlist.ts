@@ -81,6 +81,7 @@ export const DUMP_PUBLIC_TABLES = [
   'job_titles',
   'jobs',
   'justificativas',
+  'justificativas_audit',
   'lancamento_eventos',
   'lgpd_retention_policies',
   'lgpd_security_events',

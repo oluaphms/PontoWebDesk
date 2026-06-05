@@ -20,6 +20,7 @@ interface JustificativaOption {
   id: string;
   codigo: string;
   descricao: string;
+  sigla?: string;
 }
 
 interface AdjustmentRequestOption {
@@ -120,7 +121,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
           'justificativas',
           [{ column: 'company_id', operator: 'eq', value: companyId }],
           {
-            columns: 'id, codigo, descricao, bloquear_uso_web',
+            columns: 'id, codigo, descricao, sigla, ativa, bloquear_uso_web, disponivel_colaborador',
             orderBy: { column: 'codigo', ascending: true },
             limit: 200,
           },
@@ -136,11 +137,12 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
         ])) as any[];
         const normalized =
           (rows ?? [])
-            .filter((r: any) => !r.bloquear_uso_web)
+            .filter((r: any) => r.ativa !== false && !r.bloquear_uso_web && r.disponivel_colaborador !== false)
             .map((r: any) => ({
               id: r.id,
               codigo: r.codigo || '',
               descricao: r.descricao || '',
+              sigla: r.sigla || r.codigo || '',
             }));
         justificativasCacheByCompany.set(companyId, normalized);
         setJustificativas(normalized);
@@ -275,7 +277,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
     const selectedJustificativaPre = justificativas.find((j) => j.id === form.justificativa_id);
     const combinedReasonPreview =
       form.manual_reason.trim() ||
-      (selectedJustificativaPre ? `${selectedJustificativaPre.codigo} - ${selectedJustificativaPre.descricao}` : '');
+      (selectedJustificativaPre ? `${selectedJustificativaPre.sigla || selectedJustificativaPre.codigo} - ${selectedJustificativaPre.descricao}` : '');
     if (form.entry_mode === 'HORARIO' && skipGps && combinedReasonPreview.length < MIN_MANUAL_REASON_NO_GPS) {
       setSubmitHint(
         `Sem GPS: preencha o motivo ou escolha uma justificativa (texto combinado com pelo menos ${MIN_MANUAL_REASON_NO_GPS} caracteres).`,
@@ -289,7 +291,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
       const created_at = localDateAndTimeToIsoUtc(form.date, form.entry_mode === 'STATUS' ? '12:00' : form.time);
       const selectedJustificativa = justificativas.find(j => j.id === form.justificativa_id);
       const baseReason = form.manual_reason.trim() ||
-        (selectedJustificativa ? `${selectedJustificativa.codigo} - ${selectedJustificativa.descricao}` : '');
+        (selectedJustificativa ? `${selectedJustificativa.sigla || selectedJustificativa.codigo} - ${selectedJustificativa.descricao}` : '');
       const statusTag = form.entry_mode === 'STATUS' ? `[STATUS:${form.status_type}]` : '';
       let reason = [statusTag, baseReason || (form.entry_mode === 'STATUS' ? 'Lançamento de status' : 'Batida adicionada manualmente')]
         .filter(Boolean)
@@ -329,7 +331,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
     const j = justificativas.find((x) => x.id === form.justificativa_id);
     return (
       form.manual_reason.trim() ||
-      (j ? `${j.codigo} - ${j.descricao}` : '')
+      (j ? `${j.sigla || j.codigo} - ${j.descricao}` : '')
     ).length;
   }, [form.manual_reason, form.justificativa_id, justificativas]);
 
@@ -479,7 +481,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
                   <option value="">Selecione uma justificativa</option>
                   {justificativas.map((j) => (
                     <option key={j.id} value={j.id}>
-                      {j.codigo} - {j.descricao}
+                      {j.sigla || j.codigo} - {j.descricao}
                     </option>
                   ))}
                 </select>
