@@ -27,6 +27,7 @@ import {
   clearStoredSessionUser,
   isAuthLogoutGuardActive,
 } from './authSessionInternals';
+import { normalizeUserRole } from '../utils/userRole';
 
 export type AuthSession = {
   user: User | null;
@@ -46,8 +47,12 @@ function commitUser(
 ): void {
   setter((prev) => {
     const resolved = typeof next === 'function' ? next(prev) : next;
-    setSessionUserCache(resolved);
-    return resolved;
+    const normalized =
+      resolved == null
+        ? null
+        : { ...resolved, role: normalizeUserRole(resolved.role) };
+    setSessionUserCache(normalized);
+    return normalized;
   });
 }
 
@@ -112,7 +117,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     const syncFromProfileStore = () => {
       if (isAuthLogoutGuardActive()) return;
       const stored = readUserFromProfileStore();
-      if (stored) setSessionUser(stored);
+      if (stored) {
+        setSessionUser((prev) => {
+          if (prev?.id && stored.id !== prev.id) return prev;
+          return stored;
+        });
+      }
     };
     window.addEventListener('current_user_changed', syncFromProfileStore);
     return () => window.removeEventListener('current_user_changed', syncFromProfileStore);

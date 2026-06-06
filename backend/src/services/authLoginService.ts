@@ -3,6 +3,8 @@ import jwt, { type SignOptions } from 'jsonwebtoken';
 import { pool } from '../db/index.js';
 import { newTokenJti } from './tokenRevocationService.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
+import { normalizeRole } from '../utils/authContext.js';
+import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 export type AuthLoginRow = {
   id: string;
@@ -29,6 +31,7 @@ export type AuthLoginSuccess = {
     nome: string;
     email: string;
     role: string;
+    accessProfile: 'COLABORADOR' | 'ADMIN_RH';
     company_id: string;
     cargo: string | null;
     department_id: string | null;
@@ -213,13 +216,14 @@ export async function authenticateLogin(
   const signOptions: SignOptions = {
     expiresIn: (process.env.JWT_EXPIRES_IN?.trim() || '2h') as SignOptions['expiresIn'],
   };
+  const normalizedRole = normalizeRole(user.role);
   const jti = newTokenJti();
   const token = jwt.sign(
     {
       sub: user.id,
       userId: user.id,
       companyId: user.company_id,
-      role: user.role,
+      role: normalizedRole,
       jti,
     },
     secret,
@@ -232,7 +236,8 @@ export async function authenticateLogin(
       id: user.id,
       nome: user.nome,
       email: user.email,
-      role: user.role,
+      role: normalizedRole,
+      accessProfile: resolveAccessProfile(normalizedRole),
       company_id: user.company_id,
       cargo: user.cargo,
       department_id: user.department_id,

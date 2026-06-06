@@ -59,6 +59,7 @@ import {
 } from 'lucide-react';
 import ForgotPasswordModal from './src/components/auth/ForgotPasswordModal';
 import RoleGuard from './src/components/auth/RoleGuard';
+import Forbidden403 from './src/components/auth/Forbidden403';
 import RequireAuth from './src/components/auth/RequireAuth';
 import { PresentationPanel } from './src/components/auth/PresentationPanel';
 import { LoginCard, type LoginRole } from './src/components/auth/LoginCard';
@@ -103,6 +104,8 @@ import { useDeferredPortalChrome } from './src/hooks/useDeferredPortalChrome';
 import { useScheduledTenantBackup } from './src/hooks/useScheduledTenantBackup';
 import { devVerboseInfo } from './src/utils/devVerboseLogs';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from './src/app/appShellBootstrap';
+import { normalizeUserRole, isAdminOrHrRole } from './src/utils/userRole';
+import { hasAdminAccess } from './src/utils/accessProfile';
 import { markLoginSubmitStarted, markLoginUiComplete, markFirstRouteIfNeeded } from './src/app/loginPerformanceBudgets';
 import AdminLayout from './src/layouts/AdminLayout';
 import EmployeeLayout from './src/layouts/EmployeeLayout';
@@ -187,13 +190,13 @@ import {
   AdminArquivosFiscais,
 } from './src/routes/portalLazyPages';
 
-const isAdminRole = (role: User['role'] | undefined): boolean => role === 'admin' || role === 'hr';
+const isAdminRole = (role: User['role'] | undefined): boolean => isAdminOrHrRole(role);
 const isRoleAllowedForSelectedLogin = (
   selectedRole: LoginRole,
   userRole: User['role'] | undefined,
 ): boolean => {
-  if (selectedRole === 'admin') return isAdminRole(userRole);
-  if (selectedRole === 'employee') return !isAdminRole(userRole);
+  if (selectedRole === 'admin') return isAdminOrHrRole(userRole);
+  if (selectedRole === 'employee') return !isAdminOrHrRole(userRole);
   return true;
 };
 const getRoleMismatchMessageForLogin = (_selectedRole: LoginRole): string => 'Acesso negado';
@@ -327,7 +330,7 @@ const AppMain: React.FC = () => {
   const portalChromeReady = useDeferredPortalChrome(user?.id);
   useScheduledTenantBackup(user, {
     enabled: Boolean(
-      portalChromeReady && user && (user.role === 'admin' || user.role === 'hr') && user.companyId,
+      portalChromeReady && user && isAdminOrHrRole(user.role) && user.companyId,
     ),
   });
   useEffectStormProbe('AppMain.user-identity', [user?.id, user?.companyId, user?.role]);
@@ -1043,11 +1046,10 @@ const AppMain: React.FC = () => {
         alreadyAuthenticatedRef.current = true;
         setIsInitialLoading(false);
         window.dispatchEvent(new Event('current_user_changed'));
-        const targetRoute =
-          hydratedUser.role === 'admin' || hydratedUser.role === 'hr'
-            ? '/admin/dashboard'
-            : '/employee/dashboard';
-        if (hydratedUser.role === 'admin' || hydratedUser.role === 'hr') {
+        const targetRoute = hasAdminAccess(hydratedUser.role)
+            ? '/dashboard-admin'
+            : '/dashboard-colaborador';
+        if (isAdminOrHrRole(hydratedUser.role)) {
           setActiveTab('admin');
         } else {
           setActiveTab('dashboard');
@@ -1261,10 +1263,9 @@ const AppMain: React.FC = () => {
          * preso e o usuário pensa que precisa "atualizar o navegador" — quando na verdade a sessão
          * já foi gravada e só faltava o redirect. Tudo que não bloqueia a navegação vai pra fire-and-forget.
          */
-        const targetRoute =
-          result.user.role === 'admin' || result.user.role === 'hr'
-            ? '/admin/dashboard'
-            : '/employee/dashboard';
+        const targetRoute = hasAdminAccess(result.user.role)
+            ? '/dashboard-admin'
+            : '/dashboard-colaborador';
 
         flushSync(() => {
           setSessionUser(result.user);
@@ -1275,7 +1276,7 @@ const AppMain: React.FC = () => {
           }
         });
 
-        if (result.user.role === 'admin' || result.user.role === 'hr') {
+        if (isAdminOrHrRole(result.user.role)) {
           setActiveTab('admin');
         } else {
           setActiveTab('dashboard');
@@ -1455,10 +1456,9 @@ const AppMain: React.FC = () => {
         }
         setSessionUser(hydrated);
         setIsInitialLoading(false);
-        const targetRoute =
-          hydrated.role === 'admin' || hydrated.role === 'hr'
-            ? '/admin/dashboard'
-            : '/employee/dashboard';
+        const targetRoute = hasAdminAccess(hydrated.role)
+            ? '/dashboard-admin'
+            : '/dashboard-colaborador';
         requestAuthNavigation({
           pipelineId: activeAuthPipelineRef.current?.pipelineId ?? null,
           target: targetRoute,
@@ -1946,7 +1946,7 @@ const AppMain: React.FC = () => {
     path === '/locations' ||
     path === '/devices';
 
-  const isAdminOrHr = user.role === 'admin' || user.role === 'hr';
+  const isAdminOrHr = isAdminOrHrRole(user.role);
 
   if (path === '/trocar-conta') {
     const roleLabel = isAdminOrHr ? i18n.t('accountSwitch.roleAdmin') : i18n.t('accountSwitch.roleEmployee');
@@ -1979,7 +1979,7 @@ const AppMain: React.FC = () => {
               className="w-full sm:flex-1"
               variant="outline"
               onClick={() =>
-                navigate(isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard', { replace: true })
+                navigate(hasAdminAccess(user.role) ? '/dashboard-admin' : '/dashboard-colaborador', { replace: true })
               }
             >
               {i18n.t('accountSwitch.continue')}
@@ -2008,17 +2008,16 @@ const AppMain: React.FC = () => {
 
   // Sessão ativa em /login → dashboard; durante logout manter tela de login (guard acima).
   if ((path === '/' || path === '/login') && !logoutInProgressRef.current) {
-    return <Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />;
+    return <Navigate to={isAdminOrHr ? '/dashboard-admin' : '/dashboard-colaborador'} replace />;
   }
 
-  // Admin/HR não devem ver área de funcionário: redirecionar para dashboard admin
-  if (isPortalRoute && isAdminOrHr && isEmployeeRoute) {
-    return <Navigate to="/admin/dashboard" replace />;
-  }
-
-  // Funcionário em rota admin: redirecionar para dashboard do funcionário
+  // Colaborador em rota administrativa: 403 (não confiar só em ocultar menu)
   if (isPortalRoute && path.startsWith('/admin') && !isAdminOrHr) {
-    return <Navigate to="/employee/dashboard" replace />;
+    return (
+      <EmployeeLayout onLogout={handleLogout} operationalChromeReady={portalChromeReady}>
+        <Forbidden403 message="Seu perfil COLABORADOR não permite acessar módulos administrativos." />
+      </EmployeeLayout>
+    );
   }
 
   const LayoutComponent = isAdminRoute ? AdminLayout : isEmployeeRoute ? EmployeeLayout : isAdminOrHr ? AdminLayout : EmployeeLayout;
@@ -2036,7 +2035,7 @@ const AppMain: React.FC = () => {
               path="/admin"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} redirectTo="/employee/dashboard">
+                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} deniedMode="forbidden">
                     <AppErrorBoundary>
                       <Outlet />
                     </AppErrorBoundary>
@@ -2115,7 +2114,7 @@ const AppMain: React.FC = () => {
               path="/employee"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
                     <AppErrorBoundary>
                       <Outlet />
                     </AppErrorBoundary>
@@ -2150,27 +2149,39 @@ const AppMain: React.FC = () => {
               element={<Navigate to={isAdminOrHr ? '/admin/requests' : '/employee/requests'} replace />}
             />
             {/* Rotas legadas: /dashboard redireciona pela role para evitar confusão */}
-            <Route path="/dashboard" element={<Navigate to={isAdminOrHr ? '/admin/dashboard' : '/employee/dashboard'} replace />} />
+            <Route path="/dashboard" element={<Navigate to={isAdminOrHr ? '/dashboard-admin' : '/dashboard-colaborador'} replace />} />
             <Route
               path="/dashboard-admin"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
-                  <AdminDashboard />
-                </RoleGuard>
+                <RequireAuth>
+                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} deniedMode="forbidden">
+                    <Navigate to="/admin/dashboard" replace />
+                  </RoleGuard>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/dashboard-colaborador"
+              element={
+                <RequireAuth>
+                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                    <Navigate to="/employee/dashboard" replace />
+                  </RoleGuard>
+                </RequireAuth>
               }
             />
             <Route
               path="/dashboard-employee"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
-                  <EmployeeDashboard />
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                  <Navigate to="/employee/dashboard" replace />
                 </RoleGuard>
               }
             />
             <Route
               path="/time-clock"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
                   <TimeClockPage />
                 </RoleGuard>
               }
@@ -2178,7 +2189,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/time-records"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor']} redirectTo="/admin/dashboard">
+                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
                   <TimeRecordsPage />
                 </RoleGuard>
               }
@@ -2472,7 +2483,7 @@ const AppMain: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'admin' && (user.role === 'admin' || user.role === 'hr') && (
+        {activeTab === 'admin' && isAdminOrHrRole(user.role) && (
           <Navigate to="/admin/dashboard" replace />
         )}
 

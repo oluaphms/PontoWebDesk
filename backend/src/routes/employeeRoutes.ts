@@ -11,7 +11,7 @@ import { requireAdminOrHr } from '../middlewares/requireRole.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, listEmployeesController);
+router.get('/', authMiddleware, requireAdminOrHr, listEmployeesController);
 router.get('/:id', authMiddleware, getEmployeeController);
 router.post('/', authMiddleware, requireAdminOrHr, createEmployeeController);
 router.patch('/:id', authMiddleware, requireAdminOrHr, updateEmployeeController);

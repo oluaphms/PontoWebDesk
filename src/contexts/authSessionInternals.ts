@@ -1,4 +1,5 @@
 import type { User } from '../../types';
+import { normalizeUserRole } from '../utils/userRole';
 import { getUserProfileStorage } from '../services/supabaseClient';
 import { getToken } from '../services/authToken';
 
@@ -53,10 +54,7 @@ export function readUserFromProfileStore(): User | null {
     if (!id) return null;
     const companyId = String(parsed.companyId ?? parsed.company_id ?? '').trim();
     const roleRaw = String(parsed.role ?? 'employee').toLowerCase();
-    const role =
-      roleRaw === 'admin' || roleRaw === 'hr' || roleRaw === 'employee' || roleRaw === 'supervisor'
-        ? (roleRaw as User['role'])
-        : 'employee';
+    const role = normalizeUserRole(roleRaw);
     return {
       id,
       nome: String(parsed.nome ?? parsed.email ?? 'Usuário'),

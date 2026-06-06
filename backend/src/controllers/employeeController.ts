@@ -9,20 +9,25 @@ import {
   validateEmployeePatch,
   type NormalizedEmployeeInput,
 } from '../utils/employeeValidation.js';
-import { authUserId, isAdminOrHr, rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
+import { authUserId, isAdminOrHr, normalizeRole, rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
 import {
   ensureUserForEmployee,
   syncUserFieldsFromEmployeeBody,
 } from '../services/employeeUserSync.js';
 import { logger } from '../logger/logger.js';
+import { logAuthDenied, logAuthEvent } from '../services/authAuditService.js';
+import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
 type EmployeeLinkColumn = (typeof EMPLOYEE_LINK_COLUMNS)[number];
 type LinkColumnMap = Record<EmployeeLinkColumn, boolean>;
 const PROTECTED_SYSTEM_USER_EMAILS = new Set([
   'admin@pontowebdesk.com',
+  'admin@smartponto.com',
+  'admin@local.test',
   'desenvolvedor@smartponto.com',
 ]);
+const PRIVILEGED_EMPLOYEE_ROLES = ['admin', 'hr', 'administrador', 'rh'];
 const USER_VIEW_COLUMNS = [
   'pis_pasep',
   'phone',
@@ -198,6 +203,9 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
   const companyId = requireCompanyId(req, res);
   if (!companyId) return;
   if (!isAdminOrHr(req.auth?.role)) {
+    void logAuthDenied(req, 403, 'employees_list_forbidden', {
+      accessProfile: resolveAccessProfile(req.auth?.role),
+    });
     res.status(403).json({
       ok: false,
       success: false,
@@ -216,10 +224,11 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
        where e.company_id = $1
          and coalesce(e.status, 'active') = 'active'
+         and lower(coalesce(nullif(trim(e.role), ''), 'employee')) <> all($3::text[])
          and lower(coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), ''), '')) <> all($2::text[])
        order by e.created_at desc
        limit 1000`,
-      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS)],
+      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS), PRIVILEGED_EMPLOYEE_ROLES],
     );
     const employees = result.rows.map(mapRow);
     res.json({ ok: true, success: true, employees, data: employees });
@@ -618,6 +627,20 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       throw userSyncError;
     }
     await client.query('commit');
+    if ('role' in partial) {
+      const previousRole = normalizeRole(String(existing.rows[0]?.role ?? 'employee'));
+      const nextRole = normalizeRole(String(partial.role ?? employeeRow.role ?? 'employee'));
+      if (previousRole !== nextRole) {
+        void logAuthEvent(authUserId(req.auth), companyId, 'PROFILE_ROLE_CHANGED', {
+          employeeId: id,
+          previousRole,
+          nextRole,
+          previousAccessProfile: resolveAccessProfile(previousRole),
+          nextAccessProfile: resolveAccessProfile(nextRole),
+          changedBy: authUserId(req.auth),
+        });
+      }
+    }
     let refreshed: Record<string, unknown> | null = null;
     try {
       refreshed = await fetchEmployeeViewById(pool, id, companyId);

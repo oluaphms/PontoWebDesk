@@ -25,7 +25,7 @@ export function requireCompanyId(req: AuthedRequest, res?: { status: (n: number)
 
 export function normalizeRole(role: string | undefined): string {
   const value = String(role || 'employee').trim().toLowerCase();
-  if (value === 'administrador') return 'admin';
+  if (value === 'administrador' || value === 'admin_rh' || value === 'admin/rh') return 'admin';
   if (value === 'rh') return 'hr';
   if (value === 'gestor') return 'supervisor';
   if (value === 'colaborador' || value === 'funcionario' || value === 'funcionário') return 'employee';

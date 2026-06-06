@@ -3,6 +3,9 @@
  * Compatível com React Router, i18n (nameKey) e role-based (admin/hr vs employee).
  */
 
+import { isAdminOrHrRole } from '../utils/userRole';
+import { COLLABORATOR_MENU_PATHS, isCollaborator } from '../utils/accessProfile';
+
 export type NavRole = 'admin' | 'hr' | 'employee';
 
 export interface NavigationItemSchema {
@@ -119,7 +122,7 @@ export type ResolvedRole = 'admin' | 'employee';
  * Normaliza role do usuário para admin (admin/hr) ou employee.
  */
 export function resolveRole(role: string): ResolvedRole {
-  return role === 'admin' || role === 'hr' ? 'admin' : 'employee';
+  return isAdminOrHrRole(role) ? 'admin' : 'employee';
 }
 
 /**
@@ -140,8 +143,12 @@ export function filterGroupItemsByRole<T extends { roles: NavRole[] }>(
  */
 export function getNavigationGroupsByRole(role: string): Record<string, NavigationGroupSchema> {
   const result: Record<string, NavigationGroupSchema> = {};
+  const restrictCollaboratorMenu = isCollaborator(role);
   for (const [key, group] of Object.entries(navigationGroups)) {
-    const filteredItems = filterGroupItemsByRole(group.items, role);
+    let filteredItems = filterGroupItemsByRole(group.items, role);
+    if (restrictCollaboratorMenu) {
+      filteredItems = filteredItems.filter((item) => COLLABORATOR_MENU_PATHS.has(item.path));
+    }
     if (filteredItems.length > 0) {
       result[key] = { ...group, items: filteredItems };
     }

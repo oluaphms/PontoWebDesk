@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { authenticateLogin } from '../services/authLoginService.js';
 import { setAuthCookie } from '../security/authCookies.js';
 import { logger } from '../logger/logger.js';
+import { logAuthEvent } from '../services/authAuditService.js';
+import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 export async function loginController(req: Request, res: Response): Promise<void> {
   const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
@@ -21,6 +23,11 @@ export async function loginController(req: Request, res: Response): Promise<void
     }
 
     setAuthCookie(res, result.token);
+    void logAuthEvent(result.user.id, result.user.company_id, 'LOGIN', {
+      role: result.user.role,
+      accessProfile: resolveAccessProfile(result.user.role),
+      email: result.user.email,
+    });
     res.json({
       ok: true,
       success: true,

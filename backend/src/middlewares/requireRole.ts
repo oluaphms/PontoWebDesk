@@ -1,9 +1,10 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthedRequest } from './authMiddleware.js';
-import { isAdminOrHr, normalizeRole } from '../utils/authContext.js';
+import { normalizeRole } from '../utils/authContext.js';
+import { hasAdminAccess, isCollaborator } from '../utils/accessProfile.js';
 import { logAuthDenied } from '../services/authAuditService.js';
 
-export type RoleCheckMode = 'adminOrHr' | 'adminOnly' | 'anyAuthenticated';
+export type RoleCheckMode = 'adminOrHr' | 'adminOnly' | 'anyAuthenticated' | 'collaboratorOrAdmin';
 
 export function requireRole(mode: RoleCheckMode = 'anyAuthenticated') {
   return (req: AuthedRequest, res: Response, next: NextFunction): void => {
@@ -16,7 +17,9 @@ export function requireRole(mode: RoleCheckMode = 'anyAuthenticated') {
     if (mode === 'adminOnly') {
       allowed = role === 'admin';
     } else if (mode === 'adminOrHr') {
-      allowed = isAdminOrHr(role);
+      allowed = hasAdminAccess(req.auth.role);
+    } else if (mode === 'collaboratorOrAdmin') {
+      allowed = isCollaborator(req.auth.role) || hasAdminAccess(req.auth.role);
     }
     if (!allowed) {
       void logAuthDenied(req, 403, 'forbidden_role', { mode, role });
@@ -35,3 +38,11 @@ export function requireRole(mode: RoleCheckMode = 'anyAuthenticated') {
 
 export const requireAdminOrHr = requireRole('adminOrHr');
 export const requireAdminOnly = requireRole('adminOnly');
+export const requireCollaboratorOrAdmin = requireRole('collaboratorOrAdmin');
+
+/** Bloqueia colaboradores em prefixos administrativos da API. */
+export function requireAdminRHAccess() {
+  return requireAdminOrHr;
+}
+
+export { hasAdminAccess, isCollaborator, isAdminRH } from '../utils/accessProfile.js';

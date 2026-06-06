@@ -1,6 +1,7 @@
 import { ApiError, apiGet } from './apiClient';
 import { clearToken, getToken } from './authToken';
 import type { User } from '../../types';
+import { normalizeUserRole } from '../utils/userRole';
 import { logger } from '../shared/logger/logger';
 
 type MeUser = {
@@ -53,7 +54,7 @@ function mapMeUser(row: MeUser): User {
     nome: row.nome,
     email: row.email,
     cargo: row.cargo ?? 'Colaborador',
-    role: (row.role as User['role']) || 'employee',
+    role: normalizeUserRole(row.role),
     companyId: row.company_id,
     tenantId: row.company_id,
     departmentId: row.department_id ?? '',

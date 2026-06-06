@@ -80,6 +80,8 @@ const EmployeeDashboard: React.FC = () => {
   const [bankCreditDebit, setBankCreditDebit] = useState<string>('');
   const [pendingRequests, setPendingRequests] = useState(0);
   const [scheduleName, setScheduleName] = useState<string>('—');
+  const [companyNotices, setCompanyNotices] = useState<Array<{ id: string; title: string; body: string; createdAt: string }>>([]);
+  const [nowClock, setNowClock] = useState(() => new Date());
   const [loadingData, setLoadingData] = useState(true);
   const [todaySchedule, setTodaySchedule] = useState<WorkScheduleInfo | null>(null);
 
@@ -272,6 +274,28 @@ const EmployeeDashboard: React.FC = () => {
           } catch {
             setScheduleName('—');
           }
+        } else if (user.scheduleName) {
+          setScheduleName(user.scheduleName);
+        }
+
+        try {
+          const notices = (await db.select('notifications', [
+            ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+            { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+          ])) as any[];
+          setCompanyNotices(
+            (notices ?? [])
+              .slice(0, 5)
+              .map((n: any) => ({
+                id: String(n.id ?? ''),
+                title: String(n.title ?? n.subject ?? 'Aviso'),
+                body: String(n.message ?? n.body ?? n.content ?? ''),
+                createdAt: String(n.created_at ?? n.createdAt ?? ''),
+              }))
+              .filter((n) => n.id),
+          );
+        } catch {
+          setCompanyNotices([]);
         }
       } catch (e) {
         observabilityConsole.error(e);
@@ -281,6 +305,11 @@ const EmployeeDashboard: React.FC = () => {
     },
     [user],
   );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowClock(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     void loadDashboard({ showLoading: true });
@@ -322,6 +351,27 @@ const EmployeeDashboard: React.FC = () => {
   return (
     <div className="space-y-8">
       <PageHeader title={i18n.t('dashboard.employeeTitle')} subtitle={i18n.t('dashboard.employeeSubtitle')} />
+
+      <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/50 bg-gradient-to-r from-indigo-50 to-white dark:from-indigo-950/40 dark:to-slate-900/50 p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Horário atual</p>
+          <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">
+            {nowClock.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            {nowClock.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+          </p>
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Próxima escala</p>
+          <p className="text-lg font-bold text-slate-900 dark:text-white">{loadingData ? '—' : scheduleName}</p>
+          {todaySchedule?.start_time && todaySchedule?.end_time && (
+            <p className="text-sm text-slate-600 dark:text-slate-400 tabular-nums">
+              Hoje: {todaySchedule.start_time} – {todaySchedule.end_time}
+            </p>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 flex items-center gap-4">
@@ -436,6 +486,20 @@ const EmployeeDashboard: React.FC = () => {
           ))}
         </ul>
       </div>
+
+      {companyNotices.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/20 p-6">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Avisos da empresa</h3>
+          <ul className="space-y-3">
+            {companyNotices.map((notice) => (
+              <li key={notice.id} className="rounded-xl border border-amber-100 dark:border-amber-900/30 bg-white/80 dark:bg-slate-900/40 p-4">
+                <p className="font-semibold text-slate-900 dark:text-white">{notice.title}</p>
+                {notice.body && <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">{notice.body}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

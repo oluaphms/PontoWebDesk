@@ -48,6 +48,7 @@ import { clearToken, getToken } from '../src/services/authToken';
 import { cacheEmployees } from '../src/services/localDb';
 import { getProvider } from '../src/services/getProvider';
 import { apiPost, ApiError } from '../src/services/api';
+import { normalizeUserRole } from '../src/utils/userRole';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -79,9 +80,9 @@ function rowStr(v: unknown): string {
 }
 
 function parseDbUserRole(v: unknown, fallback: User['role']): User['role'] {
-  const r = String(v ?? '').toLowerCase();
-  if (r === 'admin' || r === 'hr' || r === 'supervisor' || r === 'employee') return r as User['role'];
-  return fallback;
+  const raw = String(v ?? '').trim();
+  if (!raw) return fallback;
+  return normalizeUserRole(raw);
 }
 import { LogSeverity } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';
@@ -1056,9 +1057,10 @@ class AuthService {
             user_id: String(apiUser.id),
             name: String(apiUser.nome || apiUser.email || identifier),
             company_id: String(apiUser.company_id || ''),
-            role: String(apiUser.role || 'employee'),
+            role: normalizeUserRole(apiUser.role || 'employee'),
             last_login: Date.now(),
           });
+          mapped.role = normalizeUserRole(apiUser.role || mapped.role);
           mapped.email = String(apiUser.email || identifier);
           mapped.nome = String(apiUser.nome || mapped.nome || apiUser.email || identifier);
           mapped.cargo = String(apiUser.cargo || mapped.cargo || 'Colaborador');

@@ -4,6 +4,7 @@ import { authUserId } from '../utils/authContext.js';
 import { logAuthEvent } from '../services/authAuditService.js';
 import { revokeToken } from '../services/tokenRevocationService.js';
 import { clearAuthCookie } from '../security/authCookies.js';
+import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 export async function authLogoutController(req: AuthedRequest, res: Response): Promise<void> {
   const userId = authUserId(req.auth);
@@ -16,7 +17,11 @@ export async function authLogoutController(req: AuthedRequest, res: Response): P
   }
 
   if (userId) {
-    await logAuthEvent(userId, companyId, 'LOGOUT', { jti: jti || null });
+    await logAuthEvent(userId, companyId, 'LOGOUT', {
+      jti: jti || null,
+      accessProfile: resolveAccessProfile(req.auth?.role),
+      role: req.auth?.role ?? null,
+    });
   }
 
   clearAuthCookie(res);

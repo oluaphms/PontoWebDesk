@@ -3,12 +3,14 @@ import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
 import { logger } from '../logger/logger.js';
+import { isAdminOrHr, normalizeRole } from '../utils/authContext.js';
+import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 async function ensureEmployeeMirrorFromUser(row: Record<string, unknown>): Promise<void> {
   const id = String(row.id ?? '').trim();
   const companyId = String(row.company_id ?? '').trim();
-  const role = String(row.role ?? 'employee').trim().toLowerCase();
-  if (!id || !companyId || role === 'admin' || role === 'hr') return;
+  const role = normalizeRole(String(row.role ?? 'employee'));
+  if (!id || !companyId || isAdminOrHr(role)) return;
 
   const nome = String(row.nome ?? row.email ?? 'Colaborador').trim() || 'Colaborador';
   const email = String(row.email ?? '').trim().toLowerCase() || null;
@@ -146,7 +148,7 @@ async function joinedEmployeeProfileQueryParts(): Promise<{ columns: string; joi
     'coalesce(nullif(trim(e.nome), \'\'), nullif(trim(u.nome), \'\'), e.email, u.email) as nome',
     'coalesce(e.email, u.email) as email',
     `${coalesce('cargo')} as cargo`,
-    'coalesce(e.role, u.role, \'employee\') as role',
+    'coalesce(u.role, e.role, \'employee\') as role',
     'coalesce(e.company_id, u.company_id) as company_id',
     `${departmentIdExpr} as department_id`,
     `${departmentNameExpr} as department_name`,
@@ -183,28 +185,20 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
   }
 
   try {
-    const employeeProfile = await joinedEmployeeProfileQueryParts();
-    let result = await pool.query(
-      `select ${employeeProfile.columns}
-       from employees e
-       left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
-       ${employeeProfile.joins}
-       where e.id::text = $1 limit 1`,
+    const columns = await usersSelectColumns();
+    const userResult = await pool.query(
+      `select ${columns}
+       from users where id::text = $1 limit 1`,
       [userId],
     );
-    let row = result.rows[0];
+    let row: Record<string, unknown> | undefined = userResult.rows[0];
 
-    if (!row) {
-      const columns = await usersSelectColumns();
-      result = await pool.query(
-        `select ${columns}
-         from users where id::text = $1 limit 1`,
-        [userId],
-      );
-      row = result.rows[0];
-      if (row) {
+    if (row) {
+      const role = normalizeRole(String(row.role ?? 'employee'));
+      if (!isAdminOrHr(role)) {
         await ensureEmployeeMirrorFromUser(row);
-        result = await pool.query(
+        const employeeProfile = await joinedEmployeeProfileQueryParts();
+        const enriched = await pool.query(
           `select ${employeeProfile.columns}
            from employees e
            left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
@@ -212,8 +206,21 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
            where e.id::text = $1 limit 1`,
           [userId],
         );
-        row = result.rows[0] ?? row;
+        if (enriched.rows[0]) {
+          row = { ...enriched.rows[0], ...row, role: normalizeRole(String(row.role ?? 'employee')) };
+        }
       }
+    } else {
+      const employeeProfile = await joinedEmployeeProfileQueryParts();
+      const result = await pool.query(
+        `select ${employeeProfile.columns}
+         from employees e
+         left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+         ${employeeProfile.joins}
+         where e.id::text = $1 limit 1`,
+        [userId],
+      );
+      row = result.rows[0];
     }
 
     if (!row) {
@@ -238,7 +245,8 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       nome: String(row.nome ?? row.email ?? ''),
       email: String(row.email ?? ''),
       cargo: row.cargo != null ? String(row.cargo) : null,
-      role: String(row.role ?? 'employee'),
+      role: normalizeRole(String(row.role ?? 'employee')),
+      accessProfile: resolveAccessProfile(String(row.role ?? 'employee')),
       company_id: String(row.company_id ?? req.auth?.companyId ?? ''),
       department_id: row.department_id != null ? String(row.department_id) : null,
       department_name: row.department_name != null ? String(row.department_name) : null,
