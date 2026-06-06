@@ -4,6 +4,23 @@ import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
 import { logger } from '../logger/logger.js';
 
+async function ensureEmployeeMirrorFromUser(row: Record<string, unknown>): Promise<void> {
+  const id = String(row.id ?? '').trim();
+  const companyId = String(row.company_id ?? '').trim();
+  const role = String(row.role ?? 'employee').trim().toLowerCase();
+  if (!id || !companyId || role === 'admin' || role === 'hr') return;
+
+  const nome = String(row.nome ?? row.email ?? 'Colaborador').trim() || 'Colaborador';
+  const email = String(row.email ?? '').trim().toLowerCase() || null;
+  const status = String(row.status ?? 'active').trim() || 'active';
+  await pool.query(
+    `insert into public.employees (id, company_id, nome, email, role, status, created_at)
+     values ($1, $2, $3, $4, $5, $6, now())
+     on conflict (id) do nothing`,
+    [id, companyId, nome, email, role, status],
+  );
+}
+
 async function usersSelectColumns(): Promise<string> {
   const optional = await Promise.all(
     [
@@ -185,6 +202,18 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
         [userId],
       );
       row = result.rows[0];
+      if (row) {
+        await ensureEmployeeMirrorFromUser(row);
+        result = await pool.query(
+          `select ${employeeProfile.columns}
+           from employees e
+           left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+           ${employeeProfile.joins}
+           where e.id::text = $1 limit 1`,
+          [userId],
+        );
+        row = result.rows[0] ?? row;
+      }
     }
 
     if (!row) {

@@ -118,6 +118,8 @@ import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { cx } from '../../../styles/cx';
 import { repUiClasses } from '../../../styles/repUiClasses';
 import { repPageUi } from '../../../styles/repDevicesPageUi';
+import { buildApiUrl } from '../../../services/api';
+import { getToken } from '../../../services/authToken';
 
 const AdminRepDevices: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -261,16 +263,14 @@ const AdminRepDevices: React.FC = () => {
 
   const loadSyncStatusesForDevices = async (deviceIds: string[]) => {
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
+      const accessToken = getToken();
+      if (!accessToken) return;
       const entries = await Promise.all(
         deviceIds.map(async (id) => {
-          const res = await fetch(`/api/rep/devices/${encodeURIComponent(id)}/sync-status`, {
+          const res = await fetch(buildApiUrl(`/rep/devices/${encodeURIComponent(id)}/sync-status`), {
             method: 'GET',
             headers: {
-              Authorization: `Bearer ${session.access_token}`,
+              Authorization: `Bearer ${accessToken}`,
             },
           });
           if (!res.ok) return [id, undefined] as const;
@@ -291,16 +291,14 @@ const AdminRepDevices: React.FC = () => {
     setForcingSyncId(deviceId);
     setMessage(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = getToken();
+      if (!accessToken) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
-      const res = await fetch(`/api/rep/devices/${encodeURIComponent(deviceId)}/force-sync`, {
+      const res = await fetch(buildApiUrl(`/rep/devices/${encodeURIComponent(deviceId)}/force-sync`), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
       const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };

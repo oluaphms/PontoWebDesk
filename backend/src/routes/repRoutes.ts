@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import {
-  repEmptyCommandsController,
+  repCommandResultController,
+  repCommandsController,
+  repForceSyncController,
   repHeartbeatController,
   repPunchesController,
   repSyncStatusController,
@@ -13,6 +15,9 @@ router.post('/heartbeat', repHeartbeatController);
 router.post('/devices/:deviceId/heartbeat', repHeartbeatController);
 router.get('/sync-status', repSyncStatusController);
 router.get('/devices/:deviceId/sync-status', repSyncStatusController);
-router.get('/commands', repEmptyCommandsController);
+router.post('/devices/:deviceId/force-sync', repForceSyncController);
+router.get('/commands', repCommandsController);
+router.post('/commands', repCommandsController);
+router.post('/command-result', repCommandResultController);
 
 export default router;

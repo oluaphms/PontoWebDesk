@@ -1,10 +1,17 @@
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 
 type RepPunchBody = Record<string, unknown>;
+type AdminJwtContext = {
+  userId: string;
+  companyId: string;
+  role: string;
+};
 
 const REP_DEVICE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STUCK_COMMAND_PROCESSING_MS = 30_000;
 
 function json(res: Response, status: number, body: Record<string, unknown>): void {
   res.status(status).json(body);
@@ -20,18 +27,31 @@ function hasValidApiKey(req: Request): boolean {
   return Boolean(apiKey && authHeaderToken(req) === apiKey);
 }
 
-function jwtCompanyId(req: Request): string {
+function jwtContext(req: Request): AdminJwtContext | null {
   const secret = String(process.env.JWT_SECRET || '').trim();
   const token = authHeaderToken(req);
-  if (!secret || !token) return '';
+  if (!secret || !token) return null;
   try {
-    const decoded = jwt.verify(token, secret) as { companyId?: unknown; role?: unknown };
+    const decoded = jwt.verify(token, secret) as { sub?: unknown; userId?: unknown; companyId?: unknown; role?: unknown };
     const role = String(decoded.role || '').trim().toLowerCase();
-    if (role !== 'admin' && role !== 'hr') return '';
-    return String(decoded.companyId || '').trim();
+    const companyId = String(decoded.companyId || '').trim();
+    const userId = String(decoded.sub || decoded.userId || '').trim();
+    if ((role !== 'admin' && role !== 'hr') || !companyId || !userId) return null;
+    return { userId, companyId, role };
   } catch {
-    return '';
+    return null;
   }
+}
+
+function jwtCompanyId(req: Request): string {
+  return jwtContext(req)?.companyId ?? '';
+}
+
+function requireAdminJwt(req: Request, res: Response): AdminJwtContext | null {
+  const context = jwtContext(req);
+  if (context) return context;
+  json(res, 401, { ok: false, success: false, error: 'unauthorized' });
+  return null;
 }
 
 function requireRepAuth(req: Request, res: Response): boolean {
@@ -265,7 +285,247 @@ export async function repSyncStatusController(req: Request, res: Response): Prom
   });
 }
 
-export async function repEmptyCommandsController(req: Request, res: Response): Promise<void> {
+export async function repForceSyncController(req: Request, res: Response): Promise<void> {
+  const auth = requireAdminJwt(req, res);
+  if (!auth) return;
+  const deviceId = String(req.params.deviceId || req.query.device_id || req.body?.device_id || '').trim();
+  if (!deviceId) {
+    json(res, 400, { ok: false, success: false, error: 'device_id é obrigatório' });
+    return;
+  }
+  const result = await pool.query(
+    `select 1 from public.rep_devices where id::text = $1 and company_id::text = $2 limit 1`,
+    [deviceId, auth.companyId],
+  );
+  if (!result.rows[0]) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+  json(res, 200, {
+    ok: true,
+    success: true,
+    message: 'Sincronização será executada pelo agente no próximo ciclo.',
+  });
+}
+
+export async function repCommandsController(req: Request, res: Response): Promise<void> {
+  if (req.method === 'POST') {
+    const auth = requireAdminJwt(req, res);
+    if (!auth) return;
+    const deviceId = String(req.body?.device_id || req.query.device_id || '').trim();
+    const command = String(req.body?.command || '').trim() || 'test_connection';
+    if (!deviceId) {
+      json(res, 400, { ok: false, success: false, error: 'device_id é obrigatório' });
+      return;
+    }
+    if (command !== 'test_connection' && command !== 'collect_punches') {
+      json(res, 400, { ok: false, success: false, error: 'Comando não suportado' });
+      return;
+    }
+    const device = await pool.query(
+      `select id::text, company_id::text
+         from public.rep_devices
+        where id::text = $1 and company_id::text = $2
+        limit 1`,
+      [deviceId, auth.companyId],
+    );
+    if (!device.rows[0]) {
+      json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+      return;
+    }
+    const active = await pool.query(
+      `select id::text, status, execution_id::text
+         from public.rep_device_commands
+        where device_id::text = $1
+          and command = $2
+          and status in ('pending', 'processing')
+        order by created_at asc
+        limit 1`,
+      [deviceId, command],
+    );
+    if (active.rows[0]) {
+      json(res, 200, {
+        ok: true,
+        success: true,
+        command_id: active.rows[0].id,
+        status: active.rows[0].status,
+        execution_id: active.rows[0].execution_id ?? null,
+        reused: true,
+      });
+      return;
+    }
+    if (command === 'test_connection') {
+      await pool.query(
+        `update public.rep_device_commands
+            set status = 'cancelled',
+                execution_id = null,
+                result = '{"message":"Substituído por novo teste"}'::jsonb,
+                updated_at = now()
+          where device_id::text = $1
+            and command = 'test_connection'
+            and status in ('pending', 'processing')`,
+        [deviceId],
+      );
+    }
+    const payload = req.body?.payload && typeof req.body.payload === 'object' && !Array.isArray(req.body.payload)
+      ? { ...(req.body.payload as Record<string, unknown>), requested_by: auth.userId }
+      : { requested_by: auth.userId };
+    const inserted = await pool.query(
+      `insert into public.rep_device_commands
+          (company_id, device_id, command, status, execution_id, payload, created_at, updated_at)
+       values ($1::uuid, $2::uuid, $3, 'pending', null, $4::jsonb, now(), now())
+       returning id::text, status, execution_id::text, created_at::text`,
+      [auth.companyId, deviceId, command, JSON.stringify(payload)],
+    );
+    const row = inserted.rows[0];
+    json(res, 200, {
+      ok: true,
+      success: true,
+      command_id: row.id,
+      status: row.status,
+      execution_id: row.execution_id ?? null,
+      created_at: row.created_at,
+    });
+    return;
+  }
+
+  if (req.method === 'GET') {
+    if (hasValidApiKey(req)) {
+      const companyId = String(req.query.company_id || '').trim();
+      const deviceId = String(req.query.device_id || '').trim();
+      if (!companyId) {
+        json(res, 200, { ok: true, success: true, commands: [], reason: 'company_id_required' });
+        return;
+      }
+      if (deviceId) {
+        const device = await pool.query(
+          `select 1 from public.rep_devices where id::text = $1 and company_id::text = $2 limit 1`,
+          [deviceId, companyId],
+        );
+        if (!device.rows[0]) {
+          json(res, 200, { ok: true, success: true, commands: [], reason: 'device_not_found_or_company' });
+          return;
+        }
+      }
+      await pool.query(
+        `update public.rep_device_commands
+            set status = 'pending',
+                execution_id = null,
+                result = '{"message":"Reenfileirado após timeout do agente"}'::jsonb,
+                updated_at = now()
+          where company_id::text = $1
+            and status = 'processing'
+            and execution_id is not null
+            and updated_at < now() - ($2::text)::interval`,
+        [companyId, `${STUCK_COMMAND_PROCESSING_MS} milliseconds`],
+      );
+      const pending = await pool.query(
+        `select id
+           from public.rep_device_commands
+          where company_id::text = $1
+            and status = 'pending'
+            ${deviceId ? 'and device_id::text = $2' : ''}
+          order by created_at asc
+          limit 10`,
+        deviceId ? [companyId, deviceId] : [companyId],
+      );
+      const commands: unknown[] = [];
+      for (const pendingRow of pending.rows) {
+        const executionId = randomUUID();
+        const claimed = await pool.query(
+          `update public.rep_device_commands
+              set status = 'processing',
+                  execution_id = $2::uuid,
+                  updated_at = now()
+            where id = $1::uuid
+              and status = 'pending'
+            returning id::text, company_id::text, device_id::text, command, status, execution_id::text, payload, created_at::text, updated_at::text`,
+          [pendingRow.id, executionId],
+        );
+        if (claimed.rows[0]) commands.push(claimed.rows[0]);
+      }
+      json(res, 200, { ok: true, success: true, commands });
+      return;
+    }
+
+    const auth = requireAdminJwt(req, res);
+    if (!auth) return;
+    const deviceId = String(req.query.device_id || '').trim();
+    const commandId = String(req.query.command_id || '').trim();
+    const latest = String(req.query.latest || '') === 'true';
+    const params: unknown[] = [auth.companyId];
+    const clauses = ['company_id::text = $1'];
+    if (deviceId) {
+      params.push(deviceId);
+      clauses.push(`device_id::text = $${params.length}`);
+    }
+    if (commandId) {
+      params.push(commandId);
+      clauses.push(`id::text = $${params.length}`);
+    }
+    const limit = latest ? 1 : 20;
+    const result = await pool.query(
+      `select id::text, device_id::text, command, status, execution_id::text, result, created_at::text, updated_at::text
+         from public.rep_device_commands
+        where ${clauses.join(' and ')}
+        order by created_at desc
+        limit ${limit}`,
+      params,
+    );
+    json(res, 200, latest ? { ok: true, success: true, command: result.rows[0] ?? null } : { ok: true, success: true, commands: result.rows });
+    return;
+  }
+
+  json(res, 405, { ok: false, success: false, error: 'method_not_allowed' });
+}
+
+export async function repCommandResultController(req: Request, res: Response): Promise<void> {
   if (!requireRepAuth(req, res)) return;
-  json(res, 200, { ok: true, success: true, commands: [] });
+  const commandId = String(req.body?.command_id || '').trim();
+  const executionId = String(req.body?.execution_id || '').trim();
+  const status = String(req.body?.status || '').trim().toLowerCase();
+  if (!commandId || !executionId) {
+    json(res, 400, { ok: false, success: false, error: 'command_id e execution_id são obrigatórios' });
+    return;
+  }
+  if (status !== 'done' && status !== 'error') {
+    json(res, 400, { ok: false, success: false, error: 'status inválido' });
+    return;
+  }
+  const existing = await pool.query(
+    `select status, execution_id::text
+       from public.rep_device_commands
+      where id::text = $1
+      limit 1`,
+    [commandId],
+  );
+  const row = existing.rows[0];
+  if (!row) {
+    json(res, 404, { ok: false, success: false, error: 'command_not_found' });
+    return;
+  }
+  if (['done', 'error', 'cancelled'].includes(String(row.status))) {
+    json(res, 200, { ok: true, success: true, idempotent: true });
+    return;
+  }
+  if (String(row.execution_id || '') !== executionId) {
+    json(res, 200, { ok: true, success: true, ignored: true, reason: 'stale_execution_id' });
+    return;
+  }
+  const updated = await pool.query(
+    `update public.rep_device_commands
+        set status = $3,
+            result = $4::jsonb,
+            updated_at = now()
+      where id::text = $1
+        and execution_id::text = $2
+        and status = 'processing'
+      returning id::text`,
+    [commandId, executionId, status, JSON.stringify(req.body?.result ?? null)],
+  );
+  if (!updated.rows[0]) {
+    json(res, 200, { ok: true, success: true, ignored: true, reason: 'execution_mismatch_or_already_finished' });
+    return;
+  }
+  json(res, 200, { ok: true, success: true });
 }
