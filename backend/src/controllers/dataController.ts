@@ -242,38 +242,48 @@ async function ensureLegacyAuthUserMirrorForEmployeeId(table: string, row: Recor
   const employeeId = String(row.employee_id ?? '').trim();
   if (!employeeId) return;
 
+  const columns = await pool.query<{ column_name: string }>(
+    `select column_name
+       from information_schema.columns
+      where table_schema = 'auth'
+        and table_name = 'users'`,
+  );
+  const names = new Set(columns.rows.map((r) => r.column_name));
+  if (!names.has('id')) return;
+
+  const insertColumns = ['id'];
+  const selectValues = ['src.id'];
+  const updateSets: string[] = [];
+  const addColumn = (column: string, expression: string, updateExpression = `excluded.${column}`): void => {
+    if (!names.has(column)) return;
+    insertColumns.push(column);
+    selectValues.push(expression);
+    if (column !== 'id') updateSets.push(`${column} = ${updateExpression}`);
+  };
+
+  addColumn('email', "coalesce(nullif(src.email, ''), concat(src.id::text, '@legacy.pontowebdesk.local'))");
+  addColumn('aud', "'authenticated'");
+  addColumn('role', "'authenticated'");
+  addColumn('encrypted_password', "coalesce(src.password_hash, '')");
+  addColumn('email_confirmed_at', 'now()');
+  addColumn('raw_app_meta_data', `'{"provider":"email","providers":["email"]}'::jsonb`);
+  addColumn(
+    'raw_user_meta_data',
+    `jsonb_build_object(
+       'nome', src.nome,
+       'email', src.email,
+       'role', src.role,
+       'company_id', src.company_id::text,
+       'source', 'vps-public-users-mirror'
+     )`,
+  );
+  addColumn('created_at', 'now()', 'auth.users.created_at');
+  addColumn('updated_at', 'now()', 'now()');
+
+  const updateSql = updateSets.length ? `do update set ${updateSets.join(', ')}` : 'do nothing';
   await pool.query(
-    `insert into auth.users (
-       id,
-       instance_id,
-       aud,
-       role,
-       email,
-       encrypted_password,
-       email_confirmed_at,
-       raw_app_meta_data,
-       raw_user_meta_data,
-       created_at,
-       updated_at
-     )
-     select
-       src.id,
-       '00000000-0000-0000-0000-000000000000'::uuid,
-       'authenticated',
-       'authenticated',
-       concat(src.id::text, '@legacy.pontowebdesk.local'),
-       coalesce(src.password_hash, ''),
-       now(),
-       '{"provider":"email","providers":["email"]}'::jsonb,
-       jsonb_build_object(
-         'nome', src.nome,
-         'email', src.email,
-         'role', src.role,
-         'company_id', src.company_id::text,
-         'source', 'vps-public-users-mirror'
-       ),
-       now(),
-       now()
+    `insert into auth.users (${insertColumns.join(', ')})
+     select ${selectValues.join(', ')}
      from (
        select id, company_id, nome, email, role, password_hash
          from public.users
@@ -285,9 +295,7 @@ async function ensureLegacyAuthUserMirrorForEmployeeId(table: string, row: Recor
           and not exists (select 1 from public.users u where u.id::text = $1)
        limit 1
      ) src
-     on conflict (id) do update
-       set raw_user_meta_data = excluded.raw_user_meta_data,
-           updated_at = now()`,
+     on conflict (id) ${updateSql}`,
     [employeeId],
   );
 }
