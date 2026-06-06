@@ -1,3 +1,5 @@
+import { normalizeAssignableEmployeeRole } from './employeeRolePolicy.js';
+
 export type EmployeeBody = {
   nome?: unknown;
   cpf?: unknown;
@@ -222,7 +224,9 @@ export function validateEmployeePatch(
     partial.email =
       body.email == null || body.email === '' ? null : String(body.email).trim().toLowerCase();
   }
-  if ('role' in body) partial.role = String(body.role || 'employee').trim() || 'employee';
+  if ('role' in body) {
+    partial.role = normalizeAssignableEmployeeRole(body.role);
+  }
   if ('status' in body) partial.status = String(body.status || 'active').trim() || 'active';
   if ('cargo' in body) {
     partial.cargo = body.cargo == null || body.cargo === '' ? null : String(body.cargo).trim();
@@ -295,7 +299,7 @@ function normalizeEmployeeFields(
     pis: body.pis != null && String(body.pis).trim() ? String(body.pis).trim() : null,
     telefone: body.telefone != null && String(body.telefone).trim() ? String(body.telefone).trim() : null,
     email,
-    role: String(body.role || 'employee').trim() || 'employee',
+    role: normalizeAssignableEmployeeRole(body.role),
     status: String(body.status || 'active').trim() || 'active',
     data_admissao: overrides.dataAdmissao !== undefined ? overrides.dataAdmissao : parseDateYmd(body.data_admissao),
     cargo: body.cargo != null && String(body.cargo).trim() ? String(body.cargo).trim() : null,

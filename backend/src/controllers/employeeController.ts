@@ -16,6 +16,10 @@ import {
 } from '../services/employeeUserSync.js';
 import { logger } from '../logger/logger.js';
 import { logAuthDenied, logAuthEvent } from '../services/authAuditService.js';
+import {
+  normalizeAssignableEmployeeRole,
+  validateEmployeeRoleAssignment,
+} from '../utils/employeeRolePolicy.js';
 import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
@@ -224,11 +228,10 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
        where e.company_id = $1
          and coalesce(e.status, 'active') = 'active'
-         and lower(coalesce(nullif(trim(e.role), ''), 'employee')) <> all($3::text[])
          and lower(coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), ''), '')) <> all($2::text[])
        order by e.created_at desc
        limit 1000`,
-      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS), PRIVILEGED_EMPLOYEE_ROLES],
+      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS)],
     );
     const employees = result.rows.map(mapRow);
     res.json({ ok: true, success: true, employees, data: employees });
@@ -320,7 +323,20 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
     return;
   }
 
-  const d = validation.data;
+  const roleCheck = validateEmployeeRoleAssignment(validation.data.role, req.auth?.role);
+  if (!roleCheck.ok) {
+    void logAuthDenied(req, 403, roleCheck.code, { attemptedRole: validation.data.role });
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: roleCheck.code,
+      message: roleCheck.error,
+    });
+    return;
+  }
+
+  const d = { ...validation.data, role: roleCheck.role };
   try {
     const employeeLinks = await getTableLinkColumns('employees', pool);
     const insertColumns = [
@@ -538,6 +554,21 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
   let employeeLinks: LinkColumnMap = { schedule_id: false, shift_id: false };
   try {
     const partial = validation.partial ?? {};
+    if ('role' in partial) {
+      const roleCheck = validateEmployeeRoleAssignment(partial.role, req.auth?.role);
+      if (!roleCheck.ok) {
+        void logAuthDenied(req, 403, roleCheck.code, { attemptedRole: partial.role, employeeId: id });
+        res.status(403).json({
+          ok: false,
+          success: false,
+          error: 'forbidden',
+          code: roleCheck.code,
+          message: roleCheck.error,
+        });
+        return;
+      }
+      partial.role = roleCheck.role;
+    }
     let idx = 3;
     const hasUserSyncField = Object.keys(body).some((key) => USER_SYNC_PATCH_FIELDS.has(key));
     employeeLinks = await getTableLinkColumns('employees', pool);

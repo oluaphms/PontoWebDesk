@@ -23,6 +23,14 @@ import {
   CalendarOff,
 } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import {
+  accessProfileLabel,
+  accessProfileToRole,
+  hasAdminAccess,
+  roleToAccessProfileForm,
+  type AccessProfile,
+  type AdminRhRole,
+} from '../../utils/accessProfile';
 import PageHeader from '../../components/PageHeader';
 import {
   fetchEmployees,
@@ -86,6 +94,7 @@ interface EmployeeRow {
   nome: string;
   cpf?: string;
   email: string;
+  role?: string;
   phone?: string;
   cargo: string;
   department_id?: string;
@@ -224,6 +233,7 @@ function mapApiEmployeeToRow(e: ApiEmployee, lookups: EmployeeLookupMaps = {}): 
     nome: e.nome,
     cpf: e.cpf ?? undefined,
     email: e.email || '',
+    role: e.role || 'employee',
     phone: e.telefone ?? undefined,
     cargo: e.cargo || 'Colaborador',
     department_id: departmentId,
@@ -525,6 +535,8 @@ const AdminEmployees: React.FC = () => {
     return companyIdFromSession;
   }, [user, companyIdFromSession]);
 
+  const canManageAccessProfile = hasAdminAccess(user?.role);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const scrollModalTopRef = useRef<HTMLDivElement>(null);
@@ -599,6 +611,8 @@ const AdminEmployees: React.FC = () => {
     jornada_tipo: '',
     carga_horaria: '',
     endereco: '',
+    accessProfile: 'COLABORADOR' as AccessProfile,
+    adminRhRole: 'admin' as AdminRhRole,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -898,6 +912,8 @@ const AdminEmployees: React.FC = () => {
     jornada_tipo: '',
     carga_horaria: '',
     endereco: '',
+    accessProfile: 'COLABORADOR' as AccessProfile,
+    adminRhRole: 'admin' as AdminRhRole,
   });
 
   const openCreate = () => {
@@ -918,8 +934,10 @@ const AdminEmployees: React.FC = () => {
     resetPasswordModalState();
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
+    const accessForm = roleToAccessProfileForm(row.role);
     setForm({
       ...defaultForm(),
+      ...accessForm,
       numero_folha: row.numero_folha || '',
       numero_identificador: row.numero_identificador || '',
       photo_preview:
@@ -1032,7 +1050,7 @@ const AdminEmployees: React.FC = () => {
       nome: form.nome.trim(),
       cpf: form.cpf.trim(),
       email: form.email.trim().toLowerCase() || null,
-      role: 'employee',
+      role: accessProfileToRole(form.accessProfile, form.adminRhRole),
       status: form.demissao?.trim() ? 'inactive' : 'active',
       companyId: effectiveCompanyId,
       pis: form.pis_pasep?.trim() || null,
@@ -1598,7 +1616,14 @@ const AdminEmployees: React.FC = () => {
                     <tr key={row.id} className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 ${row.invisivel ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.numero_folha || '—'}</td>
                       <td className="px-4 py-3 text-slate-900 dark:text-white font-medium max-w-[180px] truncate" title={row.nome}>
-                        {getDisplayShortName(row.nome)}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="truncate">{getDisplayShortName(row.nome)}</span>
+                          {hasAdminAccess(row.role) && (
+                            <span className="shrink-0 inline-flex px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                              {accessProfileLabel('ADMIN_RH', row.role === 'hr' ? 'hr' : 'admin')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {TIPO_VINCULO_LABELS[normalizeTipoVinculo(row.tipo_vinculo)]}
@@ -2238,6 +2263,53 @@ const AdminEmployees: React.FC = () => {
                       </div>
                       <div className="sm:col-span-2 space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                         <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Acesso ao sistema</p>
+                        {canManageAccessProfile && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 p-3">
+                            <div className="sm:col-span-2">
+                              <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                                Perfil de acesso
+                              </label>
+                              <select
+                                value={form.accessProfile}
+                                onChange={(e) =>
+                                  setForm({
+                                    ...form,
+                                    accessProfile: e.target.value as AccessProfile,
+                                  })
+                                }
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                              >
+                                <option value="COLABORADOR">Colaborador — dashboard e ponto</option>
+                                <option value="ADMIN_RH">Admin/RH — acesso administrativo completo</option>
+                              </select>
+                            </div>
+                            {form.accessProfile === 'ADMIN_RH' && (
+                              <div className="sm:col-span-2">
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                                  Tipo Admin/RH
+                                </label>
+                                <select
+                                  value={form.adminRhRole}
+                                  onChange={(e) =>
+                                    setForm({
+                                      ...form,
+                                      adminRhRole: e.target.value as AdminRhRole,
+                                    })
+                                  }
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                >
+                                  <option value="admin">Administrador</option>
+                                  <option value="hr">RH</option>
+                                </select>
+                              </div>
+                            )}
+                            <p className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                              {form.accessProfile === 'COLABORADOR'
+                                ? 'Acesso ao dashboard do colaborador, registro de ponto e dados pessoais.'
+                                : 'Acesso ao painel administrativo, colaboradores, relatórios e configurações.'}
+                            </p>
+                          </div>
+                        )}
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">E-mail {!editingId && <span className="text-red-500">*</span>}</label>
                         <input
                           type="email"
