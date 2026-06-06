@@ -1753,13 +1753,175 @@ async function executeCollectPunchesCommand(cmd) {
   }
 }
 
+function agentClockBaseUrl() {
+  return `${scheme}://${ip}:${port}`;
+}
+
+function commandPayload(cmd) {
+  return cmd?.payload && typeof cmd.payload === 'object' && !Array.isArray(cmd.payload) ? cmd.payload : {};
+}
+
+function controlIdOk(text) {
+  const parsed = parseJsonSafe(text);
+  if (!parsed || typeof parsed !== 'object') return String(text || '').trim() === '';
+  const error = parsed.error ?? parsed.errors ?? parsed.message;
+  if (Array.isArray(error)) return error.length === 0;
+  if (error === false || error == null || error === '') return true;
+  if (parsed.success === true || parsed.ok === true) return true;
+  return false;
+}
+
+function digitsOnly(value) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function toClockInt(value) {
+  const d = digitsOnly(value);
+  if (!d) return null;
+  const n = parseInt(d, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function localClockPayload(payloadClock) {
+  const now = new Date();
+  const c = payloadClock && typeof payloadClock === 'object' ? payloadClock : {};
+  const clock = {
+    day: Number(c.day || now.getDate()),
+    month: Number(c.month || now.getMonth() + 1),
+    year: Number(c.year || now.getFullYear()),
+    hour: Number(c.hour || now.getHours()),
+    minute: Number(c.minute || now.getMinutes()),
+    second: Number(c.second || now.getSeconds()),
+  };
+  const tz = String(c.timezone || REP_DEVICE_TIMEZONE_OFFSET || '').trim().replace(':', '');
+  if (tz) clock.timezone = tz;
+  return clock;
+}
+
+async function controlIdSessionForCommand(base) {
+  if (repDeviceSession) return repDeviceSession;
+  const session = await loginControlId(base);
+  if (!session) throw new Error('Não foi possível abrir sessão no relógio (login.fcgi).');
+  return session;
+}
+
+async function postControlIdFcgi(base, path, body) {
+  const res = await clockPostJson(`${base}${path}`, body ?? {});
+  const data = parseJsonSafe(res.text);
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`HTTP ${res.status} em ${path}: ${afdHttpSnippet(res.text)}`);
+  }
+  return { text: res.text, data };
+}
+
+async function executeExchangeCommand(cmd) {
+  const name = String(cmd.command || '').trim();
+  const payload = commandPayload(cmd);
+  const base = agentClockBaseUrl();
+  const session = await controlIdSessionForCommand(base);
+  const mode671 = repAfdPortaria671 || /^(1|true|yes)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
+  const modeParam = mode671 ? '&mode=671' : '';
+
+  if (name === 'push_clock') {
+    const clock = localClockPayload(payload.clock);
+    const { text, data } = await postControlIdFcgi(
+      base,
+      `/set_system_date_time.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+      clock,
+    );
+    const success = controlIdOk(text);
+    return { success, ok: success, message: success ? 'Data e hora enviadas ao relógio.' : afdHttpSnippet(text), data };
+  }
+
+  if (name === 'pull_clock') {
+    const { data, text } = await postControlIdFcgi(
+      base,
+      `/get_system_date_time.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+      {},
+    );
+    return { success: true, ok: true, message: 'Data e hora lidas do relógio.', data: data ?? text };
+  }
+
+  if (name === 'pull_info') {
+    const { data, text } = await postControlIdFcgi(
+      base,
+      `/get_info.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+      {},
+    );
+    return { success: true, ok: true, message: 'Informações lidas do relógio.', data: data ?? text };
+  }
+
+  if (name === 'pull_users') {
+    const { data, text } = await postControlIdFcgi(
+      base,
+      `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+      { limit: 1000 },
+    );
+    const users = Array.isArray(data?.users)
+      ? data.users
+      : Array.isArray(data)
+        ? data
+        : Array.isArray(data?.objects)
+          ? data.objects
+          : [];
+    return { success: true, ok: true, message: `${users.length} usuário(s) lido(s) do relógio.`, users, data: data ?? text };
+  }
+
+  throw new Error(`Comando REP não suportado pelo agente: ${name}`);
+}
+
+async function executePushEmployeeCommand(cmd) {
+  const payload = commandPayload(cmd);
+  const employee = payload.employee && typeof payload.employee === 'object' ? payload.employee : null;
+  if (!employee) throw new Error('push_employee: payload.employee ausente');
+  const nome = String(employee.nome || '').trim();
+  if (!nome) throw new Error('push_employee: nome do colaborador ausente');
+
+  const base = agentClockBaseUrl();
+  const session = await controlIdSessionForCommand(base);
+  const mode671 = repAfdPortaria671 || /^(1|true|yes)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
+  const modeParam = mode671 ? '&mode=671' : '';
+  const cpf = digitsOnly(employee.cpf);
+  const pis = digitsOnly(employee.pis);
+  const matricula = digitsOnly(employee.matricula);
+  const user = { name: nome };
+  const primary = mode671 ? cpf || pis : pis || cpf;
+  if (mode671) {
+    if (!primary || primary.length !== 11) throw new Error('CPF/PIS com 11 dígitos é obrigatório para enviar ao Control iD 671.');
+    user.cpf = primary;
+    if (pis.length === 11) user.pis = pis;
+  } else {
+    if (!primary || primary.length !== 11) throw new Error('PIS/CPF com 11 dígitos é obrigatório para enviar ao Control iD.');
+    user.pis = toClockInt(primary) ?? primary;
+  }
+  const registration = toClockInt(matricula);
+  if (registration) user.registration = registration;
+
+  const body = { do_match: false, users: [user] };
+  const add = await postControlIdFcgi(base, `/add_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`, body)
+    .catch((e) => ({ error: e }));
+  if (!('error' in add) && controlIdOk(add.text)) {
+    return { success: true, ok: true, message: 'Funcionário cadastrado no relógio.' };
+  }
+
+  const upd = await postControlIdFcgi(base, `/update_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`, body)
+    .catch((e) => ({ error: e }));
+  if (!('error' in upd) && controlIdOk(upd.text)) {
+    return { success: true, ok: true, message: 'Funcionário atualizado no relógio.' };
+  }
+
+  const addMsg = 'error' in add ? add.error?.message || String(add.error) : afdHttpSnippet(add.text);
+  const updMsg = 'error' in upd ? upd.error?.message || String(upd.error) : afdHttpSnippet(upd.text);
+  throw new Error(`Falha ao enviar funcionário. add_users: ${addMsg}; update_users: ${updMsg}`);
+}
+
 async function executeRepCommand(cmd) {
   const id = String(cmd.id || '').trim();
   const name = String(cmd.command || '').trim();
   const executionId = String(cmd.execution_id || '').trim();
   const cmdStatus = String(cmd.status || '').trim().toLowerCase();
 
-  if (!id || (name !== 'test_connection' && name !== 'collect_punches')) return;
+  if (!id || !['test_connection', 'collect_punches', 'push_clock', 'pull_clock', 'pull_info', 'pull_users', 'push_employee'].includes(name)) return;
   if (!executionId) {
     syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
     return;
@@ -1795,6 +1957,12 @@ async function executeRepCommand(cmd) {
       finalStatus = testResult.success ? 'done' : 'error';
     } else if (name === 'collect_punches') {
       resultPayload = await executeCollectPunchesCommand(cmd);
+      finalStatus = resultPayload.success ? 'done' : 'error';
+    } else if (name === 'push_employee') {
+      resultPayload = await executePushEmployeeCommand(cmd);
+      finalStatus = resultPayload.success ? 'done' : 'error';
+    } else {
+      resultPayload = await executeExchangeCommand(cmd);
       finalStatus = resultPayload.success ? 'done' : 'error';
     }
   } catch (e) {

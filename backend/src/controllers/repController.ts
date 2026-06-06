@@ -12,6 +12,16 @@ type AdminJwtContext = {
 
 const REP_DEVICE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STUCK_COMMAND_PROCESSING_MS = 30_000;
+const ADMIN_REP_COMMANDS = new Set([
+  'test_connection',
+  'collect_punches',
+  'push_clock',
+  'pull_clock',
+  'pull_info',
+  'pull_users',
+  'push_employee',
+]);
+const REP_EXCHANGE_COMMANDS = new Set(['push_clock', 'pull_clock', 'pull_info', 'pull_users']);
 
 function json(res: Response, status: number, body: Record<string, unknown>): void {
   res.status(status).json(body);
@@ -68,6 +78,49 @@ function normalizeUuid(value: unknown): string | null {
 function normalizeDigits(value: unknown): string | null {
   const digits = String(value || '').replace(/\D/g, '');
   return digits || null;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+async function assertRepDeviceForAdmin(deviceId: string, companyId: string): Promise<Record<string, unknown> | null> {
+  const result = await pool.query(
+    `select id::text, company_id::text, nome_dispositivo, tipo_conexao, config_extra
+       from public.rep_devices
+      where id::text = $1 and company_id::text = $2
+      limit 1`,
+    [deviceId, companyId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function fetchEmployeeForRepPush(userId: string, companyId: string): Promise<Record<string, unknown> | null> {
+  const result = await pool.query(
+    `select
+        u.id::text as id,
+        coalesce(nullif(e.nome, ''), nullif(u.nome, ''), nullif(u.email, ''), 'Colaborador') as nome,
+        coalesce(nullif(e.cpf, ''), nullif(u.cpf, '')) as cpf,
+        coalesce(nullif(e.pis_pasep, ''), nullif(e.pis, ''), nullif(u.pis_pasep, ''), nullif(u.pis, '')) as pis,
+        coalesce(nullif(e.numero_folha, ''), nullif(e.numero_identificador, ''), nullif(u.numero_folha, ''), nullif(u.numero_identificador, '')) as matricula,
+        lower(coalesce(nullif(u.role, ''), nullif(e.role, ''), 'employee')) as role
+       from public.users u
+       left join public.employees e on e.id = u.id
+      where u.id::text = $1
+        and u.company_id::text = $2
+      limit 1`,
+    [userId, companyId],
+  );
+  return result.rows[0] ?? null;
 }
 
 function normalizeNsr(value: unknown): number | null {
@@ -318,41 +371,37 @@ export async function repCommandsController(req: Request, res: Response): Promis
       json(res, 400, { ok: false, success: false, error: 'device_id é obrigatório' });
       return;
     }
-    if (command !== 'test_connection' && command !== 'collect_punches') {
+    if (!ADMIN_REP_COMMANDS.has(command)) {
       json(res, 400, { ok: false, success: false, error: 'Comando não suportado' });
       return;
     }
-    const device = await pool.query(
-      `select id::text, company_id::text
-         from public.rep_devices
-        where id::text = $1 and company_id::text = $2
-        limit 1`,
-      [deviceId, auth.companyId],
-    );
-    if (!device.rows[0]) {
+    const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
+    if (!device) {
       json(res, 404, { ok: false, success: false, error: 'device_not_found' });
       return;
     }
-    const active = await pool.query(
-      `select id::text, status, execution_id::text
-         from public.rep_device_commands
-        where device_id::text = $1
-          and command = $2
-          and status in ('pending', 'processing')
-        order by created_at asc
-        limit 1`,
-      [deviceId, command],
-    );
-    if (active.rows[0]) {
-      json(res, 200, {
-        ok: true,
-        success: true,
-        command_id: active.rows[0].id,
-        status: active.rows[0].status,
-        execution_id: active.rows[0].execution_id ?? null,
-        reused: true,
-      });
-      return;
+    if (command !== 'push_employee') {
+      const active = await pool.query(
+        `select id::text, status, execution_id::text
+           from public.rep_device_commands
+          where device_id::text = $1
+            and command = $2
+            and status in ('pending', 'processing')
+          order by created_at asc
+          limit 1`,
+        [deviceId, command],
+      );
+      if (active.rows[0]) {
+        json(res, 200, {
+          ok: true,
+          success: true,
+          command_id: active.rows[0].id,
+          status: active.rows[0].status,
+          execution_id: active.rows[0].execution_id ?? null,
+          reused: true,
+        });
+        return;
+      }
     }
     if (command === 'test_connection') {
       await pool.query(
@@ -487,6 +536,83 @@ export async function repCollectController(req: Request, res: Response): Promise
       start_date: req.body?.start_date,
       end_date: req.body?.end_date,
       receive_scope: req.body?.receive_scope ?? 'date_range',
+    },
+  };
+  await repCommandsController(req, res);
+}
+
+export async function repExchangeController(req: Request, res: Response): Promise<void> {
+  const auth = requireAdminJwt(req, res);
+  if (!auth) return;
+  const deviceId = String(req.body?.device_id || '').trim();
+  const op = String(req.body?.op || '').trim();
+  if (!deviceId || !op) {
+    json(res, 400, { ok: false, success: false, error: 'device_id e op são obrigatórios' });
+    return;
+  }
+  if (!REP_EXCHANGE_COMMANDS.has(op)) {
+    json(res, 400, { ok: false, success: false, error: 'op inválido' });
+    return;
+  }
+  const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
+  if (!device) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+  if (String(device.tipo_conexao || '') !== 'rede') {
+    json(res, 400, { ok: false, success: false, error: 'Dispositivo deve ser do tipo rede (IP).' });
+    return;
+  }
+  req.body = {
+    device_id: deviceId,
+    command: op,
+    payload: {
+      clock: parseJsonObject(req.body?.clock),
+      op,
+    },
+  };
+  await repCommandsController(req, res);
+}
+
+export async function repPushEmployeeController(req: Request, res: Response): Promise<void> {
+  const auth = requireAdminJwt(req, res);
+  if (!auth) return;
+  const deviceId = String(req.body?.device_id || '').trim();
+  const userId = String(req.body?.user_id || '').trim();
+  if (!deviceId || !userId) {
+    json(res, 400, { ok: false, success: false, error: 'device_id e user_id são obrigatórios' });
+    return;
+  }
+  const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
+  if (!device) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+  if (String(device.tipo_conexao || '') !== 'rede') {
+    json(res, 400, { ok: false, success: false, error: 'Dispositivo deve ser do tipo rede (IP).' });
+    return;
+  }
+  const employee = await fetchEmployeeForRepPush(userId, auth.companyId);
+  if (!employee) {
+    json(res, 404, { ok: false, success: false, error: 'Funcionário não encontrado' });
+    return;
+  }
+  const role = String(employee.role || '').toLowerCase();
+  if (!['employee', 'hr', 'admin'].includes(role)) {
+    json(res, 403, { ok: false, success: false, error: 'Este perfil não pode ser enviado ao relógio' });
+    return;
+  }
+  req.body = {
+    device_id: deviceId,
+    command: 'push_employee',
+    payload: {
+      employee: {
+        id: employee.id,
+        nome: employee.nome,
+        cpf: employee.cpf ?? null,
+        pis: employee.pis ?? null,
+        matricula: employee.matricula ?? null,
+      },
     },
   };
   await repCommandsController(req, res);

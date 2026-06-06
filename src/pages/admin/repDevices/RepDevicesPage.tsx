@@ -515,6 +515,13 @@ const AdminRepDevices: React.FC = () => {
     setSrLog((prev) => (prev ? `${prev}\n` : '') + `[${ts}] ${line}`);
   }, []);
 
+  const openSendReceivePanel = useCallback((deviceId?: string, openSendPanel = false) => {
+    const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
+    setSrDeviceId(targetId);
+    setSendReceiveOpen(true);
+    if (openSendPanel) setSrSendDialogOpen(true);
+  }, [redeDevices, srDeviceId]);
+
   const copyCommandToClipboard = async (command: string) => {
     try {
       await navigator.clipboard.writeText(command);
@@ -551,13 +558,11 @@ const AdminRepDevices: React.FC = () => {
     }
     setCollectBusy(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token || !user?.companyId) {
+      const accessToken = getToken();
+      if (!accessToken || !user?.companyId) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
-      const r = await enqueueRepCollect(session.access_token, {
+      const r = await enqueueRepCollect(accessToken, {
         device_id: collectDeviceId,
         company_id: user.companyId,
         start_date: collectStartDate,
@@ -604,17 +609,15 @@ const AdminRepDevices: React.FC = () => {
     setSrDeviceId(d.id);
     appendSrLog('[REP SYNC STARTED] Sincronização manual acionada pelo painel principal.');
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token || !user?.companyId) {
+      const accessToken = getToken();
+      if (!accessToken || !user?.companyId) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
 
-      const syncRes = await fetch(`/api/rep/sync?company_id=${encodeURIComponent(user.companyId)}`, {
+      const syncRes = await fetch(buildApiUrl(`/rep/sync?company_id=${encodeURIComponent(user.companyId)}`), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -697,15 +700,13 @@ const AdminRepDevices: React.FC = () => {
       setAgentTestPhase((prev) => ({ ...prev, [id]: 'running' }));
       const t0 = performance.now();
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) {
+        const accessToken = getToken();
+        if (!accessToken) {
           setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
           return;
         }
-        const created = await createRepTestConnectionCommand(id, session.access_token);
-        const outcome = await pollRepTestConnectionResult(id, created.command_id, session.access_token, {
+        const created = await createRepTestConnectionCommand(id, accessToken);
+        const outcome = await pollRepTestConnectionResult(id, created.command_id, accessToken, {
           onProgress: (phase) => {
             const hint = resolveAgentTestProgressMessage(phase);
             if (hint) setMessage({ type: 'error', text: hint });
@@ -1988,17 +1989,15 @@ const AdminRepDevices: React.FC = () => {
     setExchangeBusy(`${d.id}:push_clock`);
     setMessage(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = getToken();
+      if (!accessToken) {
         appendSrLog('Sessão expirada. Faça login novamente.');
         setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
         return;
       }
       appendSrLog(`Enviando data e hora para "${d.nome_dispositivo}"…`);
       const clock = buildLocalClockForRep(mode671);
-      const r = await repExchangeViaApi(d.id, 'push_clock', session.access_token, clock);
+      const r = await repExchangeViaApi(d.id, 'push_clock', accessToken, clock);
       if (!r.ok) {
         const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
         appendSrLog(`Falha: ${errLine}`);
@@ -2027,10 +2026,8 @@ const AdminRepDevices: React.FC = () => {
     setExchangeBusy(`${d.id}:${op}`);
     setMessage(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = getToken();
+      if (!accessToken) {
         appendSrLog('Sessão expirada. Faça login novamente.');
         setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
         return;
@@ -2042,7 +2039,7 @@ const AdminRepDevices: React.FC = () => {
       };
       if (startMsg[op]) appendSrLog(startMsg[op]!);
       const clock = op === 'push_clock' ? buildLocalClockForRep(mode671) : undefined;
-      const r = await repExchangeViaApi(d.id, op, session.access_token, clock);
+      const r = await repExchangeViaApi(d.id, op, accessToken, clock);
       if (!r.ok) {
         const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
         appendSrLog(`Falha: ${errLine}`);
@@ -2099,16 +2096,14 @@ const AdminRepDevices: React.FC = () => {
     setPushingId(d.id);
     setMessage(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = getToken();
+      if (!accessToken) {
         appendSrLog('Sessão expirada. Faça login novamente.');
         setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
         return;
       }
       appendSrLog(`Enviando cadastro ao relógio "${d.nome_dispositivo}"…`);
-      const r = await pushEmployeeToDeviceViaApi(d.id, userId, session.access_token);
+      const r = await pushEmployeeToDeviceViaApi(d.id, userId, accessToken);
       const msg = toUiString(r.message, r.ok ? 'Cadastro enviado ao relógio.' : 'Falha ao enviar ao relógio.');
       if (r.ok) {
         appendSrLog(msg);
@@ -2185,10 +2180,8 @@ const AdminRepDevices: React.FC = () => {
     setSrPushAllRunning(true);
     setMessage(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = getToken();
+      if (!accessToken) {
         appendSrLog('Sessão expirada. Faça login novamente.');
         setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
         return;
@@ -2197,7 +2190,7 @@ const AdminRepDevices: React.FC = () => {
       let fail = 0;
       for (const emp of list) {
         appendSrLog(`Enviando «${emp.nome}»…`);
-        const r = await pushEmployeeToDeviceViaApi(d.id, emp.id, session.access_token);
+        const r = await pushEmployeeToDeviceViaApi(d.id, emp.id, accessToken);
         if (r.ok) {
           ok += 1;
           appendSrLog(`  ✓ ${toUiString(r.message, 'OK')}`);
@@ -2460,6 +2453,16 @@ const AdminRepDevices: React.FC = () => {
             <Button
               type="button"
               variant="outline"
+              onClick={() => openSendReceivePanel(undefined, true)}
+              disabled={redeDevices.length === 0}
+              className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, uiTokens.transition.default)}
+            >
+              <ArrowLeftRight size={18} className={repPageUi.c001} />
+              Enviar/Receber
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={openCollectDialog}
               className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, uiTokens.transition.default)}
             >
@@ -2526,6 +2529,7 @@ const AdminRepDevices: React.FC = () => {
         onOpenEdit={openEdit}
         onDelete={handleDeleteRequest}
         onForceSync={handleForceSyncDevice}
+        onOpenCommunication={(deviceId) => openSendReceivePanel(deviceId, true)}
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
@@ -2716,6 +2720,17 @@ const AdminRepDevices: React.FC = () => {
                   >
                     <ClipboardCheck size={16} className={repPageUi.c019} />
                     Reprocessar batidas
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={repPageUi.c020}
+                    disabled={srActionsLocked || redeDevices.length === 0}
+                    onClick={() => setSrSendDialogOpen(true)}
+                    title="Enviar data/hora e colaboradores para o relógio selecionado"
+                  >
+                    <Upload size={16} className={repPageUi.c019} />
+                    Enviar data/hora e colaboradores
                   </Button>
                 </div>
                 <p className={repPageUi.c021}>

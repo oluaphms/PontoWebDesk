@@ -3,9 +3,11 @@ import {
   repCommandResultController,
   repCommandsController,
   repCollectController,
+  repExchangeController,
   repForceSyncController,
   repHeartbeatController,
   repPunchesController,
+  repPushEmployeeController,
   repSyncStatusController,
 } from '../controllers/repController.js';
 
@@ -18,6 +20,8 @@ router.get('/sync-status', repSyncStatusController);
 router.get('/devices/:deviceId/sync-status', repSyncStatusController);
 router.post('/devices/:deviceId/force-sync', repForceSyncController);
 router.post('/collect', repCollectController);
+router.post('/exchange', repExchangeController);
+router.post('/push-employee', repPushEmployeeController);
 router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);

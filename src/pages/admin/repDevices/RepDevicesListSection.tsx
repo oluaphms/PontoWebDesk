@@ -45,6 +45,7 @@ export type RepDevicesListSectionProps = {
   onOpenEdit: (device: RepDeviceRow) => void;
   onDelete: (deviceId: string, deviceName: string) => void;
   onForceSync: (deviceId: string) => void;
+  onOpenCommunication: (deviceId: string) => void;
 };
 
 export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
@@ -69,6 +70,7 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
   onOpenEdit,
   onDelete,
   onForceSync,
+  onOpenCommunication,
 }) => {
   if (loadingList) {
     return (
@@ -249,6 +251,16 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     Testar conexão
                   </Button>
                 )}
+                {d.tipo_conexao === 'rede' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
+                    onClick={() => onOpenCommunication(d.id)}
+                  >
+                    Enviar/Receber
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -402,6 +414,23 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                             title="Testar conexão"
                           >
                             Testar
+                          </Button>
+                        )}
+                        {d.tipo_conexao === 'rede' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={cx(
+                              buttonStyles.base,
+                              buttonStyles.ghost,
+                              uiTokens.radius.button,
+                              uiTokens.transition.default,
+                              'text-xs whitespace-nowrap px-2.5',
+                            )}
+                            onClick={() => onOpenCommunication(d.id)}
+                            title="Enviar data/hora e colaboradores ao relógio"
+                          >
+                            Enviar/Receber
                           </Button>
                         )}
                         <Button

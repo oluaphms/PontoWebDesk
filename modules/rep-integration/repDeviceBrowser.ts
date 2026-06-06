@@ -3,11 +3,7 @@
  */
 
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
-
-function apiOrigin(): string {
-  if (typeof window === 'undefined') return '';
-  return window.location.origin;
-}
+import { buildApiUrl } from '../../src/services/api';
 
 /** Evita que o modal «Enviar e Receber» fique sem resposta se o proxy/rede travar. */
 async function fetchWithRepTimeout(
@@ -104,7 +100,7 @@ export async function fetchPunchesViaApi(
   since: Date | undefined,
   accessToken: string
 ): Promise<PunchFromDevice[]> {
-  const u = new URL('/api/rep/punches', apiOrigin());
+  const u = new URL(buildApiUrl('/rep/punches'));
   u.searchParams.set('device_id', deviceId);
   if (since) u.searchParams.set('since', since.toISOString());
   const res = await fetchWithRepTimeout(
@@ -128,7 +124,7 @@ export async function fetchPunchesViaApi(
 }
 
 export async function testConnectionViaApi(deviceId: string, accessToken: string): Promise<{ ok: boolean; message: string }> {
-  const u = new URL('/api/rep/status', apiOrigin());
+  const u = new URL(buildApiUrl('/rep/status'));
   u.searchParams.set('device_id', deviceId);
   const res = await fetchWithRepTimeout(
     u.toString(),
@@ -161,7 +157,7 @@ export async function pushEmployeeToDeviceViaApi(
   userId: string,
   accessToken: string
 ): Promise<{ ok: boolean; message: string }> {
-  const u = new URL('/api/rep/push-employee', apiOrigin());
+  const u = new URL(buildApiUrl('/rep/push-employee'));
   const res = await fetchWithRepTimeout(
     u.toString(),
     {
@@ -185,6 +181,12 @@ export async function pushEmployeeToDeviceViaApi(
       message: normalizeApiError(data, res.status) || 'Falha ao enviar funcionário ao relógio',
     };
   }
+  if (typeof data.command_id === 'string' && data.command_id) {
+    return {
+      ok: true,
+      message: 'Envio de funcionário enfileirado para o agente local. Aguarde o próximo ciclo do agente.',
+    };
+  }
   return { ok: true, message: toUiString(data.message, 'Funcionário enviado ao relógio.') };
 }
 
@@ -201,7 +203,7 @@ export async function repExchangeViaApi(
   users?: RepUserFromDevice[];
   error?: string;
 }> {
-  const u = new URL('/api/rep/exchange', apiOrigin());
+  const u = new URL(buildApiUrl('/rep/exchange'));
   const res = await fetchWithRepTimeout(
     u.toString(),
     {
@@ -222,6 +224,13 @@ export async function repExchangeViaApi(
   if (data.ok === false) {
     const err = normalizeApiError(data, res.status) || 'Operação não concluída.';
     return { ok: false, message: err, error: err, data: data.data, users: data.users as RepUserFromDevice[] | undefined };
+  }
+  if (typeof data.command_id === 'string' && data.command_id) {
+    return {
+      ok: true,
+      message: 'Comando enfileirado para o agente local. Aguarde o próximo ciclo do agente.',
+      data: data.command_id,
+    };
   }
   const okMsg = data.message != null ? toUiString(data.message) : '';
   return {
