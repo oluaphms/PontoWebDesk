@@ -1,12 +1,6 @@
-import pino from 'pino';
-
 const service = String(process.env.LOG_SERVICE || process.env.SERVICE_NAME || 'pontowebdesk-node').trim();
-const baseLogger = pino({
-  level: String(process.env.LOG_LEVEL || 'info'),
-  base: { service },
-  messageKey: 'message',
-  timestamp: pino.stdTimeFunctions.isoTime,
-});
+const levelOrder = { debug: 10, info: 20, warn: 30, error: 40 };
+const minLevel = levelOrder[String(process.env.LOG_LEVEL || 'info').toLowerCase()] ?? levelOrder.info;
 
 const SENSITIVE = new Set([
   'password',
@@ -47,11 +41,13 @@ function redact(value, keyHint = '') {
 }
 
 function emit(level, args) {
+  const normalizedLevel = level === 'log' || level === 'debug' ? 'info' : level;
+  if ((levelOrder[normalizedLevel] ?? levelOrder.info) < minLevel) return;
   const first = args[0];
   const message = typeof first === 'string' && first.trim() ? first.trim() : 'Legacy console event';
   const payload = {
     timestamp: new Date().toISOString(),
-    level: level === 'log' || level === 'debug' ? 'info' : level,
+    level: normalizedLevel,
     service,
     module: 'legacy.console',
     action: `LEGACY_CONSOLE_${String(level).toUpperCase()}`,
@@ -62,9 +58,9 @@ function emit(level, args) {
     message,
     meta: { args: redact(args) },
   };
-  if (level === 'error') baseLogger.error(payload);
-  else if (level === 'warn') baseLogger.warn(payload);
-  else baseLogger.info(payload);
+  const line = JSON.stringify(payload);
+  if (normalizedLevel === 'error') process.stderr.write(`${line}\n`);
+  else process.stdout.write(`${line}\n`);
 }
 
 export const observabilityConsole = {

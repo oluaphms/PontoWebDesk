@@ -2,9 +2,9 @@ import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
  * Fila persistente de batidas (SQLite) — produção: C:\ProgramData\PontoWebDesk\agent.db
  */
-import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { PROGRAM_DATA_ROOT, DATA_DIR, isPackagedAgent } from './rep-agent-paths.mjs';
 
 function resolveAgentDbPath() {
@@ -20,9 +20,114 @@ export const AGENT_DB_PATH = resolveAgentDbPath();
 
 let dbInstance = null;
 
+function queueJsonPath() {
+  const custom = (process.env.REP_AGENT_QUEUE_FILE || '').trim();
+  if (custom) return path.resolve(custom);
+  return path.join(PROGRAM_DATA_ROOT, 'agent-queue.json');
+}
+
+function loadJsonQueue(file) {
+  try {
+    if (!existsSync(file)) return { punches: {} };
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const punches = parsed.punches && typeof parsed.punches === 'object' && !Array.isArray(parsed.punches)
+        ? parsed.punches
+        : {};
+      return { punches };
+    }
+  } catch (error) {
+    observabilityConsole.warn('[REP DB] fila JSON inválida, reiniciando arquivo:', error?.message || error);
+  }
+  return { punches: {} };
+}
+
+function createJsonQueueDb() {
+  const file = queueJsonPath();
+  mkdirSync(path.dirname(file), { recursive: true });
+  const state = loadJsonQueue(file);
+  const persist = () => writeFileSync(file, JSON.stringify(state, null, 2), 'utf8');
+
+  const api = {
+    pragma() {},
+    exec() {},
+    prepare(sql) {
+      const normalized = String(sql || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return {
+        get(...args) {
+          if (normalized.startsWith('select status from punches where id')) {
+            const row = state.punches[String(args[0] || '')];
+            return row ? { status: row.status } : undefined;
+          }
+          if (normalized.startsWith('select count(*) as c from punches')) {
+            return { c: Object.values(state.punches).filter((row) => row?.status === 'pending').length };
+          }
+          return undefined;
+        },
+        all(...args) {
+          if (normalized.startsWith('select id, payload, status, created_at from punches')) {
+            const limit = Math.max(1, Number(args[0]) || 50);
+            return Object.values(state.punches)
+              .filter((row) => row?.status === 'pending')
+              .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
+              .slice(0, limit)
+              .map((row) => ({
+                id: row.id,
+                payload: row.payload,
+                status: row.status,
+                created_at: row.created_at,
+              }));
+          }
+          return [];
+        },
+        run(...args) {
+          if (normalized.startsWith('insert or ignore into punches')) {
+            const [id, payload, createdAt] = args;
+            const key = String(id || '');
+            if (!key || state.punches[key]) return { changes: 0 };
+            state.punches[key] = {
+              id: key,
+              payload: String(payload || '{}'),
+              status: 'pending',
+              created_at: Number(createdAt) || Date.now(),
+              sent_at: null,
+            };
+            persist();
+            return { changes: 1 };
+          }
+          if (normalized.startsWith('update punches set status =')) {
+            const [sentAt, id] = args;
+            const key = String(id || '');
+            if (!state.punches[key]) return { changes: 0 };
+            state.punches[key].status = 'sent';
+            state.punches[key].sent_at = Number(sentAt) || Date.now();
+            persist();
+            return { changes: 1 };
+          }
+          return { changes: 0 };
+        },
+      };
+    },
+    transaction(fn) {
+      return (list) => fn(list);
+    },
+    close() {
+      persist();
+    },
+  };
+  observabilityConsole.log(`[REP DB] ${file} (json queue)`);
+  return api;
+}
+
 export function getAgentDb() {
   if (dbInstance) return dbInstance;
+  if (isPackagedAgent()) {
+    dbInstance = createJsonQueueDb();
+    return dbInstance;
+  }
   mkdirSync(path.dirname(AGENT_DB_PATH), { recursive: true });
+  const require = createRequire(import.meta.url);
+  const Database = require('better-sqlite3');
   dbInstance = new Database(AGENT_DB_PATH);
   dbInstance.pragma('journal_mode = WAL');
   dbInstance.exec(`
