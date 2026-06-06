@@ -479,6 +479,19 @@ export async function repCommandsController(req: Request, res: Response): Promis
   json(res, 405, { ok: false, success: false, error: 'method_not_allowed' });
 }
 
+export async function repCollectController(req: Request, res: Response): Promise<void> {
+  req.body = {
+    ...((req.body && typeof req.body === 'object') ? req.body : {}),
+    command: 'collect_punches',
+    payload: {
+      start_date: req.body?.start_date,
+      end_date: req.body?.end_date,
+      receive_scope: req.body?.receive_scope ?? 'date_range',
+    },
+  };
+  await repCommandsController(req, res);
+}
+
 export async function repCommandResultController(req: Request, res: Response): Promise<void> {
   if (!requireRepAuth(req, res)) return;
   const commandId = String(req.body?.command_id || '').trim();

@@ -1,5 +1,6 @@
 import type { User } from '../../types';
 import { getUserProfileStorage } from '../services/supabaseClient';
+import { getToken } from '../services/authToken';
 
 let sessionUserCache: User | null = null;
 
@@ -36,6 +37,14 @@ export function clearStoredSessionUser(): void {
 export function readUserFromProfileStore(): User | null {
   if (typeof window === 'undefined') return null;
   if (authLogoutGuard) return null;
+  if (!getToken()) {
+    try {
+      getUserProfileStorage().removeItem('current_user');
+    } catch {
+      // ignore
+    }
+    return null;
+  }
   try {
     const raw = getUserProfileStorage().getItem('current_user');
     if (!raw) return null;
@@ -83,5 +92,6 @@ export function readUserFromProfileStore(): User | null {
 }
 
 export function readInitialSessionUser(): User | null {
+  if (!getToken()) return null;
   return getSessionUserCache() ?? readUserFromProfileStore();
 }
