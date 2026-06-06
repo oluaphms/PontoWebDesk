@@ -1,5 +1,8 @@
+import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
+import { BCRYPT_COST } from '../security/passwords/passwordPolicy.js';
+import { normalizeAssignableEmployeeRole } from '../utils/employeeRolePolicy.js';
 
 type Queryable = Pick<typeof pool, 'query'>;
 
@@ -7,25 +10,130 @@ async function usersHasColumn(column: string, db: Queryable = pool): Promise<boo
   return tableHasColumn('users', column, db);
 }
 
+async function authUsersTableExists(db: Queryable): Promise<boolean> {
+  const r = await db.query(
+    `select 1 from information_schema.tables
+     where table_schema = 'auth' and table_name = 'users'
+     limit 1`,
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+async function getAuthUserColumns(db: Queryable): Promise<Set<string>> {
+  const r = await db.query<{ column_name: string }>(
+    `select column_name
+     from information_schema.columns
+     where table_schema = 'auth' and table_name = 'users'`,
+  );
+  return new Set(r.rows.map((row) => row.column_name));
+}
+
+/** Espelha auth.users antes de public.users (FK Supabase/VPS). */
+export async function ensureAuthUserMirror(
+  params: {
+    id: string;
+    email: string;
+    nome?: string;
+    role?: string;
+    companyId?: string;
+    passwordHash?: string | null;
+  },
+  db: Queryable = pool,
+): Promise<void> {
+  if (!(await authUsersTableExists(db))) return;
+
+  const id = String(params.id || '').trim();
+  const email = String(params.email || '').trim().toLowerCase();
+  if (!id || !email) return;
+
+  const available = await getAuthUserColumns(db);
+  if (!available.has('id')) return;
+
+  const insertCols = ['id'];
+  const insertVals: unknown[] = [id];
+  const add = (column: string, value: unknown) => {
+    if (!available.has(column)) return;
+    insertCols.push(column);
+    insertVals.push(value);
+  };
+
+  add('email', email);
+  add('aud', 'authenticated');
+  add('role', 'authenticated');
+  if (params.passwordHash) add('encrypted_password', params.passwordHash);
+  add('email_confirmed_at', new Date());
+  add('raw_app_meta_data', { provider: 'email', providers: ['email'] });
+  add(
+    'raw_user_meta_data',
+    {
+      nome: params.nome ?? '',
+      email,
+      role: normalizeAssignableEmployeeRole(params.role),
+      company_id: params.companyId ?? '',
+      source: 'employee-user-sync',
+    },
+  );
+  add('created_at', new Date());
+  add('updated_at', new Date());
+
+  const placeholders = insertVals.map((_, index) => `$${index + 1}`).join(', ');
+  const updates = insertCols
+    .filter((column) => column !== 'id')
+    .map((column) => `${column} = excluded.${column}`)
+    .join(', ');
+
+  await db.query(
+    `insert into auth.users (${insertCols.join(', ')})
+     values (${placeholders})
+     on conflict (id) do update set ${updates}`,
+    insertVals,
+  );
+}
+
 /** Garante linha em public.users com o mesmo id do colaborador (login + campos do cadastro). */
-export async function ensureUserForEmployee(row: {
-  id: string;
-  company_id: string;
-  nome: string;
-  email: string | null;
-  role: string;
-  status: string;
-  schedule_id?: unknown;
-  shift_id?: unknown;
-}, db: Queryable = pool): Promise<void> {
+export async function ensureUserForEmployee(
+  row: {
+    id: string;
+    company_id: string;
+    nome: string;
+    email: string | null;
+    role: string;
+    status: string;
+    schedule_id?: unknown;
+    shift_id?: unknown;
+    password?: string | null;
+    password_hash?: string | null;
+  },
+  db: Queryable = pool,
+): Promise<void> {
   const id = String(row.id || '').trim();
   const companyId = String(row.company_id || '').trim();
   const email = String(row.email || '').trim().toLowerCase();
-  if (!id || !companyId || !email) return;
+  if (!id || !companyId || !email) {
+    throw new Error('E-mail e identificador são obrigatórios para criar acesso ao sistema.');
+  }
+
+  let passwordHash = row.password_hash ?? null;
+  const plainPassword = String(row.password ?? '').trim();
+  if (!passwordHash && plainPassword) {
+    passwordHash = await bcrypt.hash(plainPassword, BCRYPT_COST);
+  }
+
+  await ensureAuthUserMirror(
+    {
+      id,
+      email,
+      nome: row.nome,
+      role: row.role,
+      companyId,
+      passwordHash,
+    },
+    db,
+  );
 
   const hasPwd = await usersHasColumn('password_hash', db);
   const cols = ['id', 'company_id', 'nome', 'email', 'role'];
-  const vals: unknown[] = [id, companyId, row.nome, email, row.role || 'employee'];
+  const vals: unknown[] = [id, companyId, row.nome, email, normalizeAssignableEmployeeRole(row.role)];
   const placeholders = cols.map((_, i) => `$${i + 1}`);
 
   if (await usersHasColumn('status', db)) {
@@ -35,7 +143,7 @@ export async function ensureUserForEmployee(row: {
   }
   if (hasPwd) {
     cols.push('password_hash');
-    vals.push('');
+    vals.push(passwordHash ?? '');
     placeholders.push(`$${vals.length}`);
   }
   for (const column of ['schedule_id', 'shift_id'] as const) {
@@ -105,6 +213,7 @@ export async function syncUserFieldsFromEmployeeBody(
   if ('telefone' in body) set('phone', body.telefone == null || body.telefone === '' ? null : String(body.telefone).trim());
   if ('schedule_id' in body) set('schedule_id', nullableTrim(body.schedule_id));
   if ('shift_id' in body) set('shift_id', nullableTrim(body.shift_id));
+  if ('role' in body) set('role', normalizeAssignableEmployeeRole(String(body.role ?? employeeRow.role ?? 'employee')));
   if ('data_admissao' in body) {
     const admissaoRaw = body.data_admissao;
     const admissao =
@@ -139,7 +248,7 @@ export async function syncUserFieldsFromEmployeeBody(
     { col: 'nome', value: employeeRow.nome },
     { col: 'email', value: employeeRow.email },
     { col: 'company_id', value: cid },
-    { col: 'role', value: employeeRow.role || 'employee' },
+    { col: 'role', value: normalizeAssignableEmployeeRole(String(employeeRow.role ?? 'employee')) },
     { col: 'status', value: employeeRow.status || 'active' },
     { col: 'schedule_id', value: employeeRow.schedule_id },
     { col: 'shift_id', value: employeeRow.shift_id },

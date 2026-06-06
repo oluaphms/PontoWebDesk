@@ -14,13 +14,13 @@ import {
   ensureUserForEmployee,
   syncUserFieldsFromEmployeeBody,
 } from '../services/employeeUserSync.js';
+import { hasAdminAccess, resolveAccessProfile } from '../utils/accessProfile.js';
 import { logger } from '../logger/logger.js';
 import { logAuthDenied, logAuthEvent } from '../services/authAuditService.js';
 import {
   normalizeAssignableEmployeeRole,
   validateEmployeeRoleAssignment,
 } from '../utils/employeeRolePolicy.js';
-import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 const EMPLOYEE_LINK_COLUMNS = ['schedule_id', 'shift_id'] as const;
 type EmployeeLinkColumn = (typeof EMPLOYEE_LINK_COLUMNS)[number];
@@ -337,8 +337,12 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
   }
 
   const d = { ...validation.data, role: roleCheck.role };
+  const body =
+    req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const client = await pool.connect();
   try {
-    const employeeLinks = await getTableLinkColumns('employees', pool);
+    await client.query('begin');
+    const employeeLinks = await getTableLinkColumns('employees', client);
     const insertColumns = [
       'company_id',
       'nome',
@@ -374,6 +378,14 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       d.endereco,
     ];
 
+    if (!(await tableHasColumn('employees', 'role', client))) {
+      const roleIdx = insertColumns.indexOf('role');
+      if (roleIdx >= 0) {
+        insertColumns.splice(roleIdx, 1);
+        insertValues.splice(roleIdx, 1);
+      }
+    }
+
     for (const column of EMPLOYEE_LINK_COLUMNS) {
       if (!employeeLinks[column]) continue;
       insertColumns.push(column);
@@ -381,52 +393,51 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
     }
 
     const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(',');
-    const result = await pool.query(
+    const result = await client.query(
       `insert into employees (${insertColumns.join(', ')})
        values (${placeholders})
        returning ${buildEmployeeReturningColumns(employeeLinks)}`,
       insertValues,
     );
     const raw = result.rows[0] as Record<string, unknown>;
-    const body =
-      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-    try {
-      await ensureUserForEmployee({
-        id: String(raw.id),
-        company_id: companyId,
-        nome: String(raw.nome),
-        email: String(raw.email || d.email),
-        role: String(raw.role || d.role),
-        status: String(raw.status || d.status),
-        schedule_id: raw.schedule_id ?? d.schedule_id,
-        shift_id: raw.shift_id ?? d.shift_id,
-      });
-      const userSync = await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw);
-      if (userSync.attempted && userSync.updatedRows === 0) {
-        logger.warn({
-          module: 'employee.controller',
-          action: 'EMPLOYEE_CREATE_USER_SYNC_SKIPPED',
-          message: 'Colaborador criado sem sincronizar users; nenhum registro correspondente foi encontrado',
-          userId: req.auth?.userId ?? req.auth?.sub ?? null,
-          companyId,
-          meta: { employeeId: String(raw.id) },
-        });
+    const employeeEmail = String(raw.email || d.email || '').trim().toLowerCase();
+
+    if (employeeEmail || hasAdminAccess(d.role)) {
+      await ensureUserForEmployee(
+        {
+          id: String(raw.id),
+          company_id: companyId,
+          nome: String(raw.nome),
+          email: employeeEmail,
+          role: String(raw.role || d.role),
+          status: String(raw.status || d.status),
+          schedule_id: raw.schedule_id ?? d.schedule_id,
+          shift_id: raw.shift_id ?? d.shift_id,
+          password: typeof body.password === 'string' ? body.password : null,
+        },
+        client,
+      );
+      await syncUserFieldsFromEmployeeBody(String(raw.id), companyId, body, raw, client);
+
+      if (hasAdminAccess(d.role)) {
+        const userExists = await client.query(
+          `select 1 from public.users where id::text = $1 and company_id::text = $2 limit 1`,
+          [String(raw.id), companyId],
+        );
+        if ((userExists.rowCount ?? 0) === 0) {
+          throw Object.assign(new Error('Falha ao provisionar usuário Admin/RH para login.'), {
+            code: 'USER_PROVISION_FAILED',
+          });
+        }
       }
-    } catch (userSyncError) {
-      logger.warn({
-        module: 'employee.controller',
-        action: 'EMPLOYEE_CREATE_USER_SYNC_FAILED',
-        message: 'Colaborador criado, mas sincronização auxiliar com users falhou',
-        userId: req.auth?.userId ?? req.auth?.sub ?? null,
-        companyId,
-        error: userSyncError,
-        meta: { employeeId: String(raw.id) },
-      });
     }
-    const refreshed = await fetchEmployeeViewById(pool, String(raw.id), companyId);
+
+    await client.query('commit');
+    const refreshed = await fetchEmployeeViewById(client, String(raw.id), companyId);
     const employee = mapRow(refreshed ?? raw);
     res.status(201).json({ ok: true, success: true, employee, data: employee });
   } catch (e: unknown) {
+    await client.query('rollback');
     const msg = String((e as { code?: string })?.code || '');
     if (msg === '23505') {
       res.status(400).json({
@@ -437,6 +448,17 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       });
       return;
     }
+    if (msg === 'USER_PROVISION_FAILED') {
+      res.status(500).json({
+        ok: false,
+        success: false,
+        error: 'user_provision_failed',
+        code: 'USER_PROVISION_FAILED',
+        message: e instanceof Error ? e.message : 'Falha ao provisionar usuário para login.',
+      });
+      return;
+    }
+    const details = describeDbError(e);
     logger.error({
       module: 'employee.controller',
       action: 'EMPLOYEE_CREATE_FAILED',
@@ -444,13 +466,18 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
       companyId,
       error: e,
+      meta: { details },
     });
     res.status(500).json({
       ok: false,
       success: false,
       error: 'create_failed',
       code: 'EMPLOYEE_CREATE_FAILED',
+      message: details.message || 'Falha ao criar colaborador.',
+      details,
     });
+  } finally {
+    client.release();
   }
 }
 

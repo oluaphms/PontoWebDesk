@@ -1,4 +1,5 @@
 import { normalizeAssignableEmployeeRole } from './employeeRolePolicy.js';
+import { hasAdminAccess } from './accessProfile.js';
 
 export type EmployeeBody = {
   nome?: unknown;
@@ -139,6 +140,12 @@ export function validateEmployeeCreate(body: EmployeeBody, companyId: string): V
   const shiftId = parseNullableUuid(body.shift_id);
   if (body.shift_id != null && String(body.shift_id).trim() && shiftId === null) {
     return { ok: false, error: 'shift_id inválido', field: 'shift_id' };
+  }
+
+  const role = normalizeAssignableEmployeeRole(body.role);
+  const emailRaw = body.email == null || body.email === '' ? null : String(body.email).trim().toLowerCase();
+  if (hasAdminAccess(role) && !emailRaw) {
+    return { ok: false, error: 'E-mail é obrigatório para perfil Admin/RH', field: 'email' };
   }
 
   return {

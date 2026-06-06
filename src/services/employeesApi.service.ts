@@ -71,9 +71,11 @@ export type EmployeeWriteInput = {
   dismissal_date?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
+  /** Senha inicial (somente criação). */
+  password?: string;
 };
 
-export type EmployeeUpdateInput = Partial<EmployeeWriteInput>;
+export type EmployeeUpdateInput = Partial<Omit<EmployeeWriteInput, 'password'>>;
 
 export type EmployeesListResponse = {
   ok?: boolean;
@@ -130,6 +132,9 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   }
   if (input.invisivel !== undefined) body.invisivel = input.invisivel;
   if (input.employee_config !== undefined) body.employee_config = input.employee_config;
+  if ('password' in input && typeof input.password === 'string' && input.password.trim()) {
+    body.password = input.password.trim();
+  }
   return body;
 }
 

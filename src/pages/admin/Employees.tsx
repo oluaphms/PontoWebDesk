@@ -1085,17 +1085,15 @@ const AdminEmployees: React.FC = () => {
           setAskInvisivel(editingId);
         }
       } else {
-        const created = await createEmployee(apiPayload);
         const pwd = form.password?.trim() || '';
-        if (created.email) {
-          const pw = await setEmployeePasswordInAuth(created.email, pwd);
-          if (!pw.success) {
-            setSuccess(
-              'Colaborador cadastrado. Gere uma senha temporária forte em Editar.',
-            );
-          } else {
-            setSuccess('Colaborador cadastrado. Senha temporária definida para login.');
-          }
+        const created = await createEmployee({
+          ...apiPayload,
+          ...(pwd ? { password: pwd } : {}),
+        });
+        if (created.email && pwd) {
+          setSuccess('Colaborador cadastrado. Senha definida para login.');
+        } else if (created.email) {
+          setSuccess('Colaborador cadastrado. Defina uma senha em Editar para permitir login.');
         } else {
           setSuccess('Colaborador cadastrado na API.');
         }
