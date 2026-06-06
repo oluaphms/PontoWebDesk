@@ -4,6 +4,7 @@ import {
   deleteDataController,
   insertDataController,
   listDataController,
+  publicGlobalSettingsController,
   rpcDataController,
   updateDataController,
 } from '../controllers/dataController.js';
@@ -12,6 +13,7 @@ import { dataApiWriteGate } from '../middlewares/dataApiGate.js';
 
 const router = Router();
 
+router.get('/global_settings', publicGlobalSettingsController);
 router.use(authMiddleware);
 router.use(dataApiWriteGate);
 

@@ -43,6 +43,12 @@ type FilterInput = { column: string; operator: string; value: unknown };
 const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
 const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
 const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules', 'estruturas', 'estrutura_responsaveis']);
+const LEGACY_AUTH_USER_FK_EMPLOYEE_TABLES = new Set([
+  'bank_hours_ledger',
+  'timesheets_daily',
+  'timesheets_daily_snapshots',
+  'time_engine_afd_audit',
+]);
 const PROTECTED_SYSTEM_USER_EMAILS = new Set([
   'admin@pontowebdesk.com',
   'desenvolvedor@smartponto.com',
@@ -212,6 +218,78 @@ function denyTableAccess(
     return true;
   }
   return false;
+}
+
+export async function publicGlobalSettingsController(_req: AuthedRequest, res: Response): Promise<void> {
+  try {
+    const readable = (await getReadableTableColumns('global_settings')).filter((c) => safeIdent(c));
+    const returningSql = readable.length ? readable.join(', ') : '*';
+    const result = await pool.query(`select ${returningSql} from public.global_settings limit 1`);
+    res.json({ ok: true, success: true, data: result.rows });
+  } catch (e) {
+    logger.warn({
+      module: 'data.controller',
+      action: 'PUBLIC_GLOBAL_SETTINGS_FAILED',
+      message: 'Falha ao ler global_settings pública',
+      error: e,
+    });
+    res.json({ ok: true, success: true, data: [] });
+  }
+}
+
+async function ensureLegacyAuthUserMirrorForEmployeeId(table: string, row: Record<string, unknown>): Promise<void> {
+  if (!LEGACY_AUTH_USER_FK_EMPLOYEE_TABLES.has(table)) return;
+  const employeeId = String(row.employee_id ?? '').trim();
+  if (!employeeId) return;
+
+  await pool.query(
+    `insert into auth.users (
+       id,
+       instance_id,
+       aud,
+       role,
+       email,
+       encrypted_password,
+       email_confirmed_at,
+       raw_app_meta_data,
+       raw_user_meta_data,
+       created_at,
+       updated_at
+     )
+     select
+       src.id,
+       '00000000-0000-0000-0000-000000000000'::uuid,
+       'authenticated',
+       'authenticated',
+       concat(src.id::text, '@legacy.pontowebdesk.local'),
+       coalesce(src.password_hash, ''),
+       now(),
+       '{"provider":"email","providers":["email"]}'::jsonb,
+       jsonb_build_object(
+         'nome', src.nome,
+         'email', src.email,
+         'role', src.role,
+         'company_id', src.company_id::text,
+         'source', 'vps-public-users-mirror'
+       ),
+       now(),
+       now()
+     from (
+       select id, company_id, nome, email, role, password_hash
+         from public.users
+        where id::text = $1
+       union all
+       select e.id, e.company_id, e.nome, e.email, coalesce(e.role, 'employee') as role, null::text as password_hash
+         from public.employees e
+        where e.id::text = $1
+          and not exists (select 1 from public.users u where u.id::text = $1)
+       limit 1
+     ) src
+     on conflict (id) do update
+       set raw_user_meta_data = excluded.raw_user_meta_data,
+           updated_at = now()`,
+    [employeeId],
+  );
 }
 
 async function dataWriteScopeSql(table: string, paramIndex: number): Promise<string | null> {
@@ -551,6 +629,7 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     if (table === 'estruturas') {
       row = await prepareEstruturasPayload(row, companyId);
     }
+    await ensureLegacyAuthUserMirrorForEmployeeId(table, row);
     keys = Object.keys(row).filter((k) => safeIdent(k));
     if (!keys.length) {
       res.status(400).json({
