@@ -1,4 +1,5 @@
 import { TimeRecord, LogType } from '../../types';
+import { getRecordCreatedAtDate } from '../../services/pontoService';
 
 export interface DailyBalance {
   date: string;
@@ -69,7 +70,9 @@ function msToHours(ms: number): number {
 export function calculateWorkedHours(records: TimeRecord[], date: Date): number {
   const target = date.toDateString();
   const dayRecords = records
-    .filter((r) => r.createdAt.toDateString() === target)
+    .map((r) => ({ r, d: getRecordCreatedAtDate(r) }))
+    .filter((x): x is { r: TimeRecord; d: Date } => x.d !== null && x.d.toDateString() === target)
+    .map(({ r, d }) => ({ r, createdAt: d }))
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   if (dayRecords.length === 0) return 0;
@@ -77,11 +80,11 @@ export function calculateWorkedHours(records: TimeRecord[], date: Date): number 
   let totalMs = 0;
   let lastIn: number | null = null;
 
-  for (const rec of dayRecords) {
+  for (const { r: rec, createdAt } of dayRecords) {
     if (rec.type === LogType.IN) {
-      lastIn = rec.createdAt.getTime();
+      lastIn = createdAt.getTime();
     } else if (lastIn && (rec.type === LogType.OUT || rec.type === LogType.BREAK)) {
-      totalMs += rec.createdAt.getTime() - lastIn;
+      totalMs += createdAt.getTime() - lastIn;
       lastIn = null;
     }
   }
@@ -119,12 +122,14 @@ export function calculateDailyBalance(
   const tolerance = schedule.tolerance_minutes ?? 0;
   const targetDateStr = date.toDateString();
   const dayRecords = records
-    .filter((r) => r.createdAt.toDateString() === targetDateStr)
+    .map((r) => ({ r, d: getRecordCreatedAtDate(r) }))
+    .filter((x): x is { r: TimeRecord; d: Date } => x.d !== null && x.d.toDateString() === targetDateStr)
+    .map(({ r, d }) => ({ r, createdAt: d }))
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   let lateMinutes = 0;
   if (dayRecords.length > 0) {
-    const firstIn = dayRecords.find((r) => r.type === LogType.IN);
+    const firstIn = dayRecords.find((entry) => entry.r.type === LogType.IN);
     if (firstIn) {
       const firstMinutes = firstIn.createdAt.getHours() * 60 + firstIn.createdAt.getMinutes();
       const diff = firstMinutes - startMinutes;

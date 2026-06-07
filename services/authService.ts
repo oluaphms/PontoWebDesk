@@ -49,6 +49,7 @@ import { cacheEmployees } from '../src/services/localDb';
 import { getProvider } from '../src/services/getProvider';
 import { apiPost, ApiError } from '../src/services/api';
 import { normalizeUserRole } from '../src/utils/userRole';
+import { hasAdminAccess } from '../src/utils/accessProfile';
 
 function defaultUserPreferences(): User['preferences'] {
   return {
@@ -1072,19 +1073,24 @@ class AuthService {
           mapped.preferences = parseUserPreferences(apiUser.preferences);
           await saveLocalSession(mapUserToLocalSession(mapped));
           persistCurrentUserToProfileStore(mapped);
-          try {
-            const employees = await getProvider().getEmployees(mapped.companyId);
-            if (employees.length > 0) await cacheEmployees(employees);
-          } catch {
-            await cacheEmployees([
-              {
-                id: mapped.id,
-                nome: mapped.nome,
-                company_id: mapped.companyId,
-                role: mapped.role,
-                status: 'active',
-              },
-            ]);
+          const selfEmployeeCache = [
+            {
+              id: mapped.id,
+              nome: mapped.nome,
+              company_id: mapped.companyId,
+              role: mapped.role,
+              status: 'active',
+            },
+          ];
+          if (hasAdminAccess(mapped.role)) {
+            try {
+              const employees = await getProvider().getEmployees(mapped.companyId);
+              if (employees.length > 0) await cacheEmployees(employees);
+            } catch {
+              await cacheEmployees(selfEmployeeCache);
+            }
+          } else {
+            await cacheEmployees(selfEmployeeCache);
           }
           return { user: mapped, error: null, source: 'api' };
         }

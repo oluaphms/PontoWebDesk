@@ -2,9 +2,13 @@ import { observabilityConsole } from '../src/shared/logger/observabilityConsole'
 
 import { TimeRecord, LogType, User, GeoLocation, EmployeeSummary, PunchMethod, Company, Adjustment, FraudFlag, Department, CompanyKPIs, LogSeverity } from '../types';
 
-/** `created_at` vindo do JSON pode ser string; evita crash em `.toDateString()`. */
-export function getRecordCreatedAtDate(record: { createdAt?: unknown }): Date | null {
-  const raw = record?.createdAt;
+/** `created_at` / `timestamp` vindos do JSON podem ser string; evita crash em `.toDateString()`. */
+export function getRecordCreatedAtDate(record: {
+  createdAt?: unknown;
+  created_at?: unknown;
+  timestamp?: unknown;
+} | null | undefined): Date | null {
+  const raw = record?.createdAt ?? record?.created_at ?? record?.timestamp;
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
   if (typeof raw === 'string' || typeof raw === 'number') {
     const d = new Date(raw);

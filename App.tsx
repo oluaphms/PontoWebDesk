@@ -894,7 +894,9 @@ const AppMain: React.FC = () => {
       if (historyMethodFilter !== 'all' && rec.method !== historyMethodFilter) return false;
 
       if (historyDateFilter) {
-        const recDate = rec.createdAt.toISOString().slice(0, 10);
+        const createdAt = getRecordCreatedAtDate(rec);
+        if (!createdAt) return false;
+        const recDate = createdAt.toISOString().slice(0, 10);
         if (recDate !== historyDateFilter) return false;
       }
 
@@ -1927,6 +1929,7 @@ const AppMain: React.FC = () => {
     isEmployeeRoute ||
     path === '/dashboard' ||
     path === '/dashboard-admin' ||
+    path === '/dashboard-colaborador' ||
     path === '/dashboard-employee' ||
     path === '/time-clock' ||
     path === '/time-records' ||
@@ -2367,13 +2370,17 @@ const AppMain: React.FC = () => {
               <div className="glass-card rounded-[3rem] p-10 h-fit">
                 <h3 className="font-extrabold text-2xl text-slate-900 dark:text-white mb-10">Jornada Hoje</h3>
                 <div className="space-y-10">
-                  {records.filter(r => r.createdAt.toDateString() === new Date().toDateString()).map((rec) => (
-                    <div key={rec.id} className="flex gap-6 relative group">
-                      <div className={`w-5 h-5 rounded-full border-[4px] mt-1.5 shrink-0 ${rec.type === LogType.IN ? 'border-indigo-600' : 'border-slate-300'}`}></div>
+                  {records
+                    .map((r) => ({ r, d: getRecordCreatedAtDate(r) }))
+                    .filter((x): x is { r: typeof records[number]; d: Date } => x.d !== null)
+                    .filter(({ d }) => d.toDateString() === new Date().toDateString())
+                    .map(({ r, d }) => (
+                    <div key={r.id} className="flex gap-6 relative group">
+                      <div className={`w-5 h-5 rounded-full border-[4px] mt-1.5 shrink-0 ${r.type === LogType.IN ? 'border-indigo-600' : 'border-slate-300'}`}></div>
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
-                          <p className="text-lg font-bold text-slate-900 dark:text-white capitalize leading-none">{rec.type}</p>
-                          <p className="text-sm font-bold text-slate-400">{rec.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                          <p className="text-lg font-bold text-slate-900 dark:text-white capitalize leading-none">{r.type}</p>
+                          <p className="text-sm font-bold text-slate-400">{d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                       </div>
                     </div>
@@ -2438,9 +2445,12 @@ const AppMain: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredHistory.slice(0, 50).map(rec => (
+                  {filteredHistory.slice(0, 50).map(rec => {
+                    const createdAt = getRecordCreatedAtDate(rec);
+                    if (!createdAt) return null;
+                    return (
                     <tr key={rec.id} className="hover:bg-indigo-50/20 transition-colors">
-                      <td className="px-10 py-7 font-bold">{rec.createdAt.toLocaleDateString('pt-BR')}</td>
+                      <td className="px-10 py-7 font-bold">{createdAt.toLocaleDateString('pt-BR')}</td>
                       <td className="px-10 py-7">
                         <Badge color={rec.type === LogType.IN ? 'indigo' : 'slate'}>
                           {rec.type}
@@ -2463,10 +2473,11 @@ const AppMain: React.FC = () => {
                         </Badge>
                       </td>
                       <td className="px-10 py-7 text-lg font-extrabold tabular-nums">
-                        {rec.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        {createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               {records.length === 0 && (

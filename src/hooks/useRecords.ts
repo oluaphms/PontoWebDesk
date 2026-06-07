@@ -2,7 +2,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TimeRecord, LogType, PunchMethod } from '../../types';
-import { PontoService } from '../../services/pontoService';
+import { PontoService, getRecordCreatedAtDate } from '../../services/pontoService';
 import { OfflinePunchService } from '../../services/offlinePunchService';
 import { getTimeRecordsByUser } from '../../services/timeRecords.service';
 import { invalidateAfterPunch } from '../services/queryCache';
@@ -11,6 +11,34 @@ import { isLowNetworkMode } from '../performance/networkMode';
 import { startDeferredRealtime } from '../performance/deferredRealtime';
 import { normalizePunchRegistrationError, registerPunchSecure } from '../rep/repEngine';
 import { PUNCH_SOURCE_WEB } from '../constants/punchSource';
+
+function normalizeDbTimeRecord(row: Record<string, unknown>): TimeRecord | null {
+  const id = String(row.id ?? '').trim();
+  if (!id) return null;
+  const createdAt = getRecordCreatedAtDate(row);
+  if (!createdAt) return null;
+  return {
+    id,
+    userId: String(row.user_id ?? row.userId ?? ''),
+    companyId: String(row.company_id ?? row.companyId ?? ''),
+    type: (row.type as LogType) ?? LogType.IN,
+    method: (row.method as PunchMethod) ?? PunchMethod.MANUAL,
+    photoUrl: row.photo_url != null ? String(row.photo_url) : undefined,
+    location: row.location as TimeRecord['location'],
+    justification: row.justification != null ? String(row.justification) : undefined,
+    createdAt,
+    ipAddress: String(row.ip_address ?? row.ipAddress ?? ''),
+    deviceId: String(row.device_id ?? row.deviceId ?? ''),
+    fraudFlags: (row.fraud_flags ?? row.fraudFlags ?? []) as TimeRecord['fraudFlags'],
+    deviceInfo: (row.device_info ?? row.deviceInfo ?? {
+      browser: '',
+      os: '',
+      isMobile: false,
+      userAgent: '',
+    }) as TimeRecord['deviceInfo'],
+    adjustments: (row.adjustments ?? []) as TimeRecord['adjustments'],
+  };
+}
 
 export const useRecords = (userId: string | undefined, companyId: string | undefined) => {
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +51,10 @@ export const useRecords = (userId: string | undefined, companyId: string | undef
     queryFn: async () => {
       if (!userId) return [];
       try {
-        return await getTimeRecordsByUser(userId, 50, 0);
+        const rows = await getTimeRecordsByUser(userId, 50, 0);
+        return (rows ?? [])
+          .map((row) => normalizeDbTimeRecord(row as Record<string, unknown>))
+          .filter((row): row is TimeRecord => row !== null);
       } catch {
         return [];
       }
