@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { getPunchColumns, getTimeRecordColumns, getTimeRecordInsertRpc } from './punchSchema.js';
 import { validatePhotoUrl } from '../upload/fileValidation.js';
@@ -173,10 +174,6 @@ async function insertIntoTimeRecordsViaRpc(
     punch: PunchInput;
   },
 ): Promise<{ id: string | null }> {
-  const source = normalizeSource(input.source);
-  if (source !== 'admin' && source !== 'manual') {
-    return { id: null };
-  }
   const rpc = await getTimeRecordInsertRpc();
   if (!rpc.fnName) return { id: null };
   const args = [
@@ -227,10 +224,19 @@ async function insertIntoTimeRecordsFallback(
   const cols = await getTimeRecordColumns();
   const userIdCast = cols.userIdType === 'uuid' ? 'uuid' : 'text';
   const companyIdCast = cols.companyIdType === 'uuid' ? 'uuid' : 'text';
-  const columns = ['user_id', 'company_id', 'type'];
-  const values: unknown[] = [input.userId, input.companyId, input.type];
-  const cast: string[] = [`$1::${userIdCast}`, `$2::${companyIdCast}`, '$3::text'];
+  const columns: string[] = [];
+  const values: unknown[] = [];
+  const cast: string[] = [];
+  const recordId = randomUUID();
   const metadata = buildRpcMetadata(input.punch, input.punchHash, input.photoUrl);
+
+  if (cols.hasId) {
+    const idCast = cols.idType === 'uuid' ? 'uuid' : 'text';
+    appendInsertValue(columns, values, cast, 'id', recordId, idCast);
+  }
+  appendInsertValue(columns, values, cast, 'user_id', input.userId, userIdCast);
+  appendInsertValue(columns, values, cast, 'company_id', input.companyId, companyIdCast);
+  appendInsertValue(columns, values, cast, 'type', input.type, 'text');
   const method = String(input.punch.method || 'api').trim() || 'api';
 
   if (cols.hasTimestamp) {

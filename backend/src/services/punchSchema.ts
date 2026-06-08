@@ -9,6 +9,8 @@ type PunchColumns = {
 let cached: PunchColumns | null = null;
 
 type TimeRecordColumns = {
+  hasId: boolean;
+  idType: string;
   hasPunchHash: boolean;
   hasTimestamp: boolean;
   hasCreatedAt: boolean;
@@ -69,6 +71,8 @@ export async function getTimeRecordColumns(): Promise<TimeRecordColumns> {
     r.rows.map((row: { column_name: string; data_type: string }) => [row.column_name, row.data_type]),
   );
   timeRecordCached = {
+    hasId: names.has('id'),
+    idType: String(typeByColumn.get('id') || 'uuid').toLowerCase(),
     hasPunchHash: names.has('punch_hash'),
     hasTimestamp: names.has('timestamp'),
     hasCreatedAt: names.has('created_at'),
