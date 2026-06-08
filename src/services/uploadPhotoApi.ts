@@ -9,26 +9,35 @@ import { detectImageMime } from '../shared/upload/magicBytes';
 import { inferImageExtensionFromMime, normalizeImageMimeType } from '../shared/upload/normalizeMime';
 import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
 import { uploadValidationMessage } from '../shared/upload/uploadValidationMessages';
+import { compressImageDataUrl } from '../shared/upload/compressImageForUpload';
 import { validateImageDataUrl } from '../shared/upload/validateImageDataUrl';
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 export type UploadPhotoKind = 'punch' | 'avatar';
 
-async function fileToBase64(file: File | Blob): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+function uploadProfile(kind: UploadPhotoKind): 'avatar' | 'punchPhoto' {
+  return kind === 'avatar' ? 'avatar' : 'punchPhoto';
+}
+
+async function fileToDataUrl(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Falha ao ler arquivo.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function dataUrlToBase64(dataUrl: string): string {
+  const parts = dataUrl.split(',');
+  return parts[1] || parts[0];
 }
 
 export async function uploadPhotoViaApi(
   input: { dataUrl: string; kind?: UploadPhotoKind; filename?: string } | { file: File; kind?: UploadPhotoKind },
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const kind = input.kind ?? ('file' in input && input.file.name.includes('avatar') ? 'avatar' : 'punch');
-  const policy = kind === 'avatar' ? 'avatar' : 'punchPhoto';
+  const policy = uploadProfile(kind);
   const token = getToken();
 
   let contentBase64: string;
@@ -40,16 +49,24 @@ export async function uploadPhotoViaApi(
     if (validated.ok === false) {
       return { ok: false, error: validated.message };
     }
-    const parts = input.dataUrl.split(',');
-    contentBase64 = parts[1] || parts[0];
     mimeType = validated.mimeType;
     const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
     filename = input.filename || `${kind}-${Date.now()}.${ext}`;
-    observabilityConsole.info('[uploadPhotoApi] dataUrl pronto para envio', {
+    observabilityConsole.info('[uploadPhotoApi] dataUrl antes da compressão', {
       kind,
       filename,
       mimeType,
       size: validated.size,
+    });
+    const compressed = await compressImageDataUrl(input.dataUrl, policy);
+    contentBase64 = dataUrlToBase64(compressed.dataUrl);
+    mimeType = compressed.mimeType;
+    filename = filename.replace(/\.(png|webp|jpeg)$/i, '.jpg');
+    observabilityConsole.info('[uploadPhotoApi] dataUrl comprimido para envio', {
+      kind,
+      filename,
+      mimeType,
+      byteLength: compressed.byteLength,
     });
   } else {
     const file = input.file;
@@ -79,20 +96,51 @@ export async function uploadPhotoViaApi(
     if (!magicMime) {
       return { ok: false, error: 'Conteúdo da imagem inválido ou corrompido.' };
     }
-    contentBase64 = await fileToBase64(file);
-    filename = safeName.includes('.') ? safeName : `${safeName.split('.')[0] || kind}.${inferredExt}`;
-    mimeType = normalizeImageMimeType(file.type || '') || magicMime;
+    const rawDataUrl = await fileToDataUrl(file);
+    const compressed = await compressImageDataUrl(rawDataUrl, policy);
+    contentBase64 = dataUrlToBase64(compressed.dataUrl);
+    mimeType = compressed.mimeType;
+    filename = safeName.includes('.') ? safeName.replace(/\.(png|webp|jpeg)$/i, '.jpg') : `${safeName.split('.')[0] || kind}.jpg`;
+    observabilityConsole.info('[uploadPhotoApi] arquivo comprimido para envio', {
+      kind,
+      filename,
+      mimeType,
+      originalSize: file.size,
+      byteLength: compressed.byteLength,
+    });
   }
 
-  const res = await fetch(buildApiUrl('/uploads/photo'), {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ kind, filename, mimeType, contentBase64 }),
+  const payload = JSON.stringify({ kind, filename, mimeType, contentBase64 });
+  observabilityConsole.info('[uploadPhotoApi] payload pronto', {
+    kind,
+    filename,
+    payloadBytes: payload.length,
   });
+
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl('/uploads/photo'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+        'Content-Type': 'application/json',
+      },
+      body: payload,
+    });
+  } catch (networkErr) {
+    observabilityConsole.warn('[uploadPhotoApi] falha de rede no upload', {
+      kind,
+      filename,
+      payloadBytes: payload.length,
+      error: networkErr,
+    });
+    return {
+      ok: false,
+      error:
+        'Não foi possível enviar a foto (rede ou limite do servidor). Tente uma imagem menor ou contate o suporte.',
+    };
+  }
 
   const data = (await res.json().catch(() => ({}))) as {
     ok?: boolean;

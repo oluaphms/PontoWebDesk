@@ -1091,8 +1091,9 @@ const AdminEmployees: React.FC = () => {
       if (form.photo_preview.startsWith('data:')) {
         const uploaded = await uploadPhotoViaApi({ dataUrl: form.photo_preview, kind: 'avatar' });
         if (!uploaded.ok) {
-          setError(uploaded.error || 'Falha ao enviar fotografia.');
+          setError(uploaded.error || 'Falha ao enviar fotografia. Tente uma imagem menor.');
           scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          setSaving(false);
           return;
         }
         persistedPhotoUrl = uploaded.url;
