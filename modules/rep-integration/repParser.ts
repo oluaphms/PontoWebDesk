@@ -40,8 +40,29 @@ function normalizeMarcacaoTipo(t: string | undefined): string {
   return 'E';
 }
 
-export function parseAfdLine(line: string): ParsedAfdRecord | null {
+function normalizeAfdLineInput(line: string): string {
   const trimmed = line.trim();
+  if (!trimmed || trimmed.length < 18) return '';
+  if (/\s/.test(trimmed)) return trimmed;
+  if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
+  return trimmed.replace(/([A-Za-z])$/, '');
+}
+
+export function parseAfdLine(line: string): ParsedAfdRecord | null {
+  const trimmed = normalizeAfdLineInput(line);
+  if (!trimmed) return null;
+
+  const tipo6 = /^(\d{9})(6)(\d{8})(\d{6})$/;
+  const m6 = trimmed.match(tipo6);
+  if (m6) {
+    const nsr = parseInt(m6[1]!, 10);
+    if (Number.isNaN(nsr)) return null;
+    const data = normalizeDate(m6[3]!);
+    const hora = normalizeTime(m6[4]!);
+    if (!data || !hora) return null;
+    return { nsr, data, hora, cpfOuPis: '', tipo: 'E', raw: line };
+  }
+
   let m = trimmed.match(AFD_LINE_RECORD_37_LOOSE);
   if (!m) m = trimmed.match(AFD_LINE_RECORD_37_TIGHT);
   if (m) {

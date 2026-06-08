@@ -1331,9 +1331,29 @@ function afdCanonical11Digits(blob) {
   return d.slice(-11);
 }
 
-/** Portaria 1510/671 — tipo 3 ou 7: NSR(9) + tipo + DDMMAAAA + HHMMSS + identificador. */
+/** Remove sufixo E/S (1 letra) que alguns firmwares Control iD acrescentam ao fim da linha. */
+function normalizeAfdRawLine(rawLine) {
+  const trimmed = String(rawLine || '').trim();
+  if (!trimmed || trimmed.length < 18) return '';
+  if (/\s/.test(trimmed)) return trimmed;
+  if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
+  return trimmed.replace(/([A-Za-z])$/, '');
+}
+
+/** Portaria 1510/671 — tipo 3/7 (com PIS) ou 6 (marcação sem identificador no AFD). */
 function parseAfdPortariaLine(line) {
-  const trimmed = line.trim();
+  const trimmed = normalizeAfdRawLine(line);
+  if (!trimmed) return null;
+
+  const tipo6 = /^(\d{9})(6)(\d{8})(\d{6})$/;
+  const m6 = trimmed.match(tipo6);
+  if (m6) {
+    const date = afdNormalizeDate(m6[3]);
+    const time = afdNormalizeTime(m6[4]);
+    if (!date || !time) return null;
+    return { nsr: m6[1], date, time, pis: null };
+  }
+
   const loose = /^(\d{9})\s*([37])\s*(\d{8})\s*(\d{6})\s*(\d{10,32})(?:\s*([A-Za-z]))?/;
   const tight = /^(\d{9})([37])(\d{8})(\d{6})(\d{10,32})([A-Za-z])?/;
   const m = trimmed.match(loose) || trimmed.match(tight);
@@ -1356,9 +1376,8 @@ function parseAFD(content) {
   const records = [];
 
   for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (!/^\d+$/.test(line)) continue;
+    const line = normalizeAfdRawLine(rawLine);
+    if (!line || !/^\d+$/.test(line)) continue;
 
     let parsed = null;
 
@@ -1411,17 +1430,18 @@ function buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm = false }) {
 function normalizeAfdPunch(rec) {
   const timePart = String(rec.time || '').includes(':') && rec.time.split(':').length >= 3 ? rec.time : `${rec.time}:00`;
   const data_hora = `${rec.date}T${timePart}${REP_DEVICE_TIMEZONE_OFFSET}`;
+  const pis = rec.pis || undefined;
   const punch_hash = computeRepPunchHash({
     deviceId: deviceId || '',
-    pis: rec.pis,
+    pis,
     data_hora,
     nsr: rec.nsr,
   });
   return {
     company_id: companyId,
     device_id: deviceId,
-    employee_identifier: rec.pis,
-    pis: rec.pis,
+    employee_identifier: pis,
+    pis,
     data_hora,
     origem: 'REP',
     nsr: rec.nsr,
@@ -2610,7 +2630,16 @@ async function ingestViaAFD() {
 
   const { url, content } = downloaded;
   const rawText = extractAfdFileText(content);
+  const numericLines = rawText
+    .split(/\r?\n/)
+    .map((l) => normalizeAfdRawLine(l))
+    .filter((l) => l && /^\d+$/.test(l)).length;
   const parsedAll = parseAFD(rawText);
+  if (numericLines > 0 && parsedAll.length < numericLines) {
+    observabilityConsole.log(
+      `[REP AFD] ${numericLines} linhas numéricas no arquivo, ${parsedAll.length} parseadas (tipos 3/6/7 Control iD).`
+    );
+  }
   logAfdParsedDateStats(parsedAll);
   const records = applyVolumeAirbagAfd(parsedAll);
   logSyncCounts(parsedAll.length, records.length);

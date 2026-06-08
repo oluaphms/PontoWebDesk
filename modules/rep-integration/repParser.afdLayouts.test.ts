@@ -58,6 +58,23 @@ describe('parseAfdLine — layout Portaria (NSR + tipo 3/7 + data + hora + PIS)'
   });
 });
 
+describe('parseAfdLine — Control iD tipo 6 e sufixo E/S', () => {
+  it('parseia marcação tipo 6 sem PIS (iDClass)', () => {
+    const r = parseAfdLine('000016566608062026104802');
+    expect(r).not.toBeNull();
+    expect(r!.nsr).toBe(16566);
+    expect(r!.data).toBe('2026-06-08');
+    expect(r!.hora).toBe('10:48:02');
+  });
+
+  it('ignora sufixo de letra no fim da linha tipo 3', () => {
+    const r = parseAfdLine('0000165673080620261201012966742765178d');
+    expect(r).not.toBeNull();
+    expect(r!.data).toBe('2026-06-08');
+    expect(r!.hora).toBe('12:01:01');
+  });
+});
+
 describe('parseAFD', () => {
   it('lê bloco com várias linhas tipo 3 compactas', () => {
     const txt = `00001644032404202410070002966742765\n00001644132404202410080002966742765`;
