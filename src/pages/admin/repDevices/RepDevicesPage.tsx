@@ -127,9 +127,7 @@ const AdminRepDevices: React.FC = () => {
   const [loadingList, setLoadingList] = useState(true);
   /** Falha ao listar `rep_devices` (ex.: timeout) — mensagem amigável + detalhe só em modo debug. */
   const [devicesQueryError, setDevicesQueryError] = useState<{ technical: string } | null>(null);
-  const [collectOpen, setCollectOpen] = useState(false);
   const [collectBusy, setCollectBusy] = useState(false);
-  const [collectDeviceId, setCollectDeviceId] = useState('');
   const [collectStartDate, setCollectStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
@@ -535,19 +533,9 @@ const AdminRepDevices: React.FC = () => {
     setupGuideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  const openCollectDialog = () => {
-    const d = redeDevices.find((x) => x.ativo) ?? redeDevices[0] ?? null;
-    if (!d) {
-      setMessage({ type: 'error', text: 'Cadastre um relógio de rede antes de coletar.' });
-      return;
-    }
-    setCollectDeviceId(d.id);
-    setCollectEndDate(new Date().toISOString().slice(0, 10));
-    setCollectOpen(true);
-  };
-
-  const runCollectNow = async () => {
-    if (!collectDeviceId || !collectStartDate || !collectEndDate) {
+  const runCollectNow = async (deviceIdOverride?: string) => {
+    const targetDeviceId = deviceIdOverride || '';
+    if (!targetDeviceId || !collectStartDate || !collectEndDate) {
       setMessage({ type: 'error', text: 'Selecione o relógio e o intervalo de datas.' });
       return;
     }
@@ -562,7 +550,7 @@ const AdminRepDevices: React.FC = () => {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
       const r = await enqueueRepCollect(accessToken, {
-        device_id: collectDeviceId,
+        device_id: targetDeviceId,
         company_id: user.companyId,
         start_date: collectStartDate,
         end_date: collectEndDate,
@@ -571,7 +559,6 @@ const AdminRepDevices: React.FC = () => {
       if (!r.success) {
         throw new Error(r.error || 'Falha ao enfileirar coleta');
       }
-      setCollectOpen(false);
       setMessage({
         type: 'success',
         text:
@@ -847,9 +834,30 @@ const AdminRepDevices: React.FC = () => {
       return;
     }
     if (!getSupabaseClient()) return;
+    const agentOnlineForDevice = isAgentRecentlySeen(
+      syncStatusByDeviceId[d.id]?.last_heartbeat_at ??
+        syncStatusByDeviceId[d.id]?.last_seen_at ??
+        d.last_seen_at,
+    );
     if (shouldBlockCloudRepConnectionTest(d)) {
-      const guide = buildLocalRepAgentUserMessage();
-      appendSrLog(buildLocalRepAgentGuidance(d));
+      if (agentOnlineForDevice) {
+        const today = new Date().toISOString().slice(0, 10);
+        const start =
+          receiveScope === 'today_only'
+            ? today
+            : (() => {
+                const past = new Date();
+                past.setDate(past.getDate() - 7);
+                return past.toISOString().slice(0, 10);
+              })();
+        appendSrLog(`Agente online — enfileirando coleta ${start} → ${today} via agente local…`);
+        setCollectStartDate(start);
+        setCollectEndDate(today);
+        await runCollectNow(d.id);
+        return;
+      }
+      const guide = buildLocalRepAgentUserMessage(false);
+      appendSrLog(buildLocalRepAgentGuidance(d, false));
       setMessage({ type: 'error', text: guide });
       scrollToRepCommunication();
       return;
@@ -2065,10 +2073,7 @@ const AdminRepDevices: React.FC = () => {
       return;
     }
     if (shouldBlockCloudRepConnectionTest(d)) {
-      const guide = buildLocalRepAgentUserMessage();
-      appendSrLog(buildLocalRepAgentGuidance(d));
-      setMessage({ type: 'error', text: guide });
-      scrollToRepCommunication();
+      await handleTestViaAgent(d.id);
       return;
     }
     setTestingId(d.id);
@@ -2381,15 +2386,6 @@ const AdminRepDevices: React.FC = () => {
             <Button
               type="button"
               variant="outline"
-              onClick={openCollectDialog}
-              className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, uiTokens.transition.default)}
-            >
-              <Upload size={18} className={repPageUi.c001} />
-              Coletar agora
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
               onClick={openCreate}
               className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, repPageUi.c129, uiTokens.transition.default)}
             >
@@ -2451,72 +2447,6 @@ const AdminRepDevices: React.FC = () => {
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
-
-      {collectOpen && (
-        <div
-          className={repSendReceiveOverlayClass}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rep-collect-title"
-        >
-          <div className={repSendReceiveModalClass} onClick={(e) => e.stopPropagation()}>
-            <header className={repSendReceiveHeaderClass}>
-              <h2 id="rep-collect-title" className={repPageUi.c005}>
-                Coleta manual por período
-              </h2>
-              <p className={repPageUi.c006}>
-                Enfileira coleta no agente local (rede do relógio). Exige{' '}
-                <code className="text-xs">npm run rep:agent</code> com{' '}
-                <code className="text-xs">REP_SAAS_URL</code> apontando para este ambiente.
-              </p>
-            </header>
-            <div className={repSendReceiveBodyClass}>
-              <label className={repPageUi.c022}>
-                Relógio
-                <select
-                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                  value={collectDeviceId}
-                  onChange={(e) => setCollectDeviceId(e.target.value)}
-                >
-                  {redeDevices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.nome_dispositivo} ({d.ip})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                <label className={repPageUi.c022}>
-                  Data inicial
-                  <input
-                    type="date"
-                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                    value={collectStartDate}
-                    onChange={(e) => setCollectStartDate(e.target.value)}
-                  />
-                </label>
-                <label className={repPageUi.c022}>
-                  Data final
-                  <input
-                    type="date"
-                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                    value={collectEndDate}
-                    onChange={(e) => setCollectEndDate(e.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-4 justify-end">
-                <Button type="button" variant="secondary" onClick={() => setCollectOpen(false)} disabled={collectBusy}>
-                  Cancelar
-                </Button>
-                <Button type="button" variant="primary" loading={collectBusy} onClick={() => void runCollectNow()}>
-                  Iniciar coleta
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <RepDeviceDeleteModal
         open={deleteModal != null}
@@ -2994,7 +2924,6 @@ const AdminRepDevices: React.FC = () => {
                   className={repPageUi.c055}
                   disabled={srActionsLocked || !srSelectedDevice || testingId === srSelectedDevice?.id}
                   onClick={() => {
-                    setSrSendDialogOpen(false);
                     if (srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)) {
                       void handleTestViaAgent(srSelectedDevice.id);
                       return;
@@ -3011,6 +2940,50 @@ const AdminRepDevices: React.FC = () => {
 
               <div className={repUiClasses.cardBase}>
                 <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
+                  Coleta de batidas
+                </p>
+                <p className={repUiClasses.sectionText}>
+                  Enfileira coleta no agente local para o período indicado (rede do relógio).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <label className={repPageUi.c022}>
+                    Data inicial
+                    <input
+                      type="date"
+                      className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                      value={collectStartDate}
+                      onChange={(e) => setCollectStartDate(e.target.value)}
+                      disabled={collectBusy}
+                    />
+                  </label>
+                  <label className={repPageUi.c022}>
+                    Data final
+                    <input
+                      type="date"
+                      className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                      value={collectEndDate}
+                      onChange={(e) => setCollectEndDate(e.target.value)}
+                      disabled={collectBusy}
+                    />
+                  </label>
+                </div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={repPageUi.c055}
+                  disabled={srActionsLocked || !srSelectedDevice || collectBusy}
+                  loading={collectBusy}
+                  onClick={() => {
+                    if (srSelectedDevice) void runCollectNow(srSelectedDevice.id);
+                  }}
+                >
+                  <Upload size={16} className={repPageUi.c019} />
+                  Coletar agora
+                </Button>
+              </div>
+
+              <div className={repUiClasses.cardBase}>
+                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
                   Data e hora
                 </p>
                 <p className={repUiClasses.sectionText}>
@@ -3022,7 +2995,6 @@ const AdminRepDevices: React.FC = () => {
                   className={repPageUi.c055}
                   disabled={srActionsLocked || !srSelectedDevice || !!exchangeBusy}
                   onClick={() => {
-                    setSrSendDialogOpen(false);
                     void srRunSendClock();
                   }}
                 >
@@ -3064,7 +3036,6 @@ const AdminRepDevices: React.FC = () => {
                       srActionsLocked || !srSelectedDevice || !srPushUserId || employeesForModalPush.length === 0 || srPushAllRunning
                     }
                     onClick={() => {
-                      setSrSendDialogOpen(false);
                       void srRunPushEmployee();
                     }}
                   >
@@ -3079,7 +3050,6 @@ const AdminRepDevices: React.FC = () => {
                   disabled={srActionsLocked || !srSelectedDevice || employeesForModalPush.length === 0 || srPushAllRunning}
                   loading={srPushAllRunning}
                   onClick={() => {
-                    setSrSendDialogOpen(false);
                     void srRunPushAllEligibleEmployees();
                   }}
                 >

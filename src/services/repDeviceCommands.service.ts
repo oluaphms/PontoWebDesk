@@ -36,9 +36,10 @@ export type PollTestConnectionOutcome =
   | { ok: false; message: string; timedOut?: boolean; slowAgent?: boolean };
 
 export const REP_TEST_POLL_INTERVAL_MS = 1000;
-export const REP_TEST_POLL_MAX_MS = 20_000;
-export const REP_TEST_WAITING_HINT_MS = 10_000;
-export const REP_TEST_SLOW_HINT_MS = 20_000;
+/** Agente faz poll a cada ~30s — timeout precisa cobrir 2–3 ciclos + execução LAN. */
+export const REP_TEST_POLL_MAX_MS = 90_000;
+export const REP_TEST_WAITING_HINT_MS = 15_000;
+export const REP_TEST_SLOW_HINT_MS = 45_000;
 
 export async function createRepTestConnectionCommand(
   deviceId: string,

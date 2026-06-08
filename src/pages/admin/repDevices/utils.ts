@@ -108,7 +108,8 @@ export function isCloudDeployedRepClient(): boolean {
 }
 
 /** Heartbeat recente (< 60s) — agente online. */
-export const REP_AGENT_ONLINE_MS = 60 * 1000;
+/** Janela de “agente online” — alinhada ao heartbeat (60s) + margem de rede. */
+export const REP_AGENT_ONLINE_MS = 180 * 1000;
 /** Acima disso consideramos offline no runtime (alinhado ao backend). */
 export const REP_AGENT_RECENT_MS = 5 * 60 * 1000;
 
@@ -190,7 +191,16 @@ export function getLocalRepDeviceDisplayState(
 }
 
 /** Mensagem curta para toast / alerta (sem jargão técnico). */
-export function buildLocalRepAgentUserMessage(): string {
+export function buildLocalRepAgentUserMessage(agentOnline = false): string {
+  if (agentOnline) {
+    return [
+      'Este relógio está na rede interna da empresa.',
+      '',
+      'O agente local está ativo. Use «Testar conexão (via agente)» no modal «Enviar e consultar no relógio».',
+      'Para batidas: «Coletar agora» no mesmo modal (intervalo de datas).',
+      'Para cadastro: «Enviar um» colaborador no mesmo modal.',
+    ].join('\n');
+  }
   return [
     'Este relógio está dentro da rede da empresa.',
     '',
@@ -199,17 +209,21 @@ export function buildLocalRepAgentUserMessage(): string {
     '2. Deixe ele em execução',
     '3. O sistema sincroniza automaticamente',
     '',
-    'O botão "Testar conexão" não funciona para redes internas quando você acessa pela internet.',
+    'Use «Testar conexão (via agente)» no modal «Enviar e consultar no relógio».',
   ].join('\n');
 }
 
 export function buildLocalRepAgentGuidance(
-  d: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo'>,
+  d: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'last_seen_at'>,
+  agentOnline = isAgentRecentlySeen(d.last_seen_at),
 ): string {
   const port = d.porta ?? 443;
   const ip = (d.ip || '').trim() || '192.168.x.x';
+  if (agentOnline) {
+    return buildLocalRepAgentUserMessage(true);
+  }
   return [
-    buildLocalRepAgentUserMessage(),
+    buildLocalRepAgentUserMessage(false),
     '',
     'Configuração no PC da empresa (mesma rede do relógio):',
     `• REP_DEVICE_IP=${ip}`,
@@ -224,11 +238,11 @@ export function buildLocalRepAgentGuidance(
 
 /** Erro de API genérico para o usuário (sem stack nem HTTP cru). */
 export function sanitizeRepConnectionErrorForUi(
-  device: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao'> | null,
+  device: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao' | 'last_seen_at'> | null,
   err: unknown,
 ): string {
   if (device && shouldBlockCloudRepConnectionTest(device)) {
-    return buildLocalRepAgentUserMessage();
+    return buildLocalRepAgentUserMessage(isAgentRecentlySeen(device.last_seen_at));
   }
   const raw = err instanceof Error ? err.message : String(err || '');
   const lower = raw.toLowerCase();
@@ -249,14 +263,15 @@ export function sanitizeRepConnectionErrorForUi(
 }
 
 export function enrichRepConnectionTestMessage(
-  device: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'tipo_conexao'>,
+  device: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'tipo_conexao' | 'last_seen_at'>,
   ok: boolean,
   baseMessage: string,
 ): string {
   if (ok || !isLocalAgentRepDevice(device)) return baseMessage;
   const lower = baseMessage.toLowerCase();
   if (lower.includes('agente') && lower.includes('192.168')) return baseMessage;
-  return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device)}`;
+  if (isAgentRecentlySeen(device.last_seen_at)) return baseMessage;
+  return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device, false)}`;
 }
 
 export function readLsBool(key: string, defaultVal: boolean): boolean {

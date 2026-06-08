@@ -280,9 +280,9 @@ const REP_HEARTBEAT_INTERVAL_MS = Math.max(
   REP_ULTRA_LOW_COST ? 600_000 : REP_LOW_COST_MODE ? 300_000 : 60_000,
   parseInt(
     process.env.REP_HEARTBEAT_INTERVAL_MS ||
-      (REP_ULTRA_LOW_COST ? '600000' : REP_LOW_COST_MODE ? '300000' : '300000'),
+      (REP_ULTRA_LOW_COST ? '600000' : REP_LOW_COST_MODE ? '300000' : '60000'),
     10,
-  ) || 300_000,
+  ) || (REP_ULTRA_LOW_COST ? 600_000 : REP_LOW_COST_MODE ? 300_000 : 60_000),
 );
 /** Instância de execução atual (claim) — descarta POST de resultado velho. */
 let currentExecutionId = null;

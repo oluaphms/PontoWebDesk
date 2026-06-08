@@ -112,9 +112,9 @@ async function fetchEmployeeForRepPush(userId: string, companyId: string): Promi
         u.id::text as id,
         coalesce(nullif(e.nome, ''), nullif(u.nome, ''), nullif(u.email, ''), 'Colaborador') as nome,
         coalesce(nullif(e.cpf, ''), nullif(u.cpf, '')) as cpf,
-        coalesce(nullif(e.pis, ''), nullif(u.pis_pasep, ''), nullif(u.pis, '')) as pis,
+        coalesce(nullif(trim(u.pis_pasep), ''), nullif(trim(u.cpf), '')) as pis,
         coalesce(nullif(u.numero_folha, ''), nullif(u.numero_identificador, '')) as matricula,
-        lower(coalesce(nullif(u.role, ''), nullif(e.role, ''), 'employee')) as role
+        lower(coalesce(nullif(u.role, ''), 'employee')) as role
        from public.users u
        left join public.employees e
          on e.id::text = u.id::text
@@ -131,9 +131,9 @@ async function fetchEmployeeForRepPush(userId: string, companyId: string): Promi
         e.id::text as id,
         coalesce(nullif(e.nome, ''), 'Colaborador') as nome,
         nullif(e.cpf, '') as cpf,
-        nullif(e.pis, '') as pis,
+        null::text as pis,
         null::text as matricula,
-        lower(coalesce(nullif(e.role, ''), 'employee')) as role
+        'employee' as role
        from public.employees e
       where e.id::text = $1
         and e.company_id::text = $2
@@ -560,67 +560,85 @@ export async function repCommandsController(req: Request, res: Response): Promis
       json(res, 400, { ok: false, success: false, error: 'Comando não suportado' });
       return;
     }
-    const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
-    if (!device) {
-      json(res, 404, { ok: false, success: false, error: 'device_not_found' });
-      return;
-    }
-    if (command !== 'push_employee') {
-      const active = await pool.query(
-        `select id::text, status, execution_id::text
-           from public.rep_device_commands
-          where device_id::text = $1
-            and command = $2
-            and status in ('pending', 'processing')
-          order by created_at asc
-          limit 1`,
-        [deviceId, command],
-      );
-      if (active.rows[0]) {
-        json(res, 200, {
-          ok: true,
-          success: true,
-          command_id: active.rows[0].id,
-          status: active.rows[0].status,
-          execution_id: active.rows[0].execution_id ?? null,
-          reused: true,
-        });
+    try {
+      const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
+      if (!device) {
+        json(res, 404, { ok: false, success: false, error: 'device_not_found' });
         return;
       }
-    }
-    if (command === 'test_connection') {
-      await pool.query(
-        `update public.rep_device_commands
-            set status = 'cancelled',
-                execution_id = null,
-                result = '{"message":"Substituído por novo teste"}'::jsonb,
-                updated_at = now()
-          where device_id::text = $1
-            and command = 'test_connection'
-            and status in ('pending', 'processing')`,
-        [deviceId],
+      if (command !== 'push_employee') {
+        const active = await pool.query(
+          `select id::text, status, execution_id::text
+             from public.rep_device_commands
+            where device_id::text = $1
+              and command = $2
+              and status in ('pending', 'processing')
+            order by created_at asc
+            limit 1`,
+          [deviceId, command],
+        );
+        if (active.rows[0]) {
+          json(res, 200, {
+            ok: true,
+            success: true,
+            command_id: active.rows[0].id,
+            status: active.rows[0].status,
+            execution_id: active.rows[0].execution_id ?? null,
+            reused: true,
+          });
+          return;
+        }
+      }
+      if (command === 'test_connection') {
+        await pool.query(
+          `update public.rep_device_commands
+              set status = 'cancelled',
+                  execution_id = null,
+                  result = '{"message":"Substituído por novo teste"}'::jsonb,
+                  updated_at = now()
+            where device_id::text = $1
+              and command = 'test_connection'
+              and status in ('pending', 'processing')`,
+          [deviceId],
+        );
+      }
+      const payload = req.body?.payload && typeof req.body.payload === 'object' && !Array.isArray(req.body.payload)
+        ? { ...(req.body.payload as Record<string, unknown>), requested_by: auth.userId }
+        : { requested_by: auth.userId };
+      const inserted = await pool.query(
+        `insert into public.rep_device_commands
+            (company_id, device_id, command, status, execution_id, payload, created_at, updated_at)
+         values ($1::uuid, $2::uuid, $3, 'pending', null, $4::jsonb, now(), now())
+         returning id::text, status, execution_id::text, created_at::text`,
+        [auth.companyId, deviceId, command, JSON.stringify(payload)],
       );
+      const row = inserted.rows[0];
+      json(res, 200, {
+        ok: true,
+        success: true,
+        command_id: row.id,
+        status: row.status,
+        execution_id: row.execution_id ?? null,
+        created_at: row.created_at,
+      });
+      return;
+    } catch (error) {
+      logger.error({
+        module: 'rep.commands',
+        action: 'REP_COMMAND_ENQUEUE_FAILED',
+        companyId: auth.companyId,
+        message: 'Falha ao enfileirar comando REP',
+        error,
+        meta: { deviceId, command },
+      });
+      json(res, 500, {
+        ok: false,
+        success: false,
+        error: 'command_enqueue_failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
     }
-    const payload = req.body?.payload && typeof req.body.payload === 'object' && !Array.isArray(req.body.payload)
-      ? { ...(req.body.payload as Record<string, unknown>), requested_by: auth.userId }
-      : { requested_by: auth.userId };
-    const inserted = await pool.query(
-      `insert into public.rep_device_commands
-          (company_id, device_id, command, status, execution_id, payload, created_at, updated_at)
-       values ($1::uuid, $2::uuid, $3, 'pending', null, $4::jsonb, now(), now())
-       returning id::text, status, execution_id::text, created_at::text`,
-      [auth.companyId, deviceId, command, JSON.stringify(payload)],
-    );
-    const row = inserted.rows[0];
-    json(res, 200, {
-      ok: true,
-      success: true,
-      command_id: row.id,
-      status: row.status,
-      execution_id: row.execution_id ?? null,
-      created_at: row.created_at,
-    });
-    return;
   }
 
   if (req.method === 'GET') {
@@ -659,7 +677,9 @@ export async function repCommandsController(req: Request, res: Response): Promis
           where company_id::text = $1
             and status = 'pending'
             ${deviceId ? 'and device_id::text = $2' : ''}
-          order by created_at asc
+          order by
+            case when command = 'test_connection' then 0 else 1 end asc,
+            created_at asc
           limit 10`,
         deviceId ? [companyId, deviceId] : [companyId],
       );

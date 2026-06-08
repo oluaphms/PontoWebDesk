@@ -173,12 +173,27 @@ export async function pushEmployeeToDeviceViaApi(
   );
   const data = await readJsonOrText(res);
   if (!res.ok) {
-    return { ok: false, message: normalizeApiError(data, res.status) };
-  }
-  if (data.ok === false) {
+    const err = normalizeApiError(data, res.status);
     return {
       ok: false,
-      message: normalizeApiError(data, res.status) || 'Falha ao enviar funcionário ao relógio',
+      message:
+        err === 'internal_error' ||
+          err === 'push_employee_failed' ||
+          err === 'command_enqueue_failed'
+          ? toUiString(data.message, 'Não foi possível enfileirar o envio do colaborador ao relógio.')
+          : err,
+    };
+  }
+  if (data.ok === false) {
+    const err = normalizeApiError(data, res.status) || 'Falha ao enviar funcionário ao relógio';
+    return {
+      ok: false,
+      message:
+        err === 'internal_error' ||
+          err === 'push_employee_failed' ||
+          err === 'command_enqueue_failed'
+          ? toUiString(data.message, 'Não foi possível enfileirar o envio do colaborador ao relógio.')
+          : err,
     };
   }
   if (typeof data.command_id === 'string' && data.command_id) {
