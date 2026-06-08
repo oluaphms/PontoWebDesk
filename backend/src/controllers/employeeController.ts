@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
@@ -417,6 +418,10 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       insertColumns.push(column);
       insertValues.push(d[column]);
     }
+
+    const newEmployeeId = randomUUID();
+    insertColumns.unshift('id');
+    insertValues.unshift(newEmployeeId);
 
     const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(',');
     const result = await client.query(
