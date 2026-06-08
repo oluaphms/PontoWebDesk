@@ -196,8 +196,11 @@ export function buildLocalRepAgentUserMessage(agentOnline = false): string {
     return [
       'Este relógio está na rede interna da empresa.',
       '',
-      'O agente local está ativo. Use «Testar conexão (via agente)» no modal «Enviar e consultar no relógio».',
-      'Para batidas: «Coletar agora» no mesmo modal (intervalo de datas).',
+      '🟢 Online via agente = o programa na empresa está rodando e enviou heartbeat ao servidor.',
+      'Isso não garante que um comando (teste, coleta ou cadastro) já foi executado — cada ação é enfileirada e o agente busca na fila a cada ~30s.',
+      '',
+      'Use «Testar conexão (via agente)» no modal «Enviar e consultar no relógio».',
+      'Para batidas: «Coletar agora» (intervalo de datas; se o relógio não tem batidas no período, retorna 0).',
       'Para cadastro: «Enviar um» colaborador no mesmo modal.',
     ].join('\n');
   }
@@ -272,6 +275,27 @@ export function enrichRepConnectionTestMessage(
   if (lower.includes('agente') && lower.includes('192.168')) return baseMessage;
   if (isAgentRecentlySeen(device.last_seen_at)) return baseMessage;
   return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device, false)}`;
+}
+
+/** Timeout de comando com agente que ainda aparece online no painel. */
+export function buildAgentCommandTimeoutMessage(
+  device: Pick<RepDeviceRow, 'last_seen_at' | 'nome_dispositivo'>,
+  timedOut = true,
+): string {
+  const agentOnline = isAgentRecentlySeen(device.last_seen_at);
+  if (!timedOut) {
+    return agentOnline
+      ? 'Comando enfileirado. O agente costuma executar em até 1 minuto.'
+      : 'Comando enfileirado. Aguarde o agente local na rede da empresa.';
+  }
+  if (agentOnline) {
+    return [
+      'O agente está online (heartbeat recente), mas não respondeu ao comando a tempo.',
+      'Isso é diferente de “offline”: o processo fala com o servidor, porém não buscou/executou o comando no prazo.',
+      'Atualize o rep-agent.exe na empresa (scripts/deploy-rep-agent.ps1) e tente novamente em até 1 minuto.',
+    ].join(' ');
+  }
+  return 'O agente na empresa não respondeu a tempo. Verifique se o Agente PontoWebDesk está em execução na rede do relógio.';
 }
 
 export function readLsBool(key: string, defaultVal: boolean): boolean {

@@ -78,6 +78,7 @@ import {
 import {
   buildLocalClockForRep,
   isEmployeeEligibleForRepPush,
+  buildAgentCommandTimeoutMessage,
   buildLocalRepAgentGuidance,
   buildLocalRepAgentUserMessage,
   enrichRepConnectionTestMessage,
@@ -666,13 +667,21 @@ const AdminRepDevices: React.FC = () => {
           });
           await loadDevices();
         } else {
+          const device = devices.find((d) => d.id === id) ?? null;
+          const timeoutText =
+            outcome.timedOut && device
+              ? buildAgentCommandTimeoutMessage(device, true)
+              : outcome.message;
           setMessage({
             type: 'error',
-            text: outcome.timedOut && outcome.slowAgent
-              ? `Não foi possível conectar ao dispositivo. ${outcome.message}`
-              : outcome.message,
+            text:
+              outcome.timedOut && outcome.slowAgent
+                ? `Não foi possível conectar ao dispositivo. ${timeoutText}`
+                : timeoutText,
           });
-          if (outcome.timedOut) scrollToRepCommunication();
+          if (outcome.timedOut && device && !isAgentRecentlySeen(device.last_seen_at)) {
+            scrollToRepCommunication();
+          }
         }
       } catch (e) {
         const device = devices.find((d) => d.id === id) ?? null;

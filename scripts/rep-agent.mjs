@@ -242,10 +242,6 @@ let repHeartbeatTimer = null;
 let commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
 /** Último heartbeat OK (0 = ainda não houve sucesso — poll de comandos em modo conservador). */
 let lastHeartbeatAt = 0;
-const REP_COMMAND_SKIP_IF_OFFLINE_MS = Math.max(
-  120_000,
-  parseInt(process.env.REP_COMMAND_SKIP_IF_OFFLINE_MS || '180000', 10) || 180_000,
-);
 const REP_LOW_COST_MODE = /^(1|true|yes)$/i.test((process.env.REP_LOW_COST_MODE || '').trim());
 const REP_ULTRA_LOW_COST = /^(1|true|yes)$/i.test((process.env.REP_ULTRA_LOW_COST || '').trim());
 /** Poll /api/rep/commands — desligado por padrão (anti-egress). REP_ENABLE_COMMANDS=1 para ativar. */
@@ -283,6 +279,12 @@ const REP_HEARTBEAT_INTERVAL_MS = Math.max(
       (REP_ULTRA_LOW_COST ? '600000' : REP_LOW_COST_MODE ? '300000' : '60000'),
     10,
   ) || (REP_ULTRA_LOW_COST ? 600_000 : REP_LOW_COST_MODE ? 300_000 : 60_000),
+);
+/** Janela local de “online” para poll — sempre maior que o intervalo de heartbeat (evita pular poll entre batidas). */
+const REP_COMMAND_SKIP_IF_OFFLINE_MS = Math.max(
+  120_000,
+  REP_HEARTBEAT_INTERVAL_MS * 2 + 30_000,
+  parseInt(process.env.REP_COMMAND_SKIP_IF_OFFLINE_MS || '180000', 10) || 180_000,
 );
 /** Instância de execução atual (claim) — descarta POST de resultado velho. */
 let currentExecutionId = null;
@@ -2108,9 +2110,14 @@ async function runCommandPollOnce() {
   repCommandPollBusy = true;
   try {
     if (!isAgentOnline()) {
-      observabilityConsole.log('[REP POLL] pulado — agente offline (sem heartbeat recente)');
-      commandPollDelayMs = REP_COMMAND_POLL_MAX_MS;
-      return;
+      if (lastHeartbeatAt <= 0) {
+        await sendHeartbeat();
+      }
+      if (!isAgentOnline()) {
+        observabilityConsole.log('[REP POLL] pulado — agente offline (sem heartbeat recente)');
+        commandPollDelayMs = REP_COMMAND_POLL_MAX_MS;
+        return;
+      }
     }
     const ok = await pollAndExecuteRepCommands();
     if (ok) {
@@ -2206,6 +2213,9 @@ async function sendHeartbeat() {
     await postRepHeartbeat();
     markHeartbeat();
     log('[HEARTBEAT OK]');
+    if (ENABLE_COMMAND_POLL && !repCommandPollBusy) {
+      void runCommandPollOnce();
+    }
   } catch (err) {
     observabilityConsole.warn('[HEARTBEAT FAIL]', err?.message || err);
   }

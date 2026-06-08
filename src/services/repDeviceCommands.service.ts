@@ -148,8 +148,7 @@ export async function pollRepTestConnectionResult(
 
   return {
     ok: false,
-    message:
-      'O agente na empresa não respondeu a tempo. Verifique se o Agente PontoWebDesk está em execução na rede do relógio.',
+    message: 'AGENT_COMMAND_TIMEOUT',
     timedOut: true,
     slowAgent: lastPhase === 'agent_slow',
   };

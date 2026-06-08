@@ -82,6 +82,9 @@ function applyConfigToProcessEnv(cfg) {
   if (cfg.agent_interval_ms != null) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
   }
+  if (cfg.heartbeat_interval_ms != null && String(cfg.heartbeat_interval_ms).trim() !== '') {
+    process.env.REP_HEARTBEAT_INTERVAL_MS = String(cfg.heartbeat_interval_ms).trim();
+  }
   if (cfg.min_send_batch != null && String(cfg.min_send_batch).trim() !== '') {
     process.env.REP_MIN_SEND_BATCH = String(cfg.min_send_batch).trim();
   }
