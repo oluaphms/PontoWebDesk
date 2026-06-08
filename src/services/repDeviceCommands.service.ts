@@ -30,14 +30,15 @@ export type CreateTestConnectionResult = {
 };
 
 export type PollTestProgressPhase = 'polling' | 'waiting_agent' | 'agent_slow';
+export type RepCommandPollStatus = 'pending' | 'processing' | 'done' | 'error' | 'cancelled' | null;
 
 export type PollTestConnectionOutcome =
   | { ok: true; message: string; responseTimeMs?: number }
   | { ok: false; message: string; timedOut?: boolean; slowAgent?: boolean };
 
 export const REP_TEST_POLL_INTERVAL_MS = 1000;
-/** Agente faz poll a cada ~30s — timeout precisa cobrir 2–3 ciclos + execução LAN. */
-export const REP_TEST_POLL_MAX_MS = 90_000;
+/** Agente faz poll a cada ~15–60s — timeout cobre vários ciclos + execução LAN. */
+export const REP_TEST_POLL_MAX_MS = 120_000;
 export const REP_TEST_WAITING_HINT_MS = 15_000;
 export const REP_TEST_SLOW_HINT_MS = 45_000;
 
@@ -100,7 +101,7 @@ export async function pollRepTestConnectionResult(
   options?: {
     intervalMs?: number;
     maxMs?: number;
-    onProgress?: (phase: PollTestProgressPhase) => void;
+    onProgress?: (phase: PollTestProgressPhase, commandStatus?: RepCommandPollStatus) => void;
   },
 ): Promise<PollTestConnectionOutcome> {
   const intervalMs = options?.intervalMs ?? REP_TEST_POLL_INTERVAL_MS;
@@ -108,20 +109,23 @@ export async function pollRepTestConnectionResult(
   const started = Date.now();
   const deadline = started + maxMs;
   let lastPhase: PollTestProgressPhase = 'polling';
+  let lastStatus: RepCommandPollStatus = null;
 
-  const emit = (phase: PollTestProgressPhase) => {
-    if (phase === lastPhase) return;
+  const emit = (phase: PollTestProgressPhase, commandStatus?: RepCommandPollStatus) => {
+    const status = commandStatus ?? null;
+    if (phase === lastPhase && status === lastStatus) return;
     lastPhase = phase;
-    options?.onProgress?.(phase);
+    lastStatus = status;
+    options?.onProgress?.(phase, status);
   };
 
   while (Date.now() < deadline) {
     const elapsed = Date.now() - started;
-    if (elapsed >= REP_TEST_SLOW_HINT_MS) emit('agent_slow');
-    else if (elapsed >= REP_TEST_WAITING_HINT_MS) emit('waiting_agent');
-    else emit('polling');
-
     const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, commandId);
+    const commandStatus = (row?.status as RepCommandPollStatus) ?? null;
+    if (elapsed >= REP_TEST_SLOW_HINT_MS) emit('agent_slow', commandStatus);
+    else if (elapsed >= REP_TEST_WAITING_HINT_MS) emit('waiting_agent', commandStatus);
+    else emit('polling', commandStatus);
     if (row && (row.status === 'done' || row.status === 'error' || row.status === 'cancelled')) {
       const result = row.result ?? {};
       const success = row.status === 'done' && result.success !== false;

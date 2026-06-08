@@ -28,6 +28,7 @@ export type DeviceSyncStatusSnapshot = {
   online?: boolean;
   connection?: RepAgentConnectionState;
   pending: number;
+  processing?: number;
   sent: number;
   error: number;
   last_sync_at: string | null;

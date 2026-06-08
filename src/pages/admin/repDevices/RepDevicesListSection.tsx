@@ -214,7 +214,11 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                 <div className={repListUi.c011}>
                   <span className={repListUi.c012}>Fila</span>
                   <span className={repListUi.c015}>
-                    pendentes {syncStatusByDeviceId[d.id]?.pending ?? 0} · erros {syncStatusByDeviceId[d.id]?.error ?? 0}
+                    pendentes {syncStatusByDeviceId[d.id]?.pending ?? 0}
+                    {syncStatusByDeviceId[d.id]?.processing
+                      ? ` · executando ${syncStatusByDeviceId[d.id]?.processing}`
+                      : ''}{' '}
+                    · erros {syncStatusByDeviceId[d.id]?.error ?? 0}
                   </span>
                 </div>
               </div>

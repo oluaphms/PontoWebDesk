@@ -83,6 +83,8 @@ import {
   buildLocalRepAgentUserMessage,
   enrichRepConnectionTestMessage,
   isAgentRecentlySeen,
+  isRepAgentOnlineForDevice,
+  resolveRepAgentLastSeenForUi,
   isCloudDeployedRepClient,
   isLocalAgentRepDevice,
   isTimesheetPeriodClosedError,
@@ -577,13 +579,34 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
-  const resolveAgentTestProgressMessage = useCallback((phase: PollTestProgressPhase): string | null => {
-    if (phase === 'waiting_agent') return 'Aguardando resposta do agente...';
-    if (phase === 'agent_slow') {
-      return 'O agente pode estar offline ou demorando para responder.';
-    }
-    return null;
-  }, []);
+  const resolveAgentTestProgressMessage = useCallback(
+    (
+      phase: PollTestProgressPhase,
+      device: RepDeviceRow | null,
+      commandStatus?: string | null,
+    ): string | null => {
+      const snap = device ? syncStatusByDeviceId[device.id] : undefined;
+      const agentOnline = device ? isRepAgentOnlineForDevice(device, snap) : false;
+      if (phase === 'waiting_agent') {
+        return agentOnline
+          ? 'Comando enfileirado — agente online, aguardando execução (~30s)...'
+          : 'Aguardando resposta do agente...';
+      }
+      if (phase === 'agent_slow') {
+        if (commandStatus === 'processing') {
+          return 'Agente executando teste no relógio...';
+        }
+        if (agentOnline && commandStatus === 'pending') {
+          return 'Agente online, mas ainda não buscou o comando. Atualize o rep-agent.exe na empresa se passar de 2 min.';
+        }
+        return agentOnline
+          ? 'Agente online — demorando mais que o normal para executar o teste.'
+          : 'O agente pode estar offline ou demorando para responder.';
+      }
+      return null;
+    },
+    [syncStatusByDeviceId],
+  );
 
   const getAgentTestButtonLabel = useCallback(
     (deviceId: string): string => {
@@ -631,11 +654,17 @@ const AdminRepDevices: React.FC = () => {
           setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
           return;
         }
+        const deviceRow = devices.find((d) => d.id === id) ?? null;
         const created = await createRepTestConnectionCommand(id, accessToken);
         const outcome = await pollRepTestConnectionResult(id, created.command_id, accessToken, {
-          onProgress: (phase) => {
-            const hint = resolveAgentTestProgressMessage(phase);
-            if (hint) setMessage({ type: 'error', text: hint });
+          onProgress: (phase, commandStatus) => {
+            const hint = resolveAgentTestProgressMessage(phase, deviceRow, commandStatus);
+            if (hint) {
+              setMessage({
+                type: phase === 'agent_slow' && commandStatus === 'processing' ? 'success' : 'error',
+                text: hint,
+              });
+            }
             if (phase === 'waiting_agent') {
               setAgentTestPhase((prev) => ({ ...prev, [id]: 'waiting' }));
             } else if (phase === 'agent_slow') {
@@ -668,18 +697,21 @@ const AdminRepDevices: React.FC = () => {
           await loadDevices();
         } else {
           const device = devices.find((d) => d.id === id) ?? null;
+          const lastSeen = device
+            ? resolveRepAgentLastSeenForUi(device, syncStatusByDeviceId[id])
+            : null;
+          const agentOnline = device ? isRepAgentOnlineForDevice(device, syncStatusByDeviceId[id]) : false;
           const timeoutText =
             outcome.timedOut && device
-              ? buildAgentCommandTimeoutMessage(device, true)
-              : outcome.message;
+              ? buildAgentCommandTimeoutMessage(device, true, lastSeen)
+              : outcome.message === 'AGENT_COMMAND_TIMEOUT' && device
+                ? buildAgentCommandTimeoutMessage(device, true, lastSeen)
+                : outcome.message;
           setMessage({
             type: 'error',
-            text:
-              outcome.timedOut && outcome.slowAgent
-                ? `Não foi possível conectar ao dispositivo. ${timeoutText}`
-                : timeoutText,
+            text: agentOnline ? timeoutText : `Não foi possível conectar ao dispositivo. ${timeoutText}`,
           });
-          if (outcome.timedOut && device && !isAgentRecentlySeen(device.last_seen_at)) {
+          if (outcome.timedOut && device && !agentOnline) {
             scrollToRepCommunication();
           }
         }
@@ -698,7 +730,7 @@ const AdminRepDevices: React.FC = () => {
         });
       }
     },
-    [devices, loadDevices, resolveAgentTestProgressMessage, scrollToRepCommunication, supabase],
+    [devices, loadDevices, resolveAgentTestProgressMessage, scrollToRepCommunication, supabase, syncStatusByDeviceId],
   );
 
   const handleTestConnection = async (id: string) => {

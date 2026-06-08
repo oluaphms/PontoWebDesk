@@ -489,14 +489,26 @@ export async function repSyncStatusController(req: Request, res: Response): Prom
     return;
   }
   const params: unknown[] = [deviceId];
-  const clauses = ['id::text = $1'];
+  const clauses = ['d.id::text = $1'];
   if (tokenCompanyId) {
     params.push(tokenCompanyId);
-    clauses.push(`company_id::text = $${params.length}`);
+    clauses.push(`d.company_id::text = $${params.length}`);
   }
   const result = await pool.query(
-    `select status_runtime, last_seen_at
-       from public.rep_devices
+    `select d.status_runtime, d.last_seen_at, d.ultima_sincronizacao,
+            coalesce(cmd.pending, 0)::int as cmd_pending,
+            coalesce(cmd.processing, 0)::int as cmd_processing,
+            coalesce(cmd.error, 0)::int as cmd_error
+       from public.rep_devices d
+       left join lateral (
+         select
+           count(*) filter (where c.status = 'pending') as pending,
+           count(*) filter (where c.status = 'processing') as processing,
+           count(*) filter (where c.status = 'error' and c.updated_at > now() - interval '24 hours') as error
+         from public.rep_device_commands c
+        where c.device_id = d.id
+          and c.created_at > now() - interval '24 hours'
+       ) cmd on true
       where ${clauses.join(' and ')}
       limit 1`,
     params,
@@ -508,18 +520,22 @@ export async function repSyncStatusController(req: Request, res: Response): Prom
   }
   const lastSeen = row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null;
   const ageMs = lastSeen ? Date.now() - new Date(lastSeen).getTime() : Number.POSITIVE_INFINITY;
-  const connection = ageMs < 60_000 ? 'online' : ageMs < 300_000 ? 'unstable' : 'offline';
+  const connection = ageMs < 180_000 ? 'online' : ageMs < 300_000 ? 'unstable' : 'offline';
   json(res, 200, {
     ok: true,
     success: true,
     online: connection !== 'offline',
     connection,
-    pending: 0,
+    pending: Number(row.cmd_pending ?? 0),
+    processing: Number(row.cmd_processing ?? 0),
     sent: 0,
-    error: 0,
+    error: Number(row.cmd_error ?? 0),
     device_status: connection === 'offline' ? String(row.status_runtime || 'unknown') : 'online',
     last_seen_at: lastSeen,
     last_heartbeat_at: lastSeen,
+    last_sync_at: row.ultima_sincronizacao
+      ? new Date(row.ultima_sincronizacao).toISOString()
+      : null,
   });
 }
 

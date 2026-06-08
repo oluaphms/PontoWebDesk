@@ -277,12 +277,30 @@ export function enrichRepConnectionTestMessage(
   return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device, false)}`;
 }
 
+/** Heartbeat efetivo para UX (sync-status VPS costuma ser mais recente que Supabase). */
+export function resolveRepAgentLastSeenForUi(
+  device: Pick<RepDeviceRow, 'ultima_sincronizacao' | 'last_seen_at'>,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
+): string | null {
+  return resolveRepLastSeenIso(device, syncSnapshot);
+}
+
+export function isRepAgentOnlineForDevice(
+  device: Pick<RepDeviceRow, 'ultima_sincronizacao' | 'last_seen_at'>,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
+): boolean {
+  return isAgentRecentlySeen(resolveRepAgentLastSeenForUi(device, syncSnapshot));
+}
+
 /** Timeout de comando com agente que ainda aparece online no painel. */
 export function buildAgentCommandTimeoutMessage(
-  device: Pick<RepDeviceRow, 'last_seen_at' | 'nome_dispositivo'>,
+  device: Pick<RepDeviceRow, 'last_seen_at' | 'nome_dispositivo' | 'ultima_sincronizacao'>,
   timedOut = true,
+  lastSeenIso?: string | null,
 ): string {
-  const agentOnline = isAgentRecentlySeen(device.last_seen_at);
+  const agentOnline = isAgentRecentlySeen(
+    lastSeenIso ?? resolveRepAgentLastSeenForUi(device, undefined),
+  );
   if (!timedOut) {
     return agentOnline
       ? 'Comando enfileirado. O agente costuma executar em até 1 minuto.'
@@ -290,9 +308,9 @@ export function buildAgentCommandTimeoutMessage(
   }
   if (agentOnline) {
     return [
-      'O agente está online (heartbeat recente), mas não respondeu ao comando a tempo.',
-      'Isso é diferente de “offline”: o processo fala com o servidor, porém não buscou/executou o comando no prazo.',
-      'Atualize o rep-agent.exe na empresa (scripts/deploy-rep-agent.ps1) e tente novamente em até 1 minuto.',
+      'O agente está online (heartbeat recente), mas não executou o teste a tempo.',
+      'Causa comum: rep-agent.exe desatualizado (poll de comandos pausado entre heartbeats).',
+      'Na empresa, rode como Admin: scripts/deploy-rep-agent.ps1 — depois teste de novo.',
     ].join(' ');
   }
   return 'O agente na empresa não respondeu a tempo. Verifique se o Agente PontoWebDesk está em execução na rede do relógio.';

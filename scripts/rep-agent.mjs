@@ -214,8 +214,8 @@ const REP_AGENT_INTERVAL_MS = Math.max(
 );
 /** Poll de comandos SaaS — mínimo 30s (produção / anti-egress). */
 const REP_COMMAND_POLL_MIN_MS = Math.max(
-  30_000,
-  parseInt(process.env.REP_COMMAND_POLL_MIN_MS || '30000', 10) || 30_000,
+  15_000,
+  parseInt(process.env.REP_COMMAND_POLL_MIN_MS || '15000', 10) || 15_000,
 );
 const REP_COMMAND_POLL_MAX_MS = Math.max(
   REP_COMMAND_POLL_MIN_MS,
