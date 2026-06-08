@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
+import { logger } from '../logger/logger.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
@@ -105,22 +106,40 @@ async function assertRepDeviceForAdmin(deviceId: string, companyId: string): Pro
 }
 
 async function fetchEmployeeForRepPush(userId: string, companyId: string): Promise<Record<string, unknown> | null> {
-  const result = await pool.query(
+  const fromUsers = await pool.query(
     `select
         u.id::text as id,
         coalesce(nullif(e.nome, ''), nullif(u.nome, ''), nullif(u.email, ''), 'Colaborador') as nome,
         coalesce(nullif(e.cpf, ''), nullif(u.cpf, '')) as cpf,
-        coalesce(nullif(e.pis_pasep, ''), nullif(e.pis, ''), nullif(u.pis_pasep, ''), nullif(u.pis, '')) as pis,
-        coalesce(nullif(e.numero_folha, ''), nullif(e.numero_identificador, ''), nullif(u.numero_folha, ''), nullif(u.numero_identificador, '')) as matricula,
+        coalesce(nullif(e.pis, ''), nullif(u.pis_pasep, ''), nullif(u.pis, '')) as pis,
+        coalesce(nullif(u.numero_folha, ''), nullif(u.numero_identificador, '')) as matricula,
         lower(coalesce(nullif(u.role, ''), nullif(e.role, ''), 'employee')) as role
        from public.users u
-       left join public.employees e on e.id = u.id
+       left join public.employees e
+         on e.id::text = u.id::text
+        and e.company_id::text = u.company_id::text
       where u.id::text = $1
         and u.company_id::text = $2
       limit 1`,
     [userId, companyId],
   );
-  return result.rows[0] ?? null;
+  if (fromUsers.rows[0]) return fromUsers.rows[0] as Record<string, unknown>;
+
+  const fromEmployees = await pool.query(
+    `select
+        e.id::text as id,
+        coalesce(nullif(e.nome, ''), 'Colaborador') as nome,
+        nullif(e.cpf, '') as cpf,
+        nullif(e.pis, '') as pis,
+        null::text as matricula,
+        lower(coalesce(nullif(e.role, ''), 'employee')) as role
+       from public.employees e
+      where e.id::text = $1
+        and e.company_id::text = $2
+      limit 1`,
+    [userId, companyId],
+  );
+  return (fromEmployees.rows[0] as Record<string, unknown> | undefined) ?? null;
 }
 
 function normalizeNsr(value: unknown): number | null {
@@ -583,39 +602,57 @@ export async function repPushEmployeeController(req: Request, res: Response): Pr
     json(res, 400, { ok: false, success: false, error: 'device_id e user_id são obrigatórios' });
     return;
   }
-  const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
-  if (!device) {
-    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
-    return;
-  }
-  if (String(device.tipo_conexao || '') !== 'rede') {
-    json(res, 400, { ok: false, success: false, error: 'Dispositivo deve ser do tipo rede (IP).' });
-    return;
-  }
-  const employee = await fetchEmployeeForRepPush(userId, auth.companyId);
-  if (!employee) {
-    json(res, 404, { ok: false, success: false, error: 'Funcionário não encontrado' });
-    return;
-  }
-  const role = String(employee.role || '').toLowerCase();
-  if (!['employee', 'hr', 'admin'].includes(role)) {
-    json(res, 403, { ok: false, success: false, error: 'Este perfil não pode ser enviado ao relógio' });
-    return;
-  }
-  req.body = {
-    device_id: deviceId,
-    command: 'push_employee',
-    payload: {
-      employee: {
-        id: employee.id,
-        nome: employee.nome,
-        cpf: employee.cpf ?? null,
-        pis: employee.pis ?? null,
-        matricula: employee.matricula ?? null,
+  try {
+    const device = await assertRepDeviceForAdmin(deviceId, auth.companyId);
+    if (!device) {
+      json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+      return;
+    }
+    if (String(device.tipo_conexao || '') !== 'rede') {
+      json(res, 400, { ok: false, success: false, error: 'Dispositivo deve ser do tipo rede (IP).' });
+      return;
+    }
+    const employee = await fetchEmployeeForRepPush(userId, auth.companyId);
+    if (!employee) {
+      json(res, 404, { ok: false, success: false, error: 'Funcionário não encontrado' });
+      return;
+    }
+    const role = String(employee.role || '').toLowerCase();
+    if (!['employee', 'hr', 'admin'].includes(role)) {
+      json(res, 403, { ok: false, success: false, error: 'Este perfil não pode ser enviado ao relógio' });
+      return;
+    }
+    req.body = {
+      device_id: deviceId,
+      command: 'push_employee',
+      payload: {
+        employee: {
+          id: employee.id,
+          nome: employee.nome,
+          cpf: employee.cpf ?? null,
+          pis: employee.pis ?? null,
+          matricula: employee.matricula ?? null,
+        },
       },
-    },
-  };
-  await repCommandsController(req, res);
+    };
+    await repCommandsController(req, res);
+  } catch (error) {
+    logger.error({
+      module: 'rep.controller',
+      action: 'REP_PUSH_EMPLOYEE_FAILED',
+      message: 'Falha ao enfileirar push_employee',
+      userId: auth.userId,
+      companyId: auth.companyId,
+      error,
+      meta: { deviceId, employeeUserId: userId },
+    });
+    json(res, 500, {
+      ok: false,
+      success: false,
+      error: 'push_employee_failed',
+      message: 'Não foi possível enfileirar o envio do colaborador ao relógio.',
+    });
+  }
 }
 
 export async function repCommandResultController(req: Request, res: Response): Promise<void> {

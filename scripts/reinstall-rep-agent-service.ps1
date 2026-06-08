@@ -60,6 +60,9 @@ Write-Host "`n3) Instalar servico novo..." -ForegroundColor Cyan
 & $nssm set $svc AppStdout (Join-Path $logDir 'nssm-stdout.log') 2>&1
 & $nssm set $svc AppStderr (Join-Path $logDir 'nssm-stderr.log') 2>&1
 & $nssm set $svc AppExit Default Restart 2>&1
+# Poll de comandos (test_connection, push_employee) — obrigatório para o painel web.
+# Builds antigos do rep-agent.exe ignoram enable_commands no config.json; use env explícita.
+& $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1" 2>&1
 Start-Sleep -Seconds 2
 
 Write-Host "`n4) Iniciar..." -ForegroundColor Cyan

@@ -83,7 +83,11 @@ function applyConfigToProcessEnv(cfg) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
   }
 
-  if (cfg.enable_commands === true || /^(1|true|yes)$/i.test(trimStr(cfg.enable_commands))) {
+  const commandsExplicit = cfg.enable_commands !== undefined && cfg.enable_commands !== null;
+  const commandsOff =
+    commandsExplicit &&
+    (cfg.enable_commands === false || /^(0|false|no)$/i.test(trimStr(cfg.enable_commands)));
+  if (!commandsOff && (!commandsExplicit || cfg.enable_commands === true || /^(1|true|yes)$/i.test(trimStr(cfg.enable_commands)))) {
     process.env.REP_ENABLE_COMMANDS = '1';
   }
 
