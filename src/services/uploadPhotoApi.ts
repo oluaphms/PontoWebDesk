@@ -4,10 +4,13 @@
  */
 import { buildApiUrl } from './api';
 import { getToken, isCookieSessionToken } from './authToken';
-import { validatePunchImageDataUrl } from '../utils/punchPhotoUpload';
 import { readFileHead } from '../shared/upload/fileValidation';
 import { detectImageMime } from '../shared/upload/magicBytes';
+import { inferImageExtensionFromMime, normalizeImageMimeType } from '../shared/upload/normalizeMime';
 import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
+import { uploadValidationMessage } from '../shared/upload/uploadValidationMessages';
+import { validateImageDataUrl } from '../shared/upload/validateImageDataUrl';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 export type UploadPhotoKind = 'punch' | 'avatar';
 
@@ -25,6 +28,7 @@ export async function uploadPhotoViaApi(
   input: { dataUrl: string; kind?: UploadPhotoKind; filename?: string } | { file: File; kind?: UploadPhotoKind },
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const kind = input.kind ?? ('file' in input && input.file.name.includes('avatar') ? 'avatar' : 'punch');
+  const policy = kind === 'avatar' ? 'avatar' : 'punchPhoto';
   const token = getToken();
 
   let contentBase64: string;
@@ -32,34 +36,52 @@ export async function uploadPhotoViaApi(
   let mimeType: string;
 
   if ('dataUrl' in input) {
-    const validated = validatePunchImageDataUrl(input.dataUrl);
+    const validated = validateImageDataUrl(input.dataUrl, policy);
     if (validated.ok === false) {
       return { ok: false, error: validated.message };
     }
     const parts = input.dataUrl.split(',');
     contentBase64 = parts[1] || parts[0];
-    const mimeMatch = input.dataUrl.match(/^data:([^;]+);/i);
-    mimeType = mimeMatch?.[1] || 'image/jpeg';
+    mimeType = validated.mimeType;
     const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
     filename = input.filename || `${kind}-${Date.now()}.${ext}`;
+    observabilityConsole.info('[uploadPhotoApi] dataUrl pronto para envio', {
+      kind,
+      filename,
+      mimeType,
+      size: validated.size,
+    });
   } else {
     const file = input.file;
+    const detectedMime = normalizeImageMimeType(file.type || '') || file.type || '';
+    const inferredExt = inferImageExtensionFromMime(detectedMime) || 'jpg';
+    const safeName = file.name?.trim() || `${kind}.${inferredExt}`;
     const fileCheck = validateUploadByPolicy({
-      policy: kind === 'avatar' ? 'avatar' : 'punchPhoto',
-      fileName: file.name || `${kind}.jpg`,
-      mimeType: file.type || '',
+      policy,
+      fileName: safeName,
+      mimeType: detectedMime || file.type || '',
       size: file.size,
     });
+    observabilityConsole.info('[uploadPhotoApi] arquivo selecionado', {
+      name: file.name,
+      safeName,
+      size: file.size,
+      type: file.type,
+      normalizedMime: detectedMime,
+      kind,
+      validationCode: fileCheck.ok ? null : fileCheck.code,
+    });
     if (!fileCheck.ok) {
-      return { ok: false, error: 'Imagem inválida para upload.' };
+      return { ok: false, error: uploadValidationMessage(fileCheck.code, policy) };
     }
     const head = await readFileHead(file, 32);
-    if (!detectImageMime(head)) {
-      return { ok: false, error: 'Conteúdo da imagem inválido.' };
+    const magicMime = detectImageMime(head);
+    if (!magicMime) {
+      return { ok: false, error: 'Conteúdo da imagem inválido ou corrompido.' };
     }
     contentBase64 = await fileToBase64(file);
-    filename = file.name || `${kind}-${Date.now()}.jpg`;
-    mimeType = file.type || 'image/jpeg';
+    filename = safeName.includes('.') ? safeName : `${safeName.split('.')[0] || kind}.${inferredExt}`;
+    mimeType = normalizeImageMimeType(file.type || '') || magicMime;
   }
 
   const res = await fetch(buildApiUrl('/uploads/photo'), {
@@ -72,8 +94,20 @@ export async function uploadPhotoViaApi(
     body: JSON.stringify({ kind, filename, mimeType, contentBase64 }),
   });
 
-  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    url?: string;
+    error?: string;
+    code?: string;
+  };
   if (!res.ok || !data.ok || !data.url) {
+    observabilityConsole.warn('[uploadPhotoApi] falha no servidor', {
+      status: res.status,
+      error: data.error,
+      code: data.code,
+      filename,
+      mimeType,
+    });
     return { ok: false, error: data.error || `Falha no upload (${res.status})` };
   }
   return { ok: true, url: data.url };

@@ -51,10 +51,11 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
         meta: {
           endpoint: '/api/uploads/photo',
           uploadType: profile,
-          reason: centralized.code.toLowerCase(),
+          validationResult: centralized.code,
           fileName: filename,
           mimeType: declaredMime,
-          size: buffer.byteLength,
+          fileSize: buffer.byteLength,
+          uploadPath: `photos/${String(userId)}/${filename}`,
         },
       });
       res.status(400).json({ ok: false, error: centralized.message, code: centralized.code });
@@ -68,6 +69,19 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
       profile,
     });
     if (validated.ok === false) {
+      logger.warn({
+        module: 'upload.controller',
+        action: 'UPLOAD_IMAGE_BUFFER_REJECTED',
+        message: 'Upload rejeitado na validação de buffer',
+        userId: String(userId),
+        meta: {
+          uploadType: profile,
+          validationResult: validated.code,
+          fileName: filename,
+          mimeType: declaredMime,
+          fileSize: buffer.byteLength,
+        },
+      });
       res.status(400).json({ ok: false, error: validated.message, code: validated.code });
       return;
     }

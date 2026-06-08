@@ -10,6 +10,12 @@ import {
 import { UPLOAD_LIMITS } from './limits.js';
 import { isBlockedExtension, isBlockedMime } from './blockedTypes.js';
 import { sanitizeStoragePath } from './sanitizeStoragePath.js';
+import {
+  areCompatibleImageExtensions,
+  getFileExtensionFromName,
+  inferImageExtensionFromMime,
+  normalizeImageMimeType,
+} from './normalizeMime.js';
 
 type UploadType = 'avatar' | 'punchPhoto' | 'afdImport' | 'employeeImportCsv' | 'employeeImportDocument';
 
@@ -22,12 +28,12 @@ type Policy = {
 const POLICIES: Record<UploadType, Policy> = {
   avatar: {
     allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
     maxFileSize: UPLOAD_LIMITS.avatar,
   },
   punchPhoto: {
     allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
     maxFileSize: UPLOAD_LIMITS.punchPhoto,
   },
   afdImport: {
@@ -75,10 +81,15 @@ export function validateUploadedFile(input: {
 }): UploadedFileValidationResult {
   const policy = POLICIES[input.uploadType];
   const sanitizedName = sanitizeFilename(input.filename);
-  const ext = getFileExtension(sanitizedName);
-  const mime = String(input.mimeType || '').toLowerCase();
+  let ext = getFileExtension(sanitizedName) || getFileExtensionFromName(sanitizedName);
+  const mime = normalizeImageMimeType(String(input.mimeType || '')) || String(input.mimeType || '').toLowerCase();
 
   if (input.size > policy.maxFileSize) return fail('FILE_TOO_LARGE', 'Arquivo excede o limite permitido.');
+  if (input.uploadType === 'avatar' || input.uploadType === 'punchPhoto') {
+    if (!ext || !policy.allowedExtensions.includes(ext)) {
+      ext = inferImageExtensionFromMime(mime) || ext;
+    }
+  }
   if (!ext || !policy.allowedExtensions.includes(ext)) return fail('INVALID_EXTENSION', 'Extensão não permitida.');
   if (isBlockedExtension(ext)) return fail('BLOCKED_TYPE', 'Extensão bloqueada por política de segurança.');
   if (isBlockedMime(mime)) return fail('BLOCKED_MIME', 'Tipo MIME bloqueado por política de segurança.');
@@ -88,10 +99,12 @@ export function validateUploadedFile(input: {
     const detected = detectImageMime(input.buffer);
     if (!detected) return fail('INVALID_IMAGE', 'Imagem inválida. Use JPEG, PNG ou WebP.');
     const expectedExt = extensionForImageMime(detected);
-    if (ext !== expectedExt && !(ext === 'jpeg' && expectedExt === 'jpg')) {
+    if (!areCompatibleImageExtensions(ext, expectedExt)) {
       return fail('INVALID_CONTENT', 'Conteúdo da imagem incompatível com a extensão.');
     }
-    if (mime && mime !== detected) return fail('INVALID_MIME', 'Tipo MIME não corresponde ao conteúdo.');
+    if (mime && normalizeImageMimeType(mime) && normalizeImageMimeType(mime) !== detected) {
+      return fail('INVALID_MIME', 'Tipo MIME não corresponde ao conteúdo.');
+    }
     if (input.storagePath) {
       try {
         sanitizeStoragePath(input.storagePath);

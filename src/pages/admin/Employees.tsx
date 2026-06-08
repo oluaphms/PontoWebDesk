@@ -61,6 +61,8 @@ import { calcularScoreConfiabilidade, type ReliabilityInputs } from '../../ai/re
 import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { readFileHead } from '../../shared/upload/fileValidation';
 import { detectImageMime } from '../../shared/upload/magicBytes';
+import { inferImageExtensionFromMime, normalizeImageMimeType } from '../../shared/upload/normalizeMime';
+import { uploadValidationMessage } from '../../shared/upload/uploadValidationMessages';
 import { logger } from '../../shared/logger/logger';
 import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
 import {
@@ -1565,21 +1567,37 @@ const AdminEmployees: React.FC = () => {
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const normalizedMime = normalizeImageMimeType(file.type || '') || file.type || '';
+    const inferredExt = inferImageExtensionFromMime(normalizedMime) || 'jpg';
+    const safeName = file.name?.trim() || `avatar.${inferredExt}`;
     const check = validateUploadByPolicy({
       policy: 'avatar',
-      fileName: file.name || 'avatar.jpg',
-      mimeType: file.type || '',
+      fileName: safeName,
+      mimeType: normalizedMime,
       size: file.size,
     });
+    logger.info({
+      module: 'admin.employees',
+      action: 'EMPLOYEE_PHOTO_SELECTED',
+      message: 'Arquivo de foto selecionado no modal de colaborador',
+      meta: {
+        name: file.name,
+        safeName,
+        size: file.size,
+        type: file.type,
+        normalizedMime,
+        validationCode: check.ok ? null : check.code,
+      },
+    });
     if (!check.ok) {
-      setError('Imagem inválida para upload.');
+      setError(uploadValidationMessage(check.code, 'avatar'));
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       e.target.value = '';
       return;
     }
     const head = await readFileHead(file, 32);
     if (!detectImageMime(head)) {
-      setError('Conteúdo da imagem inválido.');
+      setError('Conteúdo da imagem inválido ou corrompido.');
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       e.target.value = '';
       return;
@@ -1591,6 +1609,16 @@ const AdminEmployees: React.FC = () => {
         setError('Formato de imagem não suportado.');
         return;
       }
+      const img = new Image();
+      img.onload = () => {
+        logger.info({
+          module: 'admin.employees',
+          action: 'EMPLOYEE_PHOTO_PREVIEW_READY',
+          message: 'Preview de foto pronto',
+          meta: { width: img.width, height: img.height, size: file.size, type: file.type },
+        });
+      };
+      img.src = result;
       setForm((f) => ({ ...f, photo_preview: result }));
       setError(null);
     };

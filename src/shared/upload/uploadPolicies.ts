@@ -1,5 +1,10 @@
 import { BLOCKED_EXTENSIONS, isBlockedMime } from './blockedTypes.js';
 import { UPLOAD_LIMITS } from './limits.js';
+import {
+  getFileExtensionFromName,
+  inferImageExtensionFromMime,
+  normalizeImageMimeType,
+} from './normalizeMime.js';
 
 export type UploadPolicyName =
   | 'avatar'
@@ -37,14 +42,14 @@ const EXECUTABLE_BLOCKLIST = [
 const POLICIES: Record<UploadPolicyName, UploadPolicy> = {
   avatar: {
     allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
     maxFileSize: UPLOAD_LIMITS.avatar,
     requireMagicBytesValidation: true,
     blockedExtensions: EXECUTABLE_BLOCKLIST,
   },
   punchPhoto: {
     allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
     maxFileSize: UPLOAD_LIMITS.punchPhoto,
     requireMagicBytesValidation: true,
     blockedExtensions: EXECUTABLE_BLOCKLIST,
@@ -111,13 +116,21 @@ export function validateFileExtension(ext: string, policy: UploadPolicy): Upload
 }
 
 export function validateMimeType(mime: string, policy: UploadPolicy): UploadValidationFailureCode | null {
-  const normalized = String(mime || '').toLowerCase().trim();
+  const normalized = normalizeImageMimeType(mime) || String(mime || '').toLowerCase().trim();
   if (isBlockedMime(normalized)) return 'blocked_mime';
   if (!normalized) return null;
   const wildcardAllowed = policy.allowedMimeTypes.some((m) => m.endsWith('/*') && normalized.startsWith(m.slice(0, -1)));
   const exactAllowed = policy.allowedMimeTypes.includes(normalized);
   return wildcardAllowed || exactAllowed ? null : 'invalid_mime';
 }
+
+function resolvePolicyExtension(fileName: string, mimeType?: string): string {
+  const ext = getFileExtensionFromName(fileName);
+  if (ext && policyImageExtensions.has(ext)) return ext;
+  return inferImageExtensionFromMime(mimeType || '') || ext;
+}
+
+const policyImageExtensions = new Set(['jpg', 'jpeg', 'png', 'webp']);
 
 export function validateMagicBytes(
   policy: UploadPolicy,
@@ -135,7 +148,7 @@ export function validateUploadByPolicy(input: {
   magicValidator?: () => boolean;
 }): { ok: true } | { ok: false; code: UploadValidationFailureCode } {
   const policy = getUploadPolicy(input.policy);
-  const ext = input.fileName.split('.').pop() || '';
+  const ext = resolvePolicyExtension(input.fileName, input.mimeType);
   const sizeError = validateFileSize(input.size, policy);
   if (sizeError) return { ok: false, code: sizeError };
   const extError = validateFileExtension(ext, policy);

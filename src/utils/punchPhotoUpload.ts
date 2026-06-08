@@ -5,41 +5,17 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 import { messageFromUnknown } from './messageFromUnknown';
 import { uploadPhotoViaApi } from '../services/uploadPhotoApi';
-import { validateUploadByPolicy } from '../shared/upload/uploadPolicies';
+import { validateImageDataUrl } from '../shared/upload/validateImageDataUrl';
 
 export type PunchStorage = {
   upload: (bucket: string, path: string, file: File) => Promise<unknown>;
   getPublicUrl: (bucket: string, path: string) => string;
 };
 
-const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_PREFIXES = ['data:image/jpeg', 'data:image/jpg', 'data:image/png', 'data:image/webp'];
-
 export function validatePunchImageDataUrl(dataUrl: string): { ok: true } | { ok: false; message: string } {
-  if (!dataUrl || typeof dataUrl !== 'string') {
-    return { ok: false, message: 'Imagem inválida.' };
-  }
-  const head = dataUrl.slice(0, 40).toLowerCase();
-  if (!head.startsWith('data:image/')) {
-    return { ok: false, message: 'Use uma imagem (JPEG, PNG ou WebP).' };
-  }
-  const okPrefix = ALLOWED_PREFIXES.some((p) => dataUrl.toLowerCase().startsWith(p));
-  if (!okPrefix) {
-    return { ok: false, message: 'Formato não permitido. Use JPEG, PNG ou WebP.' };
-  }
-  const base64 = dataUrl.split(',')[1] || '';
-  const approxBytes = (base64.length * 3) / 4;
-  const policy = validateUploadByPolicy({
-    policy: 'punchPhoto',
-    fileName: 'punch.jpg',
-    mimeType: head.slice(5).split(';')[0] || 'image/jpeg',
-    size: approxBytes,
-  });
-  if (!policy.ok) {
-    return { ok: false, message: 'Formato não permitido. Use JPEG, PNG ou WebP.' };
-  }
-  if (approxBytes > MAX_BYTES) {
-    return { ok: false, message: 'Imagem muito grande (máximo 5 MB).' };
+  const validated = validateImageDataUrl(dataUrl, 'punchPhoto');
+  if (validated.ok === false) {
+    return { ok: false, message: validated.message };
   }
   return { ok: true };
 }

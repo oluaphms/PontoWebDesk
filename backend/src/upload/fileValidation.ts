@@ -9,6 +9,12 @@ import {
   type DetectedImageMime,
 } from './magicBytes.js';
 import { getFileExtension, sanitizeFilename } from './sanitizeFilename.js';
+import {
+  areCompatibleImageExtensions,
+  getFileExtensionFromName,
+  inferImageExtensionFromMime,
+  normalizeImageMimeType,
+} from './normalizeMime.js';
 import { UPLOAD_LIMITS, type UploadProfile } from './limits.js';
 
 export type ValidationResult =
@@ -104,12 +110,12 @@ export function validateImageBuffer(input: {
   if (sizeCheck.ok === false) return sizeCheck;
 
   const sanitizedName = sanitizeFilename(input.filename);
-  const ext = getFileExtension(sanitizedName);
-  if (ext && isBlockedExtension(ext)) {
+  let ext = getFileExtension(sanitizedName) || getFileExtensionFromName(sanitizedName);
+  if (isBlockedExtension(ext)) {
     return { ok: false, code: 'BLOCKED_TYPE', message: 'Tipo de arquivo não permitido.' };
   }
 
-  const mime = (input.declaredMime || '').toLowerCase();
+  const mime = normalizeImageMimeType(input.declaredMime || '') || String(input.declaredMime || '').toLowerCase();
   if (mime && isBlockedMime(mime)) {
     return { ok: false, code: 'BLOCKED_MIME', message: 'Tipo MIME bloqueado.' };
   }
@@ -124,10 +130,13 @@ export function validateImageBuffer(input: {
   }
 
   const expectedExt = extensionForImageMime(detected);
-  if (ext && !IMAGE_ALLOWED_EXT.has(ext)) {
+  if (!ext || !IMAGE_ALLOWED_EXT.has(ext)) {
+    ext = inferImageExtensionFromMime(mime || detected) || expectedExt;
+  }
+  if (!IMAGE_ALLOWED_EXT.has(ext)) {
     return { ok: false, code: 'INVALID_EXTENSION', message: 'Extensão de imagem não permitida.' };
   }
-  if (ext && ext !== expectedExt && !(ext === 'jpg' && expectedExt === 'jpg')) {
+  if (!areCompatibleImageExtensions(ext, expectedExt)) {
     return {
       ok: false,
       code: 'MIME_EXT_MISMATCH',
