@@ -1288,12 +1288,12 @@ export async function getTimeAttendanceData(
         'time_records',
         [
           { column: 'company_id', operator: 'eq', value: companyId },
-          { column: 'created_at', operator: 'gte', value: localCalendarDayStartUtc(safeStart) },
-          { column: 'created_at', operator: 'lte', value: localCalendarDayEndUtc(safeEnd) },
+          { column: 'timestamp', operator: 'gte', value: localCalendarDayStartUtc(safeStart) },
+          { column: 'timestamp', operator: 'lte', value: localCalendarDayEndUtc(safeEnd) },
         ],
         {
           columns: 'id,user_id,company_id,type,created_at,timestamp',
-          orderBy: { column: 'created_at', ascending: true },
+          orderBy: { column: 'timestamp', ascending: true },
           limit: 50000,
         },
       )

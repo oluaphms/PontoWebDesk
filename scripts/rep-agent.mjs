@@ -98,6 +98,7 @@ import {
   loadExecutedCommandIds,
   rememberExecutedCommand,
 } from './rep-agent-commands-state.mjs';
+import { agentLog } from './rep-agent-structured-log.mjs';
 
 const bootResult = bootstrapProductionAgent();
 if (!bootResult.ok) {
@@ -1734,10 +1735,25 @@ async function executeCollectPunchesCommand(cmd) {
   if (!startDate || !endDate) {
     throw new Error('collect_punches: start_date e end_date são obrigatórios');
   }
+  agentLog.collectionStart({
+    mode: 'manual',
+    start_date: startDate,
+    end_date: endDate,
+    device_id: deviceId,
+    bypass_nsr: true,
+  });
   observabilityConsole.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
   const saved = applyDateRangePolicy(startDate, endDate);
   try {
-    const cycle = await runCycle();
+    const cycle = await runExclusiveRepAfdIngest(() => runCycle());
+    agentLog.collectionSuccess({
+      mode: cycle?.mode ?? 'unknown',
+      sent_ok: cycle?.ok ?? 0,
+      pre_skipped: cycle?.preSkipped ?? 0,
+      parsed: cycle?.total ?? 0,
+      start_date: startDate,
+      end_date: endDate,
+    });
     return {
       success: true,
       message: `Coleta concluída (${startDate} a ${endDate}).`,
@@ -1747,7 +1763,16 @@ async function executeCollectPunchesCommand(cmd) {
       duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
       errors: cycle?.sendErrors ?? 0,
       parsed: cycle?.total ?? 0,
+      pre_skipped: cycle?.preSkipped ?? 0,
     };
+  } catch (e) {
+    agentLog.collectionFailure({
+      mode: 'manual',
+      start_date: startDate,
+      end_date: endDate,
+      error: e?.message || String(e),
+    });
+    throw e;
   } finally {
     restoreAgentPolicy(saved);
   }
@@ -1955,6 +1980,11 @@ async function executeRepCommand(cmd) {
       }
       resultPayload = buildCommandTestResult(testResult, 1);
       finalStatus = testResult.success ? 'done' : 'error';
+      if (testResult.success) {
+        agentLog.repConnectionSuccess({ device_id: deviceId, response_time_ms: testResult.response_time_ms });
+      } else {
+        agentLog.repConnectionFailure({ device_id: deviceId, message: testResult.message });
+      }
     } else if (name === 'collect_punches') {
       resultPayload = await executeCollectPunchesCommand(cmd);
       finalStatus = resultPayload.success ? 'done' : 'error';
@@ -2167,6 +2197,7 @@ async function postRepHeartbeat() {
   if (!res.ok) {
     throw new Error(`Heartbeat falhou com HTTP ${res.status}`);
   }
+  agentLog.heartbeat({ device_id: deviceId, company_id: companyId, latency_ms: latency });
 }
 
 async function sendHeartbeat() {
@@ -2529,6 +2560,12 @@ function runExclusiveRepAfdIngest(task) {
 
 async function ingestViaAFD() {
   return runExclusiveRepAfdIngest(async () => {
+  agentLog.collectionStart({
+    mode: 'AFD',
+    device_id: deviceId,
+    scope: agentPolicy.scope,
+    bypass_nsr: agentPolicy.bypassNsrFilter,
+  });
   observabilityConsole.log('[REP MODE] AFD ativado');
 
   const lastNsrMap = await loadLastNsrMap();
@@ -2724,8 +2761,17 @@ function shouldUseControlIdAfdFastPath() {
 function logAfdCycleResult(r) {
   if (r.mode === 'MANUAL_IMPORT_REQUIRED') {
     observabilityConsole.log('[rep-agent] Ciclo encerrado em modo MANUAL_IMPORT_REQUIRED.');
+    agentLog.collectionFailure({ mode: 'MANUAL_IMPORT_REQUIRED', error: 'afd_not_available' });
     return;
   }
+  agentLog.collectionSuccess({
+    mode: r.mode || 'AFD',
+    sent_ok: r.ok,
+    duplicates: r.duplicate,
+    errors: r.skip,
+    pre_skipped: r.preSkipped,
+    parsed: r.total,
+  });
   observabilityConsole.log(
     `[rep-agent] AFD concluído. Enviados OK: ${r.ok} | duplicados: ${r.duplicate} | erros: ${r.skip} | filtrados (lastNSR): ${r.preSkipped} | total parseado: ${r.total}`
   );
@@ -2773,7 +2819,18 @@ async function ingestViaApiDirect() {
 
   const lastNsrMap = await loadLastNsrMap();
   const devKey = deviceKey();
-  let lastNsr = lastNsrMap[devKey] || '';
+  let lastNsr = agentPolicy.bypassNsrFilter ? '' : lastNsrMap[devKey] || '';
+  if (agentPolicy.bypassNsrFilter && lastNsrMap[devKey]) {
+    observabilityConsole.log(`[REP API] coleta com intervalo de datas — ignora lastNSR=${lastNsrMap[devKey]}`);
+  }
+
+  agentLog.collectionStart({
+    mode: 'API',
+    device_id: deviceId,
+    scope: agentPolicy.scope,
+    bypass_nsr: agentPolicy.bypassNsrFilter,
+    records_on_device: list.length,
+  });
 
   let ok = 0;
   let skip = 0;
@@ -2788,7 +2845,7 @@ async function ingestViaApiDirect() {
     const rawNsr = p.nsr;
     const hasNsr = rawNsr != null && rawNsr !== '';
 
-    if (hasNsr && lastNsr && compareNsr(rawNsr, lastNsr) <= 0) {
+    if (!agentPolicy.bypassNsrFilter && hasNsr && lastNsr && compareNsr(rawNsr, lastNsr) <= 0) {
       preSkipped += 1;
       continue;
     }
@@ -2837,6 +2894,14 @@ async function ingestViaApiDirect() {
     observabilityConsole.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
   await flushPunchQueue();
+  agentLog.collectionSuccess({
+    mode: 'API',
+    sent_ok: ok,
+    errors: skip,
+    pre_skipped: preSkipped,
+    send_errors: sendErrors,
+    last_nsr: lastNsrMap[devKey] || null,
+  });
   observabilityConsole.log('[rep-agent] Concluído. Enfileirados OK:', ok, '| ignorados/duplicados:', skip);
   return { ok, skip, preSkipped, sendErrors, fatal: false, mode: 'API' };
 }

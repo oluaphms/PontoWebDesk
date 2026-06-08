@@ -82,6 +82,9 @@ function applyConfigToProcessEnv(cfg) {
   if (cfg.agent_interval_ms != null) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
   }
+  if (cfg.min_send_batch != null && String(cfg.min_send_batch).trim() !== '') {
+    process.env.REP_MIN_SEND_BATCH = String(cfg.min_send_batch).trim();
+  }
 
   const commandsExplicit = cfg.enable_commands !== undefined && cfg.enable_commands !== null;
   const commandsOff =

@@ -4,6 +4,7 @@ import { observabilityConsole } from '../services/observabilityConsole.js';
  */
 import { getAgentDb } from './rep-agent-db.mjs';
 import { computeRepPunchHash } from './rep-punch-hash.mjs';
+import { agentLog } from './rep-agent-structured-log.mjs';
 
 const REP_LOW_COST_MODE = /^(1|true|yes)$/i.test((process.env.REP_LOW_COST_MODE || '').trim());
 const REP_ULTRA_LOW_COST = /^(1|true|yes)$/i.test((process.env.REP_ULTRA_LOW_COST || '').trim());
@@ -16,9 +17,9 @@ const MIN_SEND_BATCH = Math.max(
     BATCH_SIZE,
     parseInt(
       process.env.REP_MIN_SEND_BATCH ||
-        (REP_ULTRA_LOW_COST ? String(BATCH_SIZE) : '10'),
+        (REP_ULTRA_LOW_COST ? String(BATCH_SIZE) : '1'),
       10,
-    ) || (REP_ULTRA_LOW_COST ? BATCH_SIZE : 10),
+    ) || (REP_ULTRA_LOW_COST ? BATCH_SIZE : 1),
   ),
 );
 const REP_BATCH_SYNC_MIN_MS = Math.max(
@@ -119,6 +120,22 @@ function markRowsSent(rows) {
   trx(rows);
 }
 
+function markRowsFailed(rows, reason) {
+  if (!rows.length) return;
+  const db = getAgentDb();
+  const stmt = db.prepare(`UPDATE punches SET status = 'failed', sent_at = ? WHERE id = ?`);
+  const now = Date.now();
+  const trx = db.transaction((list) => {
+    for (const r of list) stmt.run(now, r.id);
+  });
+  trx(rows);
+  agentLog.punchSendFailure({
+    failed_count: rows.length,
+    reason,
+    ids: rows.map((r) => r.id).slice(0, 10),
+  });
+}
+
 function bumpSyncBackoff() {
   syncDelayMs = Math.min(Math.max(syncDelayMs * 2, REP_BATCH_SYNC_MIN_MS), REP_BATCH_SYNC_MAX_MS);
 }
@@ -158,9 +175,11 @@ export async function sendPunchBatch(opts = {}) {
     }).filter(Boolean);
 
     if (punches.length === 0) {
-      markRowsSent(rows);
-      return { sent: 0, duplicate: 0, failed: 0, pendingLeft: countPendingPunches() };
+      markRowsFailed(rows, 'payload_json_corrupt');
+      return { sent: 0, duplicate: 0, failed: rows.length, pendingLeft: countPendingPunches() };
     }
+
+    agentLog.punchSendStart({ batch_size: punches.length, pending_total: pendingTotal });
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REP_BATCH_TIMEOUT_MS);
@@ -248,7 +267,9 @@ export async function sendPunchBatch(opts = {}) {
       processed: data.processed ?? punches.length,
     };
     if (sent > 0 || duplicate > 0) {
-      observabilityConsole.log('[REP BATCH]', JSON.stringify(summary));
+      agentLog.punchSendSuccess(summary);
+    } else if (failed > 0) {
+      agentLog.punchSendFailure(summary);
     }
     return summary;
   } catch (err) {

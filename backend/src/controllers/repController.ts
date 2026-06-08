@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
+import { resolveUserForRepPunch } from '../services/repUserMatch.service.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
@@ -189,20 +190,73 @@ async function repIngestHasPunchHashParam(): Promise<boolean> {
 async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknown>> {
   const companyId = String(body.company_id || body.companyId || '').trim();
   const dataHoraRaw = String(body.data_hora || body.timestamp || '').trim();
+  const deviceId = normalizeUuid(body.device_id);
   if (!companyId || !dataHoraRaw) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_REJECTED',
+      companyId: companyId || null,
+      message: 'Batida rejeitada: company_id e data_hora são obrigatórios',
+      meta: { device_id: deviceId, reason: 'missing_required_fields' },
+    });
     return { success: false, error: 'company_id e data_hora são obrigatórios' };
   }
 
   const ts = new Date(dataHoraRaw);
   if (Number.isNaN(ts.getTime())) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_REJECTED',
+      companyId,
+      message: 'Batida rejeitada: data_hora inválido',
+      meta: { device_id: deviceId, data_hora: dataHoraRaw },
+    });
     return { success: false, error: 'data_hora inválido' };
+  }
+
+  if (body.device_id != null && String(body.device_id).trim() && !deviceId) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_REJECTED',
+      companyId,
+      message: 'Batida rejeitada: device_id inválido',
+      meta: { device_id: String(body.device_id) },
+    });
+    return { success: false, error: 'device_id inválido (UUID esperado)' };
   }
 
   const punchHash = punchHashFromBody(body);
   const rawData = buildRawData(body, ts.toISOString(), punchHash);
+
+  const forcedUserId = normalizeUuid(body.employee_id) ?? normalizeUuid(body.user_id);
+  const match = await resolveUserForRepPunch({
+    companyId,
+    employeeId: forcedUserId,
+    pis: normalizeDigits(body.pis),
+    cpf: normalizeDigits(body.cpf),
+    matricula: body.matricula == null ? null : String(body.matricula).trim() || null,
+    rawData,
+  });
+  const resolvedUserId = match.userId ?? forcedUserId;
+
+  logger.info({
+    module: 'rep.ingest',
+    action: 'PUNCH_RECEIVED',
+    companyId,
+    message: 'Batida REP recebida',
+    meta: {
+      device_id: deviceId,
+      nsr: normalizeNsr(body.nsr),
+      data_hora: ts.toISOString(),
+      match_strategy: match.strategy,
+      resolved_user_id: resolvedUserId,
+      punch_hash: punchHash,
+    },
+  });
+
   const baseParams = [
     companyId,
-    normalizeUuid(body.device_id),
+    deviceId,
     normalizeDigits(body.pis),
     normalizeDigits(body.cpf),
     body.matricula == null ? null : String(body.matricula).trim() || null,
@@ -213,8 +267,8 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
     JSON.stringify(rawData),
     false,
     false,
-    normalizeUuid(body.employee_id) ?? normalizeUuid(body.user_id),
-    true,
+    resolvedUserId,
+    false,
   ];
 
   const hasPunchHashParam = await repIngestHasPunchHashParam();
@@ -224,7 +278,126 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
   const params = hasPunchHashParam ? [...baseParams, punchHash] : baseParams;
   const result = await pool.query(sql, params);
   const payload = result.rows[0]?.result;
-  return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : { success: false, error: 'rep_ingest_punch sem retorno' };
+  const out =
+    payload && typeof payload === 'object'
+      ? (payload as Record<string, unknown>)
+      : { success: false, error: 'rep_ingest_punch sem retorno' };
+
+  if (out.success !== false && out.time_record_id) {
+    logger.info({
+      module: 'rep.ingest',
+      action: 'PROMOTION_SUCCESS',
+      companyId,
+      message: 'Batida promovida para time_records',
+      meta: {
+        rep_log_id: out.rep_log_id ?? null,
+        time_record_id: out.time_record_id,
+        device_id: deviceId,
+        nsr: normalizeNsr(body.nsr),
+      },
+    });
+  } else if (out.success !== false && out.user_not_found) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PROMOTION_FAILURE',
+      companyId,
+      message: 'Batida em rep_punch_logs sem colaborador vinculado',
+      meta: {
+        rep_log_id: out.rep_log_id ?? null,
+        device_id: deviceId,
+        nsr: normalizeNsr(body.nsr),
+        match_strategy: match.strategy,
+        promotion_error_code: out.promotion_error_code ?? 'user_not_found',
+      },
+    });
+  } else if (out.success === false) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_REJECTED',
+      companyId,
+      message: 'Batida rejeitada pelo RPC rep_ingest_punch',
+      meta: {
+        device_id: deviceId,
+        error: out.error ?? null,
+        punch_hash: punchHash,
+      },
+    });
+  } else if (out.success !== false) {
+    logger.info({
+      module: 'rep.ingest',
+      action: 'PUNCH_INSERTED',
+      companyId,
+      message: 'Batida inserida em rep_punch_logs',
+      meta: {
+        rep_log_id: out.rep_log_id ?? null,
+        device_id: deviceId,
+        duplicate: out.duplicate === true,
+      },
+    });
+  }
+
+  return out;
+}
+
+async function processPunchBatch(list: RepPunchBody[]): Promise<{
+  results: Array<Record<string, unknown>>;
+  inserted: number;
+  duplicates: number;
+  errors: number;
+  unresolved: number;
+}> {
+  const results: Array<Record<string, unknown>> = [];
+  let inserted = 0;
+  let duplicates = 0;
+  let errors = 0;
+  let unresolved = 0;
+
+  for (const item of list) {
+    const body = item && typeof item === 'object' ? item : {};
+    const punchHash = punchHashFromBody(body);
+    try {
+      const result = await ingestRepPunch(body);
+      const duplicate = result.duplicate === true || String(result.error || '').includes('já importado');
+      const success = result.success !== false || duplicate;
+      const promoted = Boolean(result.time_record_id);
+      const userNotFound = result.user_not_found === true;
+
+      if (success && duplicate) duplicates += 1;
+      else if (success && promoted) inserted += 1;
+      else if (success && userNotFound) {
+        unresolved += 1;
+      } else if (success) inserted += 1;
+      else errors += 1;
+
+      results.push({
+        punch_hash: result.punch_hash ?? punchHash,
+        success,
+        duplicate,
+        inserted: success && !duplicate && promoted,
+        unresolved: success && userNotFound,
+        error: typeof result.error === 'string' ? result.error : undefined,
+        rep_log_id: result.rep_log_id ?? null,
+        time_record_id: result.time_record_id ?? null,
+        user_not_found: userNotFound || undefined,
+      });
+    } catch (error) {
+      errors += 1;
+      logger.error({
+        module: 'rep.ingest',
+        action: 'PUNCH_REJECTED',
+        message: 'Exceção ao ingerir batida REP',
+        error,
+        meta: { punch_hash: punchHash },
+      });
+      results.push({
+        punch_hash: punchHash,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { results, inserted, duplicates, errors, unresolved };
 }
 
 export async function repPunchesController(req: Request, res: Response): Promise<void> {
@@ -234,45 +407,31 @@ export async function repPunchesController(req: Request, res: Response): Promise
     json(res, 200, { ok: true, processed: 0, results: [] });
     return;
   }
-  if (list.length > 50) {
-    json(res, 200, { ok: true, degraded: true, retry_after: 60_000, results: [] });
-    return;
+
+  const MAX_BATCH = 50;
+  if (list.length > MAX_BATCH) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_BATCH_TRUNCATED',
+      message: `Lote de ${list.length} batidas truncado para ${MAX_BATCH}`,
+      meta: { received: list.length, max_batch: MAX_BATCH },
+    });
   }
 
-  const results: Array<Record<string, unknown>> = [];
-  let inserted = 0;
-  let duplicates = 0;
-  let errors = 0;
-  for (const item of list) {
-    const body = item && typeof item === 'object' ? (item as RepPunchBody) : {};
-    const punchHash = punchHashFromBody(body);
-    try {
-      const result = await ingestRepPunch(body);
-      const duplicate = result.duplicate === true || String(result.error || '').includes('já importado');
-      const success = result.success !== false || duplicate;
-      if (success && duplicate) duplicates += 1;
-      else if (success) inserted += 1;
-      else errors += 1;
-      results.push({
-        punch_hash: result.punch_hash ?? punchHash,
-        success,
-        duplicate,
-        inserted: success && !duplicate,
-        error: typeof result.error === 'string' ? result.error : undefined,
-        rep_log_id: result.rep_log_id ?? null,
-        time_record_id: result.time_record_id ?? null,
-      });
-    } catch (error) {
-      errors += 1;
-      results.push({
-        punch_hash: punchHash,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  const chunk = list.slice(0, MAX_BATCH) as RepPunchBody[];
+  const { results, inserted, duplicates, errors, unresolved } = await processPunchBatch(chunk);
 
-  json(res, 200, { ok: true, processed: list.length, inserted, duplicates, errors, results });
+  json(res, 200, {
+    ok: true,
+    processed: chunk.length,
+    received: list.length,
+    truncated: list.length > MAX_BATCH,
+    inserted,
+    duplicates,
+    errors,
+    unresolved,
+    results,
+  });
 }
 
 export async function repHeartbeatController(req: Request, res: Response): Promise<void> {
@@ -302,6 +461,13 @@ export async function repHeartbeatController(req: Request, res: Response): Promi
       params,
     );
     await client.query('commit');
+    logger.info({
+      module: 'rep.heartbeat',
+      action: 'AGENT_HEARTBEAT',
+      companyId: companyId || null,
+      message: 'Heartbeat REP recebido',
+      meta: { device_id: deviceId, last_seen_at: now },
+    });
     json(res, 200, { ok: true, success: true, last_seen_at: now });
   } catch (error) {
     await client.query('rollback');

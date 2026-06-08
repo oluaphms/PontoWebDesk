@@ -99,7 +99,7 @@ function createJsonQueueDb() {
             const [sentAt, id] = args;
             const key = String(id || '');
             if (!state.punches[key]) return { changes: 0 };
-            state.punches[key].status = 'sent';
+            state.punches[key].status = normalized.includes("'failed'") ? 'failed' : 'sent';
             state.punches[key].sent_at = Number(sentAt) || Date.now();
             persist();
             return { changes: 1 };

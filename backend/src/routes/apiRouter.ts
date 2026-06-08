@@ -7,6 +7,7 @@ import adminRoutes from './adminRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import bankHoursRoutes from './bankHoursRoutes.js';
 import repRoutes from './repRoutes.js';
+import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
 
@@ -86,6 +87,7 @@ apiRouter.use('/auth', authRoutes);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/employees', employeeRoutes);
 apiRouter.use('/punches', punchRoutes);
+apiRouter.get('/diagnostics/rep', repDiagnosticsController);
 apiRouter.use('/rep', repRoutes);
 apiRouter.use('/data', dataRoutes);
 apiRouter.use('/uploads', uploadRoutes);

@@ -10,6 +10,7 @@ import {
   repPushEmployeeController,
   repSyncStatusController,
 } from '../controllers/repController.js';
+import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.post('/push-employee', repPushEmployeeController);
 router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);
+router.get('/diagnostics', repDiagnosticsController);
 
 export default router;
