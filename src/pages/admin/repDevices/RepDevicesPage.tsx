@@ -127,7 +127,6 @@ const AdminRepDevices: React.FC = () => {
   const [loadingList, setLoadingList] = useState(true);
   /** Falha ao listar `rep_devices` (ex.: timeout) — mensagem amigável + detalhe só em modo debug. */
   const [devicesQueryError, setDevicesQueryError] = useState<{ technical: string } | null>(null);
-  const [pageSyncBusy, setPageSyncBusy] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
   const [collectBusy, setCollectBusy] = useState(false);
   const [collectDeviceId, setCollectDeviceId] = useState('');
@@ -587,67 +586,6 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: (e as Error).message });
     } finally {
       setCollectBusy(false);
-    }
-  };
-
-  const runSyncNowFromPage = async () => {
-    const d = redeDevices[0] ?? null;
-    if (!d) {
-      setMessage({ type: 'error', text: 'Cadastre um dispositivo de rede antes de sincronizar.' });
-      return;
-    }
-    if (shouldBlockCloudRepConnectionTest(d)) {
-      setMessage({
-        type: 'success',
-        text:
-          'Sincronização solicitada. Com o agente em execução na empresa, as batidas serão enviadas automaticamente.',
-      });
-      scrollToRepCommunication();
-      return;
-    }
-    setPageSyncBusy(true);
-    setSrDeviceId(d.id);
-    appendSrLog('[REP SYNC STARTED] Sincronização manual acionada pelo painel principal.');
-    try {
-      const accessToken = getToken();
-      if (!accessToken || !user?.companyId) {
-        throw new Error('Sessão expirada. Faça login novamente.');
-      }
-
-      const syncRes = await fetch(buildApiUrl(`/rep/sync?company_id=${encodeURIComponent(user.companyId)}`), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!syncRes.ok) {
-        // Fallback operacional já existente no sistema (sync por dispositivo com sessão autenticada).
-        await srRunReceivePunches('incremental');
-        if (user.companyId) invalidateRepPendingQueries(user.companyId);
-        return;
-      }
-
-      const body = (await syncRes.json().catch(() => ({}))) as {
-        success?: boolean;
-        imported?: number;
-        total_devices?: number;
-      };
-      appendSrLog(
-        `[REP PIPELINE PROCESSED] /api/rep/sync executado: ${Number(body.imported || 0)} batida(s), ${Number(
-          body.total_devices || 0,
-        )} dispositivo(s).`,
-      );
-      setMessage({
-        type: body.success === false ? 'error' : 'success',
-        text: body.success === false ? 'Sincronização finalizou com falhas.' : 'Sincronização concluída.',
-      });
-      if (user.companyId) invalidateRepPendingQueries(user.companyId);
-      await loadDevices();
-    } catch (e) {
-      setMessage({ type: 'error', text: (e as Error).message });
-    } finally {
-      setPageSyncBusy(false);
     }
   };
 
@@ -2440,26 +2378,6 @@ const AdminRepDevices: React.FC = () => {
         helpSlug="relogios-rep"
         actions={
           <div className={repPageUi.c128}>
-            <Button
-              type="button"
-              variant="primary"
-              loading={pageSyncBusy}
-              onClick={() => void runSyncNowFromPage()}
-              className={cx(buttonStyles.base, buttonStyles.primary, uiTokens.radius.button, uiTokens.shadow.card, uiTokens.transition.default)}
-            >
-              <Download size={18} className={repPageUi.c001} />
-              Sincronizar agora
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => openSendReceivePanel(undefined, true)}
-              disabled={redeDevices.length === 0}
-              className={cx(buttonStyles.base, buttonStyles.secondary, uiTokens.radius.button, uiTokens.transition.default)}
-            >
-              <ArrowLeftRight size={18} className={repPageUi.c001} />
-              Enviar/Receber
-            </Button>
             <Button
               type="button"
               variant="outline"
