@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
@@ -419,14 +418,10 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
       insertValues.push(d[column]);
     }
 
-    const newEmployeeId = randomUUID();
-    insertColumns.unshift('id');
-    insertValues.unshift(newEmployeeId);
-
-    const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(',');
+    const valuePlaceholders = insertValues.map((_, index) => `$${index + 1}`).join(', ');
     const result = await client.query(
-      `insert into employees (${insertColumns.join(', ')})
-       values (${placeholders})
+      `insert into employees (id, ${insertColumns.join(', ')})
+       values (gen_random_uuid(), ${valuePlaceholders})
        returning ${buildEmployeeReturningColumns(employeeLinks)}`,
       insertValues,
     );
@@ -476,6 +471,27 @@ export async function createEmployeeController(req: AuthedRequest, res: Response
         success: false,
         error: 'CPF ou e-mail já cadastrado nesta empresa',
         code: 'EMPLOYEE_DUPLICATE',
+      });
+      return;
+    }
+    if (msg === '23502') {
+      const details = describeDbError(e);
+      logger.error({
+        module: 'employee.controller',
+        action: 'EMPLOYEE_CREATE_NOT_NULL',
+        message: 'Falha NOT NULL ao criar colaborador',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: e,
+        meta: { details },
+      });
+      res.status(500).json({
+        ok: false,
+        success: false,
+        error: 'create_failed',
+        code: 'EMPLOYEE_CREATE_NOT_NULL',
+        message: details.message || 'Falha ao gerar identificador do colaborador. Atualize o backend e rode db:migrate na VPS.',
+        details,
       });
       return;
     }
