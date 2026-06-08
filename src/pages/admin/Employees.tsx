@@ -71,6 +71,8 @@ import {
   type TipoVinculo,
 } from '../../constants/cadastroTrabalhista';
 import { validatePassword as validateStrongPasswordRule } from '../../utils/passwordRules';
+import { uploadPhotoViaApi } from '../../services/uploadPhotoApi';
+import { buildApiUrl } from '../../services/api';
 
 /** Configuração adicional do funcionário (employee_config JSONB) */
 interface EmployeeConfig {
@@ -266,7 +268,15 @@ function mapApiEmployeeToRow(e: ApiEmployee, lookups: EmployeeLookupMaps = {}): 
       ajustes: 0,
       inconsistencias: 0,
     }),
-    tipo_vinculo: 'clt',
+    tipo_vinculo: normalizeTipoVinculo(e.tipo_vinculo),
+    ctps: e.ctps ?? undefined,
+    observacoes: e.observacoes ?? undefined,
+    naturalidade: e.naturalidade ?? undefined,
+    estado_civil_text: e.estado_civil_text ?? undefined,
+    data_nascimento: normalizeDateToYmd(e.data_nascimento) ?? undefined,
+    rg: e.rg ?? undefined,
+    rg_orgao: e.rg_orgao ?? undefined,
+    contrato_fim: normalizeDateToYmd(e.contrato_fim) ?? undefined,
   };
 }
 
@@ -287,7 +297,6 @@ function normalizeDateToYmd(value: unknown): string | null {
 }
 
 function buildEnderecoFromForm(form: {
-  endereco: string;
   endereco_rua: string;
   endereco_numero: string;
   endereco_bairro: string;
@@ -295,7 +304,6 @@ function buildEnderecoFromForm(form: {
   endereco_estado: string;
   endereco_cep: string;
 }): string | null {
-  if (form.endereco.trim()) return form.endereco.trim();
   const parts = [
     form.endereco_rua,
     form.endereco_numero,
@@ -307,6 +315,18 @@ function buildEnderecoFromForm(form: {
     .map((p) => p?.trim())
     .filter(Boolean);
   return parts.length ? parts.join(', ') : null;
+}
+
+/** Resolve URL de foto persistida (relativa ou assinada) para exibição no modal. */
+function resolveEmployeePhotoUrl(raw: string): string {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) {
+    const path = url.startsWith('/api/') ? url.slice(4) : url;
+    return buildApiUrl(path);
+  }
+  return buildApiUrl(`/uploads/files/${url}`);
 }
 
 /** Classes compartilhadas do modal Funcionários (apenas apresentação). */
@@ -333,23 +353,6 @@ function normalizeEstadoCivilImport(raw: string): string {
   if (k.includes('casad')) return 'Casado(a)';
   if (k.includes('uniao') || k.includes('estavel')) return 'União estável';
   return t;
-}
-
-/** Normaliza valor vindo do banco (boolean ou string 'true'/'false') para boolean. Evita que funcionários com invisivel='false' (string) fiquem ocultos. */
-function parseBooleanFromDb(value: unknown): boolean {
-  if (value === true || value === 'true' || value === 1) return true;
-  if (value === false || value === 'false' || value === 0 || value === null || value === undefined) return false;
-  return !!value;
-}
-
-function dbText(v: unknown, fallback = ''): string {
-  return String(v ?? fallback);
-}
-
-function dbOptionalText(v: unknown): string | undefined {
-  if (v == null || v === '') return undefined;
-  const s = String(v).trim();
-  return s || undefined;
 }
 
 const PASSWORD_LOWER = 'abcdefghijkmnopqrstuvwxyz';
@@ -610,7 +613,6 @@ const AdminEmployees: React.FC = () => {
     departamento: '',
     jornada_tipo: '',
     carga_horaria: '',
-    endereco: '',
     accessProfile: 'COLABORADOR' as AccessProfile,
     adminRhRole: 'admin' as AdminRhRole,
   });
@@ -629,7 +631,6 @@ const AdminEmployees: React.FC = () => {
   const [passwordCopied, setPasswordCopied] = useState(false);
   /** Painéis “Outras opções” (equivalente ao legado): fora do corpo principal do formulário. */
   const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'afast'>('none');
-  const estruturaSelectRef = useRef<HTMLSelectElement>(null);
 
   const passwordStrengthInfo = useMemo(() => getPasswordStrengthInfo(passwordDraft), [passwordDraft]);
   const passwordChecks = useMemo(() => getPasswordChecks(passwordDraft), [passwordDraft]);
@@ -750,7 +751,8 @@ const AdminEmployees: React.FC = () => {
         await Promise.all([
           fetchEmployees(effectiveCompanyId),
           safeSelectRows('users', {
-            columns: 'id,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id',
+            columns:
+              'id,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id,ctps,observacoes,tipo_vinculo,naturalidade,estado_civil_text,data_nascimento,rg,rg_orgao,contrato_fim,employee_config',
             limit: 1000,
           }),
           safeSelectRows('schedules', {
@@ -837,6 +839,20 @@ const AdminEmployees: React.FC = () => {
           department_id: employee.department_id ?? optionalString(userLink?.department_id) ?? null,
           estrutura_id: employee.estrutura_id ?? optionalString(userLink?.estrutura_id) ?? null,
           motivo_demissao_id: employee.motivo_demissao_id ?? optionalString(userLink?.motivo_demissao_id) ?? null,
+          ctps: employee.ctps ?? optionalString(userLink?.ctps) ?? null,
+          observacoes: employee.observacoes ?? optionalString(userLink?.observacoes) ?? null,
+          tipo_vinculo: employee.tipo_vinculo ?? optionalString(userLink?.tipo_vinculo) ?? null,
+          naturalidade: employee.naturalidade ?? optionalString(userLink?.naturalidade) ?? null,
+          estado_civil_text: employee.estado_civil_text ?? optionalString(userLink?.estado_civil_text) ?? null,
+          data_nascimento: employee.data_nascimento ?? optionalString(userLink?.data_nascimento) ?? null,
+          rg: employee.rg ?? optionalString(userLink?.rg) ?? null,
+          rg_orgao: employee.rg_orgao ?? optionalString(userLink?.rg_orgao) ?? null,
+          contrato_fim: employee.contrato_fim ?? optionalString(userLink?.contrato_fim) ?? null,
+          employee_config:
+            employee.employee_config ??
+            (userLink?.employee_config && typeof userLink.employee_config === 'object'
+              ? (userLink.employee_config as Record<string, unknown>)
+              : undefined),
         };
       });
 
@@ -911,7 +927,6 @@ const AdminEmployees: React.FC = () => {
     departamento: '',
     jornada_tipo: '',
     carga_horaria: '',
-    endereco: '',
     accessProfile: 'COLABORADOR' as AccessProfile,
     adminRhRole: 'admin' as AdminRhRole,
   });
@@ -935,13 +950,16 @@ const AdminEmployees: React.FC = () => {
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
     const accessForm = roleToAccessProfileForm(row.role);
+    const photoRaw =
+      typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '';
+    const afast = row.employee_config?.afastamentos?.[0];
+    const enderecoLegacy = row.endereco?.trim() || '';
     setForm({
       ...defaultForm(),
       ...accessForm,
       numero_folha: row.numero_folha || '',
       numero_identificador: row.numero_identificador || '',
-      photo_preview:
-        typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '',
+      photo_preview: photoRaw,
       salario_base:
         row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
       nome: row.nome,
@@ -949,6 +967,8 @@ const AdminEmployees: React.FC = () => {
       email: row.email,
       phone: row.phone || '',
       pis_pasep: row.pis_pasep || '',
+      ctps: row.ctps || '',
+      observacoes: row.observacoes || '',
       cargo: row.cargo || '',
       department_id: row.department_id || '',
       estrutura_id: row.estrutura_id || '',
@@ -957,26 +977,41 @@ const AdminEmployees: React.FC = () => {
       departamento: row.department_name || row.departamento || '',
       jornada_tipo: row.jornada_tipo || '',
       carga_horaria: row.carga_horaria != null ? String(row.carga_horaria) : '',
-      endereco: row.endereco || '',
+      endereco_rua: row.endereco_rua || enderecoLegacy,
+      endereco_numero: row.endereco_numero || '',
+      endereco_bairro: row.endereco_bairro || '',
+      endereco_cidade: row.endereco_cidade || '',
+      endereco_estado: row.endereco_estado || '',
+      endereco_cep: row.endereco_cep || '',
       admissao: normalizeDateToYmd(row.admissao) || '',
       demissao: normalizeDateToYmd(row.demissao) || '',
       motivo_demissao_id: row.motivo_demissao_id || '',
       tipo_vinculo: normalizeTipoVinculo(row.tipo_vinculo),
+      naturalidade: row.naturalidade || '',
+      estado_civil_text: row.estado_civil_text || '',
+      data_nascimento: normalizeDateToYmd(row.data_nascimento) || '',
+      rg: row.rg || '',
+      rg_orgao: row.rg_orgao || '',
+      contrato_fim: normalizeDateToYmd(row.contrato_fim) || '',
+      afastamento_inicio: afast?.periodo_inicio || '',
+      afastamento_fim: afast?.periodo_fim || '',
+      afastamento_justificativa: afast?.justificativa || '',
+      afastamento_motivo: afast?.motivo || '',
     });
     setModalOpen(true);
     setError(null);
     setSuccess(null);
   };
 
-  const buildEmployeeConfig = (): EmployeeConfig => {
+  const buildEmployeeConfig = (photoUrl: string | null): EmployeeConfig => {
     const existingConfig = editingId ? (rows.find(r => r.id === editingId)?.employee_config || {}) : {};
     const cfg: EmployeeConfig = { ...existingConfig };
     delete cfg.assinatura_digital;
     delete cfg.perifericos;
     delete cfg.dados_web;
 
-    if (form.photo_preview && !form.photo_preview.startsWith('data:')) {
-      cfg.photo_url = form.photo_preview;
+    if (photoUrl) {
+      cfg.photo_url = photoUrl;
     } else {
       delete cfg.photo_url;
     }
@@ -1046,34 +1081,59 @@ const AdminEmployees: React.FC = () => {
       return;
     }
 
-    const apiPayload: EmployeeWriteInput = {
-      nome: form.nome.trim(),
-      cpf: form.cpf.trim(),
-      email: form.email.trim().toLowerCase() || null,
-      role: accessProfileToRole(form.accessProfile, form.adminRhRole),
-      status: form.demissao?.trim() ? 'inactive' : 'active',
-      companyId: effectiveCompanyId,
-      pis: form.pis_pasep?.trim() || null,
-      telefone: form.phone?.trim() || null,
-      data_admissao: normalizeDateToYmd(form.admissao) || null,
-      cargo: cargoFinal,
-      departamento: form.departamento?.trim() || null,
-      schedule_id: form.schedule_id || null,
-      shift_id: form.shift_id || null,
-      salario: salarioParsed,
-      jornada_tipo: form.jornada_tipo || null,
-      carga_horaria: cargaParsed,
-      endereco: buildEnderecoFromForm(form),
-      numero_folha: form.numero_folha?.trim() || null,
-      numero_identificador: form.numero_identificador?.trim() || null,
-      demissao: normalizeDateToYmd(form.demissao) || null,
-      employee_config: buildEmployeeConfig() as unknown as Record<string, unknown>,
-    };
-
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
+      let persistedPhotoUrl: string | null = null;
+      if (form.photo_preview.startsWith('data:')) {
+        const uploaded = await uploadPhotoViaApi({ dataUrl: form.photo_preview, kind: 'avatar' });
+        if (!uploaded.ok) {
+          setError(uploaded.error || 'Falha ao enviar fotografia.');
+          scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+        persistedPhotoUrl = uploaded.url;
+      } else if (form.photo_preview.trim()) {
+        persistedPhotoUrl = form.photo_preview.trim();
+      }
+
+      const apiPayload: EmployeeWriteInput = {
+        nome: form.nome.trim(),
+        cpf: form.cpf.trim(),
+        email: form.email.trim().toLowerCase() || null,
+        role: accessProfileToRole(form.accessProfile, form.adminRhRole),
+        status: form.demissao?.trim() ? 'inactive' : 'active',
+        companyId: effectiveCompanyId,
+        pis: form.pis_pasep?.trim() || null,
+        telefone: form.phone?.trim() || null,
+        data_admissao: normalizeDateToYmd(form.admissao) || null,
+        cargo: cargoFinal,
+        departamento: form.departamento?.trim() || null,
+        department_id: form.department_id || null,
+        estrutura_id: form.estrutura_id || null,
+        schedule_id: form.schedule_id || null,
+        shift_id: form.shift_id || null,
+        salario: salarioParsed,
+        jornada_tipo: form.jornada_tipo || null,
+        carga_horaria: cargaParsed,
+        endereco: buildEnderecoFromForm(form),
+        numero_folha: form.numero_folha?.trim() || null,
+        numero_identificador: form.numero_identificador?.trim() || null,
+        demissao: normalizeDateToYmd(form.demissao) || null,
+        motivo_demissao_id: form.motivo_demissao_id || null,
+        ctps: form.ctps?.trim() || null,
+        observacoes: form.observacoes?.trim() || null,
+        tipo_vinculo: form.tipo_vinculo,
+        naturalidade: form.naturalidade?.trim() || null,
+        estado_civil_text: form.estado_civil_text?.trim() || null,
+        data_nascimento: normalizeDateToYmd(form.data_nascimento) || null,
+        rg: form.rg?.trim() || null,
+        rg_orgao: form.rg_orgao?.trim() || null,
+        contrato_fim: normalizeDateToYmd(form.contrato_fim) || null,
+        employee_config: buildEmployeeConfig(persistedPhotoUrl) as unknown as Record<string, unknown>,
+      };
+
       if (editingId) {
         const updated = await updateEmployee(editingId, apiPayload);
         const updatedRow = mapApiEmployeeToRow(updated, employeeLookups);
@@ -1143,7 +1203,7 @@ const AdminEmployees: React.FC = () => {
       if (isDuplicateEmail) {
         setError('Este e-mail já está cadastrado. Use outro e-mail ou edite o funcionário existente.');
       } else if (isDuplicateIdentificador) {
-        setError('Nº Identificador já existe no sistema. Informe outro número.');
+        setError('Matrícula já existe no sistema. Informe outro número.');
       } else if (isRateLimit429) {
         setError(
           'Limite de criação/envio de e-mails do Supabase atingido (erro 429). Aguarde alguns minutos e tente novamente ou reduza a quantidade de cadastros consecutivos.'
@@ -1511,14 +1571,28 @@ const AdminEmployees: React.FC = () => {
       mimeType: file.type || '',
       size: file.size,
     });
-    if (!check.ok) return;
+    if (!check.ok) {
+      setError('Imagem inválida para upload.');
+      scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      e.target.value = '';
+      return;
+    }
     const head = await readFileHead(file, 32);
-    if (!detectImageMime(head)) return;
+    if (!detectImageMime(head)) {
+      setError('Conteúdo da imagem inválido.');
+      scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      e.target.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      if (!result.startsWith('data:image/')) return;
+      if (!result.startsWith('data:image/')) {
+        setError('Formato de imagem não suportado.');
+        return;
+      }
       setForm((f) => ({ ...f, photo_preview: result }));
+      setError(null);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -1795,9 +1869,9 @@ const AdminEmployees: React.FC = () => {
                           />
                         </div>
                         <div>
-                          <label className={EMP_MODAL_LABEL}>Nº Identificador</label>
+                          <label className={EMP_MODAL_LABEL}>Matrícula</label>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5 leading-snug">
-                            Mesmo valor que o Control iD envia como matrícula/crachá no REP (não exige CPF no cadastro).
+                            Matrícula utilizada pelo colaborador no sistema e nos equipamentos REP.
                           </p>
                           <input
                             type="text"
@@ -1824,37 +1898,18 @@ const AdminEmployees: React.FC = () => {
                         </div>
                         <div>
                           <label className={EMP_MODAL_LABEL}>Estrutura</label>
-                          <div className="flex gap-2 items-stretch">
-                            <select
-                              ref={estruturaSelectRef}
-                              value={form.estrutura_id}
-                              onChange={(e) => setForm({ ...form, estrutura_id: e.target.value })}
-                              className={`min-w-0 flex-1 ${EMP_MODAL_INPUT}`}
-                            >
-                              <option value="">Nenhuma</option>
-                              {estruturas.map((e) => (
-                                <option key={e.id} value={e.id}>
-                                  {e.descricao || e.codigo}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              title="Focar lista"
-                              onClick={() => estruturaSelectRef.current?.focus()}
-                              className="shrink-0 px-3 rounded-lg border border-slate-200/90 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150"
-                            >
-                              <Search className="w-4 h-4 mx-auto" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Limpar"
-                              onClick={() => setForm((f) => ({ ...f, estrutura_id: '' }))}
-                              className="shrink-0 px-3 rounded-lg border border-red-200/80 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors duration-150"
-                            >
-                              <X className="w-4 h-4 mx-auto" />
-                            </button>
-                          </div>
+                          <select
+                            value={form.estrutura_id}
+                            onChange={(e) => setForm({ ...form, estrutura_id: e.target.value })}
+                            className={EMP_MODAL_INPUT}
+                          >
+                            <option value="">Nenhuma</option>
+                            {estruturas.map((e) => (
+                              <option key={e.id} value={e.id}>
+                                {e.descricao || e.codigo}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label className={EMP_MODAL_LABEL}>
@@ -1866,18 +1921,6 @@ const AdminEmployees: React.FC = () => {
                             onChange={(e) => setForm({ ...form, departamento: e.target.value })}
                             className={EMP_MODAL_INPUT}
                             placeholder="Ex.: RH, Produção, Vendas"
-                          />
-                        </div>
-                        <div>
-                          <label className={EMP_MODAL_LABEL}>
-                            Cargo / Função <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={form.cargo}
-                            onChange={(e) => setForm({ ...form, cargo: e.target.value })}
-                            className={EMP_MODAL_INPUT}
-                            placeholder="Ex.: Analista, Operador"
                           />
                         </div>
                         <div>
@@ -1920,15 +1963,6 @@ const AdminEmployees: React.FC = () => {
                           </div>
                         </div>
                         <div>
-                          <label className={EMP_MODAL_LABEL}>Endereço</label>
-                          <textarea
-                            value={form.endereco}
-                            onChange={(e) => setForm({ ...form, endereco: e.target.value })}
-                            className={`${EMP_MODAL_INPUT} min-h-[80px] resize-y`}
-                            placeholder="Rua, número, bairro, cidade — UF, CEP"
-                          />
-                        </div>
-                        <div>
                           <label className={EMP_MODAL_LABEL}>CTPS</label>
                           <input
                             type="text"
@@ -1956,7 +1990,7 @@ const AdminEmployees: React.FC = () => {
                           </div>
                           <div>
                             <label className={EMP_MODAL_LABEL}>
-                              Função <span className="text-red-500">*</span>
+                              Cargo / Função <span className="text-red-500">*</span>
                             </label>
                             <select
                               value={form.cargo}
@@ -2033,7 +2067,11 @@ const AdminEmployees: React.FC = () => {
                       <div className="flex flex-col items-center gap-4">
                         <div className="h-[104px] w-[104px] shrink-0 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden bg-white dark:bg-slate-800 flex items-center justify-center shadow-md">
                           {form.photo_preview ? (
-                            <img src={form.photo_preview} alt="Foto" className="w-full h-full object-cover" />
+                            <img
+                              src={resolveEmployeePhotoUrl(form.photo_preview)}
+                              alt="Foto"
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <User className="w-11 h-11 text-slate-400" />
                           )}
@@ -2109,17 +2147,6 @@ const AdminEmployees: React.FC = () => {
                   <section className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-4">
                     <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Dados adicionais</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Salário base (R$)</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={form.salario_base}
-                          onChange={(e) => setForm({ ...form, salario_base: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          placeholder="Ex.: 3500 ou 3500,50"
-                        />
-                      </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Escala</label>
                         <select value={form.schedule_id} onChange={(e) => setForm({ ...form, schedule_id: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">

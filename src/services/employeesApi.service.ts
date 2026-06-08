@@ -39,6 +39,15 @@ export type ApiEmployee = {
   dismissal_date?: string | null;
   motivo_demissao_id?: string | null;
   motivo_demissao_name?: string | null;
+  ctps?: string | null;
+  observacoes?: string | null;
+  tipo_vinculo?: string | null;
+  naturalidade?: string | null;
+  estado_civil_text?: string | null;
+  data_nascimento?: string | null;
+  rg?: string | null;
+  rg_orgao?: string | null;
+  contrato_fim?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
 };
@@ -69,6 +78,18 @@ export type EmployeeWriteInput = {
   demissao?: string | null;
   termination_date?: string | null;
   dismissal_date?: string | null;
+  motivo_demissao_id?: string | null;
+  estrutura_id?: string | null;
+  department_id?: string | null;
+  ctps?: string | null;
+  observacoes?: string | null;
+  tipo_vinculo?: string | null;
+  naturalidade?: string | null;
+  estado_civil_text?: string | null;
+  data_nascimento?: string | null;
+  rg?: string | null;
+  rg_orgao?: string | null;
+  contrato_fim?: string | null;
   invisivel?: boolean;
   employee_config?: Record<string, unknown>;
   /** Senha inicial (somente criação). */
@@ -132,6 +153,26 @@ function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<stri
   }
   if (input.invisivel !== undefined) body.invisivel = input.invisivel;
   if (input.employee_config !== undefined) body.employee_config = input.employee_config;
+  if (input.estrutura_id !== undefined) body.estrutura_id = input.estrutura_id?.trim() || null;
+  if (input.motivo_demissao_id !== undefined) {
+    body.motivo_demissao_id = input.motivo_demissao_id?.trim() || null;
+  }
+  if (input.department_id !== undefined) body.department_id = input.department_id?.trim() || null;
+  if (input.ctps !== undefined) body.ctps = input.ctps?.trim() || null;
+  if (input.observacoes !== undefined) body.observacoes = input.observacoes?.trim() || null;
+  if (input.tipo_vinculo !== undefined) body.tipo_vinculo = input.tipo_vinculo?.trim() || null;
+  if (input.naturalidade !== undefined) body.naturalidade = input.naturalidade?.trim() || null;
+  if (input.estado_civil_text !== undefined) {
+    body.estado_civil_text = input.estado_civil_text?.trim() || null;
+  }
+  if (input.data_nascimento !== undefined) {
+    body.data_nascimento = normalizeDateInput(input.data_nascimento);
+  }
+  if (input.rg !== undefined) body.rg = input.rg?.trim() || null;
+  if (input.rg_orgao !== undefined) body.rg_orgao = input.rg_orgao?.trim() || null;
+  if (input.contrato_fim !== undefined) {
+    body.contrato_fim = normalizeDateInput(input.contrato_fim);
+  }
   if ('password' in input && typeof input.password === 'string' && input.password.trim()) {
     body.password = input.password.trim();
   }
@@ -294,6 +335,15 @@ function normalizeApiEmployee(row: ApiEmployee): ApiEmployee {
     dismissal_date: normalizedDismissal,
     motivo_demissao_id: normalizeNullableString(row.motivo_demissao_id),
     motivo_demissao_name: normalizeNullableString(row.motivo_demissao_name),
+    ctps: normalizeNullableString(row.ctps),
+    observacoes: normalizeNullableString(row.observacoes),
+    tipo_vinculo: normalizeNullableString(row.tipo_vinculo),
+    naturalidade: normalizeNullableString(row.naturalidade),
+    estado_civil_text: normalizeNullableString(row.estado_civil_text),
+    data_nascimento: normalizeDateInput(row.data_nascimento),
+    rg: normalizeNullableString(row.rg),
+    rg_orgao: normalizeNullableString(row.rg_orgao),
+    contrato_fim: normalizeDateInput(row.contrato_fim),
     invisivel: row.invisivel === true,
     employee_config:
       row.employee_config && typeof row.employee_config === 'object'

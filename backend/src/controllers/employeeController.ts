@@ -41,6 +41,18 @@ const USER_VIEW_COLUMNS = [
   'demissao',
   'invisivel',
   'employee_config',
+  'estrutura_id',
+  'motivo_demissao_id',
+  'department_id',
+  'ctps',
+  'observacoes',
+  'tipo_vinculo',
+  'naturalidade',
+  'estado_civil_text',
+  'data_nascimento',
+  'rg',
+  'rg_orgao',
+  'contrato_fim',
 ] as const;
 type UserViewColumn = (typeof USER_VIEW_COLUMNS)[number];
 type UserViewColumnMap = Record<UserViewColumn, boolean>;
@@ -118,7 +130,19 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
     ${userColumnSelect(userColumns, 'numero_identificador')},
     ${userColumnSelect(userColumns, 'demissao')},
     ${userColumnSelect(userColumns, 'invisivel', 'invisivel', 'false')},
-    ${userColumnSelect(userColumns, 'employee_config', 'employee_config', "'{}'::jsonb")}
+    ${userColumnSelect(userColumns, 'employee_config', 'employee_config', "'{}'::jsonb")},
+    ${userColumnSelect(userColumns, 'estrutura_id')},
+    ${userColumnSelect(userColumns, 'motivo_demissao_id')},
+    ${userColumnSelect(userColumns, 'department_id')},
+    ${userColumnSelect(userColumns, 'ctps')},
+    ${userColumnSelect(userColumns, 'observacoes')},
+    ${userColumnSelect(userColumns, 'tipo_vinculo')},
+    ${userColumnSelect(userColumns, 'naturalidade')},
+    ${userColumnSelect(userColumns, 'estado_civil_text')},
+    ${userColumnSelect(userColumns, 'data_nascimento')},
+    ${userColumnSelect(userColumns, 'rg')},
+    ${userColumnSelect(userColumns, 'rg_orgao')},
+    ${userColumnSelect(userColumns, 'contrato_fim')}
   `.trim();
 }
 
@@ -155,6 +179,8 @@ function mapRow(row: Record<string, unknown>) {
     data_admissao: toDateYmd(dataAdmissao),
     admissao: toDateYmd(dataAdmissao),
     demissao: toDateYmd(demissao),
+    data_nascimento: toDateYmd(row.data_nascimento),
+    contrato_fim: toDateYmd(row.contrato_fim),
     salario: row.salario != null ? Number(row.salario) : null,
     carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
     employee_config: employeeConfig ?? {},
@@ -509,6 +535,18 @@ const USER_SYNC_PATCH_FIELDS = new Set([
   'employee_config',
   'schedule_id',
   'shift_id',
+  'estrutura_id',
+  'motivo_demissao_id',
+  'department_id',
+  'ctps',
+  'observacoes',
+  'tipo_vinculo',
+  'naturalidade',
+  'estado_civil_text',
+  'data_nascimento',
+  'rg',
+  'rg_orgao',
+  'contrato_fim',
 ]);
 
 async function fetchEmployeeViewById(

@@ -213,6 +213,33 @@ export async function syncUserFieldsFromEmployeeBody(
   if ('telefone' in body) set('phone', body.telefone == null || body.telefone === '' ? null : String(body.telefone).trim());
   if ('schedule_id' in body) set('schedule_id', nullableTrim(body.schedule_id));
   if ('shift_id' in body) set('shift_id', nullableTrim(body.shift_id));
+  if ('estrutura_id' in body) set('estrutura_id', nullableTrim(body.estrutura_id));
+  if ('motivo_demissao_id' in body) set('motivo_demissao_id', nullableTrim(body.motivo_demissao_id));
+  if ('department_id' in body) set('department_id', nullableTrim(body.department_id));
+  if ('ctps' in body) set('ctps', nullableTrim(body.ctps));
+  if ('observacoes' in body) {
+    set('observacoes', body.observacoes == null || body.observacoes === '' ? null : String(body.observacoes).trim());
+  }
+  if ('tipo_vinculo' in body) {
+    const tv = nullableTrim(body.tipo_vinculo);
+    set('tipo_vinculo', tv || 'clt');
+  }
+  if ('naturalidade' in body) set('naturalidade', nullableTrim(body.naturalidade));
+  if ('estado_civil_text' in body) set('estado_civil_text', nullableTrim(body.estado_civil_text));
+  if ('data_nascimento' in body) {
+    const raw = body.data_nascimento;
+    const ymd =
+      raw == null || raw === '' ? null : String(raw).trim().slice(0, 10);
+    set('data_nascimento', ymd);
+  }
+  if ('rg' in body) set('rg', nullableTrim(body.rg));
+  if ('rg_orgao' in body) set('rg_orgao', nullableTrim(body.rg_orgao));
+  if ('contrato_fim' in body) {
+    const raw = body.contrato_fim;
+    const ymd =
+      raw == null || raw === '' ? null : String(raw).trim().slice(0, 10);
+    set('contrato_fim', ymd);
+  }
   if ('role' in body) set('role', normalizeAssignableEmployeeRole(String(body.role ?? employeeRow.role ?? 'employee')));
   if ('data_admissao' in body) {
     const admissaoRaw = body.data_admissao;
