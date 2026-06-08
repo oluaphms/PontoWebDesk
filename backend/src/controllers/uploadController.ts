@@ -26,6 +26,24 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
     const filename = body.filename || 'photo.jpg';
     const declaredMime = body.mimeType || '';
     const raw = String(body.contentBase64 || '').trim();
+    const contentLengthHeader = req.headers['content-length'];
+    const estimatedSize = raw ? Math.floor((raw.length * 3) / 4) : 0;
+
+    logger.info({
+      module: 'upload.controller',
+      action: 'UPLOAD_REQUEST_RECEIVED',
+      message: 'Requisição de upload recebida',
+      userId: String(userId),
+      meta: {
+        origin: req.headers.origin ?? null,
+        contentType: req.headers['content-type'] ?? null,
+        contentLength: contentLengthHeader ?? null,
+        filename,
+        mimeType: declaredMime,
+        kind,
+        estimatedBytes: estimatedSize,
+      },
+    });
     if (!raw) {
       res.status(400).json({ ok: false, error: 'content_required' });
       return;

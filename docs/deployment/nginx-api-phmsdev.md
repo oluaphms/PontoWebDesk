@@ -25,6 +25,7 @@ Significa que a requisição chegou ao Node **sem** `/api` no path. Causas típi
 
 ```nginx
 location /api/ {
+    client_max_body_size 10m;   # uploads JSON/base64 (default nginx = 1m → 413 sem CORS)
     proxy_pass http://127.0.0.1:3000/api/;
 }
 ```

@@ -39,7 +39,16 @@ if (process.env.NODE_ENV !== 'test') {
     meta: { origins: corsAllowList },
   });
 }
-app.use(express.json({ limit: '1mb' }));
+/** Rotas com JSON grande usam parser dedicado no router (ex.: upload 7mb). */
+const LARGE_JSON_API_PATHS = new Set(['/api/uploads/photo', '/api/uploads/photo-url']);
+
+app.use((req, res, next) => {
+  if (LARGE_JSON_API_PATHS.has(req.path)) {
+    next();
+    return;
+  }
+  express.json({ limit: '1mb' })(req, res, next);
+});
 app.use(requestContextMiddleware);
 
 /** Health local (sem DB) — útil se o proxy expuser só /api. */
@@ -78,6 +87,27 @@ app.use((_req, res) => {
 });
 
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const payloadTooLarge =
+    typeof err === 'object' &&
+    err !== null &&
+    'type' in err &&
+    (err as { type?: string }).type === 'entity.too.large';
+
+  if (payloadTooLarge) {
+    logger.warn({
+      module: 'http.app',
+      action: 'PAYLOAD_TOO_LARGE',
+      message: 'Corpo da requisição excede o limite configurado',
+      meta: {
+        method: req.method,
+        path: req.originalUrl,
+        contentLength: req.headers['content-length'] ?? null,
+      },
+    });
+    res.status(413).json({ ok: false, error: 'payload_too_large' });
+    return;
+  }
+
   logger.error({
     module: 'http.app',
     action: 'UNHANDLED_ERROR',
