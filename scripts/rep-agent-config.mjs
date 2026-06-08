@@ -83,6 +83,10 @@ function applyConfigToProcessEnv(cfg) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
   }
 
+  if (cfg.enable_commands === true || /^(1|true|yes)$/i.test(trimStr(cfg.enable_commands))) {
+    process.env.REP_ENABLE_COMMANDS = '1';
+  }
+
   const ingestFrom = trimStr(cfg.ingest_from_date);
   if (ingestFrom) {
     process.env.REP_INGEST_FROM_DATE = ingestFrom;

@@ -11,6 +11,6 @@
   "timezone": "-03:00",
   "device_scheme": "https",
   "insecure_tls": true,
-  "agent_interval_ms": 60000
+  "agent_interval_ms": 60000,
   "enable_commands": true
 }
