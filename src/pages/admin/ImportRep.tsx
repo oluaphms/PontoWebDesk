@@ -1,49 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Navigate, Link } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { db, supabase, isSupabaseConfigured } from '../../services/supabaseClient';
-import { buscarFiltrosEspelhoAdmin } from '../../../services/api';
+import { db } from '../../services/supabaseClient';
 import { buildApiUrl } from '../../services/api';
 import { readFileHead, validateAfdUpload } from '../../shared/upload/fileValidation';
 import { UPLOAD_LIMITS } from '../../shared/upload/limits';
 import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { LoadingState, Button } from '../../../components/UI';
-import { Upload, FileText, X } from 'lucide-react';
+import { Upload, FileText, History } from 'lucide-react';
+import { getToken } from '../../services/authToken';
+import { recalculate_period } from '../../engine/timeEngine';
+import { invalidateAfterPunch } from '../../services/queryCache';
 
 type RepDeviceOption = { id: string; nome_dispositivo: string };
 
-const getAppUrl = () => {
-  if (typeof window !== 'undefined') return window.location.origin;
-  return process.env.VITE_APP_URL || 'https://smartponto.app';
+type ImportResult = {
+  imported: number;
+  duplicated: number;
+  ignored: number;
+  user_not_found: number;
+  employees_found: number;
+  processing_ms: number;
+  errors: string[];
+  recalc_targets?: Array<{ user_id: string; date: string }>;
 };
 
 const AdminImportRep: React.FC = () => {
-  const navigate = useNavigate();
   const { user, loading } = useCurrentUser();
-  const [searchParams] = useSearchParams();
   const [devices, setDevices] = useState<RepDeviceOption[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
-  const [employees, setEmployees] = useState<{ id: string; nome: string }[]>([]);
-  const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ imported: number; duplicated: number; user_not_found: number; errors: string[] } | null>(null);
+  const [uploadedAt, setUploadedAt] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
   const [repDeviceId, setRepDeviceId] = useState<string>('');
-  /** Todas as linhas do ficheiro gravam neste colaborador (ignora PIS/CPF do AFD). */
-  const [forceUserId, setForceUserId] = useState<string>('');
+
+  const runRecalc = useCallback(
+    async (targets: Array<{ user_id: string; date: string }>) => {
+      if (!user?.companyId || !targets.length) return;
+      const seen = new Set<string>();
+      for (const t of targets) {
+        const key = `${t.user_id}|${t.date}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await recalculate_period(t.user_id, user.companyId, t.date, t.date);
+          invalidateAfterPunch(t.user_id, user.companyId);
+        } catch {
+          /* recálculo best-effort */
+        }
+      }
+    },
+    [user?.companyId],
+  );
 
   useEffect(() => {
-    const q = searchParams.get('forceUserId');
-    if (q) setForceUserId(q);
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
+    if (!user?.companyId) return;
     const load = async () => {
       setLoadingDevices(true);
       try {
-        const list = (await db.select('rep_devices', [{ column: 'company_id', operator: 'eq', value: user.companyId }], undefined, 200)) as RepDeviceOption[];
+        const list = (await db.select(
+          'rep_devices',
+          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+          undefined,
+          200,
+        )) as RepDeviceOption[];
         setDevices(list || []);
       } finally {
         setLoadingDevices(false);
@@ -52,29 +74,11 @@ const AdminImportRep: React.FC = () => {
     void load();
   }, [user?.companyId]);
 
-  useEffect(() => {
-    if (!user?.companyId || !isSupabaseConfigured()) return;
-    let active = true;
-    (async () => {
-      setLoadingEmployees(true);
-      try {
-        const f = await buscarFiltrosEspelhoAdmin(user.companyId);
-        if (active) setEmployees(f.employees.map((e) => ({ id: e.id, nome: e.nome })));
-      } catch {
-        if (active) setEmployees([]);
-      } finally {
-        if (active) setLoadingEmployees(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [user?.companyId]);
-
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) {
       setFile(null);
+      setUploadedAt(null);
       return;
     }
     const policy = validateUploadByPolicy({
@@ -84,7 +88,15 @@ const AdminImportRep: React.FC = () => {
       size: f.size,
     });
     if (!policy.ok) {
-      setResult({ imported: 0, duplicated: 0, user_not_found: 0, errors: ['Arquivo inválido para importação AFD.'] });
+      setResult({
+        imported: 0,
+        duplicated: 0,
+        ignored: 0,
+        user_not_found: 0,
+        employees_found: 0,
+        processing_ms: 0,
+        errors: ['Arquivo inválido para importação AFD.'],
+      });
       setFile(null);
       e.target.value = '';
       return;
@@ -97,28 +109,34 @@ const AdminImportRep: React.FC = () => {
       head,
     });
     if (check.ok === false) {
-      setResult({ imported: 0, duplicated: 0, user_not_found: 0, errors: [check.message] });
+      setResult({
+        imported: 0,
+        duplicated: 0,
+        ignored: 0,
+        user_not_found: 0,
+        employees_found: 0,
+        processing_ms: 0,
+        errors: [check.message],
+      });
       setFile(null);
       e.target.value = '';
       return;
     }
     setFile(f);
+    setUploadedAt(null);
     setResult(null);
   };
 
   const handleUpload = async () => {
     if (!file || !user?.companyId) return;
-    const policy = validateUploadByPolicy({
-      policy: 'afdImport',
-      fileName: file.name || 'import.txt',
-      mimeType: file.type || '',
-      size: file.size,
-    });
-    if (!policy.ok || file.size > UPLOAD_LIMITS.afdImport) {
+    if (file.size > UPLOAD_LIMITS.afdImport) {
       setResult({
         imported: 0,
         duplicated: 0,
+        ignored: 0,
         user_not_found: 0,
+        employees_found: 0,
+        processing_ms: 0,
         errors: ['Arquivo excede o limite de 10 MB.'],
       });
       return;
@@ -126,16 +144,15 @@ const AdminImportRep: React.FC = () => {
     setUploading(true);
     setResult(null);
     try {
-      const { data: { session } } = await supabase?.auth.getSession() ?? { data: { session: null } };
-      const accessToken = session?.access_token ?? null;
       const formData = new FormData();
       formData.set('company_id', user.companyId);
       if (repDeviceId) formData.set('rep_device_id', repDeviceId);
-      if (forceUserId.trim()) formData.set('force_user_id', forceUserId.trim());
       formData.set('file', file);
 
       const headers: Record<string, string> = {};
-      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+      const token = getToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(buildApiUrl('/rep/import-afd'), {
         method: 'POST',
         headers,
@@ -144,20 +161,41 @@ const AdminImportRep: React.FC = () => {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setResult({ imported: 0, duplicated: 0, user_not_found: 0, errors: [data.error || res.statusText] });
+        setResult({
+          imported: 0,
+          duplicated: 0,
+          ignored: 0,
+          user_not_found: 0,
+          employees_found: 0,
+          processing_ms: 0,
+          errors: [data.message || data.error || res.statusText],
+        });
         return;
       }
-      setResult({
+
+      const importResult: ImportResult = {
         imported: data.imported ?? 0,
         duplicated: data.duplicated ?? 0,
+        ignored: data.ignored ?? 0,
         user_not_found: data.user_not_found ?? 0,
+        employees_found: data.employees_found ?? 0,
+        processing_ms: data.processing_ms ?? 0,
         errors: data.errors || [],
-      });
+        recalc_targets: data.recalc_targets,
+      };
+      setResult(importResult);
+      setUploadedAt(new Date().toISOString());
+      if (Array.isArray(data.recalc_targets) && data.recalc_targets.length) {
+        void runRecalc(data.recalc_targets);
+      }
     } catch (e) {
       setResult({
         imported: 0,
         duplicated: 0,
+        ignored: 0,
         user_not_found: 0,
+        employees_found: 0,
+        processing_ms: 0,
         errors: [(e as Error).message],
       });
     } finally {
@@ -169,65 +207,37 @@ const AdminImportRep: React.FC = () => {
   if (!user) return <Navigate to="/" replace />;
 
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto">
+    <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
       <PageHeader
         helpSlug="importar-afd"
-        title="Importar AFD / REP"
-        subtitle="Envie arquivo AFD, TXT ou CSV com marcações do relógio de ponto"
+        title="Importação de Arquivo AFD"
+        subtitle="Importe arquivos AFD exportados do relógio de ponto para recuperar ou registrar marcações."
         icon={<Upload size={24} />}
+        actions={
+          <Link
+            to="/admin/afd-import-history"
+            className="inline-flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+          >
+            <History size={16} />
+            Histórico
+          </Link>
+        }
       />
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-6 relative">
-        <button
-          type="button"
-          onClick={() => navigate('/admin/timesheet')}
-          className="absolute top-3 right-3 p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40"
-          aria-label="Fechar e voltar para Espelho de Ponto"
-          title="Fechar"
-        >
-          <X className="w-5 h-5" />
-        </button>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          Formatos aceitos: AFD (Portaria 671), TXT ou CSV com colunas NSR, Data, Hora, PIS/CPF, Tipo (E/S). Pode
-          obter o ficheiro a partir do software do relógio ou do agente local (exportação AFD), e enviar aqui.
-        </p>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-            Atribuir todas as batidas a um colaborador (opcional)
-          </label>
-          <select
-            value={forceUserId}
-            onChange={(e) => setForceUserId(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-            disabled={loadingEmployees}
-          >
-            <option value="">Não — usar PIS/CPF/crachá do ficheiro (normal)</option>
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.nome}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-amber-800 dark:text-amber-200/90">
-            Use esta opção quando o relógio envia NIS de pessoas ainda não cadastradas no SaaS: todas as linhas do
-            arquivo passam a valer para o colaborador escolhido (idealmente um ficheiro só com as batidas dessa
-            pessoa). Se o ficheiro misturar vários NIS, todas serão gravadas no mesmo utilizador — evite salvo
-            cenário controlado.
-          </p>
-        </div>
-
-        {loadingDevices && devices.length === 0 ? (
-          <LoadingState message="Carregando lista de relógios..." />
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-6">
+        {loadingDevices ? (
+          <LoadingState message="Carregando relógios..." />
         ) : (
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Vincular a relógio (opcional)</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Vincular a relógio (opcional)
+            </label>
             <select
               value={repDeviceId}
               onChange={(e) => setRepDeviceId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
             >
-              <option value="">Nenhum (importação manual)</option>
+              <option value="">Importação manual (sem dispositivo)</option>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.nome_dispositivo}
@@ -238,32 +248,67 @@ const AdminImportRep: React.FC = () => {
         )}
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Arquivo</label>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            Escolher Arquivo
+          </label>
           <input
             type="file"
-            accept=".txt,.csv,.afd,text/plain,text/csv"
+            accept=".txt,.afd,text/plain"
             onChange={handleFileChange}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700 dark:file:bg-indigo-900/30 dark:file:text-indigo-300"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700"
           />
           {file && (
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
-              <FileText size={14} />
-              {file.name} ({(file.size / 1024).toFixed(1)} KB)
-            </p>
+            <div className="mt-3 rounded-lg bg-slate-50 dark:bg-slate-900/40 p-3 text-sm space-y-1">
+              <p className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                <FileText size={16} />
+                <strong>Nome:</strong> {file.name}
+              </p>
+              <p>
+                <strong>Tamanho:</strong> {(file.size / 1024).toFixed(1)} KB
+              </p>
+              {uploadedAt && (
+                <p>
+                  <strong>Data de envio:</strong> {new Date(uploadedAt).toLocaleString('pt-BR')}
+                </p>
+              )}
+            </div>
           )}
         </div>
 
-        <Button onClick={handleUpload} disabled={!file || uploading}>
-          {uploading ? 'Processando...' : 'Enviar e importar'}
+        <Button onClick={handleUpload} disabled={!file || uploading} className="w-full sm:w-auto">
+          {uploading ? 'Importando...' : 'Importar Arquivo'}
         </Button>
 
         {result && (
-          <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-4 bg-slate-50 dark:bg-slate-800/50">
-            <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Resultado</h4>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-4 bg-slate-50 dark:bg-slate-900/40 space-y-2">
+            <h4 className="font-semibold text-slate-900 dark:text-white">
+              {result.imported > 0 || result.duplicated > 0
+                ? 'Arquivo processado com sucesso'
+                : 'Processamento concluído'}
+            </h4>
             <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-              <li>Importados: <strong>{result.imported}</strong></li>
-              <li>Duplicados (NSR já existente): <strong>{result.duplicated}</strong></li>
-              <li>Funcionário não encontrado (PIS/matrícula/CPF): <strong>{result.user_not_found}</strong></li>
+              <li>
+                Funcionários encontrados: <strong>{result.employees_found}</strong>
+              </li>
+              <li>
+                Registros encontrados: <strong>{result.imported + result.duplicated + result.user_not_found}</strong>
+              </li>
+              <li>
+                Novos registros: <strong>{result.imported}</strong>
+              </li>
+              <li>
+                Duplicados ignorados: <strong>{result.duplicated}</strong>
+              </li>
+              <li>
+                Linhas ignoradas (inválidas): <strong>{result.ignored}</strong>
+              </li>
+              <li>
+                Funcionários não localizados: <strong>{result.user_not_found}</strong>
+              </li>
+              <li>
+                Tempo de processamento:{' '}
+                <strong>{result.processing_ms ? `${(result.processing_ms / 1000).toFixed(1)}s` : '—'}</strong>
+              </li>
               {result.errors.length > 0 && (
                 <li className="text-red-600 dark:text-red-400">
                   Erros: {result.errors.slice(0, 5).join('; ')}

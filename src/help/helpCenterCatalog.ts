@@ -161,6 +161,7 @@ export const HELP_ROUTE_TO_DOC: Record<string, HelpDocSlug> = {
   '/admin/pre-folha': 'pre-folha',
   '/admin/rep-devices': 'relogios-rep',
   '/admin/import-rep': 'importar-afd',
+  '/admin/afd-import-history': 'importar-afd',
   '/admin/fiscalizacao': 'fiscalizacao-rep-p',
   '/admin/security': 'seguranca-antifraude',
   '/admin/backup': 'backup-dados',

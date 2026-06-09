@@ -90,13 +90,28 @@ export const navigationGroups: Record<string, NavigationGroupSchema> = {
     ],
   },
 
+  rep: {
+    label: 'Relógios REP',
+    labelKey: 'nav.groupRep',
+    icon: 'clock',
+    items: [
+      { name: 'Dispositivos', nameKey: 'menu.repDevices', path: '/admin/rep-devices', roles: ['admin', 'hr'] },
+      { name: 'Coleta Online', nameKey: 'menu.repCollect', path: '/admin/rep-devices', roles: ['admin', 'hr'] },
+      { name: 'Importar AFD', nameKey: 'menu.importRep', path: '/admin/import-rep', roles: ['admin', 'hr'] },
+      {
+        name: 'Histórico de Importações',
+        nameKey: 'menu.afdImportHistory',
+        path: '/admin/afd-import-history',
+        roles: ['admin', 'hr'],
+      },
+    ],
+  },
+
   smart: {
     label: 'Smart',
     labelKey: 'nav.groupSmart',
     icon: 'zap',
     items: [
-      { name: 'Relógios REP', nameKey: 'menu.repDevices', path: '/admin/rep-devices', roles: ['admin', 'hr'] },
-      { name: 'Importar AFD', nameKey: 'menu.importRep', path: '/admin/import-rep', roles: ['admin', 'hr'] },
       { name: 'Fiscalização REP-P', nameKey: 'menu.fiscalizacao', path: '/admin/fiscalizacao', roles: ['admin', 'hr'] },
       { name: 'Segurança e Antifraude', nameKey: 'menu.securityAntifraud', path: '/admin/security', roles: ['admin', 'hr'] },
       { name: 'Backup dos dados', nameKey: 'menu.backupData', path: '/admin/backup', roles: ['admin', 'hr'] },

@@ -132,6 +132,7 @@ import {
   AdminFeriados,
   AdminFiscalizacao,
   AdminImportRep,
+  AdminAfdImportHistory,
   AdminRepUnresolvedPunches,
   AdminJobTitles,
   AdminJustificativas,
@@ -2089,6 +2090,7 @@ const AppMain: React.FC = () => {
               <Route path="arquivos-fiscais" element={<AdminArquivosFiscais />} />
               <Route path="rep-devices" element={<AdminRepDevices />} />
               <Route path="import-rep" element={<AdminImportRep />} />
+              <Route path="afd-import-history" element={<AdminAfdImportHistory />} />
               <Route path="rep-unresolved" element={<AdminRepUnresolvedPunches />} />
               <Route path="live-attendance" element={<Navigate to="/admin/monitoring" replace />} />
               <Route path="fiscalizacao" element={<AdminFiscalizacao />} />

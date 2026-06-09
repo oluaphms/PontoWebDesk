@@ -40,14 +40,20 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 /** Rotas com JSON grande usam parser dedicado no router (ex.: upload 7mb). */
-const LARGE_JSON_API_PATHS = new Set(['/api/uploads/photo', '/api/uploads/photo-url']);
+const SKIP_JSON_PARSER_PATHS = new Set(['/api/uploads/photo', '/api/uploads/photo-url']);
 
 app.use((req, res, next) => {
-  if (LARGE_JSON_API_PATHS.has(req.path)) {
+  const ct = String(req.headers['content-type'] || '');
+  if (req.path === '/api/rep/import-afd' && ct.includes('multipart/form-data')) {
     next();
     return;
   }
-  express.json({ limit: '1mb' })(req, res, next);
+  if (SKIP_JSON_PARSER_PATHS.has(req.path)) {
+    next();
+    return;
+  }
+  const limit = req.path === '/api/rep/import-afd' ? '12mb' : '1mb';
+  express.json({ limit })(req, res, next);
 });
 app.use(requestContextMiddleware);
 

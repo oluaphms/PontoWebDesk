@@ -117,6 +117,7 @@ export const DUMP_PUBLIC_TABLES = [
   'rep_devices',
   'rep_direct_11_match_metrics',
   'rep_logs',
+  'afd_imports',
   'rep_punch_logs',
   'rep_unresolved_punches',
   'requests',

@@ -11,6 +11,12 @@ import {
   repSyncStatusController,
 } from '../controllers/repController.js';
 import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
+import {
+  repAfdImportDetailController,
+  repAfdImportsListController,
+  repImportAfdController,
+} from '../controllers/repImportAfdController.js';
+import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
@@ -27,5 +33,8 @@ router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);
 router.get('/diagnostics', repDiagnosticsController);
+router.post('/import-afd', authMiddleware, repImportAfdController);
+router.get('/afd-imports', authMiddleware, repAfdImportsListController);
+router.get('/afd-imports/:importId', authMiddleware, repAfdImportDetailController);
 
 export default router;
