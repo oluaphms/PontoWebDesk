@@ -4,22 +4,66 @@
 #   powershell -ExecutionPolicy Bypass -File "D:\PontoWebDesk\scripts\deploy-rep-agent.ps1"
 
 $ErrorActionPreference = 'Stop'
-$staging = 'D:\PontoWebDesk\dist\rep-agent.staging.exe'
-$builtExe = 'D:\PontoWebDesk\dist\rep-agent.exe'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$staging = Join-Path $repoRoot 'dist\rep-agent.staging.exe'
+$builtExe = Join-Path $repoRoot 'dist\rep-agent.exe'
 $target = 'C:\Program Files\PontoWebDesk\rep-agent.exe'
 $log = 'C:\ProgramData\PontoWebDesk\logs\agent.log'
 $nssm = 'C:\Program Files\PontoWebDesk\nssm.exe'
 $stderrLog = 'C:\ProgramData\PontoWebDesk\logs\nssm-stderr.log'
 $stdoutLog = 'C:\ProgramData\PontoWebDesk\logs\nssm-stdout.log'
+$configPath = 'C:\ProgramData\PontoWebDesk\config.json'
+$svc = 'PontoWebDeskAgent'
+
+function Enable-RepAgentCommands {
+  if (Test-Path $configPath) {
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $raw = $enc.GetString([System.IO.File]::ReadAllBytes($configPath))
+    if ($raw.Length -gt 0 -and [int][char]$raw[0] -eq 0xFEFF) { $raw = $raw.Substring(1) }
+    $cfg = $raw | ConvertFrom-Json
+    $changed = $false
+    if ($cfg.enable_commands -ne $true) {
+      $cfg | Add-Member -NotePropertyName enable_commands -NotePropertyValue $true -Force
+      $changed = $true
+    }
+    if ($cfg.heartbeat_interval_ms -and [int]$cfg.heartbeat_interval_ms -gt 120000) {
+      Write-Host "AVISO: heartbeat_interval_ms=$($cfg.heartbeat_interval_ms) — recomendado <= 60000 para testes no painel." -ForegroundColor Yellow
+    }
+    if ($changed) {
+      $json = ($cfg | ConvertTo-Json -Depth 8)
+      [System.IO.File]::WriteAllText($configPath, $json, $enc)
+      Write-Host 'config.json atualizado: enable_commands=true' -ForegroundColor Green
+    }
+  } else {
+    Write-Host "AVISO: $configPath nao encontrado — configure enable_commands apos instalar." -ForegroundColor Yellow
+  }
+
+  if (Test-Path $nssm) {
+    & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1" | Out-Null
+    Write-Host 'NSSM: REP_ENABLE_COMMANDS=1' -ForegroundColor Green
+  }
+}
 
 if (Test-Path $staging) {
   $source = $staging
 } elseif (Test-Path $builtExe) {
   $source = $builtExe
 } else {
-  Write-Host "ERRO: Nao encontrado: $staging nem $builtExe" -ForegroundColor Red
-  Write-Host "Rode antes: cd D:\PontoWebDesk; npm run build:agent"
-  exit 1
+  Write-Host 'Build do agente nao encontrado — compilando...' -ForegroundColor Cyan
+  Push-Location $repoRoot
+  try {
+    npm run build:agent
+  } finally {
+    Pop-Location
+  }
+  if (Test-Path $staging) {
+    $source = $staging
+  } elseif (Test-Path $builtExe) {
+    $source = $builtExe
+  } else {
+    Write-Host "ERRO: build falhou — nao encontrado: $staging nem $builtExe" -ForegroundColor Red
+    exit 1
+  }
 }
 
 function Invoke-NssmQuiet {
@@ -105,8 +149,11 @@ if (Test-Path $target) {
 }
 Rename-Item -Path $tmpTarget -NewName (Split-Path -Leaf $target) -Force
 
+Write-Host 'Ativando poll de comandos (test_connection no painel)...'
+Enable-RepAgentCommands
+
 Write-Host "Iniciando servico..."
-$startMsg = Invoke-NssmQuiet -NssmArgs @('start', 'PontoWebDeskAgent')
+$startMsg = Invoke-NssmQuiet -NssmArgs @('start', $svc)
 if ($startMsg) { Write-Host $startMsg }
 if ($startMsg -match 'SERVICE_START_PENDING|SERVICE_RUNNING') {
   Write-Host 'Servico em inicializacao (normal).' -ForegroundColor Cyan
@@ -147,4 +194,5 @@ if (Test-Path $log) {
   Write-Host "Log ainda nao existe: $log"
 }
 
-Write-Host "`nOK se: build=... | login_win=curl-first + [REP LOGIN SUCCESS] via curl + [REP AFD DOWNLOAD SESSION MODE] ou [REP AFD] download via curl OK" -ForegroundColor Green
+Write-Host "`nOK se: cmd_poll=... (nao cmd_poll=off) + build=... + [REP COMMAND POLL] ativo" -ForegroundColor Green
+Write-Host "Se cmd_poll=off: rode scripts\enable-rep-agent-commands.ps1 e teste de novo." -ForegroundColor Yellow

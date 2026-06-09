@@ -244,11 +244,9 @@ let commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
 let lastHeartbeatAt = 0;
 const REP_LOW_COST_MODE = /^(1|true|yes)$/i.test((process.env.REP_LOW_COST_MODE || '').trim());
 const REP_ULTRA_LOW_COST = /^(1|true|yes)$/i.test((process.env.REP_ULTRA_LOW_COST || '').trim());
-/** Poll /api/rep/commands — desligado por padrão (anti-egress). REP_ENABLE_COMMANDS=1 para ativar. */
-const ENABLE_COMMAND_POLL =
-  !REP_LOW_COST_MODE &&
-  !REP_ULTRA_LOW_COST &&
-  /^(1|true|yes)$/i.test((process.env.REP_ENABLE_COMMANDS || '0').trim());
+/** Poll /api/rep/commands — REP_ENABLE_COMMANDS=1 (config.json enable_commands). LOW_COST não desliga testes do painel. */
+const REP_COMMANDS_REQUESTED = /^(1|true|yes)$/i.test((process.env.REP_ENABLE_COMMANDS || '0').trim());
+const ENABLE_COMMAND_POLL = !REP_ULTRA_LOW_COST && REP_COMMANDS_REQUESTED;
 const ENABLE_HEARTBEAT_LOOP = !REP_ULTRA_LOW_COST;
 const REP_DEBUG = /^(1|true|yes)$/i.test((process.env.REP_DEBUG || '').trim());
 
@@ -2028,6 +2026,7 @@ async function executeRepCommand(cmd) {
   try {
     if (currentExecutionId === executionId) {
       await postRepCommandResult(id, executionId, finalStatus, resultPayload);
+      rememberExecutedCommand(id, executedCommandsPersistent);
     }
     syncLog('[REP COMMANDS] concluído', {
       detail: {
@@ -2101,16 +2100,11 @@ async function pollAndExecuteRepCommands() {
       });
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();
-        if (cmdId && executedCommandsPersistent.has(cmdId)) {
-          log('[REP COMMANDS] ignorado (já executado localmente)', cmdId);
-          continue;
-        }
         try {
           await executeRepCommand(cmd);
         } catch (cmdErr) {
           observabilityConsole.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
         }
-        if (cmdId) rememberExecutedCommand(cmdId, executedCommandsPersistent);
       }
       return true;
     } catch (e) {
@@ -2165,7 +2159,7 @@ function scheduleNextCommandPoll() {
 
 function startRepCommandPollLoop() {
   if (!ENABLE_COMMAND_POLL) {
-    observabilityConsole.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_LOW_COST_MODE=1)');
+    observabilityConsole.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_ULTRA_LOW_COST=1)');
     return;
   }
   if (!companyId || !apiKey || !saas) return;
@@ -3022,7 +3016,8 @@ async function main() {
     );
   } else if (REP_LOW_COST_MODE) {
     observabilityConsole.log(
-      '[rep-agent] REP_LOW_COST_MODE=1 — commands off, heartbeat 5min, sync lote sob demanda (≥10 ou flush).',
+      '[rep-agent] REP_LOW_COST_MODE=1 — heartbeat/sync em modo econômico' +
+        (ENABLE_COMMAND_POLL ? ' (poll de comandos ativo).' : ' (poll de comandos off — enable_commands no config.json).'),
     );
   }
   startRepCommandPollLoop();
