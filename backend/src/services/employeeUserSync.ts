@@ -141,9 +141,10 @@ export async function ensureUserForEmployee(
     vals.push(row.status || 'active');
     placeholders.push(`$${vals.length}`);
   }
-  if (hasPwd) {
+  // Só grava password_hash quando há hash real — evita apagar senha existente no upsert.
+  if (hasPwd && passwordHash) {
     cols.push('password_hash');
-    vals.push(passwordHash ?? '');
+    vals.push(passwordHash);
     placeholders.push(`$${vals.length}`);
   }
   for (const column of ['schedule_id', 'shift_id'] as const) {

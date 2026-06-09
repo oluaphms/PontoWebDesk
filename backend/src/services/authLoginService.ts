@@ -178,6 +178,57 @@ async function findInEmployees(email: string): Promise<AuthLoginRow | null> {
   };
 }
 
+function hasStoredPasswordHash(row: AuthLoginRow | null | undefined): boolean {
+  return Boolean(String(row?.password_hash ?? '').trim());
+}
+
+/** Prioriza users; se a senha estiver só em employees, reutiliza o hash sem bloquear o login. */
+async function resolveLoginUser(email: string): Promise<AuthLoginRow | null> {
+  const fromUsers = await findInUsers(email);
+  const fromEmployees = await findInEmployees(email);
+  if (!fromUsers && !fromEmployees) return null;
+
+  const primary = fromUsers ?? fromEmployees!;
+  const alternate = fromUsers ? fromEmployees : fromUsers;
+
+  if (hasStoredPasswordHash(primary)) return primary;
+  if (alternate && hasStoredPasswordHash(alternate)) {
+    void repairLoginPasswordHash(primary, alternate.password_hash);
+    return { ...primary, password_hash: alternate.password_hash };
+  }
+  return primary;
+}
+
+/** Reespelha hash de employees em users quando o cadastro ficou dessincronizado. */
+async function repairLoginPasswordHash(user: AuthLoginRow, passwordHash: string): Promise<void> {
+  const hash = String(passwordHash || '').trim();
+  if (!hash || hasStoredPasswordHash(user)) return;
+  try {
+    if (user.source === 'users' || user.source === 'employees') {
+      await pool.query(
+        `update public.users
+         set password_hash = $1
+         where id::text = $2
+           and company_id::text = $3
+           and (password_hash is null or password_hash = '')`,
+        [hash, user.id, user.company_id],
+      );
+    }
+    if (await employeesHasPasswordHash()) {
+      await pool.query(
+        `update public.employees
+         set password_hash = $1
+         where id::text = $2
+           and company_id::text = $3
+           and (password_hash is null or password_hash = '')`,
+        [hash, user.id, user.company_id],
+      );
+    }
+  } catch {
+    // auto-reparo não deve bloquear autenticação
+  }
+}
+
 export async function authenticateLogin(
   body: Record<string, unknown>,
 ): Promise<AuthLoginSuccess | AuthLoginFailure> {
@@ -193,7 +244,7 @@ export async function authenticateLogin(
     return { status: 503, error: 'JWT_SECRET não configurado no servidor.' };
   }
 
-  const user = (await findInUsers(identifier)) ?? (await findInEmployees(identifier));
+  const user = await resolveLoginUser(identifier);
   if (!user) {
     return { status: 401, error: 'Usuário não encontrado' };
   }
