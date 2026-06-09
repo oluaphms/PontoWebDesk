@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
-import { getSettings, updateSettings } from '../../services/settingsService';
+import { getSettings, isPersistedSettingsId, upsertSettingsForCompany } from '../../services/settingsService';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
@@ -84,7 +84,7 @@ const AdminSettings: React.FC = () => {
       try {
         const data = await getSettings(user?.companyId);
         if (data) {
-          setSettingsId(data.id);
+          setSettingsId(isPersistedSettingsId(data.id) ? data.id : null);
           setForm({
             gps_required: data.gps_required,
             photo_required: data.photo_required,
@@ -144,14 +144,18 @@ const AdminSettings: React.FC = () => {
   }, [globalSettings?.id, user?.companyId]);
 
   const handleSave = async () => {
-    if (!settingsId) {
-      setMessage({ type: 'error', text: i18n.t('settings.notLoaded') });
+    if (!user?.companyId) {
+      setMessage({ type: 'error', text: 'Empresa não identificada na sessão. Faça login novamente.' });
+      return;
+    }
+    if (!isSupabaseConfigured()) {
+      setMessage({ type: 'error', text: 'API de dados não configurada.' });
       return;
     }
     setSaving(true);
     setMessage(null);
     try {
-      const { error } = await updateSettings(settingsId, {
+      const settingsPayload = {
         gps_required: form.gps_required,
         photo_required: form.photo_required,
         allow_manual_punch: form.allow_manual_punch,
@@ -169,47 +173,35 @@ const AdminSettings: React.FC = () => {
         default_entry_time: form.default_entry_time,
         default_exit_time: form.default_exit_time,
         allow_time_bank: form.allow_time_bank,
-      });
+      };
+      const { data: savedSettings, error } = await upsertSettingsForCompany(user.companyId, settingsPayload);
       if (error) throw error;
+      if (savedSettings?.id && isPersistedSettingsId(savedSettings.id)) {
+        setSettingsId(savedSettings.id);
+      }
       await refreshSettings();
 
-      if (isSupabaseConfigured() && user?.companyId) {
-        const cap = Math.max(0, Math.round(motorForm.mixed_extra_bank_cap_minutes));
-        const expiry = Math.min(
-          60,
-          Math.max(1, Math.round(Number(motorForm.bank_hours_expiry_months) || 6)),
-        );
-        const patch = {
+      const cap = Math.max(0, Math.round(motorForm.mixed_extra_bank_cap_minutes));
+      const expiry = Math.min(60, Math.max(1, Math.round(Number(motorForm.bank_hours_expiry_months) || 6)));
+      await db.upsert(
+        'company_rules',
+        {
+          company_id: user.companyId,
+          work_on_saturday: false,
+          saturday_overtime_type: '100',
+          time_bank_enabled: form.allow_time_bank,
+          tolerance_minutes: form.late_tolerance_minutes,
+          night_additional_percent: 20,
+          dsr_enabled: true,
+          weekday_extra_above_120: '50',
           extra_payroll_policy: motorForm.extra_payroll_policy,
           mixed_extra_bank_cap_minutes: cap,
           allow_auto_compensation: motorForm.allow_auto_compensation,
           bank_hours_expiry_months: expiry,
-          time_bank_enabled: form.allow_time_bank,
-          tolerance_minutes: form.late_tolerance_minutes,
           updated_at: new Date().toISOString(),
-        };
-        const rows = (await db.select(
-          'company_rules',
-          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-          undefined,
-          1,
-        )) as Array<{ id?: string }>;
-        if (rows?.[0]?.id) {
-          await db.update('company_rules', rows[0].id!, patch);
-        } else {
-          await db.insert('company_rules', {
-            company_id: user.companyId,
-            work_on_saturday: false,
-            saturday_overtime_type: '100',
-            time_bank_enabled: form.allow_time_bank,
-            tolerance_minutes: form.late_tolerance_minutes,
-            night_additional_percent: 20,
-            dsr_enabled: true,
-            weekday_extra_above_120: '50',
-            ...patch,
-          });
-        }
-      }
+        },
+        'company_id',
+      );
 
       setAppLanguage((form.language === 'en-US' || form.language === 'pt-BR') ? form.language : 'pt-BR');
       setMessage({ type: 'success', text: i18n.t('settings.savedSuccess') });

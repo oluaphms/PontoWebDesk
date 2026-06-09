@@ -19,6 +19,43 @@ import { cacheSettings, getCachedSettings } from './localDb';
 const TABLE = 'global_settings';
 const LOCATIONS_TABLE = 'company_locations';
 
+const PERSISTED_SETTINGS_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isPersistedSettingsId(id: string | null | undefined): boolean {
+  return PERSISTED_SETTINGS_ID_RE.test(String(id || '').trim());
+}
+
+function prepareSettingsWritePayload(
+  data: Partial<Omit<GlobalSettings, 'id' | 'created_at' | 'updated_at'>>,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...data, updated_at: new Date().toISOString() };
+  if (payload.default_entry_time && !String(payload.default_entry_time).includes(':')) {
+    payload.default_entry_time = `${payload.default_entry_time}:00`;
+  }
+  if (payload.default_exit_time && !String(payload.default_exit_time).includes(':')) {
+    payload.default_exit_time = `${payload.default_exit_time}:00`;
+  }
+  return payload;
+}
+
+async function findSettingsRowForCompany(companyId: string): Promise<Record<string, unknown> | null> {
+  const cid = String(companyId || '').trim();
+  if (!cid) return null;
+  try {
+    const scoped = await db.select(
+      TABLE,
+      [{ column: 'company_id', operator: 'eq', value: cid }],
+      { columns: GLOBAL_SETTINGS_COLUMNS, limit: 1 },
+    );
+    if (scoped?.[0]) return scoped[0] as Record<string, unknown>;
+  } catch {
+    /* instalações legadas sem company_id na tabela */
+  }
+  const legacy = await db.select(TABLE, [], { columns: GLOBAL_SETTINGS_COLUMNS, limit: 1 });
+  return (legacy?.[0] as Record<string, unknown>) ?? null;
+}
+
 export const DEFAULT_SETTINGS: GlobalSettings = {
   id: 'local-default-settings',
   ...DEFAULT_GLOBAL_SETTINGS,
@@ -87,17 +124,22 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
           });
           let mapped = mapRow(rows?.[0]) ?? null;
           if (!mapped && companyId) {
-            const inserted = await db.insert(TABLE, {
-              company_id: companyId,
-              ...DEFAULT_GLOBAL_SETTINGS,
-              allow_manual_punch: true,
-              late_tolerance_minutes: 10,
-              min_break_minutes: 60,
-              timezone: 'America/Sao_Paulo',
-            });
-            mapped = mapRow(inserted);
+            try {
+              const inserted = await db.insert(TABLE, {
+                company_id: companyId,
+                ...DEFAULT_GLOBAL_SETTINGS,
+                allow_manual_punch: true,
+                late_tolerance_minutes: 10,
+                min_break_minutes: 60,
+                timezone: 'America/Sao_Paulo',
+              });
+              mapped = mapRow(inserted);
+            } catch (insertErr) {
+              observabilityConsole.warn('[settingsService] insert global_settings:', insertErr);
+            }
           }
-          const finalSettings = mapped ?? DEFAULT_SETTINGS;
+          const finalSettings = mapped ?? (companyId ? null : DEFAULT_SETTINGS);
+          if (!finalSettings) return null;
           await cacheSettings(finalSettings as unknown as Record<string, unknown>);
           return finalSettings;
         } catch (error) {
@@ -120,14 +162,15 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
  */
 export async function updateSettings(
   id: string,
-  data: Partial<Omit<GlobalSettings, 'id' | 'created_at' | 'updated_at'>>
+  data: Partial<Omit<GlobalSettings, 'id' | 'created_at' | 'updated_at'>>,
 ): Promise<{ data: GlobalSettings | null; error: Error | null }> {
   if (!checkSupabaseConfigured()) {
-    return { data: null, error: new Error('Supabase não configurado') };
+    return { data: null, error: new Error('API de dados não configurada') };
   }
-  const payload: any = { ...data, updated_at: new Date().toISOString() };
-  if (payload.default_entry_time && !payload.default_entry_time.includes(':')) payload.default_entry_time = `${payload.default_entry_time}:00`;
-  if (payload.default_exit_time && !payload.default_exit_time.includes(':')) payload.default_exit_time = `${payload.default_exit_time}:00`;
+  if (!isPersistedSettingsId(id)) {
+    return { data: null, error: new Error('not_found') };
+  }
+  const payload = prepareSettingsWritePayload(data);
   try {
     const updated = await db.update(TABLE, id, payload);
     queryCache.invalidate('global_settings:');
@@ -137,6 +180,64 @@ export async function updateSettings(
   } catch (error) {
     observabilityConsole.error('[settingsService] updateSettings error:', error);
     return { data: null, error: error instanceof Error ? error : new Error('settings_update_failed') };
+  }
+}
+
+/**
+ * Grava configurações da empresa (cria linha em global_settings se ainda não existir).
+ * Evita not_found quando o id em memória é legado ou placeholder.
+ */
+export async function upsertSettingsForCompany(
+  companyId: string,
+  data: Partial<Omit<GlobalSettings, 'id' | 'created_at' | 'updated_at'>>,
+): Promise<{ data: GlobalSettings | null; error: Error | null }> {
+  if (!checkSupabaseConfigured()) {
+    return { data: null, error: new Error('API de dados não configurada') };
+  }
+  const cid = String(companyId || '').trim();
+  if (!cid) {
+    return { data: null, error: new Error('Empresa não identificada na sessão') };
+  }
+
+  const payload = prepareSettingsWritePayload(data);
+  try {
+    const existing = await findSettingsRowForCompany(cid);
+    const existingId = existing?.id ? String(existing.id) : '';
+    if (isPersistedSettingsId(existingId)) {
+      const updated = await db.update(TABLE, existingId, { ...payload, company_id: cid });
+      queryCache.invalidate('global_settings:');
+      const mapped = mapRow(updated);
+      if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+      return { data: mapped, error: null };
+    }
+
+    const baseInsert = {
+      ...DEFAULT_GLOBAL_SETTINGS,
+      allow_manual_punch: true,
+      late_tolerance_minutes: 10,
+      min_break_minutes: 60,
+      timezone: 'America/Sao_Paulo',
+      ...payload,
+    };
+    let inserted: Record<string, unknown>;
+    try {
+      inserted = await db.insert(TABLE, { company_id: cid, ...baseInsert });
+    } catch {
+      inserted = await db.insert(TABLE, baseInsert);
+    }
+    queryCache.invalidate('global_settings:');
+    const mapped = mapRow(inserted);
+    if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+    return { data: mapped, error: null };
+  } catch (error) {
+    observabilityConsole.error('[settingsService] upsertSettingsForCompany error:', error);
+    const msg =
+      error instanceof Error && (error.message === 'not_found' || error.message.includes('not_found'))
+        ? 'Configurações não encontradas para esta empresa — tente recarregar a página.'
+        : error instanceof Error
+          ? error.message
+          : 'settings_upsert_failed';
+    return { data: null, error: new Error(msg) };
   }
 }
 
