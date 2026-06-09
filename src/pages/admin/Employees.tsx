@@ -520,6 +520,34 @@ const CSV_TEMPLATE = `nome,email,senha,cargo,telefone,cpf,departamento,escala,ti
 Carlos Souza,carlos@empresa.com,123456,Técnico,79998213456,12345678910,TI,09:00-18:00,CLT,2024-01-15,,1990-05-20,1234567890,SSP/SP,São Paulo,Solteiro(a)
 Fernanda Lima,fernanda@empresa.com,123456,Financeiro,79999441822,23456789011,Financeiro,08:00-17:00,CLT,,,,,,,`;
 
+const ADMIN_PWD_CACHE_PREFIX = 'pontowebdesk_admin_pwd_';
+
+function adminPasswordCacheKey(companyId: string, employeeId: string): string {
+  return `${ADMIN_PWD_CACHE_PREFIX}${companyId}_${employeeId}`;
+}
+
+/** Senha em texto claro só nesta sessão do navegador — para o RH repassar ao colaborador. */
+function readCachedEmployeePassword(companyId: string, employeeId: string): string {
+  if (!companyId || !employeeId) return '';
+  try {
+    return sessionStorage.getItem(adminPasswordCacheKey(companyId, employeeId)) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeCachedEmployeePassword(companyId: string, employeeId: string, password: string): void {
+  if (!companyId || !employeeId) return;
+  try {
+    const key = adminPasswordCacheKey(companyId, employeeId);
+    const value = password.trim();
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  } catch {
+    // storage indisponível
+  }
+}
+
 function getDisplayShortName(fullName: string): string {
   const clean = String(fullName || '').trim();
   if (!clean) return '—';
@@ -673,6 +701,9 @@ const AdminEmployees: React.FC = () => {
   const [passwordDraft, setPasswordDraft] = useState('');
   const [showPasswordDraft, setShowPasswordDraft] = useState(false);
   const [passwordCopied, setPasswordCopied] = useState(false);
+  const [passwordJustSaved, setPasswordJustSaved] = useState(false);
+  const [showPasswordInAccessPanel, setShowPasswordInAccessPanel] = useState(false);
+  const [sessionPasswordByEmployee, setSessionPasswordByEmployee] = useState<Record<string, string>>({});
   /** Painéis “Outras opções” (equivalente ao legado): fora do corpo principal do formulário. */
   const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'afast'>('none');
 
@@ -703,12 +734,37 @@ const AdminEmployees: React.FC = () => {
     setPasswordDraft('');
     setShowPasswordDraft(false);
     setPasswordCopied(false);
+    setPasswordJustSaved(false);
     setPasswordMessage(null);
     setPasswordMessageTone(null);
   };
 
+  const closePasswordModal = () => {
+    setPasswordModalOpen(false);
+  };
+
+  const savedPasswordForEditing =
+    editingId && effectiveCompanyId
+      ? sessionPasswordByEmployee[editingId] ||
+        readCachedEmployeePassword(effectiveCompanyId, editingId)
+      : '';
+
   const openPasswordModal = () => {
-    resetPasswordModalState();
+    const cached =
+      editingId && effectiveCompanyId
+        ? sessionPasswordByEmployee[editingId] ||
+          readCachedEmployeePassword(effectiveCompanyId, editingId)
+        : '';
+    setPasswordDraft(cached);
+    setShowPasswordDraft(true);
+    setPasswordJustSaved(!!cached);
+    setPasswordCopied(false);
+    setPasswordMessage(
+      cached
+        ? 'Senha cadastrada nesta sessão. Permanece visível para repasse ao colaborador.'
+        : null,
+    );
+    setPasswordMessageTone(cached ? 'info' : null);
     setPasswordModalOpen(true);
   };
 
@@ -762,9 +818,17 @@ const AdminEmployees: React.FC = () => {
       return;
     }
 
+    if (editingId && effectiveCompanyId) {
+      writeCachedEmployeePassword(effectiveCompanyId, editingId, nextPassword);
+      setSessionPasswordByEmployee((prev) => ({ ...prev, [editingId]: nextPassword }));
+    }
+    setPasswordDraft(nextPassword);
+    setShowPasswordDraft(true);
+    setPasswordJustSaved(true);
+    setPasswordCopied(false);
+    setPasswordMessage('Senha salva com sucesso. Ela permanece visível para você informar o colaborador.');
+    setPasswordMessageTone('success');
     setSuccess('Senha atualizada com sucesso.');
-    setPasswordModalOpen(false);
-    resetPasswordModalState();
     if (effectiveCompanyId) void refreshEmployeesAfterMutation(effectiveCompanyId);
   };
 
@@ -993,8 +1057,15 @@ const AdminEmployees: React.FC = () => {
     setEditingId(row.id);
     setPasswordModalOpen(false);
     resetPasswordModalState();
+    setShowPasswordInAccessPanel(false);
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
+    if (effectiveCompanyId) {
+      const cachedPwd = readCachedEmployeePassword(effectiveCompanyId, row.id);
+      if (cachedPwd) {
+        setSessionPasswordByEmployee((prev) => ({ ...prev, [row.id]: cachedPwd }));
+      }
+    }
     const accessForm = roleToAccessProfileForm(row.role);
     const photoRaw =
       typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '';
@@ -2450,7 +2521,41 @@ const AdminEmployees: React.FC = () => {
                             >
                               Gerenciar senha
                             </button>
-                            {passwordMessage && (
+                            {savedPasswordForEditing && (
+                              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/90 dark:bg-emerald-950/25 p-3 space-y-2">
+                                <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                                  Senha cadastrada nesta sessão
+                                </p>
+                                <div className="flex items-stretch gap-2">
+                                  <code className="flex-1 px-3 py-2 rounded-lg border border-emerald-200/80 dark:border-emerald-800/60 bg-white dark:bg-slate-900 text-sm font-mono text-emerald-900 dark:text-emerald-100 break-all">
+                                    {showPasswordInAccessPanel
+                                      ? savedPasswordForEditing
+                                      : '•'.repeat(Math.min(savedPasswordForEditing.length, 14))}
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPasswordInAccessPanel((v) => !v)}
+                                    className="px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30"
+                                    aria-label={showPasswordInAccessPanel ? 'Ocultar senha' : 'Mostrar senha'}
+                                  >
+                                    {showPasswordInAccessPanel ? <EyeOff size={18} /> : <Eye size={18} />}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void navigator.clipboard.writeText(savedPasswordForEditing)}
+                                    className="px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30"
+                                    aria-label="Copiar senha"
+                                    title="Copiar senha"
+                                  >
+                                    <Copy size={18} />
+                                  </button>
+                                </div>
+                                <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/90">
+                                  Visível nesta sessão do navegador para repasse ao colaborador.
+                                </p>
+                              </div>
+                            )}
+                            {passwordMessage && !passwordModalOpen && (
                               <p className={`text-xs ${passwordMessageTone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{passwordMessage}</p>
                             )}
                           </div>
@@ -2525,10 +2630,7 @@ const AdminEmployees: React.FC = () => {
             role="dialog"
             aria-modal="true"
             onClick={() => {
-              if (!settingPassword) {
-                setPasswordModalOpen(false);
-                resetPasswordModalState();
-              }
+              if (!settingPassword) closePasswordModal();
             }}
           >
             <div
@@ -2581,6 +2683,19 @@ const AdminEmployees: React.FC = () => {
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Após salvar, informe a senha ao funcionário por um canal seguro.
                 </p>
+                {passwordJustSaved && passwordDraft.trim() && (
+                  <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/90 dark:bg-emerald-950/25 p-3 space-y-1.5">
+                    <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                      Senha cadastrada (visível para repasse)
+                    </p>
+                    <p className="text-sm font-mono text-emerald-900 dark:text-emerald-100 break-all">
+                      {passwordDraft}
+                    </p>
+                    <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/90">
+                      Permanece nesta tela e em &quot;Gerenciar senha&quot; enquanto esta sessão do navegador estiver aberta.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -2634,15 +2749,12 @@ const AdminEmployees: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!settingPassword) {
-                      setPasswordModalOpen(false);
-                      resetPasswordModalState();
-                    }
+                    if (!settingPassword) closePasswordModal();
                   }}
                   disabled={settingPassword}
                   className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-sm"
                 >
-                  Cancelar
+                  {passwordJustSaved ? 'Fechar' : 'Cancelar'}
                 </button>
                 <button
                   type="button"
