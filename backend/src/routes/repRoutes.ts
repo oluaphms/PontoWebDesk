@@ -12,6 +12,7 @@ import {
 } from '../controllers/repController.js';
 import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
 import {
+  repAfdImportDeleteController,
   repAfdImportDetailController,
   repAfdImportsListController,
   repImportAfdController,
@@ -36,5 +37,6 @@ router.get('/diagnostics', repDiagnosticsController);
 router.post('/import-afd', authMiddleware, repImportAfdController);
 router.get('/afd-imports', authMiddleware, repAfdImportsListController);
 router.get('/afd-imports/:importId', authMiddleware, repAfdImportDetailController);
+router.delete('/afd-imports/:importId', authMiddleware, repAfdImportDeleteController);
 
 export default router;

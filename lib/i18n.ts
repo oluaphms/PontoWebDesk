@@ -33,8 +33,6 @@ const translations: Record<Language, Record<string, string>> = {
     'menu.cargos': 'Cargos',
     'menu.estruturas': 'Estruturas',
     'menu.ajuda': 'Ajuda',
-    'menu.inteligenciaOperacional': 'Inteligência Operacional',
-    'menu.inteligenciaOperacionalHint': 'Análise e evolução do RH',
     'menu.precisaAjuda': 'Precisa de ajuda?',
     'menu.precisaAjudaHint': 'Guia desta tela (F1)',
     'menu.teams': 'Equipes',

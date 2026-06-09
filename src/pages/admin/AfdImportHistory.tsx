@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { History, FileText } from 'lucide-react';
+import { History, FileText, Trash2 } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState, Button } from '../../../components/UI';
-import { apiGet } from '../../services/api';
+import { apiDelete, apiGet } from '../../services/api';
 
 type AfdImportRow = {
   id: string;
@@ -28,6 +28,8 @@ const AdminAfdImportHistory: React.FC = () => {
   const [rows, setRows] = useState<AfdImportRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(true);
   const [detail, setDetail] = useState<AfdImportRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.companyId) return;
@@ -46,6 +48,31 @@ const AdminAfdImportHistory: React.FC = () => {
     void load();
   }, [load]);
 
+  const handleDelete = useCallback(
+    async (row: AfdImportRow) => {
+      const label = row.arquivo || 'esta importação';
+      if (
+        !window.confirm(
+          `Excluir o registro de importação «${label}»?\n\nO histórico será removido permanentemente. As batidas já gravadas no espelho de ponto não serão desfeitas.`,
+        )
+      ) {
+        return;
+      }
+      setDeleteError(null);
+      setDeletingId(row.id);
+      try {
+        await apiDelete(`/rep/afd-imports/${encodeURIComponent(row.id)}`);
+        setRows((prev) => prev.filter((r) => r.id !== row.id));
+        setDetail((prev) => (prev?.id === row.id ? null : prev));
+      } catch (e) {
+        setDeleteError(e instanceof Error ? e.message : 'Não foi possível excluir a importação.');
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [],
+  );
+
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
@@ -57,6 +84,12 @@ const AdminAfdImportHistory: React.FC = () => {
         subtitle="Relógios REP — arquivos AFD importados manualmente"
         icon={<History size={24} />}
       />
+
+      {deleteError && (
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+          {deleteError}
+        </div>
+      )}
 
       {loadingRows ? (
         <LoadingState message="Carregando histórico..." />
@@ -74,7 +107,7 @@ const AdminAfdImportHistory: React.FC = () => {
                 <th className="px-4 py-3 font-semibold">Usuário</th>
                 <th className="px-4 py-3 font-semibold">Registros</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold" />
+                <th className="px-4 py-3 font-semibold text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -108,10 +141,22 @@ const AdminAfdImportHistory: React.FC = () => {
                       {row.status === 'done' ? 'Concluído' : row.status === 'error' ? 'Erro' : row.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="outline" size="sm" onClick={() => setDetail(row)}>
-                      Ver detalhes
-                    </Button>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setDetail(row)}>
+                        Ver detalhes
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={deletingId === row.id}
+                        onClick={() => void handleDelete(row)}
+                        className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-950/40"
+                      >
+                        <Trash2 size={14} className="mr-1" />
+                        {deletingId === row.id ? 'Excluindo...' : 'Excluir'}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -153,7 +198,16 @@ const AdminAfdImportHistory: React.FC = () => {
                 </p>
               )}
             </div>
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={deletingId === detail.id}
+                onClick={() => void handleDelete(detail)}
+                className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-950/40"
+              >
+                <Trash2 size={14} className="mr-1" />
+                {deletingId === detail.id ? 'Excluindo...' : 'Excluir'}
+              </Button>
               <Button variant="outline" onClick={() => setDetail(null)}>
                 Fechar
               </Button>

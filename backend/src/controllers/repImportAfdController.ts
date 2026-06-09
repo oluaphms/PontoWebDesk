@@ -5,7 +5,12 @@ import { validateAfdUpload } from '../upload/fileValidation.js';
 import { validateUploadedFile } from '../upload/validateUploadedFile.js';
 import { parseMultipartRequest } from '../utils/parseMultipart.js';
 import { logger } from '../logger/logger.js';
-import { getAfdImportById, listAfdImports, processAfdImport } from '../services/repAfdImport.service.js';
+import {
+  deleteAfdImport,
+  getAfdImportById,
+  listAfdImports,
+  processAfdImport,
+} from '../services/repAfdImport.service.js';
 import { pool } from '../db/index.js';
 
 function json(res: Response, status: number, body: Record<string, unknown>): void {
@@ -163,4 +168,46 @@ export async function repAfdImportDetailController(req: AuthedRequest, res: Resp
     return;
   }
   json(res, 200, { ok: true, success: true, import: row });
+}
+
+export async function repAfdImportDeleteController(req: AuthedRequest, res: Response): Promise<void> {
+  if (!isPrivilegedRole(req.auth?.role)) {
+    json(res, 403, { ok: false, success: false, error: 'forbidden', message: 'Sem permissão para excluir importação.' });
+    return;
+  }
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
+  if (rejectTenantOverride(req, res)) return;
+
+  const importId = String(req.params.importId || '').trim();
+  if (!importId) {
+    json(res, 400, { ok: false, success: false, error: 'import_id_required' });
+    return;
+  }
+
+  try {
+    const deleted = await deleteAfdImport(companyId, importId);
+    if (!deleted) {
+      json(res, 404, { ok: false, success: false, error: 'not_found', message: 'Importação não encontrada.' });
+      return;
+    }
+    logger.info({
+      module: 'rep.afd_import',
+      action: 'AFD_IMPORT_DELETED',
+      companyId,
+      message: 'Registro de importação AFD excluído',
+      meta: { importId },
+    });
+    json(res, 200, { ok: true, success: true, deleted: true, import_id: importId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.error({
+      module: 'rep.afd_import',
+      action: 'AFD_IMPORT_DELETE_FAIL',
+      companyId,
+      message: 'Falha ao excluir importação AFD',
+      error: e,
+    });
+    json(res, 500, { ok: false, success: false, error: 'delete_failed', message: msg });
+  }
 }

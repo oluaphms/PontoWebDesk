@@ -322,3 +322,12 @@ export async function getAfdImportById(companyId: string, importId: string): Pro
   );
   return (result.rows[0] as Record<string, unknown>) ?? null;
 }
+
+export async function deleteAfdImport(companyId: string, importId: string): Promise<boolean> {
+  const result = await pool.query(
+    `delete from public.afd_imports
+      where company_id::text = $1 and id::text = $2`,
+    [companyId, importId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}

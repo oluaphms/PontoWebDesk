@@ -118,13 +118,6 @@ export const navigationGroups: Record<string, NavigationGroupSchema> = {
       { name: 'Empresa', nameKey: 'menu.empresa', path: '/admin/company', roles: ['admin', 'hr'] },
       { name: 'Configurações', nameKey: 'menu.settings', path: '/admin/settings', roles: ['admin', 'hr'] },
       { name: 'Ajuda', nameKey: 'menu.ajuda', path: '/admin/ajuda', roles: ['admin', 'hr'] },
-      {
-        name: 'Inteligência Operacional',
-        nameKey: 'menu.inteligenciaOperacional',
-        hintKey: 'menu.inteligenciaOperacionalHint',
-        path: '/admin/inteligencia-operacional',
-        roles: ['admin', 'hr'],
-      },
       { name: 'Configurações', nameKey: 'menu.settings', path: '/employee/settings', roles: ['employee'] },
       { name: 'Meu Perfil', nameKey: 'menu.perfil', path: '/employee/profile', roles: ['employee'] },
     ],
