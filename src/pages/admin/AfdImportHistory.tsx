@@ -4,7 +4,8 @@ import { History, FileText, Trash2 } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState, Button } from '../../../components/UI';
-import { apiDelete, apiGet } from '../../services/api';
+import { db } from '../../services/supabaseClient';
+import { ApiError } from '../../services/api';
 
 type AfdImportRow = {
   id: string;
@@ -35,8 +36,13 @@ const AdminAfdImportHistory: React.FC = () => {
     if (!user?.companyId) return;
     setLoadingRows(true);
     try {
-      const data = (await apiGet('/rep/afd-imports')) as { imports?: AfdImportRow[] };
-      setRows(Array.isArray(data.imports) ? data.imports : []);
+      const list = (await db.select(
+        'afd_imports',
+        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+        { column: 'data_importacao', ascending: false },
+        100,
+      )) as AfdImportRow[];
+      setRows(Array.isArray(list) ? list : []);
     } catch {
       setRows([]);
     } finally {
@@ -58,14 +64,29 @@ const AdminAfdImportHistory: React.FC = () => {
       ) {
         return;
       }
+      const importId = String(row.id ?? '').trim();
+      if (!importId) {
+        setDeleteError('Registro sem identificador — recarregue a página e tente novamente.');
+        return;
+      }
       setDeleteError(null);
-      setDeletingId(row.id);
+      setDeletingId(importId);
       try {
-        await apiDelete(`/rep/afd-imports/${encodeURIComponent(row.id)}`);
-        setRows((prev) => prev.filter((r) => r.id !== row.id));
-        setDetail((prev) => (prev?.id === row.id ? null : prev));
+        await db.delete('afd_imports', importId);
+        setRows((prev) => prev.filter((r) => String(r.id) !== importId));
+        setDetail((prev) => (String(prev?.id) === importId ? null : prev));
       } catch (e) {
-        setDeleteError(e instanceof Error ? e.message : 'Não foi possível excluir a importação.');
+        const apiErr = e instanceof ApiError ? e : null;
+        const errCode =
+          apiErr?.body && typeof apiErr.body === 'object'
+            ? String((apiErr.body as Record<string, unknown>).error ?? (apiErr.body as Record<string, unknown>).code ?? '')
+            : '';
+        const msg = apiErr?.message ?? (e instanceof Error ? e.message : 'Não foi possível excluir a importação.');
+        setDeleteError(
+          apiErr?.status === 404 || msg === 'not_found' || errCode === 'not_found' || errCode === 'DATA_NOT_FOUND'
+            ? 'Registro não encontrado ou sem permissão para excluir.'
+            : msg,
+        );
       } finally {
         setDeletingId(null);
       }
