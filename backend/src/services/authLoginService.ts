@@ -182,7 +182,29 @@ function hasStoredPasswordHash(row: AuthLoginRow | null | undefined): boolean {
   return Boolean(String(row?.password_hash ?? '').trim());
 }
 
-/** Prioriza users; se a senha estiver só em employees, reutiliza o hash sem bloquear o login. */
+async function findAuthEncryptedPassword(email: string): Promise<string | null> {
+  try {
+    const tableExists = await pool.query(
+      `select 1 from information_schema.tables
+       where table_schema = 'auth' and table_name = 'users'
+       limit 1`,
+    );
+    if ((tableExists.rowCount ?? 0) === 0) return null;
+    const result = await pool.query(
+      `select encrypted_password
+       from auth.users
+       where lower(trim(email)) = $1
+       limit 1`,
+      [email],
+    );
+    const hash = String(result.rows[0]?.encrypted_password ?? '').trim();
+    return hash || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Prioriza users; se a senha estiver só em employees/auth, reutiliza o hash sem bloquear o login. */
 async function resolveLoginUser(email: string): Promise<AuthLoginRow | null> {
   const fromUsers = await findInUsers(email);
   const fromEmployees = await findInEmployees(email);
@@ -195,6 +217,11 @@ async function resolveLoginUser(email: string): Promise<AuthLoginRow | null> {
   if (alternate && hasStoredPasswordHash(alternate)) {
     void repairLoginPasswordHash(primary, alternate.password_hash);
     return { ...primary, password_hash: alternate.password_hash };
+  }
+  const authHash = await findAuthEncryptedPassword(email);
+  if (authHash) {
+    void repairLoginPasswordHash(primary, authHash);
+    return { ...primary, password_hash: authHash };
   }
   return primary;
 }

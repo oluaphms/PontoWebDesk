@@ -205,6 +205,10 @@ export async function syncUserFieldsFromEmployeeBody(
         : String(body.numero_identificador).trim(),
     );
   }
+  if ('cpf' in body) {
+    const cpfRaw = body.cpf == null || body.cpf === '' ? null : String(body.cpf).replace(/\D/g, '');
+    set('cpf', cpfRaw && cpfRaw.length === 11 ? cpfRaw : null);
+  }
   if ('pis' in body) {
     const pis = body.pis == null || body.pis === '' ? null : String(body.pis).trim();
     set('pis_pasep', pis);

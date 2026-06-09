@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
 import { generateTemporaryPassword } from '../security/passwords/generateTemporaryPassword.js';
 import { BCRYPT_COST, validateStrongPassword } from '../security/passwords/passwordPolicy.js';
+import { ensureAuthUserMirror, ensureUserForEmployee } from './employeeUserSync.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -16,6 +17,27 @@ async function employeesHasPasswordHash(): Promise<boolean> {
      limit 1`,
   );
   return (r.rowCount ?? 0) > 0;
+}
+
+async function mirrorPasswordToAuth(params: {
+  id: string;
+  email: string;
+  nome: string;
+  role: string;
+  companyId: string;
+  passwordHash: string;
+}): Promise<void> {
+  await ensureAuthUserMirror(
+    {
+      id: params.id,
+      email: params.email,
+      nome: params.nome,
+      role: params.role,
+      companyId: params.companyId,
+      passwordHash: params.passwordHash,
+    },
+    pool,
+  );
 }
 
 export async function setUserPasswordForTenant(params: {
@@ -50,10 +72,11 @@ export async function setUserPasswordForTenant(params: {
      set password_hash = $1
      where lower(trim(email)) = $2
        and company_id::text = $3
-     returning id::text`,
+     returning id::text, nome, role`,
     [hash, email, companyId],
   );
   if ((userUpd.rowCount ?? 0) > 0) {
+    const userId = String(userUpd.rows[0]?.id ?? '');
     if (await employeesHasPasswordHash()) {
       await pool.query(
         `update public.employees
@@ -61,6 +84,16 @@ export async function setUserPasswordForTenant(params: {
          where lower(trim(email)) = $2 and company_id::text = $3`,
         [hash, email, companyId],
       );
+    }
+    if (userId) {
+      await mirrorPasswordToAuth({
+        id: userId,
+        email,
+        nome: String(userUpd.rows[0]?.nome ?? email),
+        role: String(userUpd.rows[0]?.role ?? 'employee'),
+        companyId,
+        passwordHash: hash,
+      });
     }
     return {
       ok: true,
@@ -71,33 +104,52 @@ export async function setUserPasswordForTenant(params: {
     };
   }
 
-  if (await employeesHasPasswordHash()) {
-    const empUpd = await pool.query(
-      `update public.employees
-       set password_hash = $1
-       where lower(trim(email)) = $2
-         and company_id::text = $3
-       returning id::text`,
-      [hash, email, companyId],
-    );
-    if ((empUpd.rowCount ?? 0) > 0) {
-      await pool.query(
-        `update public.users u
-         set password_hash = $1
-         from public.employees e
-         where lower(trim(e.email)) = $2
-           and e.company_id::text = $3
-           and u.id::text = e.id::text`,
-        [hash, email, companyId],
-      );
-      return {
-        ok: true,
+  const employeeRow = await pool.query(
+    `select id::text, nome, email, role, status, schedule_id, shift_id
+     from public.employees
+     where lower(trim(email)) = $1 and company_id::text = $2
+     limit 1`,
+    [email, companyId],
+  );
+  const employee = employeeRow.rows[0] as Record<string, unknown> | undefined;
+  if (employee?.id) {
+    await ensureUserForEmployee(
+      {
+        id: String(employee.id),
+        company_id: companyId,
+        nome: String(employee.nome || email),
         email,
-        table: 'employees',
-        temporaryPassword: generatedTemporary ? newPassword : undefined,
-        expiresAt,
-      };
+        role: String(employee.role || 'employee'),
+        status: String(employee.status || 'active'),
+        schedule_id: employee.schedule_id,
+        shift_id: employee.shift_id,
+        password_hash: hash,
+      },
+      pool,
+    );
+    if (await employeesHasPasswordHash()) {
+      await pool.query(
+        `update public.employees
+         set password_hash = $1
+         where id::text = $2 and company_id::text = $3`,
+        [hash, String(employee.id), companyId],
+      );
     }
+    await mirrorPasswordToAuth({
+      id: String(employee.id),
+      email,
+      nome: String(employee.nome || email),
+      role: String(employee.role || 'employee'),
+      companyId,
+      passwordHash: hash,
+    });
+    return {
+      ok: true,
+      email,
+      table: 'employees',
+      temporaryPassword: generatedTemporary ? newPassword : undefined,
+      expiresAt,
+    };
   }
 
   return {

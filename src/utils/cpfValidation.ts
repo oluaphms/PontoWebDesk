@@ -2,6 +2,12 @@ export function stripCpf(cpf: string): string {
   return String(cpf || '').replace(/\D/g, '');
 }
 
+export function formatCpf(cpf: string): string {
+  const digits = stripCpf(cpf);
+  if (digits.length !== 11) return String(cpf || '').trim();
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
 export function isValidCpf(cpf: string): boolean {
   const s = stripCpf(cpf);
   if (s.length !== 11) return false;

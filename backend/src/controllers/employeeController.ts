@@ -117,10 +117,22 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
   const admissionSelect = userColumns.admissao
     ? 'coalesce(e.data_admissao, u.admissao) as data_admissao'
     : 'e.data_admissao as data_admissao';
+  const [employeesHasCpf, usersHasCpf] = await Promise.all([
+    tableHasColumn('employees', 'cpf', db),
+    tableHasColumn('users', 'cpf', db),
+  ]);
+  const cpfSelect =
+    employeesHasCpf && usersHasCpf
+      ? `coalesce(nullif(trim(e.cpf), ''), nullif(trim(u.cpf), '')) as cpf`
+      : employeesHasCpf
+        ? 'e.cpf as cpf'
+        : usersHasCpf
+          ? 'u.cpf as cpf'
+          : 'null as cpf';
 
   return `
     e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
-    e.cpf,
+    ${cpfSelect},
     ${pisSelect},
     ${phoneSelect},
     ${admissionSelect},
@@ -714,6 +726,18 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
         const employeeEmail = String(employeeRow.email || body.email || '').trim().toLowerCase();
         const employeeRole = String(employeeRow.role || body.role || 'employee');
         if (employeeEmail || hasAdminAccess(employeeRole)) {
+          const pwdRow = await client.query(
+            `select e.password_hash as employee_hash, u.password_hash as user_hash
+             from employees e
+             left join users u
+               on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+             where e.id::text = $1 and e.company_id::text = $2
+             limit 1`,
+            [id, companyId],
+          );
+          const preservedHash = String(
+            pwdRow.rows[0]?.employee_hash ?? pwdRow.rows[0]?.user_hash ?? '',
+          ).trim() || null;
           await ensureUserForEmployee(
             {
               id,
@@ -724,6 +748,7 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
               status: String(employeeRow.status || body.status || 'active'),
               schedule_id: employeeRow.schedule_id ?? body.schedule_id,
               shift_id: employeeRow.shift_id ?? body.shift_id,
+              password_hash: preservedHash,
             },
             client,
           );

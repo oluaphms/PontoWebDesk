@@ -42,6 +42,7 @@ import {
   type EmployeeWriteInput,
 } from '../../services/employeesApi.service';
 import { setEmployeePasswordInAuth } from '../../services/authAdminApi.service';
+import { formatCpf } from '../../utils/cpfValidation';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { resolveTenantId } from '../../services/tenantScope';
 import { invalidateCompanyListCaches, queryCache } from '../../services/queryCache';
@@ -796,7 +797,7 @@ const AdminEmployees: React.FC = () => {
           fetchEmployees(effectiveCompanyId),
           safeSelectRows('users', {
             columns:
-              'id,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id,ctps,observacoes,tipo_vinculo,naturalidade,estado_civil_text,data_nascimento,rg,rg_orgao,contrato_fim,employee_config',
+              'id,cpf,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id,ctps,observacoes,tipo_vinculo,naturalidade,estado_civil_text,data_nascimento,rg,rg_orgao,contrato_fim,employee_config',
             limit: 1000,
           }),
           safeSelectRows('schedules', {
@@ -878,6 +879,7 @@ const AdminEmployees: React.FC = () => {
         const userLink = userById.get(employee.id);
         return {
           ...employee,
+          cpf: employee.cpf ?? optionalString(userLink?.cpf) ?? null,
           schedule_id: employee.schedule_id ?? optionalString(userLink?.schedule_id) ?? null,
           shift_id: employee.shift_id ?? optionalString(userLink?.shift_id) ?? null,
           department_id: employee.department_id ?? optionalString(userLink?.department_id) ?? null,
@@ -1008,7 +1010,7 @@ const AdminEmployees: React.FC = () => {
       salario_base:
         row.salario_base != null && !Number.isNaN(Number(row.salario_base)) ? String(row.salario_base) : '',
       nome: row.nome,
-      cpf: row.cpf || '',
+      cpf: row.cpf ? formatCpf(row.cpf) : '',
       email: row.email,
       phone: row.phone || '',
       pis_pasep: row.pis_pasep || '',
@@ -1941,6 +1943,20 @@ const AdminEmployees: React.FC = () => {
                           />
                         </div>
                         <div>
+                          <label className={`${EMP_MODAL_LABEL} text-blue-600 dark:text-blue-400`}>
+                            CPF <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={form.cpf}
+                            onChange={(e) => setForm({ ...form, cpf: e.target.value })}
+                            className={EMP_MODAL_INPUT_NUMERIC}
+                            placeholder="000.000.000-00"
+                          />
+                        </div>
+                        <div>
                           <label className={EMP_MODAL_LABEL}>Matrícula</label>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5 leading-snug">
                             Matrícula utilizada pelo colaborador no sistema e nos equipamentos REP.
@@ -2349,10 +2365,6 @@ const AdminEmployees: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Término do contrato / estágio</label>
                         <input type="date" value={form.contrato_fim} onChange={(e) => setForm({ ...form, contrato_fim: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">CPF</label>
-                        <input type="text" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Telefone</label>
