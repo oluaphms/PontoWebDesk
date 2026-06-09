@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 # Deploy do rep-agent.exe para o serviço Windows.
-# Uso: clique direito → "Executar com PowerShell" OU:
+# Uso: clique direito -> "Executar com PowerShell" OU:
 #   powershell -ExecutionPolicy Bypass -File "D:\PontoWebDesk\scripts\deploy-rep-agent.ps1"
 
 $ErrorActionPreference = 'Stop'
@@ -27,7 +27,7 @@ function Enable-RepAgentCommands {
       $changed = $true
     }
     if ($cfg.heartbeat_interval_ms -and [int]$cfg.heartbeat_interval_ms -gt 120000) {
-      Write-Host "AVISO: heartbeat_interval_ms=$($cfg.heartbeat_interval_ms) — recomendado <= 60000 para testes no painel." -ForegroundColor Yellow
+      Write-Host "AVISO: heartbeat_interval_ms=$($cfg.heartbeat_interval_ms) - recomendado no maximo 60000 para testes no painel." -ForegroundColor Yellow
     }
     if ($changed) {
       $json = ($cfg | ConvertTo-Json -Depth 8)
@@ -35,7 +35,7 @@ function Enable-RepAgentCommands {
       Write-Host 'config.json atualizado: enable_commands=true' -ForegroundColor Green
     }
   } else {
-    Write-Host "AVISO: $configPath nao encontrado — configure enable_commands apos instalar." -ForegroundColor Yellow
+    Write-Host "AVISO: $configPath nao encontrado - configure enable_commands apos instalar." -ForegroundColor Yellow
   }
 
   if (Test-Path $nssm) {
@@ -49,7 +49,7 @@ if (Test-Path $staging) {
 } elseif (Test-Path $builtExe) {
   $source = $builtExe
 } else {
-  Write-Host 'Build do agente nao encontrado — compilando...' -ForegroundColor Cyan
+  Write-Host 'Build do agente nao encontrado - compilando...' -ForegroundColor Cyan
   Push-Location $repoRoot
   try {
     npm run build:agent
@@ -61,7 +61,7 @@ if (Test-Path $staging) {
   } elseif (Test-Path $builtExe) {
     $source = $builtExe
   } else {
-    Write-Host "ERRO: build falhou — nao encontrado: $staging nem $builtExe" -ForegroundColor Red
+    Write-Host "ERRO: build falhou - nao encontrado: $staging nem $builtExe" -ForegroundColor Red
     exit 1
   }
 }
@@ -195,4 +195,4 @@ if (Test-Path $log) {
 }
 
 Write-Host "`nOK se: cmd_poll=... (nao cmd_poll=off) + build=... + [REP COMMAND POLL] ativo" -ForegroundColor Green
-Write-Host "Se cmd_poll=off: rode scripts\enable-rep-agent-commands.ps1 e teste de novo." -ForegroundColor Yellow
+Write-Host 'Se cmd_poll=off: rode scripts\enable-rep-agent-commands.ps1 e teste de novo.' -ForegroundColor Yellow
