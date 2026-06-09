@@ -13,7 +13,7 @@ import {
   GLOBAL_SETTINGS_COLUMNS_CORE,
 } from './egressSelectColumns';
 import { ApiError, apiGet, apiPost } from './api';
-import { isLocalApiMode } from '../config/system';
+import { isApiConfigured } from '../config/env';
 import { queryCache, TTL } from './queryCache';
 import { isCloudEnabled } from './cloudService';
 import { cloudFallback } from './cloudFallback';
@@ -187,7 +187,7 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
       queryCache.getOrFetch(`global_settings:${companyId || 'session'}`, async () => {
         try {
           let mapped: GlobalSettings | null = null;
-          if (isLocalApiMode() && companyId) {
+          if (isApiConfigured() && companyId) {
             try {
               mapped = await fetchSettingsViaAdminApi(companyId);
             } catch (adminErr) {
@@ -214,7 +214,7 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
           }
           if (!mapped && companyId) {
             try {
-              if (isLocalApiMode()) {
+              if (isApiConfigured()) {
                 mapped = await saveSettingsViaAdminApi({
                   ...DEFAULT_GLOBAL_SETTINGS,
                   allow_manual_punch: true,
@@ -321,7 +321,7 @@ export async function upsertSettingsForCompany(
 
   const payload = prepareSettingsWritePayload(data);
   try {
-    if (isLocalApiMode()) {
+    if (isApiConfigured()) {
       const mapped = await saveSettingsViaAdminApi(payload);
       queryCache.invalidate('global_settings:');
       if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
@@ -371,12 +371,14 @@ export async function upsertSettingsForCompany(
     return { data: mapped, error: null };
   } catch (error) {
     observabilityConsole.error('[settingsService] upsertSettingsForCompany error:', error);
+    const apiMessage =
+      error instanceof ApiError && error.body && typeof error.body === 'object'
+        ? String((error.body as Record<string, unknown>).message || (error.body as Record<string, unknown>).error || '')
+        : '';
     const msg =
       isNotFoundError(error)
         ? 'Configurações não encontradas para esta empresa — tente recarregar a página.'
-        : error instanceof Error
-          ? error.message
-          : 'settings_upsert_failed';
+        : apiMessage || (error instanceof Error ? error.message : 'settings_upsert_failed');
     return { data: null, error: new Error(msg) };
   }
 }
