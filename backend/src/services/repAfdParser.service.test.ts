@@ -23,4 +23,11 @@ describe('repAfdParser', () => {
   it('parseAfdFile retorna vazio para conteúdo inválido', () => {
     expect(parseAfdFile('lixo\nabc')).toEqual([]);
   });
+
+  it('parseAfdLine ignora CRC hex Portaria 1510', () => {
+    const r = parseAfdLine('000000296315082018113001296400076111b6');
+    expect(r).not.toBeNull();
+    expect(r!.cpfOuPis).toBe('29640007611');
+    expect(r!.data).toBe('2018-08-15');
+  });
 });

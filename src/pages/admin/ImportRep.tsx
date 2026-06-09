@@ -189,6 +189,11 @@ const AdminImportRep: React.FC = () => {
         void runRecalc(data.recalc_targets);
       }
     } catch (e) {
+      const msg = (e as Error).message;
+      const friendly =
+        msg === 'Failed to fetch'
+          ? 'Não foi possível concluir a importação na API. Arquivos com milhares de registros podem levar vários minutos — aguarde ou confira se o backend na VPS foi atualizado (timeout do proxy).'
+          : msg;
       setResult({
         imported: 0,
         duplicated: 0,
@@ -196,7 +201,7 @@ const AdminImportRep: React.FC = () => {
         user_not_found: 0,
         employees_found: 0,
         processing_ms: 0,
-        errors: [(e as Error).message],
+        errors: [friendly],
       });
     } finally {
       setUploading(false);
@@ -280,11 +285,25 @@ const AdminImportRep: React.FC = () => {
         </Button>
 
         {result && (
-          <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-4 bg-slate-50 dark:bg-slate-900/40 space-y-2">
-            <h4 className="font-semibold text-slate-900 dark:text-white">
-              {result.imported > 0 || result.duplicated > 0
-                ? 'Arquivo processado com sucesso'
-                : 'Processamento concluído'}
+          <div
+            className={`rounded-lg border p-4 space-y-2 ${
+              result.errors.length > 0 && result.imported === 0 && result.duplicated === 0
+                ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30'
+                : 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/40'
+            }`}
+          >
+            <h4
+              className={`font-semibold ${
+                result.errors.length > 0 && result.imported === 0 && result.duplicated === 0
+                  ? 'text-red-800 dark:text-red-200'
+                  : 'text-slate-900 dark:text-white'
+              }`}
+            >
+              {result.errors.length > 0 && result.imported === 0 && result.duplicated === 0
+                ? 'Falha na importação'
+                : result.imported > 0 || result.duplicated > 0
+                  ? 'Arquivo processado com sucesso'
+                  : 'Processamento concluído'}
             </h4>
             <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
               <li>

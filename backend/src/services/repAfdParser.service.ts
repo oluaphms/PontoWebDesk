@@ -60,9 +60,25 @@ function normalizeTime(hhmmss: string): string | null {
   return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:${s.padStart(2, '0')}`;
 }
 
-export function parseAfdLine(line: string): ParsedAfdRecord | null {
+function normalizeAfdLineInput(line: string): string {
   const trimmed = line.trim();
-  if (!trimmed || trimmed.length < 18) return null;
+  if (!trimmed || trimmed.length < 18) return '';
+  if (/\s/.test(trimmed)) return trimmed;
+  if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
+  const id14 = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{14})$/);
+  if (id14) {
+    return `${id14[1]}${id14[2]}${id14[3]}${id14[4]}${id14[5]}`;
+  }
+  const withCrc = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{11})[0-9a-fA-F]{3}$/i);
+  if (withCrc) {
+    return `${withCrc[1]}${withCrc[2]}${withCrc[3]}${withCrc[4]}${withCrc[5]}`;
+  }
+  return trimmed.replace(/([A-Za-z])$/, '');
+}
+
+export function parseAfdLine(line: string): ParsedAfdRecord | null {
+  const trimmed = normalizeAfdLineInput(line);
+  if (!trimmed) return null;
 
   const tipo6 = /^(\d{9})(6)(\d{8})(\d{6})$/;
   const m6 = trimmed.match(tipo6);

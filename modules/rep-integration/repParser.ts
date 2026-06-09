@@ -45,6 +45,15 @@ function normalizeAfdLineInput(line: string): string {
   if (!trimmed || trimmed.length < 18) return '';
   if (/\s/.test(trimmed)) return trimmed;
   if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
+  // 38 chars: identificador 14 dígitos (Control iD) OU PIS(11)+CRC(3 hex) — Portaria 1510
+  const id14 = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{14})$/);
+  if (id14) {
+    return `${id14[1]}${id14[2]}${id14[3]}${id14[4]}${id14[5]}`;
+  }
+  const withCrc = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{11})[0-9a-fA-F]{3}$/i);
+  if (withCrc) {
+    return `${withCrc[1]}${withCrc[2]}${withCrc[3]}${withCrc[4]}${withCrc[5]}`;
+  }
   return trimmed.replace(/([A-Za-z])$/, '');
 }
 

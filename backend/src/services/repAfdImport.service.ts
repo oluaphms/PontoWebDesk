@@ -38,13 +38,17 @@ function punchHashForAfd(companyId: string, deviceId: string | null, rec: Parsed
   return createHash('sha256').update(key).digest('hex');
 }
 
+let cachedHasPunchHashParam: boolean | null = null;
+
 async function repIngestHasPunchHashParam(): Promise<boolean> {
+  if (cachedHasPunchHashParam !== null) return cachedHasPunchHashParam;
   const result = await pool.query(
     `select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = 'rep_ingest_punch'
         and array_position(p.proargnames, 'p_punch_hash') is not null limit 1`,
   );
-  return (result.rowCount ?? 0) > 0;
+  cachedHasPunchHashParam = (result.rowCount ?? 0) > 0;
+  return cachedHasPunchHashParam;
 }
 
 async function markAfdImportOrigin(repLogId: string): Promise<void> {
@@ -62,6 +66,7 @@ async function ingestOneAfdRecord(input: {
   rec: ParsedAfdRecord;
   forceUserId: string | null;
   timeZone: string;
+  hasPunchHashParam: boolean;
 }): Promise<{
   status: 'imported' | 'duplicate' | 'user_not_found' | 'error' | 'ignored';
   repLogId?: string;
@@ -69,7 +74,7 @@ async function ingestOneAfdRecord(input: {
   civilDate?: string;
   error?: string;
 }> {
-  const { companyId, repDeviceId, rec, forceUserId, timeZone } = input;
+  const { companyId, repDeviceId, rec, forceUserId, timeZone, hasPunchHashParam } = input;
   const iso = afdRecordToIsoUtc(rec, timeZone);
   const matricula = matriculaFromAfdPisField(rec.cpfOuPis) ?? null;
   const punchHash = punchHashForAfd(companyId, repDeviceId, rec, iso);
@@ -110,7 +115,6 @@ async function ingestOneAfdRecord(input: {
     false,
   ];
 
-  const hasPunchHashParam = await repIngestHasPunchHashParam();
   const sql = hasPunchHashParam
     ? `select public.rep_ingest_punch($1::text, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::timestamptz, $8::text, $9::bigint, $10::jsonb, $11::boolean, $12::boolean, $13::uuid, $14::boolean, $15::text) as result`
     : `select public.rep_ingest_punch($1::text, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::timestamptz, $8::text, $9::bigint, $10::jsonb, $11::boolean, $12::boolean, $13::uuid, $14::boolean) as result`;
@@ -211,8 +215,16 @@ export async function processAfdImport(input: {
   const employeeIds = new Set<string>();
   const recalcTargets = new Map<string, { user_id: string; date: string }>();
 
+  const hasPunchHashParam = await repIngestHasPunchHashParam();
   for (const rec of records) {
-    const r = await ingestOneAfdRecord({ companyId, repDeviceId, rec, forceUserId, timeZone });
+    const r = await ingestOneAfdRecord({
+      companyId,
+      repDeviceId,
+      rec,
+      forceUserId,
+      timeZone,
+      hasPunchHashParam,
+    });
     if (r.status === 'imported') {
       imported += 1;
       if (r.userId) {
