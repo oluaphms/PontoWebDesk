@@ -98,6 +98,18 @@ function padTime(t: string | undefined | null, fallback: string): string {
   return fallback;
 }
 
+/** Exibe horário da escala sem arredondar (HH:mm). */
+export function formatScheduleTimeDisplay(t: string | undefined | null): string {
+  if (!t) return '';
+  const s = String(t).trim();
+  if (!s) return '';
+  const match = s.match(/^(\d{1,2}):(\d{2})/);
+  if (match) {
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+  }
+  return padTime(s, '');
+}
+
 function timeToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10));
   return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
@@ -385,6 +397,11 @@ function workScheduleFromEssRow(
   row: EmployeeShiftScheduleRow,
   shift: Record<string, unknown> | null
 ): WorkScheduleInfo | null {
+  const shiftId = row.shift_id || row.work_shift_id;
+  // Turno cadastrado é fonte de verdade para entrada/saída (ex.: 18:12, não cópia stale na ESS).
+  if (shift && shiftId) {
+    return shiftRecordToWorkScheduleInfo(shift);
+  }
   if (row.start_time && row.end_time) {
     return shiftRecordToWorkScheduleInfo({
       start_time: row.start_time,
@@ -485,12 +502,19 @@ export async function resolveEmployeeScheduleForDate(
 export async function fetchUserScheduleId(employeeId: string): Promise<string | null> {
   if (!isSupabaseConfigured() || !String(employeeId || '').trim()) return null;
   try {
-    const rows = (await db.select(
-      'users',
-      [{ column: 'id', operator: 'eq', value: employeeId }],
-      { columns: 'schedule_id', limit: 1 },
-    )) as { schedule_id?: string | null }[];
-    const sid = rows?.[0]?.schedule_id;
+    const [users, employees] = await Promise.all([
+      db.select(
+        'users',
+        [{ column: 'id', operator: 'eq', value: employeeId }],
+        { columns: 'schedule_id', limit: 1 },
+      ) as Promise<{ schedule_id?: string | null }[]>,
+      db.select(
+        'employees',
+        [{ column: 'id', operator: 'eq', value: employeeId }],
+        { columns: 'schedule_id', limit: 1 },
+      ) as Promise<{ schedule_id?: string | null }[]>,
+    ]);
+    const sid = users?.[0]?.schedule_id ?? employees?.[0]?.schedule_id;
     return typeof sid === 'string' && sid.trim() ? sid.trim() : null;
   } catch {
     return null;
@@ -615,24 +639,37 @@ async function getLegacyScheduleFromUser(
 
   const inflight = (async (): Promise<WorkScheduleInfo | null> => {
     try {
-      const users = (await db.select(
-        'users',
-        [{ column: 'id', operator: 'eq', value: employeeId }],
-        undefined,
-        1
-      )) as { schedule_id?: string | null }[];
+      const [users, employees] = await Promise.all([
+        db.select(
+          'users',
+          [{ column: 'id', operator: 'eq', value: employeeId }],
+          undefined,
+          1,
+        ) as Promise<{ schedule_id?: string | null; shift_id?: string | null }[]>,
+        db.select(
+          'employees',
+          [{ column: 'id', operator: 'eq', value: employeeId }],
+          undefined,
+          1,
+        ) as Promise<{ schedule_id?: string | null; shift_id?: string | null }[]>,
+      ]);
 
-      const scheduleId = users?.[0]?.schedule_id;
-      if (!scheduleId) return null;
+      const scheduleId = users?.[0]?.schedule_id ?? employees?.[0]?.schedule_id ?? null;
+      let shiftId = users?.[0]?.shift_id ?? employees?.[0]?.shift_id ?? null;
+      let sched: { shift_id?: string | null; work_days?: number[] | null; days?: number[] | null } | null =
+        null;
 
-      const schedules = (await db.select(
-        'schedules',
-        [{ column: 'id', operator: 'eq', value: scheduleId }],
-        undefined,
-        1
-      )) as { shift_id?: string | null; work_days?: number[] | null; days?: number[] | null }[];
+      if (scheduleId) {
+        const schedules = (await db.select(
+          'schedules',
+          [{ column: 'id', operator: 'eq', value: scheduleId }],
+          undefined,
+          1,
+        )) as { shift_id?: string | null; work_days?: number[] | null; days?: number[] | null }[];
+        sched = schedules?.[0] ?? null;
+        if (!shiftId) shiftId = sched?.shift_id ?? null;
+      }
 
-      const shiftId = schedules?.[0]?.shift_id;
       if (!shiftId) return null;
 
       const shifts = (await db.select(
@@ -642,18 +679,17 @@ async function getLegacyScheduleFromUser(
           { column: 'company_id', operator: 'eq', value: companyId },
         ],
         undefined,
-        1
+        1,
       )) as Record<string, unknown>[];
 
       const sh = shifts?.[0];
       if (!sh) return null;
 
       const base = shiftRecordToWorkScheduleInfo(sh);
-      const sched = schedules[0];
       const work_days = Array.isArray(sched?.days)
-        ? (sched.days as number[])
+        ? (sched!.days as number[])
         : Array.isArray(sched?.work_days)
-          ? (sched.work_days as number[])
+          ? (sched!.work_days as number[])
           : [1, 2, 3, 4, 5];
 
       return { ...base, work_days };

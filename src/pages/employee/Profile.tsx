@@ -9,6 +9,7 @@ import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { readFileHead } from '../../shared/upload/fileValidation';
 import { detectImageMime } from '../../shared/upload/magicBytes';
 import { uploadPhotoViaApi } from '../../services/uploadPhotoApi';
+import { fetchAuthMe } from '../../services/authMe.service';
 import { logger } from '../../shared/logger/logger';
 
 function canChangePasswordFromProfile(role: unknown): boolean {
@@ -34,13 +35,34 @@ const EmployeeProfile: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
+    if (!user) return;
+    setScheduleName(user.scheduleName || '—');
+    setDepartmentName(user.departmentName || user.departamento || '—');
+    setShiftName(user.shiftName || '—');
+    setStructureName(user.estruturaName || '—');
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void fetchAuthMe().then((fresh) => {
+      if (cancelled || !fresh) return;
+      if (fresh.estruturaName) setStructureName(fresh.estruturaName);
+      if (fresh.scheduleName) setScheduleName(fresh.scheduleName);
+      if (fresh.departmentName || fresh.departamento) {
+        setDepartmentName(fresh.departmentName || fresh.departamento || '—');
+      }
+      if (fresh.shiftName) setShiftName(fresh.shiftName);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
     const load = async () => {
-      setScheduleName((user as any).scheduleName || '—');
-      setDepartmentName((user as any).departmentName || (user as any).departamento || '—');
-      setShiftName((user as any).shiftName || '—');
-      setStructureName((user as any).estruturaName || '—');
-      if (user.schedule_id && !(user as any).scheduleName) {
+      if (user.schedule_id && !user.scheduleName) {
         try {
           const sched = (await db.select('schedules', [{ column: 'id', operator: 'eq', value: user.schedule_id }])) as any[];
           if (sched?.[0]) setScheduleName(sched[0].name || '—');
@@ -48,26 +70,26 @@ const EmployeeProfile: React.FC = () => {
           setScheduleName('—');
         }
       }
-      if ((user as any).departmentId && !(user as any).departmentName && !(user as any).departamento) {
+      if (user.departmentId && !user.departmentName && !user.departamento) {
         try {
-          const depts = (await db.select('departments', [{ column: 'id', operator: 'eq', value: (user as any).departmentId }])) as any[];
+          const depts = (await db.select('departments', [{ column: 'id', operator: 'eq', value: user.departmentId }])) as any[];
           if (depts?.[0]) setDepartmentName(depts[0].name || '—');
         } catch {
           setDepartmentName('—');
         }
       }
-      if ((user as any).shift_id && !(user as any).shiftName) {
+      if (user.shift_id && !user.shiftName) {
         try {
-          const shifts = (await db.select('work_shifts', [{ column: 'id', operator: 'eq', value: (user as any).shift_id }])) as any[];
-          if (shifts?.[0]) setShiftName(shifts[0].name || '—');
+          const shifts = (await db.select('work_shifts', [{ column: 'id', operator: 'eq', value: user.shift_id }])) as any[];
+          if (shifts?.[0]) setShiftName(shifts[0].name || shifts[0].description || '—');
         } catch {
           setShiftName('—');
         }
       }
-      if ((user as any).estrutura_id && !(user as any).estruturaName) {
+      if (user.estrutura_id && !user.estruturaName) {
         try {
-          const structures = (await db.select('estruturas', [{ column: 'id', operator: 'eq', value: (user as any).estrutura_id }])) as any[];
-          if (structures?.[0]) setStructureName(structures[0].descricao || structures[0].name || '—');
+          const structures = (await db.select('estruturas', [{ column: 'id', operator: 'eq', value: user.estrutura_id }])) as any[];
+          if (structures?.[0]) setStructureName(structures[0].descricao || structures[0].codigo || structures[0].name || '—');
         } catch {
           setStructureName('—');
         }

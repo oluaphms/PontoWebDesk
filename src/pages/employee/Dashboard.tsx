@@ -15,6 +15,7 @@ import {
   inferDashboardPunchDisplayMirrorType,
   resolveEmployeeScheduleForDate,
   isLocalClockWithinWorkSchedule,
+  formatScheduleTimeDisplay,
   type WorkScheduleInfo,
 } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
@@ -367,7 +368,8 @@ const EmployeeDashboard: React.FC = () => {
           <p className="text-lg font-bold text-slate-900 dark:text-white">{loadingData ? '—' : scheduleName}</p>
           {todaySchedule?.start_time && todaySchedule?.end_time && (
             <p className="text-sm text-slate-600 dark:text-slate-400 tabular-nums">
-              Hoje: {todaySchedule.start_time} – {todaySchedule.end_time}
+              Hoje: {formatScheduleTimeDisplay(todaySchedule.start_time)} –{' '}
+              {formatScheduleTimeDisplay(todaySchedule.end_time)}
             </p>
           )}
         </div>

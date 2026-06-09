@@ -129,6 +129,13 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
         : usersHasCpf
           ? 'u.cpf as cpf'
           : 'null as cpf';
+  const estruturaNameSelect = userColumns.estrutura_id
+    ? `(select coalesce(nullif(trim(est.descricao), ''), nullif(trim(est.codigo), ''))
+        from estruturas est
+        where est.id::text = u.estrutura_id::text
+          and est.company_id::text = e.company_id::text
+        limit 1) as estrutura_name`
+    : 'null as estrutura_name';
 
   return `
     e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
@@ -144,6 +151,7 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
     ${userColumnSelect(userColumns, 'invisivel', 'invisivel', 'false')},
     ${userColumnSelect(userColumns, 'employee_config', 'employee_config', "'{}'::jsonb")},
     ${userColumnSelect(userColumns, 'estrutura_id')},
+    ${estruturaNameSelect},
     ${userColumnSelect(userColumns, 'motivo_demissao_id')},
     ${userColumnSelect(userColumns, 'department_id')},
     ${userColumnSelect(userColumns, 'ctps')},

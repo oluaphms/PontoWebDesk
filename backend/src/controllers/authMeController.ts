@@ -207,7 +207,22 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
           [userId],
         );
         if (enriched.rows[0]) {
-          row = { ...enriched.rows[0], ...row, role: normalizeRole(String(row.role ?? 'employee')) };
+          const profile = enriched.rows[0] as Record<string, unknown>;
+          row = {
+            ...profile,
+            ...row,
+            role: normalizeRole(String(row.role ?? profile.role ?? 'employee')),
+            estrutura_id: row.estrutura_id ?? profile.estrutura_id,
+            estrutura_name: profile.estrutura_name ?? row.estrutura_name,
+            department_id: row.department_id ?? profile.department_id,
+            department_name: profile.department_name ?? row.department_name,
+            schedule_id: row.schedule_id ?? profile.schedule_id,
+            schedule_name: profile.schedule_name ?? row.schedule_name,
+            shift_id: row.shift_id ?? profile.shift_id,
+            shift_name: profile.shift_name ?? row.shift_name,
+            cargo: row.cargo ?? profile.cargo,
+            departamento: profile.departamento ?? row.departamento,
+          };
         }
       }
     } else {

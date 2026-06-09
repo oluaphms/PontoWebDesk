@@ -58,6 +58,9 @@ export const COLLABORATOR_MENU_PATHS = new Set([
   '/employee/work-schedule',
   '/employee/time-balance',
   '/employee/profile',
+  '/employee/requests',
+  '/employee/absences',
+  '/employee/settings',
 ]);
 
 export function isCollaboratorMenuPath(path: string): boolean {
