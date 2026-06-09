@@ -7,7 +7,7 @@ export const JOB_TITLE_LIST_COLUMNS = 'id,name,company_id';
 export const ESTRUTURA_LIST_COLUMNS = 'id,codigo,descricao,company_id';
 /** Colunas base (VPS sem migration de política de senha ainda lê/grava). */
 export const GLOBAL_SETTINGS_COLUMNS_CORE =
-  'id,gps_required,photo_required,allow_manual_punch,late_tolerance_minutes,min_break_minutes,timezone,language,email_alerts,daily_email_summary,punch_reminder,password_min_length,require_numbers,require_special_chars,session_timeout_minutes,default_entry_time,default_exit_time,allow_time_bank,created_at,updated_at';
+  'id,company_id,gps_required,photo_required,allow_manual_punch,late_tolerance_minutes,min_break_minutes,timezone,language,email_alerts,daily_email_summary,punch_reminder,password_min_length,require_numbers,require_special_chars,session_timeout_minutes,default_entry_time,default_exit_time,allow_time_bank,created_at,updated_at';
 
 export const GLOBAL_SETTINGS_COLUMNS =
   `${GLOBAL_SETTINGS_COLUMNS_CORE},require_uppercase,require_lowercase`;

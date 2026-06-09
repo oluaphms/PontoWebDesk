@@ -12,7 +12,8 @@ import {
   GLOBAL_SETTINGS_COLUMNS,
   GLOBAL_SETTINGS_COLUMNS_CORE,
 } from './egressSelectColumns';
-import { ApiError } from './api';
+import { ApiError, apiGet, apiPost } from './api';
+import { isLocalApiMode } from '../config/system';
 import { queryCache, TTL } from './queryCache';
 import { isCloudEnabled } from './cloudService';
 import { cloudFallback } from './cloudFallback';
@@ -87,17 +88,39 @@ async function findSettingsRowForCompany(companyId: string): Promise<Record<stri
   const cid = String(companyId || '').trim();
   if (!cid) return null;
   try {
-    const scoped = await db.select(
-      TABLE,
-      [{ column: 'company_id', operator: 'eq', value: cid }],
-      { columns: GLOBAL_SETTINGS_COLUMNS, limit: 1 },
-    );
-    if (scoped?.[0]) return scoped[0] as Record<string, unknown>;
+    const full = await selectSettingsForCompany(cid, GLOBAL_SETTINGS_COLUMNS);
+    if (full) return full;
   } catch {
-    /* instalações legadas sem company_id na tabela */
+    /* migration de política de senha pode não existir na VPS */
   }
-  const legacy = await db.select(TABLE, [], { columns: GLOBAL_SETTINGS_COLUMNS, limit: 1 });
-  return (legacy?.[0] as Record<string, unknown>) ?? null;
+  try {
+    return await selectSettingsForCompany(cid, GLOBAL_SETTINGS_COLUMNS_CORE);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSettingsViaAdminApi(companyId: string): Promise<GlobalSettings | null> {
+  const res = await apiGet<{ ok?: boolean; data?: Record<string, unknown>; error?: string }>(
+    '/admin/global-settings',
+  );
+  if (!res?.data) return null;
+  const row = res.data;
+  if (row.company_id != null && String(row.company_id).trim() !== companyId) return null;
+  return mapRow(row);
+}
+
+async function saveSettingsViaAdminApi(
+  payload: Record<string, unknown>,
+): Promise<GlobalSettings | null> {
+  const res = await apiPost<{ ok?: boolean; data?: Record<string, unknown>; error?: string; message?: string }>(
+    '/admin/global-settings',
+    payload,
+  );
+  if (!res?.data) {
+    throw new ApiError(res?.message || res?.error || 'settings_upsert_failed', 400, res);
+  }
+  return mapRow(res.data);
 }
 
 export const DEFAULT_SETTINGS: GlobalSettings = {
@@ -163,23 +186,53 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
     () =>
       queryCache.getOrFetch(`global_settings:${companyId || 'session'}`, async () => {
         try {
-          const filters = companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : [];
-          const rows = await db.select(TABLE, filters, {
-            columns: GLOBAL_SETTINGS_COLUMNS,
-            limit: 1,
-          });
-          let mapped = mapRow(rows?.[0]) ?? null;
+          let mapped: GlobalSettings | null = null;
+          if (isLocalApiMode() && companyId) {
+            try {
+              mapped = await fetchSettingsViaAdminApi(companyId);
+            } catch (adminErr) {
+              observabilityConsole.warn('[settingsService] admin global-settings GET:', adminErr);
+            }
+          }
+          if (!mapped) {
+            const filters = companyId
+              ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }]
+              : [];
+            let rows: Record<string, unknown>[] | undefined;
+            try {
+              rows = await db.select(TABLE, filters, {
+                columns: GLOBAL_SETTINGS_COLUMNS,
+                limit: 1,
+              });
+            } catch {
+              rows = await db.select(TABLE, filters, {
+                columns: GLOBAL_SETTINGS_COLUMNS_CORE,
+                limit: 1,
+              });
+            }
+            mapped = mapRow(rows?.[0]) ?? null;
+          }
           if (!mapped && companyId) {
             try {
-              const inserted = await db.insert(TABLE, {
-                company_id: companyId,
-                ...DEFAULT_GLOBAL_SETTINGS,
-                allow_manual_punch: true,
-                late_tolerance_minutes: 10,
-                min_break_minutes: 60,
-                timezone: 'America/Sao_Paulo',
-              });
-              mapped = mapRow(inserted);
+              if (isLocalApiMode()) {
+                mapped = await saveSettingsViaAdminApi({
+                  ...DEFAULT_GLOBAL_SETTINGS,
+                  allow_manual_punch: true,
+                  late_tolerance_minutes: 10,
+                  min_break_minutes: 60,
+                  timezone: 'America/Sao_Paulo',
+                });
+              } else {
+                const inserted = await db.insert(TABLE, {
+                  company_id: companyId,
+                  ...DEFAULT_GLOBAL_SETTINGS,
+                  allow_manual_punch: true,
+                  late_tolerance_minutes: 10,
+                  min_break_minutes: 60,
+                  timezone: 'America/Sao_Paulo',
+                });
+                mapped = mapRow(inserted);
+              }
             } catch (insertErr) {
               observabilityConsole.warn('[settingsService] insert global_settings:', insertErr);
             }
@@ -268,6 +321,13 @@ export async function upsertSettingsForCompany(
 
   const payload = prepareSettingsWritePayload(data);
   try {
+    if (isLocalApiMode()) {
+      const mapped = await saveSettingsViaAdminApi(payload);
+      queryCache.invalidate('global_settings:');
+      if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+      return { data: mapped, error: null };
+    }
+
     const existing = await findSettingsRowForCompany(cid);
     const existingId = existing?.id ? String(existing.id) : '';
 

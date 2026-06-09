@@ -7,6 +7,10 @@ import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import type { Response } from 'express';
 import { requireCompanyId } from '../utils/authContext.js';
 import { adminSetPasswordController } from '../controllers/adminSetPasswordController.js';
+import {
+  getGlobalSettingsController,
+  upsertGlobalSettingsController,
+} from '../controllers/globalSettingsController.js';
 import { rateLimit } from '../middlewares/rateLimit.js';
 
 /** Rotas administrativas isoladas — não passam pelo CRUD genérico /data. */
@@ -16,6 +20,10 @@ router.use(authMiddleware);
 router.use(requireAdminOrHr);
 
 /** Login LOCAL_API: bcrypt em public.users (substitui Supabase Auth na VPS). */
+router.get('/global-settings', getGlobalSettingsController);
+router.put('/global-settings', upsertGlobalSettingsController);
+router.post('/global-settings', upsertGlobalSettingsController);
+
 router.post('/set-password', rateLimit({
   keyPrefix: 'auth:set-password',
   maxRequests: 10,
