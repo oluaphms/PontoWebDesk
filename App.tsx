@@ -191,15 +191,20 @@ import {
 } from './src/routes/portalLazyPages';
 
 const isAdminRole = (role: User['role'] | undefined): boolean => isAdminOrHrRole(role);
+/** Bloqueia só quem escolheu admin sem perfil admin/RH. Admin/RH pode entrar por qualquer opção (comum no mobile). */
 const isRoleAllowedForSelectedLogin = (
   selectedRole: LoginRole,
   userRole: User['role'] | undefined,
 ): boolean => {
   if (selectedRole === 'admin') return isAdminOrHrRole(userRole);
-  if (selectedRole === 'employee') return !isAdminOrHrRole(userRole);
   return true;
 };
-const getRoleMismatchMessageForLogin = (_selectedRole: LoginRole): string => 'Acesso negado';
+const getRoleMismatchMessageForLogin = (selectedRole: LoginRole): string => {
+  if (selectedRole === 'admin') {
+    return 'Esta conta não tem perfil administrativo. Volte e selecione "Entrar como colaborador".';
+  }
+  return 'Acesso negado';
+};
 
 function ConfigSupabaseScreen() {
   const isVercel = typeof window !== 'undefined' && /vercel\.app/i.test(window.location.hostname);
@@ -928,14 +933,6 @@ const AppMain: React.FC = () => {
     const isAdminAccess = (userRole: User['role'] | undefined): boolean =>
       userRole === 'admin' || userRole === 'hr';
 
-    const isRoleAllowedForSelection = (selectedRole: LoginRole, userRole: User['role'] | undefined): boolean => {
-      if (selectedRole === 'admin') return isAdminAccess(userRole);
-      if (selectedRole === 'employee') return !isAdminAccess(userRole);
-      return true;
-    };
-
-    const getRoleMismatchMessage = (_selectedRole: LoginRole): string => 'Acesso negado';
-
     const forceLogoutAfterRoleMismatch = async (): Promise<void> => {
       try {
         await authService.signOut();
@@ -1251,9 +1248,9 @@ const AppMain: React.FC = () => {
           endLoginTrace('ignored:already_authenticated');
           return;
         }
-        if (!isRoleAllowedForSelection(role, result.user.role)) {
+        if (!isRoleAllowedForSelectedLogin(role, result.user.role)) {
           await forceLogoutAfterRoleMismatch();
-          setLoginError(getRoleMismatchMessage(role));
+          setLoginError(getRoleMismatchMessageForLogin(role));
           pendingLoginRoleRef.current = null;
           endLoginTrace('failed:role_mismatch');
           return;

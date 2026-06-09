@@ -113,7 +113,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                       Entrar como administrador
                     </p>
                     <p className="text-indigo-50 text-xs sm:text-sm font-medium leading-relaxed">
-                      Acesso para gestores e RH
+                      Admin/RH — use esta opção para contas administrativas
                     </p>
                   </div>
                   <svg
