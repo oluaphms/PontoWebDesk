@@ -709,9 +709,27 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
       employeeRow = (updated.rows[0] as Record<string, unknown> | undefined) ?? employeeRow;
     }
     try {
-      // Em bancos migrados do Supabase, public.users.id ainda pode ter FK para auth.users.
-      // Em edição, não crie users automaticamente: sincronize apenas se a linha já existir.
-      const userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
+      let userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
+      if (userSync.attempted && userSync.updatedRows === 0 && hasUserSyncField) {
+        const employeeEmail = String(employeeRow.email || body.email || '').trim().toLowerCase();
+        const employeeRole = String(employeeRow.role || body.role || 'employee');
+        if (employeeEmail || hasAdminAccess(employeeRole)) {
+          await ensureUserForEmployee(
+            {
+              id,
+              company_id: companyId,
+              nome: String(employeeRow.nome || body.nome || ''),
+              email: employeeEmail,
+              role: employeeRole,
+              status: String(employeeRow.status || body.status || 'active'),
+              schedule_id: employeeRow.schedule_id ?? body.schedule_id,
+              shift_id: employeeRow.shift_id ?? body.shift_id,
+            },
+            client,
+          );
+          userSync = await syncUserFieldsFromEmployeeBody(id, companyId, body, employeeRow, client);
+        }
+      }
       if (userSync.attempted && userSync.updatedRows === 0) {
         logger.warn({
           module: 'employee.controller',

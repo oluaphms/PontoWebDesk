@@ -268,7 +268,34 @@ export async function syncUserFieldsFromEmployeeBody(
   }
   if ('cargo' in body) set('cargo', body.cargo ?? employeeRow.cargo);
   if ('employee_config' in body && body.employee_config != null) {
-    set('employee_config', typeof body.employee_config === 'object' ? JSON.stringify(body.employee_config) : body.employee_config);
+    let mergedConfig: unknown = body.employee_config;
+    if (typeof body.employee_config === 'object' && !Array.isArray(body.employee_config)) {
+      if (await usersHasColumn('employee_config', db)) {
+        const existingCfg = await db.query(
+          `select employee_config from public.users where id::text = $1 and company_id::text = $2 limit 1`,
+          [id, cid],
+        );
+        const rawPrev = existingCfg.rows[0]?.employee_config;
+        let prev: Record<string, unknown> = {};
+        if (rawPrev && typeof rawPrev === 'object' && !Array.isArray(rawPrev)) {
+          prev = rawPrev as Record<string, unknown>;
+        } else if (typeof rawPrev === 'string' && rawPrev.trim()) {
+          try {
+            const parsed = JSON.parse(rawPrev) as unknown;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              prev = parsed as Record<string, unknown>;
+            }
+          } catch {
+            prev = {};
+          }
+        }
+        mergedConfig = { ...prev, ...(body.employee_config as Record<string, unknown>) };
+      }
+    }
+    set(
+      'employee_config',
+      typeof mergedConfig === 'object' ? JSON.stringify(mergedConfig) : mergedConfig,
+    );
   }
 
   const sharedFromRow: Array<{ col: string; value: unknown }> = [

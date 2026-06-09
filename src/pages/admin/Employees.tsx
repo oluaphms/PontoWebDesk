@@ -319,6 +319,47 @@ function buildEnderecoFromForm(form: {
   return parts.length ? parts.join(', ') : null;
 }
 
+/** Reconstrói campos de endereço a partir do texto legado salvo em `endereco`. */
+function splitLegacyEndereco(endereco: string | null | undefined): {
+  endereco_rua: string;
+  endereco_numero: string;
+  endereco_bairro: string;
+  endereco_cidade: string;
+  endereco_estado: string;
+  endereco_cep: string;
+} {
+  const empty = {
+    endereco_rua: '',
+    endereco_numero: '',
+    endereco_bairro: '',
+    endereco_cidade: '',
+    endereco_estado: '',
+    endereco_cep: '',
+  };
+  const raw = String(endereco ?? '').trim();
+  if (!raw) return empty;
+
+  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return { ...empty, endereco_rua: raw };
+
+  const cepIdx = parts.findIndex((p) => /^\d{5}-?\d{3}$/.test(p.replace(/\s/g, '')));
+  const cep = cepIdx >= 0 ? parts[cepIdx] : '';
+  const withoutCep = cepIdx >= 0 ? parts.filter((_, i) => i !== cepIdx) : parts;
+  const estado =
+    withoutCep.length >= 2 && /^[A-Za-z]{2}$/.test(withoutCep[withoutCep.length - 1] ?? '')
+      ? withoutCep.pop() ?? ''
+      : '';
+
+  return {
+    endereco_rua: withoutCep[0] ?? raw,
+    endereco_numero: withoutCep[1] ?? '',
+    endereco_bairro: withoutCep[2] ?? '',
+    endereco_cidade: withoutCep[3] ?? '',
+    endereco_estado: estado,
+    endereco_cep: cep,
+  };
+}
+
 /** Resolve URL de foto persistida (relativa ou assinada) para exibição no modal. */
 function resolveEmployeePhotoUrl(raw: string): string {
   const url = String(raw || '').trim();
@@ -649,7 +690,7 @@ const AdminEmployees: React.FC = () => {
   const refreshEmployeesAfterMutation = async (companyId: string): Promise<void> => {
     invalidateCompanyListCaches(companyId);
     queryCache.invalidate(`employees-api:${companyId}`);
-    await loadData();
+    await loadData({ silent: true });
   };
   const passwordValidationMessage = useMemo(() => {
     const trimmed = passwordDraft.trim();
@@ -726,13 +767,14 @@ const AdminEmployees: React.FC = () => {
     if (effectiveCompanyId) void refreshEmployeesAfterMutation(effectiveCompanyId);
   };
 
-  const loadData = async () => {
+  const loadData = async (options?: { silent?: boolean }) => {
     if (!effectiveCompanyId) {
       setLoadingData(false);
       return;
     }
-    setLoadingData(true);
-    const loadingTimer = window.setTimeout(() => setLoadingData(false), 5000);
+    const silent = options?.silent === true;
+    if (!silent) setLoadingData(true);
+    const loadingTimer = silent ? null : window.setTimeout(() => setLoadingData(false), 5000);
     try {
       let partialCatalogError = false;
       const companyFilter: Filter[] = [{ column: 'company_id', operator: 'eq', value: effectiveCompanyId }];
@@ -878,8 +920,8 @@ const AdminEmployees: React.FC = () => {
       });
       setError('Não foi possível carregar colaboradores da API.');
     } finally {
-      window.clearTimeout(loadingTimer);
-      setLoadingData(false);
+      if (loadingTimer != null) window.clearTimeout(loadingTimer);
+      if (!silent) setLoadingData(false);
     }
   };
 
@@ -956,6 +998,7 @@ const AdminEmployees: React.FC = () => {
       typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '';
     const afast = row.employee_config?.afastamentos?.[0];
     const enderecoLegacy = row.endereco?.trim() || '';
+    const enderecoParts = splitLegacyEndereco(enderecoLegacy);
     setForm({
       ...defaultForm(),
       ...accessForm,
@@ -979,12 +1022,12 @@ const AdminEmployees: React.FC = () => {
       departamento: row.department_name || row.departamento || '',
       jornada_tipo: row.jornada_tipo || '',
       carga_horaria: row.carga_horaria != null ? String(row.carga_horaria) : '',
-      endereco_rua: row.endereco_rua || enderecoLegacy,
-      endereco_numero: row.endereco_numero || '',
-      endereco_bairro: row.endereco_bairro || '',
-      endereco_cidade: row.endereco_cidade || '',
-      endereco_estado: row.endereco_estado || '',
-      endereco_cep: row.endereco_cep || '',
+      endereco_rua: row.endereco_rua || enderecoParts.endereco_rua,
+      endereco_numero: row.endereco_numero || enderecoParts.endereco_numero,
+      endereco_bairro: row.endereco_bairro || enderecoParts.endereco_bairro,
+      endereco_cidade: row.endereco_cidade || enderecoParts.endereco_cidade,
+      endereco_estado: row.endereco_estado || enderecoParts.endereco_estado,
+      endereco_cep: row.endereco_cep || enderecoParts.endereco_cep,
       admissao: normalizeDateToYmd(row.admissao) || '',
       demissao: normalizeDateToYmd(row.demissao) || '',
       motivo_demissao_id: row.motivo_demissao_id || '',
@@ -1014,7 +1057,7 @@ const AdminEmployees: React.FC = () => {
 
     if (photoUrl) {
       cfg.photo_url = photoUrl;
-    } else {
+    } else if (!form.photo_preview.trim()) {
       delete cfg.photo_url;
     }
 
@@ -1142,8 +1185,8 @@ const AdminEmployees: React.FC = () => {
         const updatedRow = mapApiEmployeeToRow(updated, employeeLookups);
         setRows((prev) => prev.map((item) => (item.id === editingId ? { ...item, ...updatedRow } : item)));
         setSuccess('Colaborador atualizado com sucesso.');
-        await refreshEmployeesAfterMutation(effectiveCompanyId);
         setModalOpen(false);
+        await refreshEmployeesAfterMutation(effectiveCompanyId);
         if (form.demissao?.trim()) {
           setAskInvisivel(editingId);
         }
@@ -1857,7 +1900,7 @@ const AdminEmployees: React.FC = () => {
                   </div>
                 )}
 
-                {loadingData ? (
+                {loadingData && !saving ? (
                   <EmployeeEditModalSkeleton />
                 ) : (
                 <>
