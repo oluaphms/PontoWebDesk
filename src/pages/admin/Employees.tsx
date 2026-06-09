@@ -1027,7 +1027,7 @@ const AdminEmployees: React.FC = () => {
       endereco_rua: row.endereco_rua || enderecoParts.endereco_rua,
       endereco_numero: row.endereco_numero || enderecoParts.endereco_numero,
       endereco_bairro: row.endereco_bairro || enderecoParts.endereco_bairro,
-      endereco_cidade: row.endereco_cidade || enderecoParts.endereco_cidade,
+      endereco_cidade: row.endereco_cidade || enderecoParts.endereco_cidade || row.naturalidade || '',
       endereco_estado: row.endereco_estado || enderecoParts.endereco_estado,
       endereco_cep: row.endereco_cep || enderecoParts.endereco_cep,
       admissao: normalizeDateToYmd(row.admissao) || '',
@@ -1173,7 +1173,7 @@ const AdminEmployees: React.FC = () => {
         ctps: form.ctps?.trim() || null,
         observacoes: form.observacoes?.trim() || null,
         tipo_vinculo: form.tipo_vinculo,
-        naturalidade: form.naturalidade?.trim() || null,
+        naturalidade: form.endereco_cidade?.trim() || null,
         estado_civil_text: form.estado_civil_text?.trim() || null,
         data_nascimento: normalizeDateToYmd(form.data_nascimento) || null,
         rg: form.rg?.trim() || null,
@@ -2247,16 +2247,6 @@ const AdminEmployees: React.FC = () => {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Cidade (naturalidade)</label>
-                        <input
-                          type="text"
-                          value={form.naturalidade}
-                          onChange={(e) => setForm({ ...form, naturalidade: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          autoComplete="address-level2"
-                        />
-                      </div>
-                      <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Estado civil</label>
                         <select
                           value={form.estado_civil_text}
@@ -2322,6 +2312,7 @@ const AdminEmployees: React.FC = () => {
                               value={form.endereco_cidade}
                               onChange={(e) => setForm({ ...form, endereco_cidade: e.target.value })}
                               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                              autoComplete="address-level2"
                             />
                           </div>
                           <div className="sm:col-span-3">
