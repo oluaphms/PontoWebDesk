@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
-import { BCRYPT_COST, validateStrongPassword } from '../security/passwords/passwordPolicy.js';
+import { BCRYPT_COST, validatePasswordWithPolicy } from '../security/passwords/passwordPolicy.js';
+import { loadPasswordPolicyForCompany } from './passwordPolicySettings.service.js';
 
 export type ChangeOwnPasswordResult =
   | { ok: true; email: string | null; table: 'users' | 'employees' }
@@ -19,7 +20,8 @@ export async function changeOwnPassword(params: {
   if (!companyId || !userId) {
     return { ok: false, status: 403, error: 'Sessão inválida.' };
   }
-  const passwordIssue = validateStrongPassword(newPassword);
+  const passwordPolicy = await loadPasswordPolicyForCompany(companyId);
+  const passwordIssue = validatePasswordWithPolicy(newPassword, passwordPolicy);
   if (passwordIssue) {
     return { ok: false, status: 400, error: passwordIssue };
   }

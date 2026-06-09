@@ -73,7 +73,14 @@ import {
   parseTipoVinculoImport,
   type TipoVinculo,
 } from '../../constants/cadastroTrabalhista';
+import { useSettings } from '../../contexts/SettingsContext';
 import { validatePassword as validateStrongPasswordRule } from '../../utils/passwordRules';
+import {
+  getPasswordChecks,
+  getPasswordStrengthInfo,
+  passwordPolicyFromSettings,
+  type PasswordPolicyConfig,
+} from '../../utils/passwordPolicyFromSettings';
 import { uploadPhotoViaApi } from '../../services/uploadPhotoApi';
 import { buildApiUrl } from '../../services/api';
 
@@ -405,13 +412,6 @@ const PASSWORD_DIGITS = '23456789';
 const PASSWORD_SPECIAL = '!@#$%^&*()-_=+[]{};:,.?/|';
 const PASSWORD_ALL = `${PASSWORD_LOWER}${PASSWORD_UPPER}${PASSWORD_DIGITS}${PASSWORD_SPECIAL}`;
 
-type PasswordStrengthInfo = {
-  score: number;
-  label: 'Fraca' | 'Média' | 'Boa' | 'Forte';
-  barClass: string;
-  textClass: string;
-};
-
 function getSecureRandomIndex(limit: number): number {
   if (limit <= 1) return 0;
   const array = new Uint32Array(1);
@@ -435,50 +435,18 @@ function shuffleChars(chars: string[]): string[] {
   return copy;
 }
 
-function generateStrongTemporaryPassword(length = 16): string {
-  const size = Math.max(12, length);
-  const chars = [
-    pickRandomChar(PASSWORD_LOWER),
-    pickRandomChar(PASSWORD_UPPER),
-    pickRandomChar(PASSWORD_DIGITS),
-    pickRandomChar(PASSWORD_SPECIAL),
-  ];
+function generateStrongTemporaryPassword(policy: PasswordPolicyConfig, length = 16): string {
+  const size = Math.max(policy.minLength, length);
+  const chars: string[] = [];
+  if (policy.requireLowercase) chars.push(pickRandomChar(PASSWORD_LOWER));
+  if (policy.requireUppercase) chars.push(pickRandomChar(PASSWORD_UPPER));
+  if (policy.requireNumbers) chars.push(pickRandomChar(PASSWORD_DIGITS));
+  if (policy.requireSpecialChars) chars.push(pickRandomChar(PASSWORD_SPECIAL));
+  if (chars.length === 0) chars.push(pickRandomChar(PASSWORD_ALL));
   while (chars.length < size) {
     chars.push(pickRandomChar(PASSWORD_ALL));
   }
   return shuffleChars(chars).join('');
-}
-
-function getPasswordStrengthInfo(password: string): PasswordStrengthInfo {
-  const value = String(password || '');
-  let score = 0;
-  if (value.length >= 12) score += 25;
-  if (value.length >= 16) score += 10;
-  if (/[A-Z]/.test(value)) score += 15;
-  if (/[a-z]/.test(value)) score += 15;
-  if (/[0-9]/.test(value)) score += 15;
-  if (/[^A-Za-z0-9]/.test(value)) score += 20;
-
-  if (score < 40) {
-    return { score, label: 'Fraca', barClass: 'bg-red-500', textClass: 'text-red-600 dark:text-red-400' };
-  }
-  if (score < 70) {
-    return { score, label: 'Média', barClass: 'bg-amber-500', textClass: 'text-amber-600 dark:text-amber-400' };
-  }
-  if (score < 90) {
-    return { score, label: 'Boa', barClass: 'bg-sky-500', textClass: 'text-sky-600 dark:text-sky-400' };
-  }
-  return { score, label: 'Forte', barClass: 'bg-emerald-500', textClass: 'text-emerald-600 dark:text-emerald-400' };
-}
-
-function getPasswordChecks(password: string): Array<{ label: string; ok: boolean }> {
-  return [
-    { label: 'Mínimo de 12 caracteres', ok: password.length >= 12 },
-    { label: 'Pelo menos 1 letra maiúscula', ok: /[A-Z]/.test(password) },
-    { label: 'Pelo menos 1 letra minúscula', ok: /[a-z]/.test(password) },
-    { label: 'Pelo menos 1 número', ok: /[0-9]/.test(password) },
-    { label: 'Pelo menos 1 caractere especial', ok: /[^A-Za-z0-9]/.test(password) },
-  ];
 }
 
 /** Campos comuns em erros do Auth / PostgREST vindos de `catch (unknown)`. */
@@ -596,6 +564,7 @@ function EmployeeEditModalSkeleton() {
 
 const AdminEmployees: React.FC = () => {
   const { user, loading } = useCurrentUser();
+  const { settings: globalSettings } = useSettings();
   const navigate = useNavigate();
 
   /** Perfil pode ter só tenantId ou JWT com company_id — evita bloquear salvar/lista quando companyId veio vazio no cache. */
@@ -707,8 +676,15 @@ const AdminEmployees: React.FC = () => {
   /** Painéis “Outras opções” (equivalente ao legado): fora do corpo principal do formulário. */
   const [employeeModalExtra, setEmployeeModalExtra] = useState<'none' | 'adicional' | 'afast'>('none');
 
-  const passwordStrengthInfo = useMemo(() => getPasswordStrengthInfo(passwordDraft), [passwordDraft]);
-  const passwordChecks = useMemo(() => getPasswordChecks(passwordDraft), [passwordDraft]);
+  const passwordPolicy = useMemo(() => passwordPolicyFromSettings(globalSettings), [globalSettings]);
+  const passwordStrengthInfo = useMemo(
+    () => getPasswordStrengthInfo(passwordDraft, passwordPolicy),
+    [passwordDraft, passwordPolicy],
+  );
+  const passwordChecks = useMemo(
+    () => getPasswordChecks(passwordDraft, passwordPolicy),
+    [passwordDraft, passwordPolicy],
+  );
   const employeeLookups = useMemo<EmployeeLookupMaps>(
     () => ({
       schedulesById: new Map(schedules.map((item) => [item.id, item])),
@@ -727,8 +703,8 @@ const AdminEmployees: React.FC = () => {
   const passwordValidationMessage = useMemo(() => {
     const trimmed = passwordDraft.trim();
     if (!trimmed) return 'Informe a senha para salvar.';
-    return validateStrongPasswordRule(trimmed);
-  }, [passwordDraft]);
+    return validateStrongPasswordRule(trimmed, passwordPolicy);
+  }, [passwordDraft, passwordPolicy]);
 
   const resetPasswordModalState = () => {
     setPasswordDraft('');
@@ -769,7 +745,7 @@ const AdminEmployees: React.FC = () => {
   };
 
   const handleGenerateStrongPassword = () => {
-    const generated = generateStrongTemporaryPassword();
+    const generated = generateStrongTemporaryPassword(passwordPolicy);
     setPasswordDraft(generated);
     setShowPasswordDraft(true);
     setPasswordCopied(false);
@@ -799,7 +775,7 @@ const AdminEmployees: React.FC = () => {
       setPasswordMessageTone('error');
       return;
     }
-    const validation = validateStrongPasswordRule(nextPassword);
+    const validation = validateStrongPasswordRule(nextPassword, passwordPolicy);
     if (validation) {
       setPasswordMessage(validation);
       setPasswordMessageTone('error');

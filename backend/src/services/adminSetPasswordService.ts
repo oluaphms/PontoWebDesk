@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
 import { generateTemporaryPassword } from '../security/passwords/generateTemporaryPassword.js';
-import { BCRYPT_COST, validateStrongPassword } from '../security/passwords/passwordPolicy.js';
+import { BCRYPT_COST, validatePasswordWithPolicy } from '../security/passwords/passwordPolicy.js';
+import { loadPasswordPolicyForCompany } from './passwordPolicySettings.service.js';
 import { ensureAuthUserMirror, ensureUserForEmployee } from './employeeUserSync.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -57,7 +58,8 @@ export async function setUserPasswordForTenant(params: {
   if (!email || !EMAIL_RE.test(email)) {
     return { ok: false, status: 400, error: 'E-mail inválido.' };
   }
-  const passwordIssue = validateStrongPassword(newPassword);
+  const passwordPolicy = await loadPasswordPolicyForCompany(companyId);
+  const passwordIssue = validatePasswordWithPolicy(newPassword, passwordPolicy);
   if (passwordIssue) {
     return { ok: false, status: 400, error: passwordIssue };
   }

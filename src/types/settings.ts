@@ -15,6 +15,8 @@ export interface GlobalSettings {
   daily_email_summary: boolean;
   punch_reminder: boolean;
   password_min_length: number;
+  require_uppercase: boolean;
+  require_lowercase: boolean;
   require_numbers: boolean;
   require_special_chars: boolean;
   session_timeout_minutes: number;
@@ -48,9 +50,11 @@ export const DEFAULT_GLOBAL_SETTINGS: Omit<GlobalSettings, 'id' | 'created_at' |
   email_alerts: true,
   daily_email_summary: false,
   punch_reminder: true,
-  password_min_length: 8,
-  require_numbers: false,
-  require_special_chars: false,
+  password_min_length: 12,
+  require_uppercase: true,
+  require_lowercase: true,
+  require_numbers: true,
+  require_special_chars: true,
   session_timeout_minutes: 60,
   default_entry_time: '09:00',
   default_exit_time: '18:00',

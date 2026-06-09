@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { getSettings, isPersistedSettingsId, upsertSettingsForCompany } from '../../services/settingsService';
 import { useSettings } from '../../contexts/SettingsContext';
+import { getPasswordPolicyRules, passwordPolicyFromSettings } from '../../utils/passwordPolicyFromSettings';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import { LoadingState } from '../../../components/UI';
@@ -53,9 +54,11 @@ const AdminSettings: React.FC = () => {
     email_alerts: true,
     daily_email_summary: false,
     punch_reminder: true,
-    password_min_length: 8,
-    require_numbers: false,
-    require_special_chars: false,
+    password_min_length: 12,
+    require_uppercase: true,
+    require_lowercase: true,
+    require_numbers: true,
+    require_special_chars: true,
     session_timeout_minutes: 60,
     default_entry_time: '09:00',
     default_exit_time: '18:00',
@@ -97,6 +100,8 @@ const AdminSettings: React.FC = () => {
             daily_email_summary: data.daily_email_summary,
             punch_reminder: data.punch_reminder,
             password_min_length: data.password_min_length,
+            require_uppercase: data.require_uppercase,
+            require_lowercase: data.require_lowercase,
             require_numbers: data.require_numbers,
             require_special_chars: data.require_special_chars,
             session_timeout_minutes: data.session_timeout_minutes,
@@ -167,6 +172,8 @@ const AdminSettings: React.FC = () => {
         daily_email_summary: form.daily_email_summary,
         punch_reminder: form.punch_reminder,
         password_min_length: form.password_min_length,
+        require_uppercase: form.require_uppercase,
+        require_lowercase: form.require_lowercase,
         require_numbers: form.require_numbers,
         require_special_chars: form.require_special_chars,
         session_timeout_minutes: form.session_timeout_minutes,
@@ -409,19 +416,74 @@ const AdminSettings: React.FC = () => {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('settings.minPasswordLength')}</label>
-                <input type="number" min={6} max={32} value={form.password_min_length} onChange={(e) => setForm({ ...form, password_min_length: Number(e.target.value) || 6 })} className={inputClass} />
+                <input
+                  type="number"
+                  min={6}
+                  max={32}
+                  value={form.password_min_length}
+                  onChange={(e) => setForm({ ...form, password_min_length: Number(e.target.value) || 6 })}
+                  className={inputClass}
+                />
               </div>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={form.require_numbers} onChange={(e) => setForm({ ...form, require_numbers: e.target.checked })} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input
+                  type="checkbox"
+                  checked={form.require_uppercase}
+                  onChange={(e) => setForm({ ...form, require_uppercase: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-slate-900 dark:text-white font-medium">{i18n.t('settings.requireUppercase')}</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.require_lowercase}
+                  onChange={(e) => setForm({ ...form, require_lowercase: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-slate-900 dark:text-white font-medium">{i18n.t('settings.requireLowercase')}</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.require_numbers}
+                  onChange={(e) => setForm({ ...form, require_numbers: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
                 <span className="text-slate-900 dark:text-white font-medium">{i18n.t('settings.requireNumbers')}</span>
               </label>
               <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={form.require_special_chars} onChange={(e) => setForm({ ...form, require_special_chars: e.target.checked })} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input
+                  type="checkbox"
+                  checked={form.require_special_chars}
+                  onChange={(e) => setForm({ ...form, require_special_chars: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
                 <span className="text-slate-900 dark:text-white font-medium">{i18n.t('settings.requireSpecialChars')}</span>
               </label>
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{i18n.t('settings.sessionTimeoutMinutes')}</label>
-                <input type="number" min={15} max={480} value={form.session_timeout_minutes} onChange={(e) => setForm({ ...form, session_timeout_minutes: Number(e.target.value) || 15 })} className={inputClass} />
+                <input
+                  type="number"
+                  min={15}
+                  max={480}
+                  value={form.session_timeout_minutes}
+                  onChange={(e) => setForm({ ...form, session_timeout_minutes: Number(e.target.value) || 15 })}
+                  className={inputClass}
+                />
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-1">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                  {i18n.t('settings.passwordPolicyPreview')}
+                </p>
+                {getPasswordPolicyRules(passwordPolicyFromSettings(form)).map((rule) => (
+                  <p key={rule.key} className="text-xs text-slate-600 dark:text-slate-400">
+                    — {rule.label}
+                  </p>
+                ))}
+                <p className="text-[11px] text-slate-500 dark:text-slate-500 pt-2">
+                  {i18n.t('settings.passwordPolicyPreviewHint')}
+                </p>
               </div>
             </div>
           </section>
