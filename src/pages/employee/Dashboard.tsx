@@ -20,6 +20,8 @@ import {
 } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
 import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
+import { isCompanyWideNotice } from '../../../services/notificationService';
+import { NOTIFICATION_LIST_COLUMNS } from '../../services/egressSelectColumns';
 
 function logDashboardDebug(label: string, payload: unknown): void {
   console.log(label, payload);
@@ -280,18 +282,28 @@ const EmployeeDashboard: React.FC = () => {
         }
 
         try {
-          const notices = (await db.select('notifications', [
-            ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
-            { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
-          ])) as any[];
+          const notices = (await db.select(
+            'notifications',
+            [
+              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+              { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+              { column: 'read' as const, operator: 'eq' as const, value: false },
+            ],
+            {
+              columns: NOTIFICATION_LIST_COLUMNS,
+              orderBy: { column: 'created_at', ascending: false },
+              limit: 20,
+            },
+          )) as Array<{ id?: string; title?: string; message?: string; metadata?: Record<string, unknown> }>;
           setCompanyNotices(
             (notices ?? [])
+              .filter((n) => isCompanyWideNotice(n))
               .slice(0, 5)
-              .map((n: any) => ({
+              .map((n: { id?: string; title?: string; message?: string; created_at?: string }) => ({
                 id: String(n.id ?? ''),
-                title: String(n.title ?? n.subject ?? 'Aviso'),
-                body: String(n.message ?? n.body ?? n.content ?? ''),
-                createdAt: String(n.created_at ?? n.createdAt ?? ''),
+                title: String(n.title ?? 'Aviso'),
+                body: String(n.message ?? ''),
+                createdAt: String(n.created_at ?? ''),
               }))
               .filter((n) => n.id),
           );

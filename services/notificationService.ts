@@ -27,6 +27,32 @@ function isTimeoutError(e: unknown): boolean {
 const STORAGE_KEY = 'smartponto_notifications';
 const MAX_LOCAL = 100;
 
+/** Aviso institucional da empresa (não confirmação de solicitação / alerta pessoal). */
+export function isCompanyWideNotice(row: {
+  metadata?: Record<string, unknown> | null;
+  title?: string | null;
+}): boolean {
+  const meta = row.metadata ?? {};
+  if (meta.scope === 'company' || meta.kind === 'company_notice') return true;
+  return false;
+}
+
+/** Notificações transacionais do fluxo do colaborador — não devem aparecer em "Avisos da empresa". */
+export function isTransactionalPersonalNotice(row: {
+  metadata?: Record<string, unknown> | null;
+  title?: string | null;
+}): boolean {
+  const meta = row.metadata ?? {};
+  if (meta.requestId || meta.adjustmentId) return true;
+  const title = String(row.title ?? '').trim().toLowerCase();
+  return (
+    title === 'solicitação enviada' ||
+    title === 'nova solicitação' ||
+    title.includes('solicitação aprovada') ||
+    title.includes('solicitação rejeitada')
+  );
+}
+
 function rowToNotif(r: any): InAppNotification {
   const read: boolean = r.read ?? false;
   const status: NotificationStatus = (r.status as NotificationStatus) ?? (read ? 'read' : 'pending');

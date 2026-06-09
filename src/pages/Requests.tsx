@@ -197,19 +197,6 @@ const RequestsPage: React.FC = () => {
       invalidatePendingRequestsCachesForUsers([user.id]);
 
       try {
-        // Notificar o colaborador
-        await NotificationService.create({
-          userId: user.id,
-          type: 'info',
-          title: 'Solicitação enviada',
-          message: 'Sua solicitação foi registrada e aguarda aprovação.',
-          metadata: { requestId: id },
-        });
-      } catch {
-        /* notificação opcional */
-      }
-
-      try {
         // Notificar todos os admins/RH da empresa
         const admins = await db.select('users', [
           { column: 'company_id', operator: 'eq', value: user.companyId },
