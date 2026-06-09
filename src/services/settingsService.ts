@@ -7,7 +7,12 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { db, checkSupabaseConfigured } from '../../services/supabaseClient';
 import type { GlobalSettings, CompanyLocation } from '../types/settings';
 import { DEFAULT_GLOBAL_SETTINGS } from '../types/settings';
-import { COMPANY_LOCATION_COLUMNS, GLOBAL_SETTINGS_COLUMNS } from './egressSelectColumns';
+import {
+  COMPANY_LOCATION_COLUMNS,
+  GLOBAL_SETTINGS_COLUMNS,
+  GLOBAL_SETTINGS_COLUMNS_CORE,
+} from './egressSelectColumns';
+import { ApiError } from './api';
 import { queryCache, TTL } from './queryCache';
 import { isCloudEnabled } from './cloudService';
 import { cloudFallback } from './cloudFallback';
@@ -24,6 +29,45 @@ const PERSISTED_SETTINGS_ID_RE =
 
 export function isPersistedSettingsId(id: string | null | undefined): boolean {
   return PERSISTED_SETTINGS_ID_RE.test(String(id || '').trim());
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.status === 404 || String(error.message).includes('not_found');
+  }
+  if (error instanceof Error) {
+    return error.message === 'not_found' || error.message.includes('not_found');
+  }
+  return false;
+}
+
+function rowBelongsToCompany(row: Record<string, unknown> | null, companyId: string): boolean {
+  if (!row) return false;
+  const cid = String(companyId || '').trim();
+  if (!cid) return false;
+  const rowCompany = row.company_id;
+  if (rowCompany == null || String(rowCompany).trim() === '') return false;
+  return String(rowCompany).trim() === cid;
+}
+
+async function selectSettingsForCompany(
+  companyId: string,
+  columns: string,
+): Promise<Record<string, unknown> | null> {
+  const cid = String(companyId || '').trim();
+  if (!cid) return null;
+  const scoped = await db.select(
+    TABLE,
+    [{ column: 'company_id', operator: 'eq', value: cid }],
+    { columns, limit: 1 },
+  );
+  const row = (scoped?.[0] as Record<string, unknown>) ?? null;
+  return rowBelongsToCompany(row, cid) ? row : null;
 }
 
 function prepareSettingsWritePayload(
@@ -82,19 +126,19 @@ function mapRow(row: any): GlobalSettings | null {
     gps_required: Boolean(row.gps_required),
     photo_required: Boolean(row.photo_required),
     allow_manual_punch: Boolean(row.allow_manual_punch),
-    late_tolerance_minutes: Number(row.late_tolerance_minutes) ?? 15,
-    min_break_minutes: Number(row.min_break_minutes) ?? 60,
+    late_tolerance_minutes: toFiniteNumber(row.late_tolerance_minutes, 15),
+    min_break_minutes: toFiniteNumber(row.min_break_minutes, 60),
     timezone: row.timezone ?? 'America/Sao_Paulo',
     language: row.language ?? 'pt-BR',
     email_alerts: Boolean(row.email_alerts),
     daily_email_summary: Boolean(row.daily_email_summary),
     punch_reminder: Boolean(row.punch_reminder),
-    password_min_length: Number(row.password_min_length) ?? 12,
+    password_min_length: toFiniteNumber(row.password_min_length, 12),
     require_uppercase: row.require_uppercase !== false,
     require_lowercase: row.require_lowercase !== false,
     require_numbers: row.require_numbers !== false,
     require_special_chars: row.require_special_chars !== false,
-    session_timeout_minutes: Number(row.session_timeout_minutes) ?? 60,
+    session_timeout_minutes: toFiniteNumber(row.session_timeout_minutes, 60),
     default_entry_time: timeToHHmm(row.default_entry_time),
     default_exit_time: timeToHHmm(row.default_exit_time),
     allow_time_bank: Boolean(row.allow_time_bank),
@@ -189,6 +233,27 @@ export async function updateSettings(
  * Grava configurações da empresa (cria linha em global_settings se ainda não existir).
  * Evita not_found quando o id em memória é legado ou placeholder.
  */
+async function insertSettingsForCompany(
+  companyId: string,
+  payload: Record<string, unknown>,
+): Promise<GlobalSettings | null> {
+  const baseInsert = {
+    ...DEFAULT_GLOBAL_SETTINGS,
+    allow_manual_punch: true,
+    late_tolerance_minutes: 10,
+    min_break_minutes: 60,
+    timezone: 'America/Sao_Paulo',
+    ...payload,
+  };
+  let inserted: Record<string, unknown>;
+  try {
+    inserted = await db.insert(TABLE, { company_id: companyId, ...baseInsert });
+  } catch {
+    inserted = await db.insert(TABLE, baseInsert);
+  }
+  return mapRow(inserted);
+}
+
 export async function upsertSettingsForCompany(
   companyId: string,
   data: Partial<Omit<GlobalSettings, 'id' | 'created_at' | 'updated_at'>>,
@@ -205,36 +270,49 @@ export async function upsertSettingsForCompany(
   try {
     const existing = await findSettingsRowForCompany(cid);
     const existingId = existing?.id ? String(existing.id) : '';
+
     if (isPersistedSettingsId(existingId)) {
-      const updated = await db.update(TABLE, existingId, { ...payload, company_id: cid });
-      queryCache.invalidate('global_settings:');
-      const mapped = mapRow(updated);
-      if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
-      return { data: mapped, error: null };
+      try {
+        const updated = await db.update(TABLE, existingId, { ...payload, company_id: cid });
+        queryCache.invalidate('global_settings:');
+        const mapped = mapRow(updated);
+        if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+        return { data: mapped, error: null };
+      } catch (updateError) {
+        if (!isNotFoundError(updateError)) throw updateError;
+        observabilityConsole.warn(
+          '[settingsService] update global_settings 404 — reconsultando por company_id',
+          { companyId: cid, staleId: existingId },
+        );
+        queryCache.invalidate('global_settings:');
+        const refetched = await findSettingsRowForCompany(cid);
+        const refetchedId = refetched?.id ? String(refetched.id) : '';
+        if (isPersistedSettingsId(refetchedId) && refetchedId !== existingId) {
+          const updated = await db.update(TABLE, refetchedId, { ...payload, company_id: cid });
+          const mapped = mapRow(updated);
+          if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
+          return { data: mapped, error: null };
+        }
+      }
     }
 
-    const baseInsert = {
-      ...DEFAULT_GLOBAL_SETTINGS,
-      allow_manual_punch: true,
-      late_tolerance_minutes: 10,
-      min_break_minutes: 60,
-      timezone: 'America/Sao_Paulo',
-      ...payload,
-    };
-    let inserted: Record<string, unknown>;
+    let mapped: GlobalSettings | null = null;
     try {
-      inserted = await db.insert(TABLE, { company_id: cid, ...baseInsert });
-    } catch {
-      inserted = await db.insert(TABLE, baseInsert);
+      mapped = await insertSettingsForCompany(cid, payload);
+    } catch (insertError) {
+      const refetched = await findSettingsRowForCompany(cid);
+      const refetchedId = refetched?.id ? String(refetched.id) : '';
+      if (!isPersistedSettingsId(refetchedId)) throw insertError;
+      const updated = await db.update(TABLE, refetchedId, { ...payload, company_id: cid });
+      mapped = mapRow(updated);
     }
     queryCache.invalidate('global_settings:');
-    const mapped = mapRow(inserted);
     if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);
     return { data: mapped, error: null };
   } catch (error) {
     observabilityConsole.error('[settingsService] upsertSettingsForCompany error:', error);
     const msg =
-      error instanceof Error && (error.message === 'not_found' || error.message.includes('not_found'))
+      isNotFoundError(error)
         ? 'Configurações não encontradas para esta empresa — tente recarregar a página.'
         : error instanceof Error
           ? error.message

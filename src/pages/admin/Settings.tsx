@@ -31,6 +31,12 @@ function parseExtraPayrollPolicy(v: unknown): ExtraPayrollPolicyUI {
   return 'bank';
 }
 
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
 const TIMEZONES = [
   { value: 'America/Sao_Paulo', label: 'Brasília (GMT-3)' },
   { value: 'America/Manaus', label: 'Manaus (GMT-4)' },
@@ -92,19 +98,19 @@ const AdminSettings: React.FC = () => {
             gps_required: data.gps_required,
             photo_required: data.photo_required,
             allow_manual_punch: data.allow_manual_punch,
-            late_tolerance_minutes: data.late_tolerance_minutes,
-            min_break_minutes: data.min_break_minutes,
+            late_tolerance_minutes: clampInt(data.late_tolerance_minutes, 0, 120, 15),
+            min_break_minutes: clampInt(data.min_break_minutes, 0, 240, 60),
             timezone: data.timezone,
             language: data.language,
             email_alerts: data.email_alerts,
             daily_email_summary: data.daily_email_summary,
             punch_reminder: data.punch_reminder,
-            password_min_length: data.password_min_length,
+            password_min_length: clampInt(data.password_min_length, 6, 32, 12),
             require_uppercase: data.require_uppercase,
             require_lowercase: data.require_lowercase,
             require_numbers: data.require_numbers,
             require_special_chars: data.require_special_chars,
-            session_timeout_minutes: data.session_timeout_minutes,
+            session_timeout_minutes: clampInt(data.session_timeout_minutes, 15, 480, 60),
             default_entry_time: data.default_entry_time,
             default_exit_time: data.default_exit_time,
             allow_time_bank: data.allow_time_bank,
@@ -310,7 +316,9 @@ const AdminSettings: React.FC = () => {
                     min={0}
                     max={60}
                     value={form.late_tolerance_minutes}
-                    onChange={(e) => setForm({ ...form, late_tolerance_minutes: Number(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setForm({ ...form, late_tolerance_minutes: clampInt(e.target.value, 0, 120, 15) })
+                    }
                     className={inputClass}
                   />
                   <p className="text-xs text-slate-500 mt-1">{i18n.t('settings.lateToleranceHelp')}</p>
@@ -324,7 +332,9 @@ const AdminSettings: React.FC = () => {
                     min={0}
                     max={120}
                     value={form.min_break_minutes}
-                    onChange={(e) => setForm({ ...form, min_break_minutes: Number(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setForm({ ...form, min_break_minutes: clampInt(e.target.value, 0, 240, 60) })
+                    }
                     className={inputClass}
                   />
                   <p className="text-xs text-slate-500 mt-1">{i18n.t('settings.minBreakHelp')}</p>
@@ -421,7 +431,9 @@ const AdminSettings: React.FC = () => {
                   min={6}
                   max={32}
                   value={form.password_min_length}
-                  onChange={(e) => setForm({ ...form, password_min_length: Number(e.target.value) || 6 })}
+                  onChange={(e) =>
+                    setForm({ ...form, password_min_length: clampInt(e.target.value, 6, 32, 12) })
+                  }
                   className={inputClass}
                 />
               </div>
@@ -468,7 +480,9 @@ const AdminSettings: React.FC = () => {
                   min={15}
                   max={480}
                   value={form.session_timeout_minutes}
-                  onChange={(e) => setForm({ ...form, session_timeout_minutes: Number(e.target.value) || 15 })}
+                  onChange={(e) =>
+                    setForm({ ...form, session_timeout_minutes: clampInt(e.target.value, 15, 480, 60) })
+                  }
                   className={inputClass}
                 />
               </div>

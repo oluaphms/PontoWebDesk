@@ -1,4 +1,5 @@
 import { createContext, useSyncExternalStore, type ReactNode } from 'react';
+import { readCachedSessionUser } from './AuthSessionProvider';
 import { DEFAULT_SETTINGS, getSettings } from '../services/settingsService';
 import { isCloudEnabled } from '../services/cloudService';
 import type { GlobalSettings } from '../types/settings';
@@ -26,7 +27,9 @@ async function loadSettings() {
   currentState = { ...currentState, loading: true };
   listeners.forEach((l) => l());
   try {
-    const data = await getSettings();
+    const sessionUser = readCachedSessionUser();
+    const companyId = sessionUser?.companyId || sessionUser?.tenantId || '';
+    const data = await getSettings(companyId || undefined);
     currentState = { settings: data ?? DEFAULT_SETTINGS, loading: false };
   } catch {
     currentState = { settings: DEFAULT_SETTINGS, loading: false };
