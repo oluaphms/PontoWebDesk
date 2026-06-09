@@ -9,11 +9,9 @@ import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/c
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 
 /**
- * Espelho de ponto: priorizar o instante da batida (`timestamp`) no intervalo civil local.
- * - `main`: `timestamp` dentro do período (caso normal).
+ * Espelho de ponto: batidas no período pelo dia civil do horário oficial (`timestamp`).
+ * - `main`: `timestamp` dentro do período (caso normal, inclui REP e importação AFD).
  * - `legacy`: sem `timestamp`, mas `created_at` no período.
- * - `beforeStart` / `afterEnd`: `created_at` no período e `timestamp` **fora** do intervalo (relógio/AFD com
- *   data errada, importação tardia, ou `source` ≠ `rep` — não depender de `source` para a linha aparecer).
  */
 export async function fetchTimeRecordsForMirrorWindow(
   baseFilters: Filter[],
@@ -26,7 +24,7 @@ export async function fetchTimeRecordsForMirrorWindow(
   const periodEndTs = localCalendarDayEndUtc(periodEndYmd);
   const cap = Math.min(2000, limit);
 
-  const [main, legacy, beforeStart, afterEnd] = await Promise.all([
+  const [main, legacy] = await Promise.all([
     db.select(
       'time_records',
       [
@@ -48,32 +46,10 @@ export async function fetchTimeRecordsForMirrorWindow(
       { column: 'created_at', ascending: orderAscending },
       cap
     ),
-    db.select(
-      'time_records',
-      [
-        ...baseFilters,
-        { column: 'timestamp', operator: 'lt', value: periodStartTs },
-        { column: 'created_at', operator: 'gte', value: periodStartTs },
-        { column: 'created_at', operator: 'lte', value: periodEndTs },
-      ],
-      { column: 'created_at', ascending: orderAscending },
-      cap
-    ),
-    db.select(
-      'time_records',
-      [
-        ...baseFilters,
-        { column: 'timestamp', operator: 'gt', value: periodEndTs },
-        { column: 'created_at', operator: 'gte', value: periodStartTs },
-        { column: 'created_at', operator: 'lte', value: periodEndTs },
-      ],
-      { column: 'created_at', ascending: orderAscending },
-      cap
-    ),
   ]);
 
   const byId = new Map<string, DbRow>();
-  for (const r of [...(main ?? []), ...(legacy ?? []), ...(beforeStart ?? []), ...(afterEnd ?? [])]) {
+  for (const r of [...(main ?? []), ...(legacy ?? [])]) {
     if (r?.id) byId.set(String(r.id), r);
   }
   return Array.from(byId.values()).sort((a, b) => {

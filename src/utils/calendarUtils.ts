@@ -30,20 +30,20 @@ export function extractLocalCalendarDateFromIso(isoString: string): string {
 }
 
 /**
- * Data civil (YYYY-MM-DD) para agrupar a batida no espelho no período [start,end].
- * Se o instante oficial (`timestamp`) cai fora do período mas `created_at` cai dentro (ex.: AFD com ano errado,
- * importação REP tardia), usa a data de `created_at` para a grelha.
+ * Data civil (YYYY-MM-DD) para agrupar a batida no espelho.
+ * Sempre usa o dia do horário oficial (`timestamp`); só recorre a `created_at` quando não há timestamp.
+ * Não reatribui batidas de ontem/importação AFD para «hoje» só porque foram gravadas hoje na base.
  */
 export function calendarDateForEspelhoRow(
   record: CalendarDayRecordAnchor,
-  periodStartYmd: string,
-  periodEndYmd: string,
+  _periodStartYmd?: string,
+  _periodEndYmd?: string,
 ): string {
-  const primary = extractLocalCalendarDateFromIso(recordAnchorIso(record));
-  if (primary >= periodStartYmd && primary <= periodEndYmd) return primary;
-  const fallback = extractLocalCalendarDateFromIso(record.created_at);
-  if (fallback >= periodStartYmd && fallback <= periodEndYmd) return fallback;
-  return primary;
+  const ts = record.timestamp;
+  if (ts && String(ts).trim()) {
+    return extractLocalCalendarDateFromIso(ts);
+  }
+  return extractLocalCalendarDateFromIso(record.created_at);
 }
 
 /** Início do dia civil local (00:00) em ISO UTC — filtros `created_at` / `timestamptz`. */

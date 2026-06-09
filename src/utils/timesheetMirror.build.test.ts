@@ -45,33 +45,45 @@ describe('recordMirrorInstant', () => {
   });
 });
 
-describe('espelho: timestamp AFD fora do período + importação no período', () => {
-  it('calendarDateForEspelhoRow agrupa pelo dia de created_at quando o instante oficial cai fora do período', () => {
+describe('espelho: agrupamento por dia civil do timestamp', () => {
+  it('calendarDateForEspelhoRow usa o dia do timestamp, não o created_at da importação', () => {
     const r = tr({
       id: '1',
       user_id: 'u',
       created_at: '2026-04-16T14:29:35.829Z',
       timestamp: '2019-01-30T17:37:01.000Z',
       type: 'entrada',
+      source: 'rep',
     });
-    const day = calendarDateForEspelhoRow(r, '2026-04-01', '2026-04-30');
-    expect(day >= '2026-04-01' && day <= '2026-04-30').toBe(true);
+    expect(calendarDateForEspelhoRow(r, '2026-04-01', '2026-04-30')).toBe('2019-01-30');
   });
 
-  it('recordEffectiveMirrorInstant preserva horário de parede do timestamp no dia da grelha', () => {
+  it('batida REP de ontem promovida hoje não aparece na grelha de hoje', () => {
+    const yesterday = tr({
+      id: 'y',
+      user_id: 'u',
+      created_at: '2026-06-07T10:00:00.000Z',
+      timestamp: '2026-06-06T09:33:00.000-03:00',
+      type: 'entrada',
+      source: 'rep',
+      method: 'rep',
+    });
+    expect(calendarDateForEspelhoRow(yesterday, '2026-06-01', '2026-06-30')).toBe('2026-06-06');
+    const map = buildDayMirrorSummary([yesterday], '2026-06-07', '2026-06-07');
+    expect(map.get('2026-06-07')?.records.filter((x) => !x.type?.includes('status')).length ?? 0).toBe(0);
+    const mapYesterday = buildDayMirrorSummary([yesterday], '2026-06-06', '2026-06-07');
+    expect(mapYesterday.get('2026-06-06')?.records.length).toBe(1);
+  });
+
+  it('sem timestamp, agrupa pelo created_at', () => {
     const r = tr({
       id: '1',
       user_id: 'u',
       created_at: '2026-04-16T14:29:35.829Z',
-      timestamp: '2019-01-30T17:37:01.000Z',
+      timestamp: null,
       type: 'entrada',
     });
-    const gridDay = calendarDateForEspelhoRow(r, '2026-04-01', '2026-04-30');
-    const eff = recordEffectiveMirrorInstant(r, gridDay);
-    const wall = new Date(r.timestamp!);
-    const effDate = new Date(eff);
-    expect(effDate.getHours()).toBe(wall.getHours());
-    expect(effDate.getMinutes()).toBe(wall.getMinutes());
+    expect(calendarDateForEspelhoRow(r, '2026-04-01', '2026-04-30')).toBe('2026-04-16');
   });
 });
 

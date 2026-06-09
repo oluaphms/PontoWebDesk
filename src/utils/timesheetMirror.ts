@@ -84,38 +84,15 @@ export function recordMirrorInstant(record: TimeRecord): string {
 }
 
 /**
- * Combina um dia civil local (YYYY-MM-DD) com hora/minuto/segundo **locais** do instante da batida,
- * para quando a batida cai na grelha por `created_at` mas o relógio oficial (`timestamp`) está noutro ano/dia.
- */
-function mergeLocalCalendarDayWithWallTimeFromInstant(dayYmd: string, instantIso: string): string {
-  const t = new Date(instantIso);
-  const [ys, ms, ds] = dayYmd.split('-');
-  const y = parseInt(ys || '0', 10);
-  const mo = parseInt(ms || '1', 10);
-  const d = parseInt(ds || '1', 10);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) {
-    return instantIso;
-  }
-  const merged = new Date(y, mo - 1, d, t.getHours(), t.getMinutes(), t.getSeconds(), t.getMilliseconds());
-  return merged.toISOString();
-}
-
-/**
  * Instantâneo usado para horas no dia `dayDateStr` da grelha: alinha com `calendarDateForEspelhoRow`.
- * Se o dia da grelha veio do `created_at` (timestamp fora do período), preserva o horário de parede do `timestamp`.
  */
 export function recordEffectiveMirrorInstant(record: TimeRecord, dayDateStr: string): string {
-  const pri = extractLocalCalendarDateFromIso(recordIso(record));
-  if (pri === dayDateStr) return recordIso(record);
-  const ca = extractLocalCalendarDateFromIso(record.created_at);
-  if (ca === dayDateStr) {
-    const ts = record.timestamp && String(record.timestamp).trim();
-    if (ts) {
-      return mergeLocalCalendarDayWithWallTimeFromInstant(dayDateStr, ts);
-    }
+  const instant = recordIso(record);
+  if (extractLocalCalendarDateFromIso(instant) === dayDateStr) return instant;
+  if (extractLocalCalendarDateFromIso(record.created_at) === dayDateStr) {
     return record.created_at;
   }
-  return recordIso(record);
+  return instant;
 }
 
 /** Slots da grelha do espelho (ordem operacional 1…4). */
