@@ -11,6 +11,12 @@ type PunchOriginRecord = {
   method?: string | null;
   metadata?: unknown;
   raw_data?: unknown;
+  is_manual?: boolean | null;
+  device_id?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  location?: unknown;
+  nsr?: number | string | null;
 };
 
 export type PunchOriginResolved = {
@@ -69,8 +75,47 @@ function isAfdImportHint(source: string, method: string, origin: string, legacy:
   return values.some((v) => v === 'afd_import' || v === 'afd import' || v.includes('afd_import'));
 }
 
+function hasColaboradorDeviceSignals(r: PunchOriginRecord): boolean {
+  const rec = r as Record<string, unknown>;
+  if (rec.device_id != null && String(rec.device_id).trim() !== '') return true;
+  const lat = Number(rec.latitude);
+  const lng = Number(rec.longitude);
+  if (Number.isFinite(lat) || Number.isFinite(lng)) return true;
+  const loc = asRecord(rec.location);
+  if (
+    loc &&
+    (loc.lat != null || loc.latitude != null || loc.lng != null || loc.longitude != null)
+  ) {
+    return true;
+  }
+  if (rec.nsr != null && String(rec.nsr).trim() !== '') return true;
+  const deviceType = readDeviceTypeHint(r);
+  return deviceType === 'mobile' || deviceType === 'web';
+}
+
+/**
+ * Batida registrada pelo próprio colaborador (app/portal/REP com identidade).
+ * O RPC do espelho RH usa `source` manual|admin — nunca web|mobile|app.
+ */
+export function isColaboradorSelfServicePunch(r: PunchOriginRecord): boolean {
+  const legacy = legacyPayloadHints(r);
+  const o = readString(r.origin) || legacy.origin;
+  const s = readString(r.source) || legacy.source;
+  const m = readString(r.method) || legacy.method;
+
+  if (s === 'web' || s === 'mobile' || s === 'app') return true;
+  if (o === 'mobile' || o === 'app') return true;
+  if (isColaboradorCaptureMethod(m)) return true;
+  if (hasColaboradorDeviceSignals(r)) return true;
+  if (r.is_manual === true && s === 'web' && m === 'manual') return true;
+
+  return false;
+}
+
 /** Batida lançada pelo RH/Admin no espelho — não confundir com `method=manual` do colaborador. */
 export function isRhAdjustmentOrigin(r: PunchOriginRecord): boolean {
+  if (isColaboradorSelfServicePunch(r)) return false;
+
   const legacy = legacyPayloadHints(r);
   const o = readString(r.origin) || legacy.origin;
   const s = readString(r.source) || legacy.source;
@@ -78,9 +123,9 @@ export function isRhAdjustmentOrigin(r: PunchOriginRecord): boolean {
   const m = readString(r.method) || legacy.method;
 
   if (o === 'admin' || s === 'admin' || m === 'admin' || st === 'admin') return true;
-  if (s === 'manual' && o !== 'mobile' && o !== 'app') return true;
-  if (st === 'manual' && (o === 'admin' || s === 'admin' || s === 'manual')) return true;
-  if (m === 'manual' && (o === 'admin' || s === 'admin' || s === 'manual')) return true;
+  if (s === 'manual' && (o === 'admin' || m === 'admin')) return true;
+  if (st === 'manual' && (o === 'admin' || s === 'admin')) return true;
+  if (m === 'manual' && (o === 'admin' || s === 'admin')) return true;
   return false;
 }
 
@@ -128,6 +173,15 @@ export function resolvePunchOrigin(r: PunchOriginRecord): PunchOriginResolved {
   }
   if (isRepHint(s, m, o) || st === 'control_id' || st === 'rep') {
     return { kind: 'rep', label: 'Relógio REP', sourceType: 'control_id' };
+  }
+  if (isColaboradorSelfServicePunch(r)) {
+    if (o === 'mobile' || o === 'app' || st === 'app' || deviceType === 'mobile' || s === 'mobile' || s === 'app') {
+      return { kind: 'mobile', label: 'Aplicativo', sourceType: 'app' };
+    }
+    if (s === 'web' || deviceType === 'web') {
+      return { kind: 'web', label: 'Portal Web', sourceType: 'app' };
+    }
+    return { kind: 'mobile', label: 'Aplicativo', sourceType: 'app' };
   }
   if (isRhAdjustmentOrigin(r)) {
     return { kind: 'admin', label: 'Ajuste Manual', sourceType: 'admin' };

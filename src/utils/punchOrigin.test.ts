@@ -56,4 +56,26 @@ describe('resolvePunchOrigin', () => {
   it('classifica portal web quando source=web sem origin mobile', () => {
     expect(resolvePunchOrigin({ source: 'web', method: 'api' }).label).toBe('Portal Web');
   });
+
+  it('não classifica batida do app como RH quando origin=admin foi corrompido no backfill', () => {
+    const payload = {
+      source: 'web',
+      method: 'manual',
+      origin: 'admin',
+      source_type: 'app',
+      is_manual: true,
+    };
+    expect(resolvePunchOrigin(payload).kind).toBe('mobile');
+    expect(resolvePunchOrigin(payload).label).toBe('Aplicativo');
+    expect(isRhAdjustmentOrigin(payload)).toBe(false);
+    expect(
+      isManualRecord({
+        id: '3',
+        user_id: 'u',
+        created_at: '2026-06-09T17:01:00Z',
+        type: 'entrada',
+        ...payload,
+      }),
+    ).toBe(false);
+  });
 });
