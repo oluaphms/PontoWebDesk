@@ -671,9 +671,9 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
       const activeEmployeeIds = new Set(
         activeEmployees.flatMap((employee) => recordUserIdsForEmployee(employee, userIdByEmail)),
       );
-      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []).filter((record: any) =>
-        visibleEmployeeIds.has(String(record?.user_id ?? '')),
-      );
+      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? [])
+        .filter((record: any) => visibleEmployeeIds.has(String(record?.user_id ?? '')))
+        .filter((record: any) => punchInstantOperationalYmd(record) === todayLocal);
       const activeIdsWithPunch = new Set<string>();
       todayRecords.forEach((r: any) => {
         const id = String(r?.user_id ?? '');

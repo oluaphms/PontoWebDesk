@@ -1,8 +1,8 @@
 /**
- * Origem da batida (relógio vs app) — alinha `source`/`method` legados com campos `origin`/`source_type` (migração).
+ * Origem da batida — classificação unificada (Admin, Colaborador, Dashboard, PDF).
  */
 
-export type PunchOriginKind = 'rep' | 'mobile' | 'admin' | 'unknown';
+export type PunchOriginKind = 'rep' | 'mobile' | 'web' | 'admin' | 'afd' | 'unknown';
 
 type PunchOriginRecord = {
   origin?: string | null;
@@ -11,6 +11,12 @@ type PunchOriginRecord = {
   method?: string | null;
   metadata?: unknown;
   raw_data?: unknown;
+};
+
+export type PunchOriginResolved = {
+  kind: PunchOriginKind;
+  label: string;
+  sourceType: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -28,7 +34,7 @@ function legacyPayloadHints(r: PunchOriginRecord): { source: string; method: str
     const nestedRaw = asRecord(container.raw);
     const candidates = [container, payload, nestedRaw].filter((item): item is Record<string, unknown> => item != null);
     for (const candidate of candidates) {
-      const source = readString(candidate.source);
+      const source = readString(candidate.source ?? candidate.origem);
       const method = readString(candidate.method);
       const origin = readString(candidate.origin);
       if (source || method || origin) return { source, method, origin };
@@ -37,26 +43,45 @@ function legacyPayloadHints(r: PunchOriginRecord): { source: string; method: str
   return { source: '', method: '', origin: '' };
 }
 
-function isMobileHint(source: string, method: string, origin: string): boolean {
-  return (
-    origin === 'mobile' ||
-    origin === 'app' ||
-    source === 'web' ||
-    source === 'mobile' ||
-    source === 'app' ||
-    method === 'gps' ||
-    method === 'foto' ||
-    method === 'photo' ||
-    method === 'biometric'
-  );
+function readDeviceTypeHint(r: PunchOriginRecord): string {
+  const containers = [asRecord(r.metadata), asRecord(r.raw_data)].filter((item): item is Record<string, unknown> => item != null);
+  for (const container of containers) {
+    const payload = asRecord(container.payload);
+    const candidates = [container, payload].filter((item): item is Record<string, unknown> => item != null);
+    for (const candidate of candidates) {
+      const deviceType = readString(candidate.deviceType ?? candidate.device_type);
+      if (deviceType) return deviceType;
+    }
+  }
+  return '';
+}
+
+function isColaboradorCaptureMethod(method: string): boolean {
+  return method === 'gps' || method === 'foto' || method === 'photo' || method === 'biometric' || method === 'api';
 }
 
 function isRepHint(source: string, method: string, origin: string): boolean {
   return origin === 'rep' || source === 'rep' || source === 'clock' || method === 'rep';
 }
 
-function isAdminHint(source: string, method: string, origin: string): boolean {
-  return origin === 'admin' || source === 'admin' || source === 'manual' || method === 'admin' || method === 'manual';
+function isAfdImportHint(source: string, method: string, origin: string, legacy: { source: string }): boolean {
+  const values = [source, method, origin, legacy.source];
+  return values.some((v) => v === 'afd_import' || v === 'afd import' || v.includes('afd_import'));
+}
+
+/** Batida lançada pelo RH/Admin no espelho — não confundir com `method=manual` do colaborador. */
+export function isRhAdjustmentOrigin(r: PunchOriginRecord): boolean {
+  const legacy = legacyPayloadHints(r);
+  const o = readString(r.origin) || legacy.origin;
+  const s = readString(r.source) || legacy.source;
+  const st = readString(r.source_type);
+  const m = readString(r.method) || legacy.method;
+
+  if (o === 'admin' || s === 'admin' || m === 'admin' || st === 'admin') return true;
+  if (s === 'manual' && o !== 'mobile' && o !== 'app') return true;
+  if (st === 'manual' && (o === 'admin' || s === 'admin' || s === 'manual')) return true;
+  if (m === 'manual' && (o === 'admin' || s === 'admin' || s === 'manual')) return true;
+  return false;
 }
 
 export function recordPunchInstantIso(r: {
@@ -90,29 +115,38 @@ export function isRepPunchRecord(r: {
   return isRepHint(readString(r.source), readString(r.method), readString(r.origin));
 }
 
-export function resolvePunchOrigin(r: PunchOriginRecord): { kind: PunchOriginKind; label: string; sourceType: string } {
+export function resolvePunchOrigin(r: PunchOriginRecord): PunchOriginResolved {
   const legacy = legacyPayloadHints(r);
-  if (isMobileHint(legacy.source, legacy.method, legacy.origin)) {
-    return { kind: 'mobile', label: 'App', sourceType: 'app' };
+  const o = readString(r.origin) || legacy.origin;
+  const s = readString(r.source) || legacy.source;
+  const st = readString(r.source_type);
+  const m = readString(r.method) || legacy.method;
+  const deviceType = readDeviceTypeHint(r);
+
+  if (isAfdImportHint(s, m, o, legacy)) {
+    return { kind: 'afd', label: 'Importação AFD', sourceType: 'control_id' };
   }
-  if (isRepHint(legacy.source, legacy.method, legacy.origin)) {
-    return { kind: 'rep', label: 'Relógio', sourceType: 'control_id' };
+  if (isRepHint(s, m, o) || st === 'control_id' || st === 'rep') {
+    return { kind: 'rep', label: 'Relógio REP', sourceType: 'control_id' };
+  }
+  if (isRhAdjustmentOrigin(r)) {
+    return { kind: 'admin', label: 'Ajuste Manual', sourceType: 'admin' };
   }
 
-  const o = readString(r.origin);
-  const s = readString(r.source);
-  const st = readString(r.source_type);
-  const m = readString(r.method);
-  if (isRepHint(s, m, o) || st === 'control_id' || st === 'rep') {
-    return { kind: 'rep', label: 'Relógio', sourceType: 'control_id' };
+  const isMobileOrigin = o === 'mobile' || o === 'app' || st === 'app' || s === 'mobile' || s === 'app' || deviceType === 'mobile';
+  const isAppCapture = m === 'gps' || m === 'foto' || m === 'photo' || m === 'biometric';
+
+  if (isMobileOrigin || (s === 'web' && isAppCapture)) {
+    return { kind: 'mobile', label: 'Aplicativo', sourceType: 'app' };
   }
-  if (isAdminHint(s, m, o) || st === 'admin' || st === 'manual') {
-    return { kind: 'admin', label: 'Manual / RH', sourceType: 'app' };
+  if (s === 'web') {
+    return { kind: 'web', label: 'Portal Web', sourceType: 'app' };
   }
-  if (isMobileHint(s, m, o) || st === 'app') {
-    return { kind: 'mobile', label: 'App', sourceType: 'app' };
+  if (isColaboradorCaptureMethod(m)) {
+    return { kind: 'mobile', label: 'Aplicativo', sourceType: 'app' };
   }
-  return { kind: 'mobile', label: 'App', sourceType: 'app' };
+
+  return { kind: 'mobile', label: 'Aplicativo', sourceType: 'app' };
 }
 
 export function shouldHidePunchLocation(r: {

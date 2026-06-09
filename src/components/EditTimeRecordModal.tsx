@@ -91,16 +91,20 @@ interface AdjustmentRequestOption {
 
 function resolveLaunchedByLabel(record: NonNullable<EditTimeRecordModalProps['record']>): string {
   const origin = resolvePunchOrigin(record);
-  if (origin.kind === 'mobile') return 'Colaborador (App)';
-  if (origin.kind === 'rep') return 'Relógio de ponto';
+  if (origin.kind === 'mobile') return 'Colaborador (Aplicativo)';
+  if (origin.kind === 'web') return 'Colaborador (Portal Web)';
+  if (origin.kind === 'rep') return 'Relógio REP';
+  if (origin.kind === 'afd') return 'Importação AFD';
   if (origin.kind === 'admin') return 'RH/Admin';
   return 'Sistema';
 }
 
 function resolveObservationLabel(record: NonNullable<EditTimeRecordModalProps['record']>): string {
   const origin = resolvePunchOrigin(record);
-  if (origin.kind === 'mobile') return 'Observação do app';
-  if (origin.kind === 'rep') return 'Observação do relógio';
+  if (origin.kind === 'mobile') return 'Observação do aplicativo';
+  if (origin.kind === 'web') return 'Observação do portal web';
+  if (origin.kind === 'rep') return 'Observação do relógio REP';
+  if (origin.kind === 'afd') return 'Observação da importação AFD';
   if (origin.kind === 'admin') return 'Motivo / Observação (informado pelo RH/Admin)';
   return 'Motivo / Observação';
 }

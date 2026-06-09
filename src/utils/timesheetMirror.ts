@@ -349,25 +349,16 @@ function recordIso(record: TimeRecord): string {
  */
 export function isManualRecord(record: TimeRecord): boolean {
   if (STATUS_TAG_REGEX.test(String(record.manual_reason || ''))) return true;
-  const origin = resolvePunchOrigin(record).kind;
-  if (origin === 'mobile' || origin === 'rep') return false;
+  const kind = resolvePunchOrigin(record).kind;
+  if (kind === 'admin') return true;
+  if (kind === 'mobile' || kind === 'web' || kind === 'rep' || kind === 'afd') return false;
   return !!(record.manual_reason && record.manual_reason.trim()) || record.is_manual === true;
 }
 
 /** Admin/RH podem editar somente batidas lançadas manualmente pelo espelho. */
 export function isEditableManualMirrorRecord(record: TimeRecord): boolean {
   if (isRepMirrorRecord(record)) return false;
-  const origin = resolvePunchOrigin(record);
-  if (origin.kind === 'mobile' || origin.kind === 'rep') return false;
-  if (origin.kind === 'admin') return true;
-  const o = String(record.origin ?? '').trim().toLowerCase();
-  const s = String(record.source ?? '').trim().toLowerCase();
-  const m = String(record.method ?? '').trim().toLowerCase();
-  const st = String(record.source_type ?? '').trim().toLowerCase();
-  if (o === 'mobile' || o === 'app' || s === 'web' || s === 'mobile' || m === 'gps' || m === 'foto' || m === 'biometric') {
-    return false;
-  }
-  return isManualRecord(record) || o === 'admin' || s === 'admin' || s === 'manual' || m === 'admin' || m === 'manual' || st === 'admin' || st === 'manual';
+  return resolvePunchOrigin(record).kind === 'admin';
 }
 
 /**

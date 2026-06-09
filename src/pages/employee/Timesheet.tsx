@@ -407,6 +407,10 @@ const EmployeeTimesheet: React.FC = () => {
       is_manual: r.is_manual,
       source: r.source ?? null,
       method: r.method ?? null,
+      origin: r.origin ?? null,
+      source_type: r.source_type ?? null,
+      metadata: r.metadata ?? null,
+      raw_data: r.raw_data ?? null,
     }));
   }, [records]);
 
@@ -526,9 +530,11 @@ const EmployeeTimesheet: React.FC = () => {
         title={
           isManual
             ? canEditManualAsHr
-              ? `Batida manual: ${record?.manual_reason || 'Sem motivo'} — clique para editar`
-              : `Batida manual: ${record?.manual_reason || 'Sem motivo'} — clique para visualizar`
-            : undefined
+              ? `Ajuste manual: ${record?.manual_reason || 'Sem motivo'} — clique para editar · Origem: ${resolvePunchOrigin(record!).label}`
+              : `Ajuste manual: ${record?.manual_reason || 'Sem motivo'} — clique para visualizar · Origem: ${resolvePunchOrigin(record!).label}`
+            : record
+              ? `Origem: ${resolvePunchOrigin(record).label}`
+              : undefined
         }
       >
         {display}
