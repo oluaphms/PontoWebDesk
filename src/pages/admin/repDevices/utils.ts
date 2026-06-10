@@ -309,7 +309,7 @@ export function buildAgentCommandTimeoutMessage(
   if (agentOnline) {
     return [
       'O agente está online (heartbeat recente), mas não executou o teste a tempo.',
-      'Causas comuns: rep-agent.exe desatualizado, poll de comandos desativado (enable_commands) ou comando travado no agente.',
+      'Causas comuns: Agente PontoWebDesk desatualizado, poll de comandos desativado (enable_commands) ou comando travado no agente.',
       'Na empresa, rode como Admin: scripts/deploy-rep-agent.ps1 (ou enable-rep-agent-commands.ps1) — confira no log cmd_poll=... e [REP COMMAND POLL] ativo — depois teste de novo.',
     ].join(' ');
   }

@@ -943,7 +943,7 @@ const ControlIdAdapter: RepVendorAdapter = {
     };
 
     const hint671 =
-      ' Se o relógio for Portaria 671, marque «Portaria 671» no cadastro do dispositivo no Chrono e use o CPF de 11 dígitos no funcionário.';
+      ' Se o relógio for Portaria 671, marque «Portaria 671» no cadastro do dispositivo no PontoWebDesk e use o CPF de 11 dígitos no funcionário.';
 
     if (use671Api) {
       const mode671Plan: Array<{

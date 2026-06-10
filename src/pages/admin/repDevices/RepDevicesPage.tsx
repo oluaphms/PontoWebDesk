@@ -598,7 +598,7 @@ const AdminRepDevices: React.FC = () => {
           return 'Agente executando teste no relógio...';
         }
         if (agentOnline && commandStatus === 'pending') {
-          return 'Agente online, mas ainda não buscou o comando. Atualize o rep-agent.exe na empresa se passar de 2 min.';
+          return 'Agente online — aguardando busca do comando (poll ~15–60s). Se passar de 2 min, confira se o Agente PontoWebDesk está atualizado e com comandos habilitados (enable_commands).';
         }
         return agentOnline
           ? 'Agente online — demorando mais que o normal para executar o teste.'
@@ -3104,7 +3104,7 @@ const AdminRepDevices: React.FC = () => {
                   Leituras no aparelho (config / usuários)
                 </p>
                 <p className={repUiClasses.sectionText}>
-                  Não envia alterações ao fabricante: apenas lê hora, informações e lista de usuários no relógio.
+                  Somente leitura no relógio — não altera o cadastro no PontoWebDesk. Lê hora, informações e lista de usuários no aparelho.
                 </p>
                 <div className={repPageUi.c041}>
                   <Button
@@ -3187,7 +3187,7 @@ const AdminRepDevices: React.FC = () => {
           >
             <h2 className={cx(repUiClasses.headingLg, 'mb-3')}>{usersModal.title}</h2>
             <p className={cx(repUiClasses.textXsMuted, 'mb-2')}>
-              Somente leitura — não altera o cadastro do Chrono Digital.
+              Somente leitura — não altera o cadastro no PontoWebDesk.
             </p>
             <div className={cx(repUiClasses.tableWrap, 'max-h-[55vh]')}>
               <table className={repUiClasses.tableBase}>
