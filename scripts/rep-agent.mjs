@@ -1212,6 +1212,47 @@ function deviceConnectionBases() {
   return [...new Set(bases)];
 }
 
+/** Base efetiva após login bem-sucedido (pode ser fallback http:80). */
+let effectiveClockBase = null;
+
+function agentClockBaseUrl() {
+  return effectiveClockBase || `${scheme}://${ip}:${port}`;
+}
+
+/**
+ * Tenta login.fcgi em todas as bases (primária + fallback LAN).
+ * Em sucesso, fixa effectiveClockBase para comandos e coleta subsequentes.
+ */
+async function loginControlIdAcrossBases() {
+  const bases = deviceConnectionBases();
+  let lastErr = null;
+  for (let i = 0; i < bases.length; i += 1) {
+    const base = bases[i];
+    if (i > 0) {
+      observabilityConsole.warn(`[REP LOGIN] tentando endereço alternativo do relógio: ${base}`);
+    }
+    try {
+      const session = await loginControlId(base);
+      if (session) {
+        effectiveClockBase = base;
+        if (i > 0) {
+          observabilityConsole.warn(
+            `[rep-agent] Login OK em ${base}. Ajuste config.json: device_scheme=http, device_port=80 (evita tentar https:443 primeiro).`,
+          );
+        }
+        return session;
+      }
+    } catch (e) {
+      lastErr = e;
+      if (i < bases.length - 1 && isConnectionRefusedError(e)) continue;
+    }
+  }
+  if (lastErr && !isConnectionRefusedError(lastErr)) {
+    observabilityConsole.error('[REP LOGIN ERROR]', lastErr?.message || String(lastErr));
+  }
+  return null;
+}
+
 function isConnectionRefusedError(err) {
   const msg = String(err?.message || err || '').toLowerCase();
   return err?.code === 'ECONNREFUSED' || msg.includes('econnrefused') || msg.includes('recusou conexão');
@@ -1640,12 +1681,11 @@ async function runLocalDeviceConnectionTest() {
       response_time_ms: 0,
     };
   }
-  const base = `${scheme}://${ip}:${port}`;
   const t0 = Date.now();
   try {
     const password = (process.env.REP_DEVICE_PASSWORD || '').trim();
     if (password) {
-      const session = await loginControlId(base);
+      const session = await loginControlIdAcrossBases();
       const ms = Date.now() - t0;
       if (session) {
         return {
@@ -1881,10 +1921,6 @@ async function executeCollectPunchesCommand(cmd) {
   }
 }
 
-function agentClockBaseUrl() {
-  return `${scheme}://${ip}:${port}`;
-}
-
 function commandPayload(cmd) {
   return cmd?.payload && typeof cmd.payload === 'object' && !Array.isArray(cmd.payload) ? cmd.payload : {};
 }
@@ -1926,10 +1962,14 @@ function localClockPayload(payloadClock) {
   return clock;
 }
 
-async function controlIdSessionForCommand(base) {
+async function controlIdSessionForCommand() {
   if (repDeviceSession) return repDeviceSession;
-  const session = await loginControlId(base);
-  if (!session) throw new Error('Não foi possível abrir sessão no relógio (login.fcgi).');
+  const session = await loginControlIdAcrossBases();
+  if (!session) {
+    throw new Error(
+      'Não foi possível abrir sessão no relógio (login.fcgi). Verifique IP, device_scheme=http, device_port=80 e REP_DEVICE_PASSWORD.',
+    );
+  }
   return session;
 }
 
@@ -1946,7 +1986,7 @@ async function executeExchangeCommand(cmd) {
   const name = String(cmd.command || '').trim();
   const payload = commandPayload(cmd);
   const base = agentClockBaseUrl();
-  const session = await controlIdSessionForCommand(base);
+  const session = await controlIdSessionForCommand();
   const mode671 = repAfdPortaria671 || /^(1|true|yes)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
   const modeParam = mode671 ? '&mode=671' : '';
 
@@ -2006,7 +2046,7 @@ async function executePushEmployeeCommand(cmd) {
   if (!nome) throw new Error('push_employee: nome do colaborador ausente');
 
   const base = agentClockBaseUrl();
-  const session = await controlIdSessionForCommand(base);
+  const session = await controlIdSessionForCommand();
   const mode671 = repAfdPortaria671 || /^(1|true|yes)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
   const modeParam = mode671 ? '&mode=671' : '';
   const cpf = digitsOnly(employee.cpf);

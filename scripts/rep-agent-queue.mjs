@@ -221,7 +221,7 @@ export async function sendPunchBatch(opts = {}) {
     }
 
     if (!res.ok || !data || data.ok === false) {
-      observabilityConsole.warn('[BATCH ERROR]', res.status, data?.error || text.slice(0, 200));
+      observabilityConsole.warn('[BATCH ERROR]', res.status, data?.error || text.slice(0, 500));
       bumpSyncBackoff();
       return { sent: 0, duplicate: 0, failed: punches.length, pendingLeft: countPendingPunches() };
     }
@@ -241,17 +241,27 @@ export async function sendPunchBatch(opts = {}) {
     let duplicate = 0;
     let failed = 0;
 
+    const failureDetails = [];
     for (const row of rows) {
       const body = JSON.parse(row.payload);
       const id = punchQueueId(body);
       const item = byHash.get(id);
-      const success = item?.success === true || item?.duplicate === true;
-      if (success) {
+      const accepted =
+        item?.success === true ||
+        item?.duplicate === true ||
+        item?.inserted === true ||
+        item?.unresolved === true;
+      if (accepted) {
         toMark.push(row);
         if (item?.duplicate) duplicate += 1;
         else sent += 1;
       } else {
         failed += 1;
+        failureDetails.push({
+          punch_hash: id,
+          error: item?.error || (item ? 'rejeitado pela API' : 'sem resultado no lote (hash divergente?)'),
+          company_id: body?.company_id ?? null,
+        });
       }
     }
 
@@ -265,11 +275,16 @@ export async function sendPunchBatch(opts = {}) {
       failed,
       pendingLeft: countPendingPunches(),
       processed: data.processed ?? punches.length,
+      errors: data.errors ?? null,
+      unresolved: data.unresolved ?? null,
     };
     if (sent > 0 || duplicate > 0) {
       agentLog.punchSendSuccess(summary);
     } else if (failed > 0) {
-      agentLog.punchSendFailure(summary);
+      if (failureDetails.length > 0) {
+        observabilityConsole.warn('[PUNCH_SEND_DETAIL]', JSON.stringify(failureDetails));
+      }
+      agentLog.punchSendFailure({ ...summary, failure_details: failureDetails });
     }
     return summary;
   } catch (err) {

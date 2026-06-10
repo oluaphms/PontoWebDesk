@@ -45,7 +45,9 @@ function applyConfigToProcessEnv(cfg) {
   const deviceId = trimStr(cfg.device_id);
   const companyId = trimStr(cfg.company_id);
   const deviceIp = trimStr(cfg.device_ip);
-  const devicePort = cfg.device_port != null ? String(cfg.device_port).trim() : '443';
+  const deviceSchemeHint = trimStr(cfg.device_scheme).toLowerCase();
+  const devicePortDefault = deviceSchemeHint === 'https' ? '443' : '80';
+  const devicePort = cfg.device_port != null ? String(cfg.device_port).trim() : devicePortDefault;
   const deviceLogin = trimStr(cfg.device_login) || 'admin';
   const devicePassword = trimStr(cfg.device_password);
   const deviceSession = trimStr(cfg.device_session);
@@ -59,7 +61,7 @@ function applyConfigToProcessEnv(cfg) {
   process.env.REP_DEVICE_ID = deviceId;
   process.env.REP_COMPANY_ID = companyId;
   process.env.REP_DEVICE_IP = deviceIp;
-  process.env.REP_DEVICE_PORT = devicePort || '443';
+  process.env.REP_DEVICE_PORT = devicePort || devicePortDefault;
   process.env.REP_DEVICE_LOGIN = deviceLogin;
   process.env.REP_DEVICE_PASSWORD = devicePassword;
   if (deviceSession) {
