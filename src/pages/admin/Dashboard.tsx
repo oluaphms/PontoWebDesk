@@ -291,7 +291,7 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <PageHeader title={i18n.t('dashboard.adminTitle')} />
+      <PageHeader title={i18n.t('Página InicialTitle')} />
 
       {showOnboarding && onboardingStatus && (
         <FirstAccessOnboardingCard status={onboardingStatus} onNavigate={(route) => navigate(route)} />
