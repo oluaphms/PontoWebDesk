@@ -240,20 +240,23 @@ export async function sendPunchBatch(opts = {}) {
     let sent = 0;
     let duplicate = 0;
     let failed = 0;
+    let unresolved = 0;
 
     const failureDetails = [];
     for (const row of rows) {
       const body = JSON.parse(row.payload);
       const id = punchQueueId(body);
       const item = byHash.get(id);
+      const isUnresolved = item?.unresolved === true;
       const accepted =
         item?.success === true ||
         item?.duplicate === true ||
         item?.inserted === true ||
-        item?.unresolved === true;
+        isUnresolved;
       if (accepted) {
         toMark.push(row);
         if (item?.duplicate) duplicate += 1;
+        else if (isUnresolved) unresolved += 1;
         else sent += 1;
       } else {
         failed += 1;
@@ -269,10 +272,11 @@ export async function sendPunchBatch(opts = {}) {
     if (failed === 0) resetSyncBackoff();
     else bumpSyncBackoff();
 
-    const accepted = sent + duplicate;
+    const accepted = sent + duplicate + unresolved;
     const uploadMeta = {
       device_id: punches[0]?.device_id ?? null,
       company_id: punches[0]?.company_id ?? null,
+      enviados: punches.length,
       records: punches.length,
       accepted,
       rejected: failed,
@@ -281,18 +285,29 @@ export async function sendPunchBatch(opts = {}) {
     };
     observabilityConsole.log(
       '[REP UPLOAD]',
-      `records=${punches.length} accepted=${accepted} rejected=${failed} duplicates=${duplicate}`,
+      `enviados=${punches.length} aceitos=${accepted} rejeitados=${failed} duplicados=${duplicate}`,
     );
     agentLog.repUpload(uploadMeta);
+    observabilityConsole.log(
+      '[REP UPLOAD RESULT]',
+      `aceitos=${accepted} rejeitados=${failed} sem_match=${unresolved} duplicados=${duplicate}`,
+    );
+    agentLog.repUploadResult({
+      ...uploadMeta,
+      aceitos: accepted,
+      rejeitados: failed,
+      sem_match: unresolved,
+      duplicados: duplicate,
+    });
 
     const summary = {
       sent,
       duplicate,
       failed,
+      unresolved,
       pendingLeft: countPendingPunches(),
       processed: data.processed ?? punches.length,
       errors: data.errors ?? null,
-      unresolved: data.unresolved ?? null,
       migration_error: data.migration_error === true,
     };
     if (sent > 0 || duplicate > 0) {
@@ -305,9 +320,15 @@ export async function sendPunchBatch(opts = {}) {
     }
     return summary;
   } catch (err) {
+    const pendingLeft = countPendingPunches();
     observabilityConsole.warn('[BATCH ERROR]', err?.message || err);
+    agentLog.punchSendFailure({
+      failed_count: pendingLeft,
+      reason: err?.message || String(err),
+      network_error: true,
+    });
     bumpSyncBackoff();
-    return { sent: 0, duplicate: 0, failed: 0, pendingLeft: countPendingPunches() };
+    return { sent: 0, duplicate: 0, failed: 0, pendingLeft, network_error: true };
   } finally {
     syncBusy = false;
   }

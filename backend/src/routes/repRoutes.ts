@@ -11,6 +11,7 @@ import {
   repSyncStatusController,
 } from '../controllers/repController.js';
 import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
+import { repDebugStatusController } from '../controllers/repDebugStatusController.js';
 import {
   repAfdImportDeleteController,
   repAfdImportDetailController,
@@ -34,6 +35,7 @@ router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);
 router.get('/diagnostics', repDiagnosticsController);
+router.get('/debug-status', repDebugStatusController);
 router.post('/import-afd', authMiddleware, repImportAfdController);
 router.get('/afd-imports', authMiddleware, repAfdImportsListController);
 router.get('/afd-imports/:importId', authMiddleware, repAfdImportDetailController);

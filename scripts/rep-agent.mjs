@@ -919,6 +919,14 @@ function postPunch(body) {
   if (saved.alreadyPending) {
     return { success: true, duplicate: false, inserted: false, queued: false, alreadyPending: true };
   }
+  if (saved.queued) {
+    agentLog.queueSave({
+      punch_hash: saved.id,
+      nsr: body?.nsr ?? null,
+      pis: body?.pis ?? null,
+      data_hora: body?.data_hora ?? null,
+    });
+  }
   return { success: true, duplicate: false, inserted: true, queued: true };
 }
 
@@ -1924,9 +1932,11 @@ async function executeCollectPunchesCommand(cmd) {
       records_received: parsed,
       records_saved: sentOk,
       records_promoted: sentOk,
+      records_queued: sentOk,
       duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
       start_date: startDate,
       end_date: endDate,
+      note: 'records_promoted=enviados à fila local; promoção real ocorre na API',
     });
     agentLog.repTimesheet({
       device_id: deviceId,
@@ -2823,6 +2833,17 @@ async function ingestViaAFD() {
       `[REP AFD] ${numericLines} linhas numéricas no arquivo, ${parsedAll.length} parseadas (tipos 3/6/7 Control iD).`
     );
   }
+  const afdFileName = String(url || '').split('/').pop() || 'afd.txt';
+  observabilityConsole.log(
+    '[REP PARSE]',
+    `arquivo=${afdFileName} linhas=${numericLines} registros_validos=${parsedAll.length}`,
+  );
+  agentLog.afdParse({
+    arquivo: afdFileName,
+    linhas: numericLines,
+    registros_validos: parsedAll.length,
+    url,
+  });
   logAfdParsedDateStats(parsedAll);
   const records = applyVolumeAirbagAfd(parsedAll);
   logSyncCounts(parsedAll.length, records.length);

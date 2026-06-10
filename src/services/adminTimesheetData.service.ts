@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { extractLocalCalendarDateFromIso } from '../utils/calendarUtils';
 import { mapTimesheetForUI, type TimesheetUIRow } from './timesheetProcessingStatus';
 import type { PendingRepPunch, RepOperationalResolutionStatus } from './timeAttendanceData';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 function localYmdStartIso(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -42,6 +43,13 @@ export async function fetchRepPendingByDate(
     .lte('data_hora', end)
     .order('data_hora', { ascending: true });
   if (error) throw error;
+
+  observabilityConsole.log('[TIMESHEET QUERY]', {
+    employee_id: employeeId,
+    periodo: `${periodStart}..${periodEnd}`,
+    batidas_encontradas: data?.length ?? 0,
+    source: 'rep_punch_logs_pending',
+  });
 
   const byDate = new Map<string, PendingRepPunch[]>();
   for (const row of data ?? []) {
@@ -103,6 +111,13 @@ export async function fetchTimesheetsDailyUiByDate(
     .gte('date', periodStart)
     .lte('date', periodEnd);
   if (error) throw error;
+
+  observabilityConsole.log('[TIMESHEET QUERY]', {
+    employee_id: employeeId,
+    periodo: `${periodStart}..${periodEnd}`,
+    batidas_encontradas: data?.length ?? 0,
+    source: 'timesheets_daily',
+  });
 
   const map = new Map<string, TimesheetDailyMirrorRow>();
   for (const row of data ?? []) {

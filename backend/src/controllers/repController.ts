@@ -7,7 +7,10 @@ import { resolveUserForRepPunch } from '../services/repUserMatch.service.js';
 import {
   enqueueRepTimesheetRecalcJobs,
   isRepIngestMigrationError,
+  logRepPipelineDbDiagnostics,
   logRepPipelineTelemetry,
+  processRepCalcDayJobsImmediate,
+  promotePendingRepLogsAfterBatch,
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 
@@ -307,6 +310,40 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
       ? (payload as Record<string, unknown>)
       : { success: false, error: 'rep_ingest_punch sem retorno' };
 
+  logger.info({
+    module: 'rep.ingest',
+    action: 'REP_RPC_RESULT',
+    companyId,
+    message: 'Resultado RPC rep_ingest_punch',
+    meta: {
+      device_id: deviceId,
+      nsr: normalizeNsr(body.nsr),
+      punch_hash: punchHash,
+      success: out.success !== false,
+      duplicate: out.duplicate === true,
+      user_not_found: out.user_not_found === true,
+      time_record_id: out.time_record_id ?? null,
+      rep_log_id: out.rep_log_id ?? null,
+      promotion_error_code: out.promotion_error_code ?? null,
+      error: out.error ?? null,
+    },
+  });
+
+  if (out.rep_log_id) {
+    logger.info({
+      module: 'rep.ingest',
+      action: 'REP_INSERT_RESULT',
+      companyId,
+      message: 'Registro persistido em rep_punch_logs',
+      meta: {
+        rep_log_id: out.rep_log_id,
+        time_record_id: out.time_record_id ?? null,
+        promoted: Boolean(out.time_record_id),
+        user_not_found: out.user_not_found === true,
+      },
+    });
+  }
+
   if (out.success !== false && out.time_record_id) {
     logger.info({
       module: 'rep.ingest',
@@ -494,6 +531,18 @@ export async function repPunchesController(req: Request, res: Response): Promise
   const companyId = String(first.company_id || first.companyId || '').trim();
   const deviceId = normalizeUuid(first.device_id);
 
+  logger.info({
+    module: 'rep.ingest',
+    action: 'REP_API_RECEIVED',
+    companyId: companyId || null,
+    message: 'Lote REP recebido via POST /api/rep/punches',
+    meta: {
+      device_id: deviceId,
+      records_received: chunk.length,
+      records_truncated: list.length > MAX_BATCH ? list.length - MAX_BATCH : 0,
+    },
+  });
+
   const { results, inserted, duplicates, errors, unresolved, promoted, migrationError } =
     await processPunchBatch(chunk);
 
@@ -506,23 +555,55 @@ export async function repPunchesController(req: Request, res: Response): Promise
     recordsPromoted: promoted.length,
     recordsRejected: errors,
     executionTimeMs: Date.now() - t0,
+    phase: 'promotion',
+    extra: { inserted, duplicates, unresolved, migration_error: migrationError },
+  });
+
+  let allPromoted = [...promoted];
+  if (companyId) {
+    const pendingPromote = await promotePendingRepLogsAfterBatch(companyId, deviceId);
+    if (pendingPromote.promoted.length > 0) {
+      const seen = new Set(allPromoted.map((p) => `${p.user_id}|${p.data_hora}|${p.time_record_id ?? ''}`));
+      for (const row of pendingPromote.promoted) {
+        const key = `${row.user_id}|${row.data_hora}|${row.time_record_id ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        allPromoted.push(row);
+      }
+    }
+  }
+
+  await logRepPipelineTelemetry({
+    deviceId,
+    companyId: companyId || null,
+    recordsReceived: chunk.length,
+    recordsSaved: saved,
+    recordsPromoted: allPromoted.length,
+    recordsRejected: errors,
+    executionTimeMs: Date.now() - t0,
     phase: 'upload',
     extra: { inserted, duplicates, unresolved, migration_error: migrationError },
   });
 
-  if (promoted.length > 0 && companyId) {
-    const jobs = await enqueueRepTimesheetRecalcJobs(companyId, promoted);
+  let calcDaysRecalculated = 0;
+  if (allPromoted.length > 0 && companyId) {
+    await enqueueRepTimesheetRecalcJobs(companyId, allPromoted);
+    calcDaysRecalculated = await processRepCalcDayJobsImmediate(companyId, Math.max(allPromoted.length, 25));
     await logRepPipelineTelemetry({
       deviceId,
       companyId,
-      recordsReceived: promoted.length,
-      recordsSaved: promoted.length,
-      recordsPromoted: promoted.length,
+      recordsReceived: allPromoted.length,
+      recordsSaved: allPromoted.length,
+      recordsPromoted: allPromoted.length,
       recordsRejected: 0,
       executionTimeMs: Date.now() - t0,
       phase: 'timesheet',
-      extra: { calc_day_jobs_enqueued: jobs },
+      extra: { calc_day_jobs_enqueued: allPromoted.length, dias_recalculados: calcDaysRecalculated },
     });
+  }
+
+  if (companyId) {
+    await logRepPipelineDbDiagnostics(companyId);
   }
 
   json(res, 200, {
@@ -535,7 +616,8 @@ export async function repPunchesController(req: Request, res: Response): Promise
     errors,
     unresolved,
     migration_error: migrationError,
-    timesheet_jobs_enqueued: promoted.length > 0 && companyId ? promoted.length : 0,
+    timesheet_jobs_enqueued: allPromoted.length > 0 && companyId ? allPromoted.length : 0,
+    timesheet_days_recalculated: calcDaysRecalculated,
     results,
   });
 }

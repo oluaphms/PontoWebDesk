@@ -7,6 +7,7 @@ import { db, type DbRow, type Filter } from './supabaseClient';
 import { fetchEmployees } from '../src/services/employeesApi.service';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
+import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 
 /**
  * Espelho de ponto: batidas no período pelo dia civil do horário oficial (`timestamp`).
@@ -52,11 +53,21 @@ export async function fetchTimeRecordsForMirrorWindow(
   for (const r of [...(main ?? []), ...(legacy ?? [])]) {
     if (r?.id) byId.set(String(r.id), r);
   }
-  return Array.from(byId.values()).sort((a, b) => {
+  const merged = Array.from(byId.values()).sort((a, b) => {
     const ta = new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime();
     const tb = new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime();
     return orderAscending ? ta - tb : tb - ta;
   });
+
+  const employeeFilter = baseFilters.find((f) => f.column === 'user_id' && f.operator === 'eq');
+  observabilityConsole.log('[TIMESHEET QUERY]', {
+    employee_id: employeeFilter?.value ?? null,
+    periodo: `${periodStartYmd}..${periodEndYmd}`,
+    batidas_encontradas: merged.length,
+    source: 'time_records',
+  });
+
+  return merged;
 }
 
 export type AdminTimesheetEmployee = {

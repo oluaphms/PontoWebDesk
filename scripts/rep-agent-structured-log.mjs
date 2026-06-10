@@ -59,8 +59,17 @@ export const agentLog = {
   afdDownload(meta) {
     emit('REP_AFD_DOWNLOAD', 'info', 'AFD baixado do relógio', meta);
   },
+  afdParse(meta) {
+    emit('REP_PARSE', 'info', 'AFD parseado', meta);
+  },
+  queueSave(meta) {
+    emit('REP_QUEUE_SAVE', 'info', 'Batida salva na fila local', meta);
+  },
   repUpload(meta) {
     emit('REP_UPLOAD', 'info', 'Upload de batidas para API', meta);
+  },
+  repUploadResult(meta) {
+    emit('REP_UPLOAD_RESULT', 'info', 'Resultado do upload para API', meta);
   },
   repPromotion(meta) {
     emit('REP_PROMOTION', 'info', 'Resumo pós-coleta local', meta);
