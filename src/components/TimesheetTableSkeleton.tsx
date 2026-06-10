@@ -1,10 +1,10 @@
 import React from 'react';
 
 /** Alinhado ao espelho admin (Data + horários + total). */
-const ADMIN_HEADERS = ['Data', 'Entrada', 'Saída int.', 'Volta int.', 'Saída', 'Total'] as const;
+const ADMIN_HEADERS = ['Data', 'Entrada', 'Saída int.', 'Volta int.', 'Saída', 'Total', 'Hora Extra', 'Justificativa'] as const;
 
 /** Alinhado ao espelho do colaborador (mesmas colunas do admin, sem colaborador). */
-const EMPLOYEE_HEADERS = ['Data', 'Entrada', 'Saída int.', 'Volta int.', 'Saída', 'Total'] as const;
+const EMPLOYEE_HEADERS = ['Data', 'Entrada', 'Saída int.', 'Volta int.', 'Saída', 'Total', 'Hora Extra', 'Justificativa'] as const;
 
 /**
  * Placeholders para os filtros do espelho (colaborador, departamento, datas) antes dos dados chegarem.

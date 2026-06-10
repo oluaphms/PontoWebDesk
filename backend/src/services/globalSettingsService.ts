@@ -21,6 +21,8 @@ const WRITABLE_FIELDS = [
   'default_entry_time',
   'default_exit_time',
   'allow_time_bank',
+  'maintenance_mode',
+  'maintenance_message',
 ] as const;
 
 function normalizeTimeValue(value: unknown): string | null {

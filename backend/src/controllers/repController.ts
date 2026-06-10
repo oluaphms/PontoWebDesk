@@ -106,6 +106,13 @@ async function assertRepDeviceForAdmin(deviceId: string, companyId: string): Pro
   return result.rows[0] ?? null;
 }
 
+function isEmployeeEligibleForRepPushRow(row: Record<string, unknown>): boolean {
+  if (row.invisivel === true) return false;
+  if (row.demissao != null && String(row.demissao).trim() !== '') return false;
+  const status = String(row.status ?? 'active').trim().toLowerCase();
+  return status === 'active' || status === 'ativo';
+}
+
 async function fetchEmployeeForRepPush(userId: string, companyId: string): Promise<Record<string, unknown> | null> {
   const fromUsers = await pool.query(
     `select
@@ -114,7 +121,10 @@ async function fetchEmployeeForRepPush(userId: string, companyId: string): Promi
         coalesce(nullif(e.cpf, ''), nullif(u.cpf, '')) as cpf,
         coalesce(nullif(trim(u.pis_pasep), ''), nullif(trim(u.cpf), '')) as pis,
         coalesce(nullif(u.numero_folha, ''), nullif(u.numero_identificador, '')) as matricula,
-        lower(coalesce(nullif(u.role, ''), 'employee')) as role
+        lower(coalesce(nullif(u.role, ''), 'employee')) as role,
+        coalesce(u.status, 'active') as status,
+        coalesce(u.invisivel, false) as invisivel,
+        u.demissao as demissao
        from public.users u
        left join public.employees e
          on e.id::text = u.id::text
@@ -124,7 +134,10 @@ async function fetchEmployeeForRepPush(userId: string, companyId: string): Promi
       limit 1`,
     [userId, companyId],
   );
-  if (fromUsers.rows[0]) return fromUsers.rows[0] as Record<string, unknown>;
+  if (fromUsers.rows[0]) {
+    const row = fromUsers.rows[0] as Record<string, unknown>;
+    return isEmployeeEligibleForRepPushRow(row) ? row : null;
+  }
 
   const fromEmployees = await pool.query(
     `select
@@ -133,14 +146,19 @@ async function fetchEmployeeForRepPush(userId: string, companyId: string): Promi
         nullif(e.cpf, '') as cpf,
         null::text as pis,
         null::text as matricula,
-        'employee' as role
+        'employee' as role,
+        coalesce(e.status, 'active') as status,
+        false as invisivel,
+        null::date as demissao
        from public.employees e
       where e.id::text = $1
         and e.company_id::text = $2
       limit 1`,
     [userId, companyId],
   );
-  return (fromEmployees.rows[0] as Record<string, unknown> | undefined) ?? null;
+  const legacy = (fromEmployees.rows[0] as Record<string, unknown> | undefined) ?? null;
+  if (!legacy) return null;
+  return isEmployeeEligibleForRepPushRow(legacy) ? legacy : null;
 }
 
 function normalizeNsr(value: unknown): number | null {
@@ -816,7 +834,11 @@ export async function repPushEmployeeController(req: Request, res: Response): Pr
     }
     const employee = await fetchEmployeeForRepPush(userId, auth.companyId);
     if (!employee) {
-      json(res, 404, { ok: false, success: false, error: 'Funcionário não encontrado' });
+      json(res, 404, {
+        ok: false,
+        success: false,
+        error: 'Funcionário não encontrado ou inativo/excluído',
+      });
       return;
     }
     const role = String(employee.role || '').toLowerCase();

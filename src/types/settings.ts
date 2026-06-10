@@ -23,6 +23,8 @@ export interface GlobalSettings {
   default_entry_time: string; // "09:00"
   default_exit_time: string;  // "18:00"
   allow_time_bank: boolean;
+  maintenance_mode: boolean;
+  maintenance_message?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -59,4 +61,6 @@ export const DEFAULT_GLOBAL_SETTINGS: Omit<GlobalSettings, 'id' | 'created_at' |
   default_entry_time: '09:00',
   default_exit_time: '18:00',
   allow_time_bank: true,
+  maintenance_mode: false,
+  maintenance_message: null,
 };

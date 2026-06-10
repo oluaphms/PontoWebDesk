@@ -16,6 +16,7 @@ import {
 import { resolveTenantId } from '../src/services/tenantScope';
 import { useTimeAttendanceAuditMenuSignal } from '../src/hooks/useTimeAttendanceAuditMenuSignal';
 import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../src/performance/pollingGovernor';
+import { MaintenanceBanner } from '../src/components/MaintenanceBanner';
 
 /** Cabeçalho: título + busca; ícone da marca fica no dock/radial, não duplicado aqui. */
 
@@ -177,6 +178,7 @@ const Layout: React.FC<LayoutProps> = ({
             aria-label={i18n.t('layout.mainContent')}
           >
             <div className="p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full print:p-0 print:m-0 print:max-w-none min-h-full">
+              <MaintenanceBanner />
               {children}
             </div>
           </main>

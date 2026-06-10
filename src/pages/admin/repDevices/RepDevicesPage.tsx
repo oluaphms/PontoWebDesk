@@ -405,6 +405,7 @@ const AdminRepDevices: React.FC = () => {
 
       const list = Array.from(merged.values())
         .filter((r) => !!r.id)
+        .filter(isEmployeeEligibleForRepPush)
         .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
       setEmployees(list);
     } catch (error) {

@@ -1,7 +1,7 @@
 import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { isSupabaseConfigured, supabase } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { insertAdminMirrorTimeRecord } from '../../../services/timeRecords.service';
 import { buscarEspelhoAdmin, buscarFiltrosEspelhoAdmin } from '../../../services/api';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
@@ -62,6 +62,12 @@ import { LogSeverity } from '../../../types';
 import { type TimesheetUIRow } from '../../services/timesheetProcessingStatus';
 import { reverseGeocodeSnapshot, type GeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
 import { fetchRepPendingByDate, fetchTimesheetsDailyUiByDate } from '../../services/adminTimesheetData.service';
+import {
+  collectDayJustification,
+  extractAdjustmentMetaFromRequest,
+  formatSignedOvertimeDisplay,
+  type ApprovedAdjustmentJustification,
+} from '../../utils/timesheetMirrorExtras';
 import {
   computePeriodHealthSummary,
   deriveOperationalDisplayStatus,
@@ -306,6 +312,7 @@ const AdminTimesheet: React.FC = () => {
 
   /** Linhas `timesheets_daily` do período (UX auditoria / badges). */
   const [dailyCalcUiByDate, setDailyCalcUiByDate] = useState<Map<string, TimesheetUIRow>>(() => new Map());
+  const [approvedAdjustments, setApprovedAdjustments] = useState<ApprovedAdjustmentJustification[]>([]);
   /** Admin: permite fechar apesar de inconsistent/error operacional no período. */
   const [adminCloseOverride, setAdminCloseOverride] = useState(false);
 
@@ -648,6 +655,35 @@ const AdminTimesheet: React.FC = () => {
         const message = error instanceof Error ? error.message : String(error);
         observabilityConsole.warn('[Espelho] timesheets_daily:', message);
         setDailyCalcUiByDate(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filtersHydrated, periodValid, filterUserId, companyId, periodStart, periodEnd]);
+
+  useEffect(() => {
+    if (!filtersHydrated || !periodValid || !filterUserId || !companyId || !isSupabaseConfigured()) {
+      setApprovedAdjustments([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = (await db.select('requests', [
+          { column: 'user_id', operator: 'eq', value: filterUserId },
+          { column: 'company_id', operator: 'eq', value: companyId },
+          { column: 'status', operator: 'eq', value: 'approved' },
+          { column: 'type', operator: 'eq', value: 'adjustment' },
+        ])) as Record<string, unknown>[];
+        if (cancelled) return;
+        const parsed = rows
+          .map((row) => extractAdjustmentMetaFromRequest(row))
+          .filter((item): item is ApprovedAdjustmentJustification => item != null)
+          .filter((item) => item.adjustment_date >= periodStart && item.adjustment_date <= periodEnd);
+        setApprovedAdjustments(parsed);
+      } catch {
+        if (!cancelled) setApprovedAdjustments([]);
       }
     })();
     return () => {
@@ -1667,12 +1703,14 @@ const AdminTimesheet: React.FC = () => {
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Volta int.</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Saída</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Total</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Hora Extra</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Justificativa</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 {virtualRowsEnabled && timesheetVirtualWindow.topSpacerHeight > 0 && (
                   <tr aria-hidden>
-                    <td colSpan={6} className="p-0 border-0" style={{ height: timesheetVirtualWindow.topSpacerHeight }} />
+                    <td colSpan={8} className="p-0 border-0" style={{ height: timesheetVirtualWindow.topSpacerHeight }} />
                   </tr>
                 )}
                 {periodDatesForRender.map((date) => {
@@ -1964,10 +2002,25 @@ const AdminTimesheet: React.FC = () => {
                               ? 'Ver ocorrências'
                               : EMPTY_DASH}
                       </td>
+                      <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top tabular-nums">
+                        {(() => {
+                          const dailyRow = dailyCalcUiByDate.get(date);
+                          if (!dailyRow) return EMPTY_DASH;
+                          return formatSignedOvertimeDisplay(
+                            Number(dailyRow.overtime_minutes ?? 0),
+                            Number(dailyRow.negative_minutes ?? 0),
+                          );
+                        })()}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-300 align-top text-xs max-w-[220px]">
+                        <span className="line-clamp-3" title={collectDayJustification(day, approvedAdjustments)}>
+                          {collectDayJustification(day, approvedAdjustments)}
+                        </span>
+                      </td>
                     </tr>
                     {dayRecs.length > 0 && detailOpenByDate[date] === true && (
                       <tr className="bg-slate-50/80 dark:bg-slate-800/40 print:bg-transparent">
-                        <td colSpan={6} className="px-3 py-3">
+                        <td colSpan={8} className="px-3 py-3">
                           <div className="space-y-2">
                             {dayRecs.map((r) => {
                               const whenIso = recordEffectiveMirrorInstant(r, date);
@@ -2013,7 +2066,7 @@ const AdminTimesheet: React.FC = () => {
                 })}
                 {virtualRowsEnabled && timesheetVirtualWindow.bottomSpacerHeight > 0 && (
                   <tr aria-hidden>
-                    <td colSpan={6} className="p-0 border-0" style={{ height: timesheetVirtualWindow.bottomSpacerHeight }} />
+                    <td colSpan={8} className="p-0 border-0" style={{ height: timesheetVirtualWindow.bottomSpacerHeight }} />
                   </tr>
                 )}
               </tbody>

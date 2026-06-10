@@ -165,6 +165,8 @@ function mapRow(row: any): GlobalSettings | null {
     default_entry_time: timeToHHmm(row.default_entry_time),
     default_exit_time: timeToHHmm(row.default_exit_time),
     allow_time_bank: Boolean(row.allow_time_bank),
+    maintenance_mode: Boolean(row.maintenance_mode),
+    maintenance_message: row.maintenance_message ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };

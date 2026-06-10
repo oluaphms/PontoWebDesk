@@ -32,6 +32,14 @@ import { readSpecialBarsPref, SPECIAL_BARS_CHANGED } from '../../utils/timesheet
 import { invalidateAfterPunch } from '../../services/queryCache';
 import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
+import { fetchTimesheetsDailyUiByDate } from '../../services/adminTimesheetData.service';
+import {
+  collectDayJustification,
+  extractAdjustmentMetaFromRequest,
+  formatSignedOvertimeDisplay,
+  type ApprovedAdjustmentJustification,
+} from '../../utils/timesheetMirrorExtras';
+import type { TimesheetUIRow } from '../../services/timesheetProcessingStatus';
 
 /** Data local YYYY-MM-DD (evita UTC deslocar o “hoje” no max do input). */
 function localDateKey(d = new Date()): string {
@@ -137,6 +145,8 @@ const EmployeeTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
   /** Linhas brutas do Supabase (inclui campos de GPS para o detalhe expansível). */
   const [records, setRecords] = useState<any[]>([]);
+  const [dailyCalcUiByDate, setDailyCalcUiByDate] = useState<Map<string, TimesheetUIRow>>(() => new Map());
+  const [approvedAdjustments, setApprovedAdjustments] = useState<ApprovedAdjustmentJustification[]>([]);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(() => new Set());
   const [periodStart, setPeriodStart] = useState(() => localMonthStartKey());
   const [periodEnd, setPeriodEnd] = useState(() => localDateKey());
@@ -316,6 +326,49 @@ const EmployeeTimesheet: React.FC = () => {
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, companyId, periodStart, periodEnd, periodValid, refreshNonce]);
+
+  useEffect(() => {
+    if (!periodValid || !user?.id || !companyId || !isSupabaseConfigured()) {
+      setDailyCalcUiByDate(new Map());
+      setApprovedAdjustments([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [dailyMap, requestRows] = await Promise.all([
+          fetchTimesheetsDailyUiByDate(supabase, {
+            companyId,
+            employeeId: user.id,
+            periodStart,
+            periodEnd,
+          }),
+          db.select('requests', [
+            { column: 'user_id', operator: 'eq', value: user.id },
+            { column: 'company_id', operator: 'eq', value: companyId },
+            { column: 'status', operator: 'eq', value: 'approved' },
+            { column: 'type', operator: 'eq', value: 'adjustment' },
+          ]) as Promise<Record<string, unknown>[]>,
+        ]);
+        if (cancelled) return;
+        setDailyCalcUiByDate(dailyMap);
+        const parsed = (requestRows ?? [])
+          .map((row) => extractAdjustmentMetaFromRequest(row))
+          .filter((item): item is ApprovedAdjustmentJustification => item != null)
+          .filter((item) => item.adjustment_date >= periodStart && item.adjustment_date <= periodEnd);
+        setApprovedAdjustments(parsed);
+      } catch (e) {
+        observabilityConsole.warn('[Espelho colaborador] timesheets_daily/requests:', e);
+        if (!cancelled) {
+          setDailyCalcUiByDate(new Map());
+          setApprovedAdjustments([]);
+        }
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -621,6 +674,8 @@ const EmployeeTimesheet: React.FC = () => {
                   <th className="text-left px-3 py-2 font-medium text-slate-600 dark:text-slate-400">Volta int.</th>
                   <th className="text-left px-3 py-2 font-medium text-slate-600 dark:text-slate-400">Saída</th>
                   <th className="text-left px-3 py-2 font-medium text-slate-600 dark:text-slate-400">Total</th>
+                  <th className="text-left px-3 py-2 font-medium text-slate-600 dark:text-slate-400">Hora Extra</th>
+                  <th className="text-left px-3 py-2 font-medium text-slate-600 dark:text-slate-400">Justificativa</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -751,10 +806,25 @@ const EmployeeTimesheet: React.FC = () => {
                         <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top">
                           {hasRealRecords && day.workedMinutes > 0 ? formatMinutes(day.workedMinutes) : EMPTY_DASH}
                         </td>
+                        <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top tabular-nums">
+                          {(() => {
+                            const dailyRow = dailyCalcUiByDate.get(date);
+                            if (!dailyRow) return EMPTY_DASH;
+                            return formatSignedOvertimeDisplay(
+                              Number(dailyRow.overtime_minutes ?? 0),
+                              Number(dailyRow.negative_minutes ?? 0),
+                            );
+                          })()}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300 align-top text-xs max-w-[220px]">
+                          <span className="line-clamp-3" title={collectDayJustification(day, approvedAdjustments)}>
+                            {collectDayJustification(day, approvedAdjustments)}
+                          </span>
+                        </td>
                       </tr>
                       {dayRecs.length > 0 && detailOpenByDate[date] === true && (
                         <tr className="bg-slate-50/80 dark:bg-slate-800/40 print:bg-transparent">
-                          <td colSpan={6} className="px-3 py-3">
+                          <td colSpan={8} className="px-3 py-3">
                             <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                               Localização por batida — {formatDateBR(date)}
                               {withGps.length > 0 ? (

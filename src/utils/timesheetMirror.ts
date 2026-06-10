@@ -464,18 +464,63 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
   };
 }
 
+function addDaysYmd(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, (d || 1) + delta);
+  return localCalendarYmd(dt);
+}
+
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function localMinutesFromIso(iso: string): number {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+/** Turno com entrada após saída final (ex.: 22:00 → 06:00). */
+export function isNightShiftSchedule(schedule: DayScheduleSlots): boolean {
+  return hhmmToMinutes(schedule.entrada) > hhmmToMinutes(schedule.saida_final);
+}
+
+/**
+ * Data da linha do espelho — agrupa batidas pós-meia-noite na jornada noturna iniciada no dia anterior.
+ */
+export function espelhoRowDateForRecord(
+  record: TimeRecord,
+  periodStartYmd: string,
+  periodEndYmd: string,
+  scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined,
+): string {
+  const civil = calendarDateForEspelhoRow(record, periodStartYmd, periodEndYmd);
+  if (!scheduleByDay) return civil;
+  const iso = recordMirrorInstant(record);
+  const timeMin = localMinutesFromIso(iso);
+  const yesterday = addDaysYmd(civil, -1);
+  if (yesterday < periodStartYmd.slice(0, 10)) return civil;
+  const prevSchedule = scheduleByDay(yesterday);
+  if (prevSchedule && isNightShiftSchedule(prevSchedule)) {
+    const cutoff = hhmmToMinutes(prevSchedule.saida_final) + (prevSchedule.toleranceMin ?? 60);
+    if (timeMin <= cutoff) return yesterday;
+  }
+  return civil;
+}
+
 /**
  * Agrupa registros por data (respeita período do espelho — ver `calendarDateForEspelhoRow`).
  */
 function groupRecordsByDate(
   records: TimeRecord[],
   periodStartYmd: string,
-  periodEndYmd: string
+  periodEndYmd: string,
+  scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined,
 ): Map<string, TimeRecord[]> {
   const groups = new Map<string, TimeRecord[]>();
 
   for (const record of records) {
-    const date = calendarDateForEspelhoRow(record, periodStartYmd, periodEndYmd);
+    const date = espelhoRowDateForRecord(record, periodStartYmd, periodEndYmd, scheduleByDay);
     if (!groups.has(date)) {
       groups.set(date, []);
     }
@@ -528,7 +573,7 @@ export function buildDayMirrorSummary(
     scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined;
   }
 ): Map<string, DayMirror> {
-  const byDate = groupRecordsByDate(records, startDate, endDate);
+  const byDate = groupRecordsByDate(records, startDate, endDate, options?.scheduleByDay);
   const result = new Map<string, DayMirror>();
 
   // Preenche todos os dias no período (sem problemas de fuso)

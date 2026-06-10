@@ -85,24 +85,38 @@ type FetchDailyUiParams = {
   periodEnd: string;
 };
 
+export type TimesheetDailyMirrorRow = TimesheetUIRow & {
+  overtime_minutes?: number;
+  negative_minutes?: number;
+};
+
 export async function fetchTimesheetsDailyUiByDate(
   client: SupabaseClient,
   params: FetchDailyUiParams,
-): Promise<Map<string, TimesheetUIRow>> {
+): Promise<Map<string, TimesheetDailyMirrorRow>> {
   const { companyId, employeeId, periodStart, periodEnd } = params;
   const { data, error } = await client
     .from('timesheets_daily')
-    .select('date, raw_data')
+    .select('date, overtime_minutes, raw_data')
     .eq('employee_id', employeeId)
     .eq('company_id', companyId)
     .gte('date', periodStart)
     .lte('date', periodEnd);
   if (error) throw error;
 
-  const map = new Map<string, TimesheetUIRow>();
+  const map = new Map<string, TimesheetDailyMirrorRow>();
   for (const row of data ?? []) {
     const dateKey = String(row.date).slice(0, 10);
-    map.set(dateKey, mapTimesheetForUI({ raw_data: (row.raw_data ?? {}) as Record<string, unknown> }));
+    const raw = (row.raw_data ?? {}) as Record<string, unknown>;
+    const negativeMinutes = Math.max(0, Number(raw.negative_minutes ?? 0) || 0);
+    map.set(
+      dateKey,
+      mapTimesheetForUI({
+        raw_data: raw,
+        overtime_minutes: row.overtime_minutes,
+        negative_minutes: negativeMinutes,
+      }),
+    );
   }
   return map;
 }

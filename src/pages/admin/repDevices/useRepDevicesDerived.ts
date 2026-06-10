@@ -142,10 +142,10 @@ export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
     [devices, srDeviceId]
   );
 
-  const employeesForModalPush = useMemo(() => {
-    if (!srSkipBlocked) return employees;
-    return employees.filter(isEmployeeEligibleForRepPush);
-  }, [employees, srSkipBlocked]);
+  const employeesForModalPush = useMemo(
+    () => employees.filter(isEmployeeEligibleForRepPush),
+    [employees],
+  );
 
   const srActionsLocked = useMemo(() => {
     const d = srSelectedDevice;

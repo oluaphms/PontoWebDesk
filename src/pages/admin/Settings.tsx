@@ -69,6 +69,8 @@ const AdminSettings: React.FC = () => {
     default_entry_time: '09:00',
     default_exit_time: '18:00',
     allow_time_bank: true,
+    maintenance_mode: false,
+    maintenance_message: '',
   });
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -114,6 +116,8 @@ const AdminSettings: React.FC = () => {
             default_entry_time: data.default_entry_time,
             default_exit_time: data.default_exit_time,
             allow_time_bank: data.allow_time_bank,
+            maintenance_mode: Boolean(data.maintenance_mode),
+            maintenance_message: String(data.maintenance_message ?? ''),
           });
         }
         if (isSupabaseConfigured() && user?.companyId) {
@@ -186,6 +190,8 @@ const AdminSettings: React.FC = () => {
         default_entry_time: form.default_entry_time,
         default_exit_time: form.default_exit_time,
         allow_time_bank: form.allow_time_bank,
+        maintenance_mode: form.maintenance_mode,
+        maintenance_message: form.maintenance_message.trim() || null,
       };
       const { data: savedSettings, error } = await upsertSettingsForCompany(user.companyId, settingsPayload);
       if (error) throw error;
@@ -617,6 +623,36 @@ const AdminSettings: React.FC = () => {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{i18n.t('settings.bankHoursExpiryMonthsHelp')}</p>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">{i18n.t('settings.motorPontoNoteBankOff')}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Manutenção programada</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Exibe um aviso na tela inicial sem bloquear login ou uso do sistema.
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.maintenance_mode}
+                  onChange={(e) => setForm({ ...form, maintenance_mode: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Ativar aviso de manutenção</span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem do banner</label>
+                <textarea
+                  rows={3}
+                  value={form.maintenance_message}
+                  onChange={(e) => setForm({ ...form, maintenance_message: e.target.value })}
+                  placeholder="Sistema em manutenção programada. Algumas funcionalidades podem estar temporariamente indisponíveis."
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                />
               </div>
             </div>
           </section>

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calendarDateForEspelhoRow } from './calendarUtils';
 import {
   buildDayMirrorSummary,
+  isNightShiftSchedule,
   normalizeRecordTypeForMirror,
   recordEffectiveMirrorInstant,
   recordMirrorInstant,
@@ -385,6 +386,65 @@ describe('buildDayMirrorSummary — classificação por jornada (proximidade)', 
     const dm = map.get(day);
     expect(dm?.entradaInicio).toBe('08:00');
     expect(dm?.saidaIntervalo).toBe('11:30');
+  });
+});
+
+describe('jornada noturna — agrupamento no espelho', () => {
+  const nightSchedule = {
+    entrada: '22:00',
+    saida_intervalo: '01:00',
+    volta_intervalo: '02:00',
+    saida_final: '06:00',
+    toleranceMin: 60,
+  };
+
+  it('detecta escala noturna quando entrada > saída final', () => {
+    expect(isNightShiftSchedule(nightSchedule)).toBe(true);
+  });
+
+  it('agrupa batidas após meia-noite no dia de início da jornada', () => {
+    const records: TimeRecord[] = [
+      tr({
+        id: 'e1',
+        user_id: 'u',
+        created_at: '2026-06-10T01:00:00.000Z',
+        timestamp: '2026-06-09T22:00:00.000-03:00',
+        type: 'entrada',
+        source: 'mobile',
+      }),
+      tr({
+        id: 's1',
+        user_id: 'u',
+        created_at: '2026-06-10T04:00:00.000Z',
+        timestamp: '2026-06-10T01:00:00.000-03:00',
+        type: 'intervalo_saida',
+        source: 'mobile',
+      }),
+      tr({
+        id: 'v1',
+        user_id: 'u',
+        created_at: '2026-06-10T05:00:00.000Z',
+        timestamp: '2026-06-10T02:00:00.000-03:00',
+        type: 'intervalo_volta',
+        source: 'mobile',
+      }),
+      tr({
+        id: 'sf',
+        user_id: 'u',
+        created_at: '2026-06-10T09:00:00.000Z',
+        timestamp: '2026-06-10T06:00:00.000-03:00',
+        type: 'saida',
+        source: 'mobile',
+      }),
+    ];
+    const scheduleByDay = (date: string) => (date === '2026-06-09' ? nightSchedule : null);
+    const map = buildDayMirrorSummary(records, '2026-06-09', '2026-06-10', { scheduleByDay });
+    const day = map.get('2026-06-09');
+    expect(day?.entradaInicio).toBe('22:00');
+    expect(day?.saidaIntervalo).toBe('01:00');
+    expect(day?.voltaIntervalo).toBe('02:00');
+    expect(day?.saidaFinal).toBe('06:00');
+    expect(map.get('2026-06-10')?.records.filter((r) => !r.type?.includes('status')).length ?? 0).toBe(0);
   });
 });
 

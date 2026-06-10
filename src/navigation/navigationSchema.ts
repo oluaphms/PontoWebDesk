@@ -96,7 +96,6 @@ export const navigationGroups: Record<string, NavigationGroupSchema> = {
     icon: 'clock',
     items: [
       { name: 'Dispositivos', nameKey: 'menu.repDevices', path: '/admin/rep-devices', roles: ['admin', 'hr'] },
-      { name: 'Coleta Online', nameKey: 'menu.repCollect', path: '/admin/rep-devices', roles: ['admin', 'hr'] },
       { name: 'Importar AFD', nameKey: 'menu.importRep', path: '/admin/import-rep', roles: ['admin', 'hr'] },
       {
         name: 'Histórico de Importações',

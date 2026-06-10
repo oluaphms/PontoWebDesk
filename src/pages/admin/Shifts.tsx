@@ -28,6 +28,7 @@ import OpcoesAvancadasModal from './OpcoesAvancadasModal';
 import ConfiguracaoDSRModal from './ConfiguracaoDSRModal';
 import ConfiguracaoHorasExtrasModal from './ConfiguracaoHorasExtrasModal';
 import TipoMarcacaoModal from './TipoMarcacaoModal';
+import { SobreAvisoCadastroPanel } from '../../components/admin/SobreAvisoCadastroPanel';
 
 const DAY_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
@@ -718,6 +719,10 @@ const AdminShifts: React.FC = () => {
           return mergeDSR(createDefaultDSR(), src.config.dsr);
         }}
       />
+
+      <div className="mt-8">
+        <SobreAvisoCadastroPanel />
+      </div>
 
       <OpcoesAvancadasModal
         open={advancedModalOpen}
