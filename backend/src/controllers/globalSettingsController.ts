@@ -23,6 +23,7 @@ export async function getGlobalSettingsController(req: AuthedRequest, res: Respo
       module: 'globalSettings.controller',
       action: 'GLOBAL_SETTINGS_GET_FAILED',
       companyId,
+      message: 'Falha ao ler configurações globais',
       error: e,
     });
     res.status(500).json({ ok: false, error: 'settings_read_failed' });
@@ -43,6 +44,7 @@ export async function upsertGlobalSettingsController(req: AuthedRequest, res: Re
       module: 'globalSettings.controller',
       action: 'GLOBAL_SETTINGS_UPSERT_FAILED',
       companyId,
+      message: 'Falha ao salvar configurações globais',
       error: e,
       meta: { payloadKeys: Object.keys(raw).sort() },
     });
