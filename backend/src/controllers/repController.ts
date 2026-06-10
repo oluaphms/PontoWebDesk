@@ -440,6 +440,18 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
       });
     } catch (error) {
       errors += 1;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (isRepIngestMigrationError(errMsg)) {
+        migrationError = true;
+        logger.error({
+          module: 'rep.ingest',
+          action: 'REP_MIGRATION_REQUIRED',
+          companyId: String(body.company_id || body.companyId || '').trim() || null,
+          message:
+            'RPC rep_ingest_punch desatualizada no banco — aplique migrações 20260520350000+ (fix company_id uuid) e reinicie a API',
+          meta: { error: errMsg, punch_hash: punchHash },
+        });
+      }
       logger.error({
         module: 'rep.ingest',
         action: 'PUNCH_REJECTED',
@@ -450,7 +462,7 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
       results.push({
         punch_hash: punchHash,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errMsg,
       });
     }
   }
