@@ -10,6 +10,7 @@ import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
 import { computeRepPunchHash } from './repPunchHash.js';
+import { syncEspelhoAfterRepPromote } from '../../modules/rep-integration/repTimesheetMirror.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
 type RepPunchBody = {
@@ -935,6 +936,44 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       elapsed_ms: Date.now() - startedAt,
     });
 
+    if (result.time_record_id && resolvedByIdentifier) {
+      const promotionT0 = Date.now();
+      repLog('info', 'REP_PROMOTION', {
+        device_id: repDeviceId,
+        company_id,
+        records_received: 1,
+        records_saved: 1,
+        records_promoted: 1,
+        records_rejected: 0,
+        execution_time_ms: Date.now() - startedAt,
+        time_record_id: result.time_record_id,
+      });
+      try {
+        await syncEspelhoAfterRepPromote(supabase, company_id, [
+          {
+            user_id: resolvedByIdentifier,
+            data_hora: tsIso,
+            nsr: nsrNumber,
+          },
+        ]);
+        repLog('info', 'REP_TIMESHEET', {
+          device_id: repDeviceId,
+          company_id,
+          user_id: resolvedByIdentifier,
+          records_promoted: 1,
+          execution_time_ms: Date.now() - promotionT0,
+        });
+      } catch (recalcErr) {
+        repLog('warn', 'REP_TIMESHEET', {
+          device_id: repDeviceId,
+          company_id,
+          user_id: resolvedByIdentifier,
+          error: recalcErr instanceof Error ? recalcErr.message : String(recalcErr),
+          execution_time_ms: Date.now() - promotionT0,
+        });
+      }
+    }
+
     if (resolvedByIdentifier) {
       try {
         await reconcileRepPunchDay({
@@ -966,6 +1005,7 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       duplicate: false,
       punch_hash: punchHash,
       time_record_id: result.time_record_id,
+      employee_id: resolvedByIdentifier,
       user_not_found: result.user_not_found,
       rep_log_id: result.rep_log_id ?? null,
     });

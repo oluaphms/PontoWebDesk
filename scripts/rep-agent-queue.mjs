@@ -269,6 +269,22 @@ export async function sendPunchBatch(opts = {}) {
     if (failed === 0) resetSyncBackoff();
     else bumpSyncBackoff();
 
+    const accepted = sent + duplicate;
+    const uploadMeta = {
+      device_id: punches[0]?.device_id ?? null,
+      company_id: punches[0]?.company_id ?? null,
+      records: punches.length,
+      accepted,
+      rejected: failed,
+      duplicates: duplicate,
+      execution_time_ms: null,
+    };
+    observabilityConsole.log(
+      '[REP UPLOAD]',
+      `records=${punches.length} accepted=${accepted} rejected=${failed} duplicates=${duplicate}`,
+    );
+    agentLog.repUpload(uploadMeta);
+
     const summary = {
       sent,
       duplicate,
@@ -277,6 +293,7 @@ export async function sendPunchBatch(opts = {}) {
       processed: data.processed ?? punches.length,
       errors: data.errors ?? null,
       unresolved: data.unresolved ?? null,
+      migration_error: data.migration_error === true,
     };
     if (sent > 0 || duplicate > 0) {
       agentLog.punchSendSuccess(summary);

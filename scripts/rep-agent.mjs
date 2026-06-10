@@ -1197,7 +1197,18 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   const raw = await fetchAfdWithSession(base, session, { lastNsr });
   if (!raw || !isPlausibleAfdText(raw)) return null;
 
-  observabilityConsole.log('[REP AFD DOWNLOAD SESSION MODE]');
+  const lineCount = (raw.match(/\r?\n/g) || []).length + (raw.length > 0 ? 1 : 0);
+  const payload = {
+    device_id: deviceId,
+    company_id: companyId,
+    url: `${base}/get_afd.fcgi`,
+    bytes: raw.length,
+    lines: lineCount,
+    records_received: lineCount,
+    mode: 'session',
+  };
+  observabilityConsole.log('[REP AFD DOWNLOAD]', JSON.stringify(payload));
+  agentLog.afdDownload(payload);
   return { url: `${base}/get_afd.fcgi`, content: raw };
 }
 
@@ -1290,7 +1301,17 @@ async function downloadAFDAtBase(base, { lastNsr = 0 } = {}) {
         }
         const content = res.text || '';
         if (isPlausibleAfdText(content)) {
-          observabilityConsole.log(`[REP AFD DOWNLOAD] sucesso (${content.length} bytes) via ${url}`);
+          const lineCount = (content.match(/\r?\n/g) || []).length + (content.length > 0 ? 1 : 0);
+          const payload = {
+            device_id: deviceId,
+            company_id: companyId,
+            url,
+            bytes: content.length,
+            lines: lineCount,
+            records_received: lineCount,
+          };
+          observabilityConsole.log('[REP AFD DOWNLOAD]', JSON.stringify(payload));
+          agentLog.afdDownload(payload);
           return { url, content };
         }
         // Verificação mínima de plausibilidade (legado): precisa conter pelo menos 1 linha "ASCII numérica" longa.
@@ -1897,6 +1918,22 @@ async function executeCollectPunchesCommand(cmd) {
       start_date: startDate,
       end_date: endDate,
     });
+    agentLog.repPromotion({
+      device_id: deviceId,
+      company_id: companyId,
+      records_received: parsed,
+      records_saved: sentOk,
+      records_promoted: sentOk,
+      duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
+      start_date: startDate,
+      end_date: endDate,
+    });
+    agentLog.repTimesheet({
+      device_id: deviceId,
+      company_id: companyId,
+      pending_left: countPendingPunches(),
+      message: 'Batidas enfileiradas — upload em background via REP_UPLOAD',
+    });
     return {
       success: true,
       message: `Coleta concluída (${startDate} a ${endDate}): ${sentOk} batida(s) enviada(s).`,
@@ -2099,6 +2136,21 @@ async function executeRepCommand(cmd) {
   }
 
   currentExecutionId = executionId;
+  const cmdT0 = Date.now();
+  agentLog.commandReceived({
+    device_id: deviceId,
+    company_id: companyId,
+    command_id: id,
+    command: name,
+    execution_id: executionId,
+  });
+  agentLog.commandStart({
+    device_id: deviceId,
+    company_id: companyId,
+    command_id: id,
+    command: name,
+    execution_id: executionId,
+  });
   syncLog('[REP COMMANDS] executando', {
     detail: { command_id: id, command: name, execution_id: executionId },
   });
@@ -2158,6 +2210,20 @@ async function executeRepCommand(cmd) {
         execution_id: executionId,
         success: finalStatus === 'done',
       },
+    });
+    const recordsSaved = Number(resultPayload?.sent_ok ?? resultPayload?.ok ?? 0);
+    const recordsReceived = Number(resultPayload?.parsed ?? resultPayload?.total ?? 0);
+    agentLog.commandFinish({
+      device_id: deviceId,
+      company_id: companyId,
+      command_id: id,
+      command: name,
+      execution_id: executionId,
+      success: finalStatus === 'done',
+      records_received: recordsReceived,
+      records_saved: recordsSaved,
+      records_promoted: recordsSaved,
+      execution_time_ms: Date.now() - cmdT0,
     });
   } finally {
     if (currentExecutionId === executionId) {

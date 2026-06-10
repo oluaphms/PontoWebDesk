@@ -4,6 +4,10 @@
  */
 import { noCache } from './cache.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole.js';
+import { syncEspelhoAfterRepPromote } from '../../modules/rep-integration/repTimesheetMirror.js';
+import { createClient } from '@supabase/supabase-js';
+import { getSupabaseConfig } from './getSupabaseConfig.js';
 import { handleRepPunchRpcLite } from './repPunchRpcLite.js';
 
 type PunchResult = {
@@ -87,10 +91,16 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
   let duplicates = 0;
   let errors = 0;
   let degradedHits = 0;
+  const batchT0 = Date.now();
+  const promotedForMirror: Array<{ user_id: string; data_hora: string }> = [];
+  let batchCompanyId = '';
 
   for (const item of list) {
     const punch = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
     const punchHash = punchHashFromBody(punch);
+    if (!batchCompanyId && typeof punch.company_id === 'string') {
+      batchCompanyId = punch.company_id.trim();
+    }
     try {
       const punchUrl = new URL(request.url);
       punchUrl.pathname = punchUrl.pathname.replace(/\/punches\/?$/i, '/punch');
@@ -120,11 +130,25 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
       if (success && duplicate) duplicates += 1;
       else if (success) inserted += 1;
       else errors += 1;
+      const wasInserted = data.inserted_flag === true || data.inserted === 1;
+      const timeRecordId = typeof data.time_record_id === 'string' ? data.time_record_id : null;
+      const employeeId =
+        (typeof data.employee_id === 'string' && data.employee_id.trim()) ||
+        (typeof punch.employee_id === 'string' && punch.employee_id.trim()) ||
+        (typeof punch.user_id === 'string' && punch.user_id.trim()) ||
+        '';
+      const dataHora =
+        (typeof punch.data_hora === 'string' && punch.data_hora.trim()) ||
+        (typeof punch.timestamp === 'string' && punch.timestamp.trim()) ||
+        '';
+      if (success && timeRecordId && employeeId && dataHora) {
+        promotedForMirror.push({ user_id: employeeId, data_hora: dataHora });
+      }
       results.push({
         punch_hash: punchHash,
         success,
         duplicate,
-        inserted: data.inserted_flag === true || data.inserted === 1,
+        inserted: wasInserted,
         error: typeof data.error === 'string' ? data.error : undefined,
       });
     } catch (e) {
@@ -132,6 +156,37 @@ export async function handleRepPunchesBatch(request: Request): Promise<Response>
       results.push({
         punch_hash: punchHash,
         success: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  const accepted = inserted + duplicates;
+  observabilityConsole.log(
+    '[REP UPLOAD]',
+    `records=${list.length} accepted=${accepted} rejected=${errors + degradedHits} duplicates=${duplicates}`,
+  );
+
+  if (promotedForMirror.length > 0 && batchCompanyId) {
+    try {
+      const { url, serviceKey } = getSupabaseConfig();
+      const supabase = createClient(url, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      observabilityConsole.log('[REP PROMOTION]', {
+        company_id: batchCompanyId,
+        records_promoted: promotedForMirror.length,
+        execution_time_ms: Date.now() - batchT0,
+      });
+      await syncEspelhoAfterRepPromote(supabase, batchCompanyId, promotedForMirror);
+      observabilityConsole.log('[REP TIMESHEET]', {
+        company_id: batchCompanyId,
+        records_promoted: promotedForMirror.length,
+        execution_time_ms: Date.now() - batchT0,
+      });
+    } catch (e) {
+      observabilityConsole.warn('[REP TIMESHEET]', {
+        company_id: batchCompanyId,
         error: e instanceof Error ? e.message : String(e),
       });
     }

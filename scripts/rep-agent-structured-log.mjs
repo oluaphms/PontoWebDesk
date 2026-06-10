@@ -47,4 +47,25 @@ export const agentLog = {
   punchSendFailure(meta) {
     emit('PUNCH_SEND_FAILURE', 'warn', 'Falha ao enviar batidas', meta);
   },
+  commandReceived(meta) {
+    emit('REP_COMMAND_RECEIVED', 'info', 'Comando REP recebido', meta);
+  },
+  commandStart(meta) {
+    emit('REP_COMMAND_START', 'info', 'Executando comando REP', meta);
+  },
+  commandFinish(meta) {
+    emit('REP_COMMAND_FINISH', 'info', 'Comando REP concluído', meta);
+  },
+  afdDownload(meta) {
+    emit('REP_AFD_DOWNLOAD', 'info', 'AFD baixado do relógio', meta);
+  },
+  repUpload(meta) {
+    emit('REP_UPLOAD', 'info', 'Upload de batidas para API', meta);
+  },
+  repPromotion(meta) {
+    emit('REP_PROMOTION', 'info', 'Resumo pós-coleta local', meta);
+  },
+  repTimesheet(meta) {
+    emit('REP_TIMESHEET', 'info', 'Fila local após coleta', meta);
+  },
 };

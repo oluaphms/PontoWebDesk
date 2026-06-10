@@ -14,6 +14,7 @@
     "db:test": "node scripts/test-db-connection.mjs",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:full": "node scripts/apply-full-database.mjs",
+    "db:rep-ingest-fix": "node scripts/apply-rep-ingest-fix.mjs",
     "security:backfill-device-credentials": "node scripts/backfill-device-credentials.mjs",
     "security:rotate-secret": "node scripts/rotate-secret.mjs",
     "security:revoke-secret": "node scripts/revoke-secret.mjs",

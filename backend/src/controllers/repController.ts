@@ -4,6 +4,12 @@ import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
 import { resolveUserForRepPunch } from '../services/repUserMatch.service.js';
+import {
+  enqueueRepTimesheetRecalcJobs,
+  isRepIngestMigrationError,
+  logRepPipelineTelemetry,
+  type RepPromotedRow,
+} from '../services/repPostIngest.service.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
@@ -354,7 +360,7 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
     });
   }
 
-  return out;
+  return { ...out, resolved_user_id: resolvedUserId };
 }
 
 async function processPunchBatch(list: RepPunchBody[]): Promise<{
@@ -363,12 +369,16 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
   duplicates: number;
   errors: number;
   unresolved: number;
+  promoted: RepPromotedRow[];
+  migrationError: boolean;
 }> {
   const results: Array<Record<string, unknown>> = [];
   let inserted = 0;
   let duplicates = 0;
   let errors = 0;
   let unresolved = 0;
+  const promoted: RepPromotedRow[] = [];
+  let migrationError = false;
 
   for (const item of list) {
     const body = item && typeof item === 'object' ? item : {};
@@ -377,23 +387,53 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
       const result = await ingestRepPunch(body);
       const duplicate = result.duplicate === true || String(result.error || '').includes('já importado');
       const success = result.success !== false || duplicate;
-      const promoted = Boolean(result.time_record_id);
+      const wasPromoted = Boolean(result.time_record_id);
       const userNotFound = result.user_not_found === true;
 
       if (success && duplicate) duplicates += 1;
-      else if (success && promoted) inserted += 1;
+      else if (success && wasPromoted) inserted += 1;
       else if (success && userNotFound) {
         unresolved += 1;
       } else if (success) inserted += 1;
       else errors += 1;
 
+      const errMsg = typeof result.error === 'string' ? result.error : '';
+      if (!success && isRepIngestMigrationError(errMsg)) {
+        migrationError = true;
+        logger.error({
+          module: 'rep.ingest',
+          action: 'REP_MIGRATION_REQUIRED',
+          companyId: String(body.company_id || body.companyId || '').trim() || null,
+          message:
+            'RPC rep_ingest_punch desatualizada no banco — aplique migrações 20260520350000+ (fix company_id uuid) e reinicie a API',
+          meta: { error: errMsg, punch_hash: punchHash },
+        });
+      }
+
+      if (success && wasPromoted && result.time_record_id) {
+        const dataHora = String(body.data_hora || body.timestamp || '').trim();
+        const userId =
+          normalizeUuid(result.resolved_user_id) ??
+          normalizeUuid(body.employee_id) ??
+          normalizeUuid(body.user_id) ??
+          normalizeUuid(result.user_id);
+        if (userId && dataHora) {
+          promoted.push({
+            user_id: userId,
+            data_hora: dataHora,
+            nsr: normalizeNsr(body.nsr),
+            time_record_id: String(result.time_record_id),
+          });
+        }
+      }
+
       results.push({
         punch_hash: result.punch_hash ?? punchHash,
         success,
         duplicate,
-        inserted: success && !duplicate && promoted,
+        inserted: success && !duplicate && wasPromoted,
         unresolved: success && userNotFound,
-        error: typeof result.error === 'string' ? result.error : undefined,
+        error: errMsg || undefined,
         rep_log_id: result.rep_log_id ?? null,
         time_record_id: result.time_record_id ?? null,
         user_not_found: userNotFound || undefined,
@@ -415,7 +455,7 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
     }
   }
 
-  return { results, inserted, duplicates, errors, unresolved };
+  return { results, inserted, duplicates, errors, unresolved, promoted, migrationError };
 }
 
 export async function repPunchesController(req: Request, res: Response): Promise<void> {
@@ -426,6 +466,7 @@ export async function repPunchesController(req: Request, res: Response): Promise
     return;
   }
 
+  const t0 = Date.now();
   const MAX_BATCH = 50;
   if (list.length > MAX_BATCH) {
     logger.warn({
@@ -437,7 +478,40 @@ export async function repPunchesController(req: Request, res: Response): Promise
   }
 
   const chunk = list.slice(0, MAX_BATCH) as RepPunchBody[];
-  const { results, inserted, duplicates, errors, unresolved } = await processPunchBatch(chunk);
+  const first = chunk[0] ?? {};
+  const companyId = String(first.company_id || first.companyId || '').trim();
+  const deviceId = normalizeUuid(first.device_id);
+
+  const { results, inserted, duplicates, errors, unresolved, promoted, migrationError } =
+    await processPunchBatch(chunk);
+
+  const saved = inserted + duplicates + unresolved;
+  await logRepPipelineTelemetry({
+    deviceId,
+    companyId: companyId || null,
+    recordsReceived: chunk.length,
+    recordsSaved: saved,
+    recordsPromoted: promoted.length,
+    recordsRejected: errors,
+    executionTimeMs: Date.now() - t0,
+    phase: 'upload',
+    extra: { inserted, duplicates, unresolved, migration_error: migrationError },
+  });
+
+  if (promoted.length > 0 && companyId) {
+    const jobs = await enqueueRepTimesheetRecalcJobs(companyId, promoted);
+    await logRepPipelineTelemetry({
+      deviceId,
+      companyId,
+      recordsReceived: promoted.length,
+      recordsSaved: promoted.length,
+      recordsPromoted: promoted.length,
+      recordsRejected: 0,
+      executionTimeMs: Date.now() - t0,
+      phase: 'timesheet',
+      extra: { calc_day_jobs_enqueued: jobs },
+    });
+  }
 
   json(res, 200, {
     ok: true,
@@ -448,6 +522,8 @@ export async function repPunchesController(req: Request, res: Response): Promise
     duplicates,
     errors,
     unresolved,
+    migration_error: migrationError,
+    timesheet_jobs_enqueued: promoted.length > 0 && companyId ? promoted.length : 0,
     results,
   });
 }
