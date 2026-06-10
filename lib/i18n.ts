@@ -24,7 +24,7 @@ const translations: Record<Language, Record<string, string>> = {
     'export.excel': 'Exportar Excel',
     'export.pdf': 'Exportar PDF',
     // Menu (sidebar e drawer)
-    'menu.dashboard': 'Dashboard',
+    'menu.dashboard': 'Início',
     'menu.productivityTrends': 'Produtividade',
     'menu.realTimeInsights': 'Insights em tempo real',
     'menu.alerts': 'Alertas',
@@ -81,7 +81,7 @@ const translations: Record<Language, Record<string, string>> = {
     'nav.logoutSystem': 'Sair do sistema',
     'nav.navLabel': 'Navegação principal',
     'nav.menuMore': 'Menu Mais',
-    'nav.groupDashboard': 'Dashboard',
+    'nav.groupDashboard': 'Início',
     'nav.groupPeople': 'Pessoas',
     'nav.groupTime': 'Ponto',
     'nav.groupManagement': 'Gestão',
@@ -250,7 +250,7 @@ const translations: Record<Language, Record<string, string>> = {
     'app.hidePassword': 'Ocultar senha',
     'app.showPassword': 'Mostrar senha',
     // Dashboard admin
-    'dashboard.adminTitle': 'Dashboard Admin',
+    'dashboard.adminTitle': 'Página Inicial',
     'dashboard.totalEmployees': 'Total Colaboradores',
     'dashboard.activeEmployees': 'Colaboradores Ativos',
     'dashboard.recordsToday': 'Registros Hoje',

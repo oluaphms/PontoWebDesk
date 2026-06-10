@@ -887,9 +887,9 @@ async function fetchPunchesFromClock() {
         ? ' Está em 127.0.0.1 — provável mock no .env.local. Relógio real: $env:REP_DEVICE_IP="192.168.x.x"; $env:REP_DEVICE_PORT="443"; $env:REP_DEVICE_SCHEME="https". Mock: node scripts\\rep-agent-mock.mjs (porta ' +
           port +
           ').'
-        : ` Verifique se o relógio está ligado, na mesma rede, e se IP/porta/HTTPS estão corretos.${
+        : ` Verifique se o relógio está ligado, na mesma rede, e se IP/porta estão corretos. Control iD na LAN costuma usar HTTP:80 (não HTTPS:443).${
             port === '442'
-              ? ' Control iD HTTPS costuma usar porta 443 (442 recusada neste IP — teste $env:REP_DEVICE_PORT="443").'
+              ? ' Porta 442 recusada — teste REP_DEVICE_PORT=443 ou REP_DEVICE_SCHEME=http e REP_DEVICE_PORT=80.'
               : ''
           }`;
     const err = new Error(`ECONNREFUSED — ninguém responde em ${base} (${attempts} tentativas).${mockHint}`);
@@ -1201,13 +1201,27 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   return { url: `${base}/get_afd.fcgi`, content: raw };
 }
 
+function deviceConnectionBases() {
+  const primary = `${scheme}://${ip}:${port}`;
+  const bases = [primary];
+  if (scheme === 'https' && String(port) === '443') {
+    bases.push(`http://${ip}:80`);
+  } else if (scheme === 'http' && String(port) === '80') {
+    bases.push(`https://${ip}:443`);
+  }
+  return [...new Set(bases)];
+}
+
+function isConnectionRefusedError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return err?.code === 'ECONNREFUSED' || msg.includes('econnrefused') || msg.includes('recusou conexão');
+}
+
 /**
  * Baixa o AFD do dispositivo testando rotas conhecidas (priorizando REP_AFD_PATH).
  * Retorna { url, content } no primeiro sucesso. Aplica timeout e retry por rota.
  */
-async function downloadAFD({ lastNsr = 0 } = {}) {
-  const base = `${scheme}://${ip}:${port}`;
-  observabilityConsole.log(`[REP AFD] iniciando download (Control iD sessão → rotas GET) em ${base}`);
+async function downloadAFDAtBase(base, { lastNsr = 0 } = {}) {
 
   const sessionMode = await tryAfdControlIdSessionDownload(base, { lastNsr });
   if (sessionMode) return sessionMode;
@@ -1278,6 +1292,26 @@ async function downloadAFD({ lastNsr = 0 } = {}) {
 
   const msg = lastErr ? lastErr.message || String(lastErr) : 'Nenhuma rota de AFD respondeu';
   throw new Error(`[REP AFD ERROR] ${msg}`);
+}
+
+async function downloadAFD({ lastNsr = 0 } = {}) {
+  const bases = deviceConnectionBases();
+  let lastErr = null;
+  for (let i = 0; i < bases.length; i += 1) {
+    const base = bases[i];
+    if (i > 0) {
+      observabilityConsole.warn(`[REP AFD] tentando endereço alternativo do relógio: ${base}`);
+    }
+    observabilityConsole.log(`[REP AFD] iniciando download (Control iD sessão → rotas GET) em ${base}`);
+    try {
+      return await downloadAFDAtBase(base, { lastNsr });
+    } catch (e) {
+      lastErr = e;
+      if (i < bases.length - 1 && isConnectionRefusedError(e)) continue;
+      throw e;
+    }
+  }
+  throw lastErr || new Error('[REP AFD ERROR] sem resposta do relógio');
 }
 
 /** Corpo do get_afd pode ser texto AFD puro ou JSON com campo de conteúdo (Control iD). */
@@ -1748,6 +1782,25 @@ function restoreAgentPolicy(saved) {
   agentPolicy.bypassNsrFilter = saved.bypassNsrFilter;
 }
 
+async function runCycleForManualCollect() {
+  let cycle = await runCycle();
+  const sentOk = Number(cycle?.ok ?? 0);
+  const parsed = Number(cycle?.total ?? 0);
+  if (cycle?.mode === 'MANUAL_IMPORT_REQUIRED' || (sentOk === 0 && parsed === 0)) {
+    observabilityConsole.log('[REP COLLECT] coleta sem batidas — tentando API direta do relógio…');
+    try {
+      const apiCycle = await ingestViaApiDirect();
+      if (Number(apiCycle?.ok ?? 0) > 0 || Number(apiCycle?.total ?? 0) > 0) {
+        return apiCycle;
+      }
+      cycle = apiCycle;
+    } catch (e) {
+      observabilityConsole.warn('[REP COLLECT] API direta também falhou:', e?.message || String(e));
+    }
+  }
+  return cycle;
+}
+
 async function executeCollectPunchesCommand(cmd) {
   const payload = cmd.payload && typeof cmd.payload === 'object' ? cmd.payload : {};
   const startDate = String(payload.start_date || '').trim();
@@ -1765,24 +1818,54 @@ async function executeCollectPunchesCommand(cmd) {
   observabilityConsole.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
   const saved = applyDateRangePolicy(startDate, endDate);
   try {
-    const cycle = await runExclusiveRepAfdIngest(() => runCycle());
+    const cycle = await runExclusiveRepAfdIngest(() => runCycleForManualCollect());
+    const sentOk = Number(cycle?.ok ?? 0);
+    const parsed = Number(cycle?.total ?? 0);
+    const mode = String(cycle?.mode ?? '');
+    const failed =
+      mode === 'MANUAL_IMPORT_REQUIRED' ||
+      (sentOk === 0 && parsed === 0);
+    if (failed) {
+      const hint =
+        scheme === 'https' && String(port) === '443'
+          ? ' Verifique REP_DEVICE_SCHEME=http e REP_DEVICE_PORT=80 no agente, além de REP_DEVICE_PASSWORD.'
+          : ' Verifique IP, porta, credenciais do relógio e REP_ENABLE_COMMANDS=1.';
+      agentLog.collectionFailure({
+        mode: mode || 'manual',
+        start_date: startDate,
+        end_date: endDate,
+        error: 'nenhuma_batida_coletada',
+      });
+      return {
+        success: false,
+        message: `Nenhuma batida coletada no período ${startDate} a ${endDate}.${hint}`,
+        start_date: startDate,
+        end_date: endDate,
+        sent_ok: sentOk,
+        duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
+        errors: cycle?.sendErrors ?? 0,
+        parsed,
+        pre_skipped: cycle?.preSkipped ?? 0,
+        mode,
+      };
+    }
     agentLog.collectionSuccess({
       mode: cycle?.mode ?? 'unknown',
-      sent_ok: cycle?.ok ?? 0,
+      sent_ok: sentOk,
       pre_skipped: cycle?.preSkipped ?? 0,
-      parsed: cycle?.total ?? 0,
+      parsed,
       start_date: startDate,
       end_date: endDate,
     });
     return {
       success: true,
-      message: `Coleta concluída (${startDate} a ${endDate}).`,
+      message: `Coleta concluída (${startDate} a ${endDate}): ${sentOk} batida(s) enviada(s).`,
       start_date: startDate,
       end_date: endDate,
-      sent_ok: cycle?.ok ?? 0,
+      sent_ok: sentOk,
       duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
       errors: cycle?.sendErrors ?? 0,
-      parsed: cycle?.total ?? 0,
+      parsed,
       pre_skipped: cycle?.preSkipped ?? 0,
     };
   } catch (e) {
