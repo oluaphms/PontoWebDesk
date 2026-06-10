@@ -1,6 +1,6 @@
 import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { insertAdminMirrorTimeRecord } from '../../../services/timeRecords.service';
 import { buscarEspelhoAdmin, buscarFiltrosEspelhoAdmin } from '../../../services/api';
@@ -85,12 +85,7 @@ const TOOLTIP_PERIODO_FECHADO_HARD_LOCK =
 
 const WEEKDAY_LABELS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'] as const;
 
-/** Filtros do espelho por utilizador — sobrevivem a novo login na mesma aba/navegador. */
-function adminTimesheetFiltersKey(userId: string) {
-  return `pontowebdesk:admin-timesheet-filters:${userId}`;
-}
-
-/** Data local YYYY-MM-DD (evita UTC deslocar o “hoje” no max do input). */
+import { adminTimesheetFiltersKey } from '../../utils/adminTimesheetFilters';
 function localDateKey(d = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -276,6 +271,7 @@ function GeoDetailsToggle({
 const AdminTimesheet: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const toast = useToast();
+  const location = useLocation();
 
   const [employees, setEmployees] = useState<AdminEmployee[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
@@ -394,28 +390,29 @@ const AdminTimesheet: React.FC = () => {
     }
     try {
       const params = new URLSearchParams(window.location.search);
-      const qUser = params.get('user_id');
+      const qUser = (params.get('user_id') || params.get('user'))?.trim() ?? '';
       const qDate = params.get('date');
-      const hasDeepLink =
-        typeof qUser === 'string' &&
-        qUser.trim().length > 0 &&
-        typeof qDate === 'string' &&
-        /^\d{4}-\d{2}-\d{2}$/.test(qDate);
+      const hasUserDeepLink = qUser.length > 0;
+      const hasDateDeepLink =
+        typeof qDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(qDate);
 
-      if (hasDeepLink) {
-        setFilterUserId(qUser.trim());
-        const y = Number(qDate.slice(0, 4));
-        const m = Number(qDate.slice(5, 7));
-        if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
-          const start = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-01`;
-          const lastDay = new Date(y, m, 0).getDate();
-          const end = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-${String(lastDay).padStart(2, '0')}`;
-          setPeriodStart(start);
-          setPeriodEnd(end);
+      if (hasUserDeepLink) {
+        setFilterUserId(qUser);
+        if (hasDateDeepLink) {
+          const y = Number(qDate.slice(0, 4));
+          const m = Number(qDate.slice(5, 7));
+          if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+            const start = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-01`;
+            const lastDay = new Date(y, m, 0).getDate();
+            const end = `${qDate.slice(0, 4)}-${qDate.slice(5, 7)}-${String(lastDay).padStart(2, '0')}`;
+            setPeriodStart(start);
+            setPeriodEnd(end);
+          }
         }
         try {
           const u = new URL(window.location.href);
           u.searchParams.delete('user_id');
+          u.searchParams.delete('user');
           u.searchParams.delete('date');
           window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
         } catch (error) {
@@ -441,6 +438,24 @@ const AdminTimesheet: React.FC = () => {
     }
     setFiltersHydrated(true);
   }, [user?.id]);
+
+  /** Deep link de colaborador enquanto a página já está montada (ex.: busca do cabeçalho). */
+  useEffect(() => {
+    if (!user?.id || !filtersHydrated) return;
+    const params = new URLSearchParams(location.search);
+    const qUser = (params.get('user_id') || params.get('user'))?.trim();
+    if (!qUser) return;
+
+    setFilterUserId(qUser);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete('user_id');
+      u.searchParams.delete('user');
+      window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+    } catch (error) {
+      void error;
+    }
+  }, [location.search, user?.id, filtersHydrated]);
 
   /** Alinha “mês a fechar” com o início do período visível (mês civil único). */
   useEffect(() => {

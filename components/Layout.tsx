@@ -2,7 +2,8 @@ import React, { memo, useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { User } from '../types';
 import { useAuth } from '../src/hooks/useAuth';
-import { Bell, Search, Sun, Moon } from 'lucide-react';
+import { Bell, Sun, Moon } from 'lucide-react';
+import HeaderSearch from '../src/components/HeaderSearch';
 import NotificationCenter from './NotificationCenter';
 import { NotificationService } from '../services/notificationService';
 import { ThemeService } from '../services/themeService';
@@ -115,15 +116,7 @@ const Layout: React.FC<LayoutProps> = ({
                   </span>
                 </span>
               )}
-              <div className="relative flex-1 hidden sm:block max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} aria-hidden="true" />
-                <input
-                  type="text"
-                  placeholder={i18n.t('layout.searchPlaceholder')}
-                  aria-label={i18n.t('layout.searchField')}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all text-slate-900 dark:text-white"
-                />
-              </div>
+              <HeaderSearch user={user} />
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
