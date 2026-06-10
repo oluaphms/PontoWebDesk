@@ -1196,13 +1196,14 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   if (session) {
     observabilityConsole.log('[REP AFD] usando device_session do config (sem login.fcgi)');
   } else if (repDevicePassword) {
-    session = await loginControlId(base);
+    session = await loginControlIdAcrossBases();
     if (!session) return null;
   } else {
     return null;
   }
 
-  const raw = await fetchAfdWithSession(base, session, { lastNsr });
+  const fetchBase = effectiveClockBase || base;
+  const raw = await fetchAfdWithSession(fetchBase, session, { lastNsr });
   if (!raw || !isPlausibleAfdText(raw)) return null;
 
   const lineCount = (raw.match(/\r?\n/g) || []).length + (raw.length > 0 ? 1 : 0);
@@ -1885,9 +1886,10 @@ async function executeCollectPunchesCommand(cmd) {
     bypass_nsr: true,
   });
   observabilityConsole.log(`[REP COLLECT] Coleta manual ${startDate} → ${endDate}`);
-  const saved = applyDateRangePolicy(startDate, endDate);
+  const saved = applyDateRangePolicy(startDate, endDate, { bypassNsr: true });
   try {
-    const cycle = await runExclusiveRepAfdIngest(() => runCycleForManualCollect());
+    // ingestViaAFD já usa runExclusiveRepAfdIngest — evitar duplo mutex (deadlock).
+    const cycle = await runCycleForManualCollect();
     const sentOk = Number(cycle?.ok ?? 0);
     const parsed = Number(cycle?.total ?? 0);
     const mode = String(cycle?.mode ?? '');
@@ -1984,6 +1986,11 @@ function controlIdOk(text) {
 
 function digitsOnly(value) {
   return String(value ?? '').replace(/\D/g, '');
+}
+
+function toClockPis(value) {
+  const d = digitsOnly(value);
+  return d.length === 11 ? d : null;
 }
 
 function toClockInt(value) {
@@ -2107,7 +2114,9 @@ async function executePushEmployeeCommand(cmd) {
     if (pis.length === 11) user.pis = pis;
   } else {
     if (!primary || primary.length !== 11) throw new Error('PIS/CPF com 11 dígitos é obrigatório para enviar ao Control iD.');
-    user.pis = toClockInt(primary) ?? primary;
+    const pisNorm = toClockPis(primary);
+    if (!pisNorm) throw new Error('PIS/CPF inválido — são necessários 11 dígitos numéricos.');
+    user.pis = pisNorm;
   }
   const registration = toClockInt(matricula);
   if (registration) user.registration = registration;
@@ -2796,6 +2805,9 @@ async function ingestViaAFD() {
   const storedNsr = parseLastNsrNumber(lastNsrMap[devKey] || '');
   /** Coleta manual / catch-up: AFD completo no relógio (initial_nsr omitido). */
   const lastNsrForDownload = agentPolicy.bypassNsrFilter ? 0 : storedNsr;
+  observabilityConsole.log(
+    `[REP AFD] preparando download base=${agentClockBaseUrl()} lastNsr=${lastNsrForDownload} escopo=${agentPolicy.scope}`,
+  );
   if (agentPolicy.bypassNsrFilter && storedNsr > 0) {
     observabilityConsole.log(`[REP AFD] coleta com intervalo de datas — download AFD completo (ignora lastNSR=${storedNsr})`);
   }
