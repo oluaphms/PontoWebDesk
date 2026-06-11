@@ -293,6 +293,27 @@ export function inferDashboardPunchDisplayMirrorType(
   return mirror === 'unknown' ? 'entrada' : mirror;
 }
 
+function dayExpectedWindowToScheduleInfo(win: DayExpectedWindow): WorkScheduleInfo {
+  const entrada = padTime(win.entrada, '08:00');
+  const saida = padTime(win.saida, '17:00');
+  const breakOut = win.saida_intervalo ? padTime(win.saida_intervalo, entrada) : entrada;
+  const breakIn = win.volta_intervalo ? padTime(win.volta_intervalo, entrada) : entrada;
+  return {
+    start_time: entrada,
+    end_time: saida,
+    break_start: breakOut,
+    break_end: breakIn,
+    tolerance_minutes: win.toleranceMin ?? 0,
+    daily_hours: 8,
+    work_days: [],
+  };
+}
+
+/** Jornada esperada em minutos a partir da janela do espelho (`employee_shift_schedule` + turno). */
+export function expectedMinutesFromDayWindow(win: DayExpectedWindow): number {
+  return expectedMinutesFromSchedule(dayExpectedWindowToScheduleInfo(win));
+}
+
 /** Jornada esperada em minutos a partir da escala (exportado para telas como Banco de Horas). */
 export function expectedMinutesFromSchedule(s: WorkScheduleInfo): number {
   const start = timeToMinutes(s.start_time);

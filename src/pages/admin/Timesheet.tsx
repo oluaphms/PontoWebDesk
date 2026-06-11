@@ -26,8 +26,14 @@ import {
   recordEffectiveMirrorInstant,
   type DayScheduleSlots,
 } from '../../utils/timesheetMirror';
-import { getEmployeeSchedule, getEmployeeTimesheetScheduleContext } from '../../services/timeProcessingService';
+import {
+  expectedMinutesFromDayWindow,
+  getEmployeeSchedule,
+  getEmployeeTimesheetScheduleContext,
+  type DayExpectedWindow,
+} from '../../services/timeProcessingService';
 import type { DayScheduleWindow } from '../../utils/timesheetMirror';
+import { recalculate_period } from '../../engine/timeEngine';
 import { closeTimesheet, isTimesheetClosed, reopenTimesheet } from '../../services/timeProcessingService';
 import { appendTimeAttendanceTimelineEvent } from '../../services/timeAttendanceTimeline.service';
 import {
@@ -59,13 +65,19 @@ import {
 } from '../../services/professionalPDF.service';
 import { LoggingService } from '../../../services/loggingService';
 import { LogSeverity } from '../../../types';
-import { type TimesheetUIRow } from '../../services/timesheetProcessingStatus';
 import { reverseGeocodeSnapshot, type GeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
-import { fetchRepPendingByDate, fetchTimesheetsDailyUiByDate } from '../../services/adminTimesheetData.service';
+import {
+  fetchRepPendingByDate,
+  fetchTimesheetsDailyUiByDate,
+  type TimesheetDailyMirrorRow,
+} from '../../services/adminTimesheetData.service';
 import {
   collectDayJustification,
+  computeMirrorNetOvertime,
   extractAdjustmentMetaFromRequest,
   formatSignedOvertimeDisplay,
+  parseTimesheetDailyOvertime,
+  shouldShowMirrorOvertimeEstimate,
   type ApprovedAdjustmentJustification,
 } from '../../utils/timesheetMirrorExtras';
 import {
@@ -278,6 +290,7 @@ const AdminTimesheet: React.FC = () => {
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [holidays, setHolidays] = useState<{ id: string; date: string; name: string }[]>([]);
   const [loadingEspelho, setLoadingEspelho] = useState(false);
+  const [recalculatingEspelho, setRecalculatingEspelho] = useState(false);
   const [loadingFiltros, setLoadingFiltros] = useState(false);
   const [scheduleWorkDays, setScheduleWorkDays] = useState<number[] | null>(null);
   const [scheduleWindowsByDow, setScheduleWindowsByDow] = useState<Record<number, DayScheduleWindow | null> | null>(
@@ -307,7 +320,9 @@ const AdminTimesheet: React.FC = () => {
   const periodClosedLock = closedMonthsInView.length > 0;
 
   /** Linhas `timesheets_daily` do período (UX auditoria / badges). */
-  const [dailyCalcUiByDate, setDailyCalcUiByDate] = useState<Map<string, TimesheetUIRow>>(() => new Map());
+  const [dailyCalcUiByDate, setDailyCalcUiByDate] = useState<Map<string, TimesheetDailyMirrorRow>>(
+    () => new Map(),
+  );
   const [approvedAdjustments, setApprovedAdjustments] = useState<ApprovedAdjustmentJustification[]>([]);
   /** Admin: permite fechar apesar de inconsistent/error operacional no período. */
   const [adminCloseOverride, setAdminCloseOverride] = useState(false);
@@ -649,6 +664,20 @@ const AdminTimesheet: React.FC = () => {
     setAdminCloseOverride(false);
   }, [periodStart, periodEnd, filterUserId]);
 
+  const refreshDailyCalc = useCallback(async () => {
+    if (!filtersHydrated || !periodValid || !filterUserId || !companyId || !isSupabaseConfigured()) {
+      setDailyCalcUiByDate(new Map());
+      return;
+    }
+    const map = await fetchTimesheetsDailyUiByDate(supabase, {
+      companyId,
+      employeeId: filterUserId,
+      periodStart,
+      periodEnd,
+    });
+    setDailyCalcUiByDate(map);
+  }, [filtersHydrated, periodValid, filterUserId, companyId, periodStart, periodEnd]);
+
   useEffect(() => {
     if (!filtersHydrated || !periodValid || !filterUserId || !companyId || !isSupabaseConfigured()) {
       setDailyCalcUiByDate(new Map());
@@ -657,14 +686,7 @@ const AdminTimesheet: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const map = await fetchTimesheetsDailyUiByDate(supabase, {
-          companyId,
-          employeeId: filterUserId,
-          periodStart,
-          periodEnd,
-        });
-        if (cancelled) return;
-        setDailyCalcUiByDate(map);
+        await refreshDailyCalc();
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
@@ -675,7 +697,42 @@ const AdminTimesheet: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [filtersHydrated, periodValid, filterUserId, companyId, periodStart, periodEnd]);
+  }, [filtersHydrated, periodValid, filterUserId, companyId, periodStart, periodEnd, refreshDailyCalc]);
+
+  const handleRefreshEspelho = useCallback(async () => {
+    if (!companyId || !periodValid || !filterUserId || !isSupabaseConfigured()) return;
+    invalidateCompanyListCaches(companyId);
+    setRecalculatingEspelho(true);
+    try {
+      await loadEspelho();
+      await recalculate_period(filterUserId, companyId, periodStart, periodEnd);
+      await refreshDailyCalc();
+      toast.addToast('success', 'Batidas atualizadas e cálculos do período recalculados.');
+    } catch (error) {
+      observabilityConsole.error('[Espelho] atualizar + recalcular:', error);
+      try {
+        await refreshDailyCalc();
+      } catch {
+        /* mantém mapa anterior */
+      }
+      const message = error instanceof Error ? error.message : 'Falha ao recalcular o período.';
+      toast.addToast(
+        'error',
+        message.length > 180 ? `${message.slice(0, 177)}…` : message,
+      );
+    } finally {
+      setRecalculatingEspelho(false);
+    }
+  }, [
+    companyId,
+    periodValid,
+    filterUserId,
+    periodStart,
+    periodEnd,
+    loadEspelho,
+    refreshDailyCalc,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!filtersHydrated || !periodValid || !filterUserId || !companyId || !isSupabaseConfigured()) {
@@ -1360,14 +1417,16 @@ const AdminTimesheet: React.FC = () => {
               variant="outline"
               size="sm"
               className="inline-flex items-center gap-2 shrink-0"
-              disabled={!periodValid || loadingEspelho || !companyId}
-              title="Recarrega batidas do servidor (útil após importar do relógio ou outro terminal)"
+              disabled={!periodValid || loadingEspelho || recalculatingEspelho || !companyId || !filterUserId}
+              title="Recarrega batidas e recalcula hora extra / banco de horas do período (útil após REP, reconciliação ou ajuste manual)"
               onClick={() => {
-                if (companyId) invalidateCompanyListCaches(companyId);
-                void loadEspelho();
+                void handleRefreshEspelho();
               }}
             >
-              <RefreshCw className={`w-4 h-4 ${loadingEspelho ? 'animate-spin' : ''}`} aria-hidden />
+              <RefreshCw
+                className={`w-4 h-4 ${loadingEspelho || recalculatingEspelho ? 'animate-spin' : ''}`}
+                aria-hidden
+              />
               Atualizar batidas
             </Button>
           </div>
@@ -2020,10 +2079,49 @@ const AdminTimesheet: React.FC = () => {
                       <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top tabular-nums">
                         {(() => {
                           const dailyRow = dailyCalcUiByDate.get(date);
+                          const scheduleWin = expectedWindowForYmd(date) as DayExpectedWindow | null | undefined;
+                          const expectedMin =
+                            scheduleWin && dayStatus.status !== 'folga' && !holidayDates.has(date)
+                              ? expectedMinutesFromDayWindow(scheduleWin)
+                              : 0;
+                          const persisted = dailyRow
+                            ? parseTimesheetDailyOvertime(dailyRow)
+                            : { overtimeMinutes: 0, negativeMinutes: 0 };
+                          const repPendingCount = repPendingByDate.get(date) ?? 0;
+                          const useMirrorEstimate =
+                            hasRealRecords &&
+                            !dataNote &&
+                            shouldShowMirrorOvertimeEstimate({
+                              hasDrift: dailyRow?.has_drift,
+                              hasRepPending: repPendingCount > 0,
+                              mirrorWorkedMinutes: day.workedMinutes,
+                              expectedMinutes: expectedMin,
+                              persistedOvertimeMinutes: persisted.overtimeMinutes,
+                              persistedNegativeMinutes: persisted.negativeMinutes,
+                              persistedWorkedMinutes: dailyRow?.worked_minutes ?? null,
+                            });
+                          if (useMirrorEstimate && expectedMin > 0) {
+                            const mirrorOt = computeMirrorNetOvertime(day.workedMinutes, expectedMin);
+                            const display = formatSignedOvertimeDisplay(
+                              mirrorOt.overtimeMinutes,
+                              mirrorOt.negativeMinutes,
+                            );
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1.5"
+                                title="Hora extra estimada pelo espelho (cálculo persistido desatualizado — use Atualizar batidas para recalcular)."
+                              >
+                                <span>{display === '-' ? EMPTY_DASH : display}</span>
+                                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                  Estimado
+                                </span>
+                              </span>
+                            );
+                          }
                           if (!dailyRow) return EMPTY_DASH;
                           return formatSignedOvertimeDisplay(
-                            Number(dailyRow.overtime_minutes ?? 0),
-                            Number(dailyRow.negative_minutes ?? 0),
+                            persisted.overtimeMinutes,
+                            persisted.negativeMinutes,
                           );
                         })()}
                       </td>

@@ -62,8 +62,62 @@ export function collectDayJustification(
   return unique.length ? unique.join('; ') : EMPTY;
 }
 
+/** Hora extra líquida a partir do total do espelho e da jornada esperada (mesma fórmula do motor). */
+export function computeMirrorNetOvertime(
+  workedMinutes: number,
+  expectedMinutes: number,
+): TimesheetDailyOvertimeRow {
+  const worked = Math.max(0, Math.round(Number(workedMinutes) || 0));
+  const expected = Math.max(0, Math.round(Number(expectedMinutes) || 0));
+  if (expected === 0) {
+    return { overtimeMinutes: worked, negativeMinutes: 0 };
+  }
+  if (worked >= expected) {
+    return { overtimeMinutes: worked - expected, negativeMinutes: 0 };
+  }
+  return { overtimeMinutes: 0, negativeMinutes: expected - worked };
+}
+
+export function mirrorOvertimeNetMinutes(
+  overtimeMinutes: number,
+  negativeMinutes: number,
+): number {
+  return Math.max(0, Number(overtimeMinutes) || 0) - Math.max(0, Number(negativeMinutes) || 0);
+}
+
+/** Indica se a hora extra persistida diverge do espelho (drift, REP pendente ou totais diferentes). */
+export function shouldShowMirrorOvertimeEstimate(input: {
+  hasDrift?: boolean;
+  hasRepPending?: boolean;
+  mirrorWorkedMinutes: number;
+  expectedMinutes: number;
+  persistedOvertimeMinutes: number;
+  persistedNegativeMinutes: number;
+  persistedWorkedMinutes?: number | null;
+  toleranceMinutes?: number;
+}): boolean {
+  const tolerance = input.toleranceMinutes ?? 2;
+  if (input.mirrorWorkedMinutes <= 0) return false;
+  if (input.hasDrift || input.hasRepPending) return true;
+  if (
+    input.persistedWorkedMinutes != null &&
+    Math.abs(input.persistedWorkedMinutes - input.mirrorWorkedMinutes) > tolerance
+  ) {
+    return true;
+  }
+  if (input.expectedMinutes <= 0) return false;
+  const mirror = computeMirrorNetOvertime(input.mirrorWorkedMinutes, input.expectedMinutes);
+  const mirrorNet = mirrorOvertimeNetMinutes(mirror.overtimeMinutes, mirror.negativeMinutes);
+  const persistedNet = mirrorOvertimeNetMinutes(
+    input.persistedOvertimeMinutes,
+    input.persistedNegativeMinutes,
+  );
+  return Math.abs(mirrorNet - persistedNet) > tolerance;
+}
+
 export function parseTimesheetDailyOvertime(row: {
   overtime_minutes?: unknown;
+  negative_minutes?: unknown;
   raw_data?: unknown;
 }): TimesheetDailyOvertimeRow {
   const raw =
@@ -74,7 +128,10 @@ export function parseTimesheetDailyOvertime(row: {
     0,
     Number(row.overtime_minutes ?? raw.extra_minutes ?? raw.overtime_minutes ?? 0) || 0,
   );
-  const negativeMinutes = Math.max(0, Number(raw.negative_minutes ?? 0) || 0);
+  const negativeMinutes = Math.max(
+    0,
+    Number(row.negative_minutes ?? raw.negative_minutes ?? 0) || 0,
+  );
   return { overtimeMinutes, negativeMinutes };
 }
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectDayJustification,
+  computeMirrorNetOvertime,
   formatSignedOvertimeDisplay,
   parseTimesheetDailyOvertime,
+  shouldShowMirrorOvertimeEstimate,
 } from './timesheetMirrorExtras';
 import type { DayMirror } from './timesheetMirror';
 
@@ -64,5 +66,40 @@ describe('timesheetMirrorExtras', () => {
         raw_data: { negative_minutes: 15 },
       }),
     ).toEqual({ overtimeMinutes: 60, negativeMinutes: 15 });
+    expect(
+      parseTimesheetDailyOvertime({
+        overtime_minutes: 116,
+        negative_minutes: 0,
+      }),
+    ).toEqual({ overtimeMinutes: 116, negativeMinutes: 0 });
+  });
+
+  it('calcula hora extra do espelho (8h07 trabalhadas, 8h esperadas)', () => {
+    expect(computeMirrorNetOvertime(487, 480)).toEqual({
+      overtimeMinutes: 7,
+      negativeMinutes: 0,
+    });
+    expect(formatSignedOvertimeDisplay(7, 0)).toBe('+00:07');
+  });
+
+  it('detecta drift entre espelho e cálculo persistido', () => {
+    expect(
+      shouldShowMirrorOvertimeEstimate({
+        mirrorWorkedMinutes: 487,
+        expectedMinutes: 480,
+        persistedOvertimeMinutes: 116,
+        persistedNegativeMinutes: 0,
+        persistedWorkedMinutes: 596,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowMirrorOvertimeEstimate({
+        mirrorWorkedMinutes: 487,
+        expectedMinutes: 480,
+        persistedOvertimeMinutes: 7,
+        persistedNegativeMinutes: 0,
+        persistedWorkedMinutes: 487,
+      }),
+    ).toBe(false);
   });
 });

@@ -96,6 +96,8 @@ type FetchDailyUiParams = {
 export type TimesheetDailyMirrorRow = TimesheetUIRow & {
   overtime_minutes?: number;
   negative_minutes?: number;
+  worked_minutes?: number;
+  expected_minutes?: number;
 };
 
 export async function fetchTimesheetsDailyUiByDate(
@@ -105,7 +107,7 @@ export async function fetchTimesheetsDailyUiByDate(
   const { companyId, employeeId, periodStart, periodEnd } = params;
   const { data, error } = await client
     .from('timesheets_daily')
-    .select('date, overtime_minutes, raw_data')
+    .select('date, overtime_minutes, worked_minutes, expected_minutes, raw_data')
     .eq('employee_id', employeeId)
     .eq('company_id', companyId)
     .gte('date', periodStart)
@@ -130,6 +132,8 @@ export async function fetchTimesheetsDailyUiByDate(
         raw_data: raw,
         overtime_minutes: row.overtime_minutes,
         negative_minutes: negativeMinutes,
+        worked_minutes: row.worked_minutes,
+        expected_minutes: row.expected_minutes,
       }),
     );
   }
