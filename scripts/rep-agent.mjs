@@ -48,7 +48,7 @@ import { observabilityConsole } from '../services/observabilityConsole.js';
  *   --- loop / serviço ---
  *   REP_AGENT_LOOP        "1" (default) executa em loop contínuo; "0" roda um único ciclo.
  *   REP_AGENT_INTERVAL_MS Intervalo entre ciclos quando em loop (default 60000 = 1 min).
- *   REP_COMMAND_POLL_MIN_MS  Poll de comandos — mínimo após sucesso (default 30000).
+ *   REP_COMMAND_POLL_MIN_MS  Poll de comandos — mínimo após sucesso (default 5000).
  *   REP_COMMAND_POLL_MAX_MS  Poll de comandos — máximo / offline (default 60000).
  *   REP_COMMAND_SKIP_IF_OFFLINE_MS  Sem heartbeat recente → não poll agressivo (default 180000).
  *   REP_HEARTBEAT_INTERVAL_MS Heartbeat SaaS (default 60000; nunca menos em produção).
@@ -217,10 +217,10 @@ const REP_AGENT_INTERVAL_MS = Math.max(
   5000,
   parseInt(process.env.REP_AGENT_INTERVAL_MS || '60000', 10) || 60000
 );
-/** Poll de comandos SaaS — mínimo 30s (produção / anti-egress). */
+/** Poll de comandos SaaS — mínimo 5s (painel aguarda ~15–60s). */
 const REP_COMMAND_POLL_MIN_MS = Math.max(
-  15_000,
-  parseInt(process.env.REP_COMMAND_POLL_MIN_MS || '15000', 10) || 15_000,
+  5_000,
+  parseInt(process.env.REP_COMMAND_POLL_MIN_MS || '5000', 10) || 5_000,
 );
 const REP_COMMAND_POLL_MAX_MS = Math.max(
   REP_COMMAND_POLL_MIN_MS,
@@ -235,13 +235,15 @@ const REP_COMMAND_POLL_INTERVAL_MS = REP_COMMAND_POLL_MIN_MS;
 /** Timeout máximo por execução de comando (evita agente travado). */
 const REP_COMMAND_EXEC_TIMEOUT_MS = Math.max(
   3000,
-  parseInt(process.env.REP_COMMAND_EXEC_TIMEOUT_MS || '10000', 10) || 10000
+  parseInt(process.env.REP_COMMAND_EXEC_TIMEOUT_MS || '25000', 10) || 25_000,
 );
 const REP_AGENT_VERSION = (process.env.REP_AGENT_VERSION || 'rep-agent.mjs').trim();
 /** Definido no bundle pelo build:agent (esbuild define); "dev" ao rodar node scripts/rep-agent.mjs */
 const REP_AGENT_BUILD_ID =
   typeof __REP_AGENT_BUILD_ID__ !== 'undefined' ? String(__REP_AGENT_BUILD_ID__) : 'dev';
 let repCommandPollBusy = false;
+/** Comandos em execução (poll não bloqueia enquanto login no relógio). */
+const repCommandsInFlight = new Set();
 let repCommandPollTimer = null;
 let repHeartbeatTimer = null;
 let commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
@@ -2304,10 +2306,20 @@ async function pollAndExecuteRepCommands() {
         res.data && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : {};
       const commands = Array.isArray(data.commands) ? data.commands : [];
       if (commands.length === 0) {
-        log('[REP COMMANDS] vazio');
+        const reason = String(data.reason || '').trim();
+        if (reason === 'device_not_found_or_company') {
+          observabilityConsole.warn(
+            '[REP COMMANDS] poll vazio — device_id ou company_id do config.json não conferem com o SaaS.',
+            { company_id: companyId, device_id: deviceId || null },
+          );
+        } else if (reason === 'company_id_required') {
+          observabilityConsole.warn('[REP COMMANDS] poll vazio — company_id ausente no agente.');
+        } else {
+          log('[REP COMMANDS] vazio', reason ? { reason } : undefined);
+        }
         return true;
       }
-      log('[REP COMMANDS] poll ok', {
+      observabilityConsole.log('[REP COMMANDS] poll ok', {
         status: res.status,
         commands: commands.length,
         attempt,
@@ -2315,11 +2327,15 @@ async function pollAndExecuteRepCommands() {
       });
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();
-        try {
-          await executeRepCommand(cmd);
-        } catch (cmdErr) {
-          observabilityConsole.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
-        }
+        if (!cmdId || repCommandsInFlight.has(cmdId)) continue;
+        repCommandsInFlight.add(cmdId);
+        void executeRepCommand(cmd)
+          .catch((cmdErr) => {
+            observabilityConsole.error('[REP COMMAND EXEC]', cmdId || cmd?.command, cmdErr?.message || cmdErr);
+          })
+          .finally(() => {
+            repCommandsInFlight.delete(cmdId);
+          });
       }
       return true;
     } catch (e) {

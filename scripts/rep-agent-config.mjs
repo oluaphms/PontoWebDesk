@@ -90,6 +90,9 @@ function applyConfigToProcessEnv(cfg) {
   if (cfg.min_send_batch != null && String(cfg.min_send_batch).trim() !== '') {
     process.env.REP_MIN_SEND_BATCH = String(cfg.min_send_batch).trim();
   }
+  if (cfg.command_poll_interval_ms != null && String(cfg.command_poll_interval_ms).trim() !== '') {
+    process.env.REP_COMMAND_POLL_MIN_MS = String(cfg.command_poll_interval_ms).trim();
+  }
 
   const commandsExplicit = cfg.enable_commands !== undefined && cfg.enable_commands !== null;
   const commandsOff =

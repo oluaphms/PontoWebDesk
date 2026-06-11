@@ -140,6 +140,7 @@ Preencha os campos principais (modelo):
   "insecure_tls": true,
   "agent_interval_ms": 60000,
   "heartbeat_interval_ms": 60000,
+  "command_poll_interval_ms": 5000,
   "enable_commands": true
 }
 ```
@@ -297,6 +298,29 @@ O `deploy-rep-agent.ps1`:
 - PC do agente não alcança `device_ip` (teste `ping 192.168.1.20`).
 - Porta errada (`80` vs `443`) ou `device_scheme` incorreto.
 - No log, procure: `[REP LOGIN ERROR]`, `[REP LOGIN CURL ERROR]`.
+
+### Agente Online, mas “aguardando execução do comando” no painel
+
+O painel enfileira o teste; o agente busca em `/api/rep/commands` a cada **~5–60s**.
+
+1. Confira no log: `cmd_poll=5000ms` (ou similar) e **`[REP COMMAND POLL] ativo`** — se `cmd_poll=off`, comandos estão desligados.
+2. Em `config.json`: `"enable_commands": true` e opcional `"command_poll_interval_ms": 5000`.
+3. Rode como Admin:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "D:\PontoWebDesk\scripts\enable-rep-agent-commands.ps1"
+   powershell -ExecutionPolicy Bypass -File "D:\PontoWebDesk\scripts\deploy-rep-agent.ps1"
+   ```
+
+4. Diagnóstico completo:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "D:\PontoWebDesk\scripts\diagnose-rep-agent-commands.ps1"
+   ```
+
+5. Se o log mostrar **`device_id ou company_id não conferem com o SaaS`**, corrija os UUIDs no `config.json` para bater com o cadastro do relógio no painel.
+
+6. Se o comando passar para **“executando teste no relógio”** e falhar: problema é LAN/credenciais do Control iD, não o SaaS.
 
 ### Serviço não inicia após reboot
 
