@@ -29,6 +29,7 @@ export type RepOperationalHubModalProps = {
   syncSnapshot: DeviceSyncStatusSnapshot | undefined;
   formatDate: (s: string | null) => string;
   employeesForPush: EmployeeForRep[];
+  deviceUsersOnClockCount: number | null;
   pushUserId: string;
   collectStartDate: string;
   collectEndDate: string;
@@ -81,6 +82,7 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   syncSnapshot,
   formatDate,
   employeesForPush,
+  deviceUsersOnClockCount,
   pushUserId,
   collectStartDate,
   collectEndDate,
@@ -371,20 +373,39 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
                 Enviar Colaborador
               </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={repPageUi.c056}
-              disabled={actionsLocked || !selectedDevice || employeesForPush.length === 0 || pushAllRunning}
-              loading={pushAllRunning}
-              onClick={onPushAllEligible}
-            >
-              Enviar Todos Elegíveis
-            </Button>
+            <div className={repPageUi.c041}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={actionsLocked || !selectedDevice || employeesForPush.length === 0 || pushAllRunning}
+                loading={pushAllRunning}
+                onClick={onPushAllEligible}
+              >
+                <Upload size={14} className={repPageUi.c047} />
+                Enviar Todos Elegíveis
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={actionsLocked || !selectedDevice || exchangeBusy}
+                onClick={onListUsers}
+              >
+                <Download size={14} className={repPageUi.c047} />
+                Puxar Colaboradores do Relógio
+              </Button>
+            </div>
             <p className={repPageUi.c040}>
               {employeesForPush.length} colaborador{employeesForPush.length === 1 ? '' : 'es'} elegíve
-              {employeesForPush.length === 1 ? 'l' : 'is'}
+              {employeesForPush.length === 1 ? 'l' : 'is'} para envio ao aparelho.
+              {deviceUsersOnClockCount != null
+                ? ` Última leitura no relógio: ${deviceUsersOnClockCount} cadastro(s).`
+                : ''}
+            </p>
+            <p className={repPageUi.c021}>
+              «Puxar» consulta o cadastro existente no Control iD (somente leitura). Não importa automaticamente
+              para o PontoWebDesk — use para conferir PIS/CPF/matrícula antes de enviar.
             </p>
           </section>
 

@@ -185,6 +185,7 @@ const AdminRepDevices: React.FC = () => {
   const [clientLoadUsersError, setClientLoadUsersError] = useState<string | null>(null);
   const [clientLoginOk, setClientLoginOk] = useState<boolean | null>(null);
   const [clientConsolidationOk, setClientConsolidationOk] = useState<boolean | null>(null);
+  const [deviceUsersOnClockCount, setDeviceUsersOnClockCount] = useState<number | null>(null);
   /** Marcar atraso na entrada vs escala ao importar */
   const [srAllocate, setSrAllocate] = useState(false);
   /** Se marcado, não oferece no envio ao relógio inativos/demitidos/invisíveis. */
@@ -535,6 +536,7 @@ const AdminRepDevices: React.FC = () => {
       setClientLoadUsersError(null);
       setClientLoginOk(null);
       setClientConsolidationOk(null);
+      setDeviceUsersOnClockCount(null);
       setSendReceiveOpen(true);
       void loadRepDiagnosis(targetId);
     },
@@ -2077,6 +2079,8 @@ const AdminRepDevices: React.FC = () => {
         appendSrLog('Informações lidas. Abra o painel de detalhes.');
         setMessage({ type: 'success', text: 'Configurações lidas do relógio.' });
       } else if (op === 'pull_users') {
+        const count = (r.users ?? []).length;
+        setDeviceUsersOnClockCount(count);
         setClientLoadUsersOk(true);
         setClientLoadUsersError(null);
         setUsersModal({
@@ -2585,6 +2589,7 @@ const AdminRepDevices: React.FC = () => {
         syncSnapshot={srSelectedDevice ? syncStatusByDeviceId[srSelectedDevice.id] : undefined}
         formatDate={formatDate}
         employeesForPush={employeesForModalPush}
+        deviceUsersOnClockCount={deviceUsersOnClockCount}
         pushUserId={srPushUserId}
         collectStartDate={collectStartDate}
         collectEndDate={collectEndDate}
@@ -2601,6 +2606,7 @@ const AdminRepDevices: React.FC = () => {
         onDeviceChange={(id) => {
           setSrDeviceId(id);
           setSrDeviceClockDisplay(null);
+          setDeviceUsersOnClockCount(null);
           void loadRepDiagnosis(id);
         }}
         diagnosis={repDiagnosis}
