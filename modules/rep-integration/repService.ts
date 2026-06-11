@@ -547,6 +547,9 @@ export async function promotePendingRepPunchLogs(
       return { ok: true, data: body.data ?? null, status: httpRes.status };
     }
     if (httpRes.ok && body.ok !== false && path.includes('force-sync')) {
+      if (body.data != null) {
+        return { ok: true, data: body.data, status: httpRes.status };
+      }
       return {
         ok: false,
         error: 'Servidor sem consolidação nesta rota — atualize o backend (git pull + pm2 restart pontoweb-api).',
