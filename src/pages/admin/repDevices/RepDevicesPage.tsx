@@ -119,6 +119,7 @@ import { repPageUi } from '../../../styles/repDevicesPageUi';
 import { buildApiUrl } from '../../../services/api';
 import { getToken } from '../../../services/authToken';
 import { fetchEmployees } from '../../../services/employeesApi.service';
+
 const AdminRepDevices: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [devices, setDevices] = useState<RepDeviceRow[]>([]);
@@ -160,7 +161,7 @@ const AdminRepDevices: React.FC = () => {
   const [pipelineSnapshot, setPipelineSnapshot] = useState<{
     lastIngestionAt: string | null;
     repPunchesLast24h: number;
-    appPunchesLast24h: number;\\arquivo editado\\
+    appPunchesLast24h: number;
     failuresLast24h: number;
   }>({
     lastIngestionAt: null,
