@@ -209,8 +209,8 @@ function mapRegisterPunchResult(
     result?: RegisterPunchResult & { id?: string; timestamp?: string; receipt_id?: string };
   };
   if (payload.ok !== true || !payload.result) return null;
-  const result = payload.result;
-  const id = String(result.id ?? fallback.clientId).trim();
+  const result = payload.result as RegisterPunchResult & { time_record_id?: string | null };
+  const id = String(result.time_record_id ?? result.id ?? fallback.clientId).trim();
   const timestamp = String(result.timestamp ?? fallback.timestamp).trim();
   return {
     id: id || fallback.clientId,

@@ -31,4 +31,14 @@ describe('punchGeoDisplay', () => {
     expect(lines[0]).toBe('-10.911234');
     expect(lines[1]).toBe('-37.071234');
   });
+
+  it('lê coordenadas de metadata.payload (RPC app)', () => {
+    const lines = formatPunchGeoLines({
+      metadata: {
+        payload: { latitude: -10.911234, longitude: -37.071234 },
+      },
+    });
+    expect(lines[0]).toBe('-10.911234');
+    expect(lines[1]).toBe('-37.071234');
+  });
 });

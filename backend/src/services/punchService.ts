@@ -133,13 +133,87 @@ async function setRequestJwtContext(client: PoolClient, input: { userId: string;
 }
 
 function buildRpcMetadata(punch: PunchInput, punchHash: string, photoUrl: string | null): Record<string, unknown> {
+  const lat = finiteNumberOrNull(punch.latitude);
+  const lng = finiteNumberOrNull(punch.longitude);
+  const geoSnapshot =
+    lat != null && lng != null
+      ? {
+          latitude_original: lat,
+          longitude_original: lng,
+          accuracy_meters: finiteNumberOrNull(punch.accuracy),
+          captured_at: String(punch.timestamp || new Date().toISOString()),
+          provider: 'browser_geolocation',
+        }
+      : null;
   return {
     method: String(punch.method || 'api').trim() || 'api',
     source: normalizeSource(punch.source),
     photo_url: photoUrl,
     punch_hash: punchHash,
     payload: punch,
+    ...(geoSnapshot ? { geo_snapshot: geoSnapshot } : {}),
   };
+}
+
+function punchResultId(mirrorRecordId: string | null, punchAuditId?: string | null): string {
+  return String(mirrorRecordId || punchAuditId || '').trim();
+}
+
+/** Grava lat/lng e geo_snapshot no time_records após insert (RPC não preenche colunas de GPS). */
+async function enrichTimeRecordGeo(
+  client: PoolClient,
+  recordId: string | null,
+  punch: PunchInput,
+  timestamp: string,
+): Promise<void> {
+  const id = String(recordId || '').trim();
+  if (!id) return;
+  const lat = finiteNumberOrNull(punch.latitude);
+  const lng = finiteNumberOrNull(punch.longitude);
+  if (lat == null || lng == null) return;
+
+  const cols = await getTimeRecordColumns();
+  const acc = finiteNumberOrNull(punch.accuracy);
+  const geoSnapshot = {
+    latitude_original: lat,
+    longitude_original: lng,
+    accuracy_meters: acc,
+    captured_at: timestamp,
+    provider: 'browser_geolocation',
+  };
+
+  const sets: string[] = [];
+  const values: unknown[] = [id];
+  let idx = 2;
+  if (cols.hasLatitude) {
+    sets.push(`latitude = $${idx++}`);
+    values.push(lat);
+  }
+  if (cols.hasLongitude) {
+    sets.push(`longitude = $${idx++}`);
+    values.push(lng);
+  }
+  if (cols.hasAccuracy && acc != null) {
+    sets.push(`accuracy = $${idx++}`);
+    values.push(acc);
+  }
+  if (cols.hasLocation) {
+    sets.push(`location = $${idx++}::jsonb`);
+    values.push(JSON.stringify({ lat, lng, latitude: lat, longitude: lng, accuracy: acc }));
+  }
+  if (cols.hasRawData) {
+    sets.push(
+      `raw_data = COALESCE(raw_data, '{}'::jsonb) || jsonb_build_object('geo_snapshot', $${idx++}::jsonb)`,
+    );
+    values.push(JSON.stringify(geoSnapshot));
+  } else if (cols.hasMetadata) {
+    sets.push(
+      `metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('geo_snapshot', $${idx++}::jsonb)`,
+    );
+    values.push(JSON.stringify(geoSnapshot));
+  }
+  if (!sets.length) return;
+  await client.query(`UPDATE public.time_records SET ${sets.join(', ')} WHERE id::text = $1::text`, values);
 }
 
 function finiteNumberOrNull(value: unknown): number | null {
@@ -372,9 +446,33 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
         [punchHash],
       );
       if (existing.rowCount && existing.rows[0]?.id) {
-        await promoteExistingPunchIfNeeded(client, String(existing.rows[0].id));
+        const dupPunchId = String(existing.rows[0].id);
+        await promoteExistingPunchIfNeeded(client, dupPunchId);
+        let dupMirrorId: string | null = null;
+        try {
+          const dupRow = await client.query(
+            `select tr.id
+               from public.time_records tr
+              where tr.company_id::text = $1
+                and tr.user_id::text = $2
+                and tr.timestamp = $3::timestamptz
+                and tr.type = $4
+              order by tr.created_at desc
+              limit 1`,
+            [companyId, userId, timestamp, type],
+          );
+          dupMirrorId = dupRow.rows[0]?.id ? String(dupRow.rows[0].id) : null;
+        } catch {
+          dupMirrorId = null;
+        }
         await client.query('commit');
-        return { success: true, duplicate: true, id: String(existing.rows[0].id), punch_hash: punchHash };
+        return {
+          success: true,
+          duplicate: true,
+          id: punchResultId(dupMirrorId, dupPunchId),
+          time_record_id: dupMirrorId,
+          punch_hash: punchHash,
+        };
       }
     }
 
@@ -422,6 +520,20 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
       },
     });
 
+    try {
+      await enrichTimeRecordGeo(client, mirrorRecordId, punch, timestamp);
+    } catch (error) {
+      logger.warn({
+        module: 'punch.service',
+        action: 'PUNCH_GEO_ENRICH_SKIPPED',
+        message: 'Falha ao enriquecer GPS no time_records (não bloqueia o ponto)',
+        userId,
+        companyId,
+        error,
+        meta: { timeRecordId: mirrorRecordId },
+      });
+    }
+
     await client.query('savepoint punch_audit_optional');
     try {
       if (cols.mode === 'api_legacy') {
@@ -438,7 +550,13 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
           [companyId, userId, type, timestamp, punchHash, JSON.stringify(payload)],
         );
         await client.query('commit');
-        return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+        const punchAuditId = inserted.rows[0]?.id ? String(inserted.rows[0].id) : null;
+        return {
+          success: true,
+          id: punchResultId(mirrorRecordId, punchAuditId),
+          time_record_id: mirrorRecordId,
+          punch_hash: punchHash,
+        };
       }
 
       if (cols.hasPhotoUrl) {
@@ -458,7 +576,13 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
           ],
         );
         await client.query('commit');
-        return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+        const punchAuditId = inserted.rows[0]?.id ? String(inserted.rows[0].id) : null;
+        return {
+          success: true,
+          id: punchResultId(mirrorRecordId, punchAuditId),
+          time_record_id: mirrorRecordId,
+          punch_hash: punchHash,
+        };
       }
 
       const inserted = await client.query(
@@ -481,7 +605,13 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
         ],
       );
       await client.query('commit');
-      return { success: true, id: String(inserted.rows[0]?.id || mirrorRecordId || ''), punch_hash: punchHash };
+      const punchAuditId = inserted.rows[0]?.id ? String(inserted.rows[0].id) : null;
+      return {
+        success: true,
+        id: punchResultId(mirrorRecordId, punchAuditId),
+        time_record_id: mirrorRecordId,
+        punch_hash: punchHash,
+      };
     } catch (error) {
       await client.query('rollback to savepoint punch_audit_optional');
       logger.warn({
@@ -500,7 +630,12 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
       });
     }
     await client.query('commit');
-    return { success: true, id: String(mirrorRecordId || ''), punch_hash: punchHash };
+    return {
+      success: true,
+      id: punchResultId(mirrorRecordId, null),
+      time_record_id: mirrorRecordId,
+      punch_hash: punchHash,
+    };
   } catch (error) {
     await client.query('rollback');
     throw error;

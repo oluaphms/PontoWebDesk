@@ -37,6 +37,19 @@ export function getGeoSnapshot(row: unknown): PunchGeoSnapshot | null {
   const snapFromMeta = metadata?.geo_snapshot;
   if (snapFromMeta && typeof snapFromMeta === 'object') return snapFromMeta as PunchGeoSnapshot;
 
+  const metaPayload = metadata?.payload;
+  if (metaPayload && typeof metaPayload === 'object') {
+    const mp = metaPayload as Record<string, unknown>;
+    const snapFromMetaPayload = mp.geo_snapshot;
+    if (snapFromMetaPayload && typeof snapFromMetaPayload === 'object') {
+      return snapFromMetaPayload as PunchGeoSnapshot;
+    }
+    const geocode = mp.geocode_snapshot;
+    if (geocode && typeof geocode === 'object') {
+      return { geocode_snapshot: geocode as PunchGeoSnapshot['geocode_snapshot'] };
+    }
+  }
+
   const payload = readObjectField(rec, 'raw_data')?.payload;
   if (payload && typeof payload === 'object') {
     const p = payload as Record<string, unknown>;

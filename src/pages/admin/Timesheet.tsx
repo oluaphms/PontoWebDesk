@@ -253,6 +253,20 @@ function GeoDetailsToggle({
           : null;
 
   if (lat == null && lng == null) {
+    if (persistedLines.length > 0) {
+      return (
+        <div className="space-y-0.5">
+          <div className="text-[10px] text-slate-600 dark:text-slate-300">
+            <span className="font-semibold">GPS:</span>
+            <div className="mt-0.5 space-y-0.5 break-words">
+              {persistedLines.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="text-[10px] text-slate-500 dark:text-slate-400">
         <span className="font-semibold">GPS:</span>{' '}

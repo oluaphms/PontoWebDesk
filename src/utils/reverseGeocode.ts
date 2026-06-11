@@ -31,6 +31,32 @@ export function extractLatLng(row: any): { lat: number; lng: number } | null {
   const direct = pairFromNumbers(row.latitude ?? row.lat, row.longitude ?? row.lng ?? row.lon);
   if (direct) return direct;
 
+  const readCoordsFromContainer = (container: unknown): { lat: number; lng: number } | null => {
+    if (!container || typeof container !== 'object' || Array.isArray(container)) return null;
+    const c = container as Record<string, unknown>;
+    const snap = c.geo_snapshot;
+    if (snap && typeof snap === 'object' && !Array.isArray(snap)) {
+      const s = snap as Record<string, unknown>;
+      const fromSnap = pairFromNumbers(
+        s.latitude_original ?? s.latitude ?? s.lat,
+        s.longitude_original ?? s.longitude ?? s.lng ?? s.lon,
+      );
+      if (fromSnap) return fromSnap;
+    }
+    const payload = c.payload;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const p = payload as Record<string, unknown>;
+      const fromPayload = pairFromNumbers(p.latitude ?? p.lat, p.longitude ?? p.lng ?? p.lon);
+      if (fromPayload) return fromPayload;
+    }
+    return null;
+  };
+
+  const fromRaw = readCoordsFromContainer(row.raw_data);
+  if (fromRaw) return fromRaw;
+  const fromMeta = readCoordsFromContainer(row.metadata);
+  if (fromMeta) return fromMeta;
+
   let loc: unknown = row.location;
   if (typeof loc === 'string') {
     try {
