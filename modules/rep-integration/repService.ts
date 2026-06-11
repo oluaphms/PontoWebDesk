@@ -20,7 +20,7 @@ import {
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
 import { fetchReconcileAndUpsertOperationalDayStatus } from './repOperationalSequenceResolver';
 import { buildApiUrl } from '../../src/services/api';
-import { getToken } from '../../src/services/authToken';
+import { getToken, isCookieSessionToken } from '../../src/services/authToken';
 
 type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.service').AppendTimeAttendanceTimelineEventInput;
 
@@ -517,41 +517,76 @@ export async function promotePendingRepPunchLogs(
   error = rpcRes.error;
 
   const promoteRpcNeedsHttpFallback = (msg: string): boolean =>
-    /rpc_not_allowed|not_found|data_api_writes_disabled|rpc_failed/i.test(msg);
+    /rpc_not_allowed|not_found|data_api_writes_disabled|rpc_failed|unauthorized|missing_token/i.test(msg);
+
+  const postPromotePendingHttp = async (
+    path: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ ok: boolean; data?: unknown; error?: string; status: number }> => {
+    const accessToken = getToken();
+    if (!accessToken && typeof window === 'undefined') {
+      return { ok: false, error: 'Sessão expirada. Faça login novamente.', status: 401 };
+    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (accessToken && !isCookieSessionToken(accessToken)) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    const httpRes = await fetch(buildApiUrl(path), {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const body = (await httpRes.json().catch(() => ({}))) as {
+      ok?: boolean;
+      data?: unknown;
+      error?: string;
+      message?: string;
+    };
+    if (httpRes.ok && body.ok !== false && !path.includes('force-sync')) {
+      return { ok: true, data: body.data ?? null, status: httpRes.status };
+    }
+    if (httpRes.ok && body.ok !== false && path.includes('force-sync')) {
+      return {
+        ok: false,
+        error: 'Servidor sem consolidação nesta rota — atualize o backend (git pull + pm2 restart pontoweb-api).',
+        status: httpRes.status,
+      };
+    }
+    const httpErr = body.error || body.message || `HTTP ${httpRes.status}`;
+    return { ok: false, error: httpErr, status: httpRes.status };
+  };
 
   if (error && promoteRpcNeedsHttpFallback(error.message)) {
-    observabilityConsole.warn('[REP RPC] fallback HTTP /rep/promote-pending após', error.message);
+    observabilityConsole.warn('[REP RPC] fallback HTTP promote após', error.message);
     try {
-      const accessToken = getToken();
-      if (accessToken) {
-        const httpRes = await fetch(buildApiUrl('/rep/promote-pending'), {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(rpcPayload),
-        });
-        const body = (await httpRes.json().catch(() => ({}))) as {
-          ok?: boolean;
-          data?: unknown;
-          error?: string;
-          message?: string;
-        };
-        if (httpRes.ok && body.ok !== false) {
-          data = body.data ?? null;
+      const fallbackPaths = [
+        '/rep/promote-pending',
+        `/rep/devices/${encodeURIComponent(repDeviceId)}/force-sync`,
+      ];
+      let lastErr = error.message;
+      for (let i = 0; i < fallbackPaths.length; i += 1) {
+        const path = fallbackPaths[i]!;
+        const payload =
+          path.includes('force-sync')
+            ? { ...rpcPayload, action: 'promote_pending', device_id: repDeviceId }
+            : rpcPayload;
+        const attempt = await postPromotePendingHttp(path, payload);
+        if (attempt.ok) {
+          data = attempt.data ?? null;
           error = null;
-        } else {
-          const httpErr = body.error || body.message || `promote_pending HTTP ${httpRes.status}`;
-          error = {
-            message:
-              httpRes.status === 404 && httpErr === 'not_found'
-                ? 'Rota de consolidação não disponível no servidor. Atualize o backend (pm2 restart pontoweb-api).'
-                : httpErr,
-          };
+          break;
         }
-      } else {
-        error = { message: 'Sessão expirada. Faça login novamente.' };
+        lastErr = attempt.error || lastErr;
+        if (attempt.status !== 404 && attempt.status !== 405) break;
+      }
+      if (error) {
+        error = {
+          message:
+            lastErr === 'not_found'
+              ? 'Consolidação indisponível no servidor. Faça deploy do backend: git pull, npm run build, pm2 restart pontoweb-api.'
+              : lastErr,
+        };
       }
     } catch (fallbackErr) {
       error = { message: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr) };

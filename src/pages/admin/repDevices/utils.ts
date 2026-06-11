@@ -1,4 +1,5 @@
 import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
+import type { ApiEmployee } from '../../../services/employeesApi.service';
 import type { RepDeviceClockSet } from '../../../../modules/rep-integration/types';
 import type { EmployeeForRep, RepAgentConnectionState, RepDeviceRow, RepRpcUserRow } from './types';
 import { TIPOS_CONEXAO } from './constants';
@@ -22,6 +23,24 @@ export function isEmployeeEligibleForRepPush(e: EmployeeForRep): boolean {
   if (e.invisivel) return false;
   if (e.demissao) return false;
   return (e.status || 'active').toLowerCase() === 'active';
+}
+
+/** Mesma fonte da página Colaboradores (`GET /employees`) — não mistura `users` órfãos nem excluídos. */
+export function mapApiEmployeeToRep(emp: ApiEmployee): EmployeeForRep {
+  const demissao = emp.demissao ?? emp.termination_date ?? emp.dismissal_date ?? null;
+  return {
+    id: emp.id,
+    nome: (emp.nome || emp.email || 'Colaborador').trim(),
+    status: emp.status || 'active',
+    invisivel: emp.invisivel === true,
+    demissao: demissao && String(demissao).trim() ? String(demissao).trim() : null,
+    company_id: emp.company_id,
+    pis_pasep: emp.pis ?? null,
+    pis: emp.pis ?? null,
+    cpf: emp.cpf ?? null,
+    numero_identificador: emp.numero_identificador ?? null,
+    numero_folha: emp.numero_folha ?? null,
+  };
 }
 
 export function parseRepRpcUserRow(data: unknown): RepRpcUserRow | null {

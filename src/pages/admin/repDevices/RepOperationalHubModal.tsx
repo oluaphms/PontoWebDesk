@@ -17,9 +17,7 @@ import { repUiPatterns } from '../../../styles/tokens';
 import { cx } from '../../../styles/cx';
 import type { DeviceSyncStatusSnapshot, EmployeeForRep, RepDeviceRow } from './types';
 import { repOpLogLevelClass, type RepOpLogEntry } from './repOperationalLog';
-import { RepDiagnosticsSection } from './RepDiagnosticsSection';
-import { isRepAgentOnlineForDevice, shouldBlockCloudRepConnectionTest } from './utils';
-import type { RepDiagnosisSnapshot } from '../../../services/repDiagnostics.service';
+import { isRepAgentOnlineForDevice, isLocalAgentRepDevice } from './utils';
 
 export type RepOperationalHubModalProps = {
   open: boolean;
@@ -49,6 +47,8 @@ export type RepOperationalHubModalProps = {
   onCollectEndDateChange: (value: string) => void;
   onCollectNow: () => void;
   onReprocessPending: () => void;
+  consolidateLocalToday: boolean;
+  onConsolidateLocalTodayChange: (value: boolean) => void;
   onReadClock: () => void;
   onSendClock: () => void;
   onPushUserIdChange: (userId: string) => void;
@@ -58,12 +58,6 @@ export type RepOperationalHubModalProps = {
   onReadConfig: () => void;
   onReadEquipmentInfo: () => void;
   onViewPendingPis: () => void;
-  diagnosis: RepDiagnosisSnapshot | null;
-  diagnosisLoading: boolean;
-  clientLoadUsersOk: boolean | null;
-  clientLoadUsersError: string | null;
-  clientLoginOk: boolean | null;
-  clientConsolidationOk: boolean | null;
 };
 
 function buildDeviceSubtitle(device: RepDeviceRow | null): string {
@@ -102,6 +96,8 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   onCollectEndDateChange,
   onCollectNow,
   onReprocessPending,
+  consolidateLocalToday,
+  onConsolidateLocalTodayChange,
   onReadClock,
   onSendClock,
   onPushUserIdChange,
@@ -111,12 +107,6 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   onReadConfig,
   onReadEquipmentInfo,
   onViewPendingPis,
-  diagnosis,
-  diagnosisLoading,
-  clientLoadUsersOk,
-  clientLoadUsersError,
-  clientLoginOk,
-  clientConsolidationOk,
 }) => {
   const [pcClock, setPcClock] = useState(() => new Date().toLocaleString('pt-BR'));
 
@@ -236,7 +226,7 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               onClick={onRefreshStatus}
             >
               <RefreshCw size={16} className={repPageUi.c019} />
-              {selectedDevice && shouldBlockCloudRepConnectionTest(selectedDevice)
+              {selectedDevice && isLocalAgentRepDevice(selectedDevice)
                 ? getAgentTestButtonLabel(selectedDevice.id)
                 : 'Atualizar status'}
             </Button>
@@ -283,18 +273,32 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               </Button>
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 disabled={actionsLocked || !selectedDevice || promoting}
                 loading={promoting}
                 onClick={onReprocessPending}
               >
                 <ClipboardCheck size={16} className={repPageUi.c019} />
-                Reprocessar Pendências
+                Consolidar Pendências
               </Button>
             </div>
+            <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={consolidateLocalToday}
+                onChange={(e) => onConsolidateLocalTodayChange(e.target.checked)}
+                disabled={promoting || actionsLocked}
+              />
+              <span>
+                Consolidar só o dia de hoje (calendário deste computador). Desmarque para processar toda a fila
+                pendente deste relógio.
+              </span>
+            </label>
             <p className={repPageUi.c021}>
-              Coleta registros do relógio e envia para o espelho de ponto.
+              Coleta traz batidas do relógio; «Consolidar» move pendências da fila (rep_punch_logs) para o espelho de
+              ponto.
             </p>
           </section>
 
@@ -446,15 +450,6 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               </Button>
             </div>
           </section>
-
-          <RepDiagnosticsSection
-            diagnosis={diagnosis}
-            loading={diagnosisLoading}
-            clientLoadUsersOk={clientLoadUsersOk}
-            clientLoadUsersError={clientLoadUsersError}
-            clientLoginOk={clientLoginOk}
-            clientConsolidationOk={clientConsolidationOk}
-          />
 
           {/* BLOCO 6 — LOG */}
           <section className={repPageUi.c048} aria-labelledby="rep-hub-log">

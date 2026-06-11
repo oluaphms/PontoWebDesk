@@ -14,6 +14,7 @@ import {
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
+import { getAuthCookie } from '../security/authCookies.js';
 import { isPrivateOrLocalIPv4 } from '../utils/repNetwork.js';
 
 type RepPunchBody = Record<string, unknown>;
@@ -52,7 +53,7 @@ function hasValidApiKey(req: Request): boolean {
 
 function jwtContext(req: Request): AdminJwtContext | null {
   const secret = String(process.env.JWT_SECRET || '').trim();
-  const token = authHeaderToken(req);
+  const token = authHeaderToken(req) || getAuthCookie(req) || '';
   if (!secret || !token) return null;
   try {
     const decoded = jwt.verify(token, secret) as { sub?: unknown; userId?: unknown; companyId?: unknown; role?: unknown };
@@ -816,6 +817,18 @@ export async function repForceSyncController(req: Request, res: Response): Promi
     json(res, 404, { ok: false, success: false, error: 'device_not_found' });
     return;
   }
+
+  const action = String(req.body?.action || '').trim();
+  if (action === 'promote_pending') {
+    req.body = {
+      ...(req.body && typeof req.body === 'object' ? req.body : {}),
+      p_company_id: auth.companyId,
+      p_rep_device_id: deviceId,
+    };
+    await repPromotePendingController(req, res);
+    return;
+  }
+
   json(res, 200, {
     ok: true,
     success: true,

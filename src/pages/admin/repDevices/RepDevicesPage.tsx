@@ -70,6 +70,7 @@ import {
 import {
   buildLocalClockForRep,
   isEmployeeEligibleForRepPush,
+  mapApiEmployeeToRep,
   buildAgentCommandTimeoutMessage,
   buildLocalRepAgentGuidance,
   buildLocalRepAgentUserMessage,
@@ -117,11 +118,7 @@ import { repUiClasses } from '../../../styles/repUiClasses';
 import { repPageUi } from '../../../styles/repDevicesPageUi';
 import { buildApiUrl } from '../../../services/api';
 import { getToken } from '../../../services/authToken';
-import {
-  fetchRepDiagnostics,
-  type RepDiagnosisSnapshot,
-} from '../../../services/repDiagnostics.service';
-
+import { fetchEmployees } from '../../../services/employeesApi.service';
 const AdminRepDevices: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const [devices, setDevices] = useState<RepDeviceRow[]>([]);
@@ -179,12 +176,6 @@ const AdminRepDevices: React.FC = () => {
   const [srDeviceId, setSrDeviceId] = useState('');
   const [srLog, setSrLog] = useState<RepOpLogEntry[]>([]);
   const [srDeviceClockDisplay, setSrDeviceClockDisplay] = useState<string | null>(null);
-  const [repDiagnosis, setRepDiagnosis] = useState<RepDiagnosisSnapshot | null>(null);
-  const [repDiagnosisLoading, setRepDiagnosisLoading] = useState(false);
-  const [clientLoadUsersOk, setClientLoadUsersOk] = useState<boolean | null>(null);
-  const [clientLoadUsersError, setClientLoadUsersError] = useState<string | null>(null);
-  const [clientLoginOk, setClientLoginOk] = useState<boolean | null>(null);
-  const [clientConsolidationOk, setClientConsolidationOk] = useState<boolean | null>(null);
   const [deviceUsersOnClockCount, setDeviceUsersOnClockCount] = useState<number | null>(null);
   /** Marcar atraso na entrada vs escala ao importar */
   const [srAllocate, setSrAllocate] = useState(false);
@@ -343,71 +334,9 @@ const AdminRepDevices: React.FC = () => {
   const loadEmployeesForRep = async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     try {
-      const [userRows, employeeRows] = await Promise.all([
-        db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]),
-        db.select('employees', [{ column: 'company_id', operator: 'eq', value: user.companyId }]).catch(() => []),
-      ]);
-
-      const rows = (userRows || []) as {
-        id: string;
-        nome: string | null;
-        email: string | null;
-        status?: string | null;
-        invisivel?: boolean | null;
-        demissao?: string | null;
-        pis_pasep?: string | null;
-        pis?: string | null;
-        cpf?: string | null;
-        numero_identificador?: string | null;
-        numero_folha?: string | null;
-      }[];
-      const legacyRows = (employeeRows || []) as {
-        id: string;
-        nome?: string | null;
-        email?: string | null;
-        status?: string | null;
-        pis_pasep?: string | null;
-        pis?: string | null;
-        cpf?: string | null;
-        numero_identificador?: string | null;
-        numero_folha?: string | null;
-      }[];
-
-      const merged = new Map<string, EmployeeForRep>();
-      const upsert = (row: {
-        id: string;
-        nome?: string | null;
-        email?: string | null;
-        status?: string | null;
-        invisivel?: boolean | null;
-        demissao?: string | null;
-        pis_pasep?: string | null;
-        pis?: string | null;
-        cpf?: string | null;
-        numero_identificador?: string | null;
-        numero_folha?: string | null;
-      }) => {
-        if (!row.id) return;
-        const prev = merged.get(row.id);
-        merged.set(row.id, {
-          id: row.id,
-          nome: (row.nome || row.email || row.id || prev?.nome || '').trim(),
-          status: (row.status || prev?.status || 'active').trim(),
-          invisivel: row.invisivel === true || prev?.invisivel === true,
-          demissao: row.demissao || prev?.demissao || null,
-          pis_pasep: row.pis_pasep || prev?.pis_pasep || null,
-          pis: row.pis || prev?.pis || null,
-          cpf: row.cpf || prev?.cpf || null,
-          numero_identificador: row.numero_identificador || prev?.numero_identificador || null,
-          numero_folha: row.numero_folha || prev?.numero_folha || null,
-        });
-      };
-
-      rows.forEach(upsert);
-      legacyRows.forEach(upsert);
-
-      const list = Array.from(merged.values())
-        .filter((r) => !!r.id)
+      const apiEmployees = await fetchEmployees(user.companyId);
+      const list = apiEmployees
+        .map(mapApiEmployeeToRep)
         .filter(isEmployeeEligibleForRepPush)
         .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
       setEmployees(list);
@@ -514,33 +443,15 @@ const AdminRepDevices: React.FC = () => {
     setSrLog((prev) => appendRepOpLogEntry(prev, line, level));
   }, []);
 
-  const loadRepDiagnosis = useCallback(async (deviceId?: string) => {
-    if (!user?.companyId) return;
-    setRepDiagnosisLoading(true);
-    try {
-      const res = await fetchRepDiagnostics(user.companyId, deviceId);
-      if (res.diagnosis) setRepDiagnosis(res.diagnosis);
-    } catch {
-      /* diagnóstico opcional */
-    } finally {
-      setRepDiagnosisLoading(false);
-    }
-  }, [user?.companyId]);
-
   const openOperationalHub = useCallback(
     (deviceId?: string) => {
       const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
       setSrDeviceId(targetId);
       setSrDeviceClockDisplay(null);
-      setClientLoadUsersOk(null);
-      setClientLoadUsersError(null);
-      setClientLoginOk(null);
-      setClientConsolidationOk(null);
       setDeviceUsersOnClockCount(null);
       setSendReceiveOpen(true);
-      void loadRepDiagnosis(targetId);
     },
-    [redeDevices, srDeviceId, loadRepDiagnosis],
+    [redeDevices, srDeviceId],
   );
 
   const copyCommandToClipboard = async (command: string) => {
@@ -719,7 +630,6 @@ const AdminRepDevices: React.FC = () => {
             appendSrLog(`Status / conexão: ${okText}`);
             appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
           }
-          setClientLoginOk(true);
           await db.update('rep_devices', id, {
             status: 'ativo',
             updated_at: new Date().toISOString(),
@@ -745,7 +655,6 @@ const AdminRepDevices: React.FC = () => {
           if (sendReceiveOpen) {
             appendSrLog(`Falha: ${errText}`, 'error');
           }
-          setClientLoginOk(false);
           if (outcome.timedOut && device && !agentOnline) {
             scrollToRepCommunication();
           }
@@ -760,7 +669,6 @@ const AdminRepDevices: React.FC = () => {
         if (sendReceiveOpen) {
           appendSrLog(`Erro: ${uiText}`, 'error');
         }
-        setClientLoginOk(false);
       } finally {
         setTestingId(null);
         setAgentTestPhase((prev) => {
@@ -1285,7 +1193,6 @@ const AdminRepDevices: React.FC = () => {
       });
       if (!pr.success) {
         const err = pr.error || 'Falha ao consolidar';
-        setClientConsolidationOk(false);
         if (isTimesheetPeriodClosedError(err)) {
           appendSrLog(`Falha: PERIODO_FECHADO (folha fechada). ${PERIODO_FECHADO_REP_ACTION}`, 'warning');
         } else {
@@ -1297,7 +1204,6 @@ const AdminRepDevices: React.FC = () => {
             ? `Folha fechada (PERIODO_FECHADO): reabra o mês do colaborador em Espelho de Ponto ou via RH/admin, depois volte a consolidar.`
             : err,
         });
-        void loadRepDiagnosis(d.id);
         return;
       }
       const promoted = pr.promoted ?? 0;
@@ -1382,7 +1288,6 @@ const AdminRepDevices: React.FC = () => {
           localWindow: localDay,
         });
       }
-      setClientConsolidationOk(promoteFailedTotal === 0);
       setMessage({
         type: 'success',
         text: (() => {
@@ -1396,12 +1301,10 @@ const AdminRepDevices: React.FC = () => {
           return `${bits.join('. ')}.`;
         })(),
       });
-      void loadRepDiagnosis(d.id);
       invalidateCompanyListCaches(user.companyId);
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
       await loadDevices();
     } catch (e) {
-      setClientConsolidationOk(false);
       appendSrLog(`Erro: ${(e as Error).message}`, 'error');
       setMessage({ type: 'error', text: (e as Error).message });
     } finally {
@@ -2084,10 +1987,6 @@ const AdminRepDevices: React.FC = () => {
       if (!r.ok) {
         const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
         appendSrLog(`Falha: ${errLine}`, 'error');
-        if (op === 'pull_users') {
-          setClientLoadUsersOk(false);
-          setClientLoadUsersError(errLine);
-        }
         setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
         return;
       }
@@ -2106,8 +2005,6 @@ const AdminRepDevices: React.FC = () => {
       } else if (op === 'pull_users') {
         const count = (r.users ?? []).length;
         setDeviceUsersOnClockCount(count);
-        setClientLoadUsersOk(true);
-        setClientLoadUsersError(null);
         setUsersModal({
           title: `Funcionários no relógio — ${d.nome_dispositivo}`,
           users: r.users ?? [],
@@ -2121,10 +2018,6 @@ const AdminRepDevices: React.FC = () => {
     } catch (e) {
       const msg = (e as Error).message;
       appendSrLog(`Erro: ${msg}`, 'error');
-      if (op === 'pull_users') {
-        setClientLoadUsersOk(false);
-        setClientLoadUsersError(msg);
-      }
       setMessage({ type: 'error', text: msg });
     } finally {
       setExchangeBusy(null);
@@ -2199,12 +2092,10 @@ const AdminRepDevices: React.FC = () => {
         });
         await loadDevices();
       }
-      setClientLoginOk(r.ok);
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
       if (!r.ok && isLocalAgentRepDevice(d)) scrollToRepCommunication();
     } catch (e) {
       const uiText = sanitizeRepConnectionErrorForUi(d, e);
-      setClientLoginOk(false);
       appendSrLog(`Erro: ${uiText}`, 'error');
       setMessage({ type: 'error', text: uiText });
     } finally {
@@ -2221,7 +2112,6 @@ const AdminRepDevices: React.FC = () => {
     appendSrLog('Atualizando status do agente e da fila…');
     await loadSyncStatusesForDevices([d.id]);
     await srRunStatusInModal();
-    await loadRepDiagnosis(d.id);
   };
 
   const srRunPullInfo = async (title: string) => {
@@ -2632,14 +2522,7 @@ const AdminRepDevices: React.FC = () => {
           setSrDeviceId(id);
           setSrDeviceClockDisplay(null);
           setDeviceUsersOnClockCount(null);
-          void loadRepDiagnosis(id);
         }}
-        diagnosis={repDiagnosis}
-        diagnosisLoading={repDiagnosisLoading}
-        clientLoadUsersOk={clientLoadUsersOk}
-        clientLoadUsersError={clientLoadUsersError}
-        clientLoginOk={clientLoginOk}
-        clientConsolidationOk={clientConsolidationOk}
         onRefreshStatus={() => void srRefreshHubStatus()}
         onCollectStartDateChange={setCollectStartDate}
         onCollectEndDateChange={setCollectEndDate}
@@ -2647,6 +2530,8 @@ const AdminRepDevices: React.FC = () => {
           if (srSelectedDevice) void runCollectNow(srSelectedDevice.id);
         }}
         onReprocessPending={() => void srRunPromoteStaging()}
+        consolidateLocalToday={srManualConsolidateLocalToday}
+        onConsolidateLocalTodayChange={setSrManualConsolidateLocalToday}
         onReadClock={() => void srRunExchangeOp('pull_clock')}
         onSendClock={() => void srRunSendClock()}
         onPushUserIdChange={setSrPushUserId}
