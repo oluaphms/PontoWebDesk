@@ -73,6 +73,19 @@ export const RepCollectDiagnosticsSection: React.FC<RepCollectDiagnosticsSection
           <li>
             <strong>Enfileiradas (agente):</strong> {d.queued ?? result.sent_ok ?? '—'}
           </li>
+          {(d.duplicates ?? 0) > 0 ? (
+            <li>
+              <strong>Duplicadas (já tratadas):</strong> {d.duplicates}
+              {d.dup_local != null || d.dup_server != null
+                ? ` (cache ${d.dup_local ?? 0}, fila ${d.dup_server ?? 0})`
+                : ''}
+            </li>
+          ) : null}
+          {(d.pre_skipped ?? 0) > 0 ? (
+            <li>
+              <strong>Filtradas (lastNSR):</strong> {d.pre_skipped}
+            </li>
+          ) : null}
           <li>
             <strong>Enviadas à API:</strong> {d.uploaded ?? '—'}
           </li>

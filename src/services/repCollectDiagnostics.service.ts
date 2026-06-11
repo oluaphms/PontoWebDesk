@@ -12,6 +12,10 @@ export type RepCollectDiagnosticsPayload = {
   afd_invalid?: number | null;
   afd_in_scope?: number | null;
   queued?: number;
+  duplicates?: number;
+  dup_local?: number;
+  dup_server?: number;
+  pre_skipped?: number;
   uploaded?: number;
   upload_rejected?: number;
   upload_unresolved?: number;
@@ -64,6 +68,14 @@ export function formatCollectDiagnosticsForLog(d: RepCollectDiagnosticsPayload):
     lines.push('[REP AFD DOWNLOAD] não disponível via HTTP');
   }
   if (typeof d.queued === 'number') lines.push(`[REP QUEUE SAVE] enfileiradas=${d.queued}`);
+  if (typeof d.duplicates === 'number' && d.duplicates > 0) {
+    lines.push(
+      `[REP DUPLICATE] total=${d.duplicates}${d.dup_local != null ? ` cache=${d.dup_local}` : ''}${d.dup_server != null ? ` fila=${d.dup_server}` : ''}`,
+    );
+  }
+  if (typeof d.pre_skipped === 'number' && d.pre_skipped > 0) {
+    lines.push(`[REP NSR FILTER] ignoradas=${d.pre_skipped}`);
+  }
   if (typeof d.uploaded === 'number') {
     lines.push(
       `[REP UPLOAD] enviadas=${d.uploaded}${d.upload_rejected ? ` rejeitadas=${d.upload_rejected}` : ''}`,

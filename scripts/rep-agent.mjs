@@ -1969,6 +1969,10 @@ function buildCollectDiagnostics(cycle, flushStats) {
     afd_invalid: afd.invalid ?? null,
     afd_in_scope: afd.inScope ?? cycle?.total ?? null,
     queued: Number(cycle?.ok ?? 0),
+    duplicates: Number(cycle?.duplicate ?? 0),
+    dup_local: Number(cycle?.dupLocal ?? 0),
+    dup_server: Number(cycle?.dupServer ?? 0),
+    pre_skipped: Number(cycle?.preSkipped ?? 0),
     uploaded,
     upload_rejected: Number(flushStats?.failed ?? 0),
     upload_unresolved: Number(flushStats?.unresolved ?? 0),
@@ -2067,9 +2071,20 @@ async function executeCollectPunchesCommand(cmd) {
       uploaded,
       message: diagnostics.pending_left > 0 ? 'Ainda há batidas na fila local' : 'Fila local drenada',
     });
+    const dupCount = Number(cycle?.duplicate ?? 0);
+    let collectMessage = `Coleta concluída (${startDate} a ${endDate}): ${uploaded} batida(s) enviada(s) à API`;
+    if (diagnostics.pending_left > 0) {
+      collectMessage += `; ${diagnostics.pending_left} ainda na fila local`;
+    }
+    if (uploaded === 0 && parsed > 0 && dupCount > 0) {
+      collectMessage += `. ${dupCount} batida(s) no período já constavam no cache local ou na fila (duplicadas)`;
+    } else if (uploaded === 0 && parsed > 0 && sentOk === 0 && dupCount === 0) {
+      collectMessage += `. ${parsed} batida(s) no período sem envio novo — verifique filtro NSR ou logs do agente`;
+    }
+    collectMessage += '.';
     return {
       success: true,
-      message: `Coleta concluída (${startDate} a ${endDate}): ${uploaded} batida(s) enviada(s) à API${diagnostics.pending_left > 0 ? `; ${diagnostics.pending_left} ainda na fila local` : ''}.`,
+      message: collectMessage,
       start_date: startDate,
       end_date: endDate,
       sent_ok: sentOk,
@@ -3176,7 +3191,7 @@ async function ingestViaAFD() {
       continue;
     }
 
-    if (processed.has(nsrKey)) {
+    if (!agentPolicy.bypassNsrFilter && processed.has(nsrKey)) {
       dupLocal += 1;
       if (dupLocalSamples.length < MAX_DUP_SAMPLES) dupLocalSamples.push(nsrKey);
       continue;
@@ -3250,7 +3265,7 @@ async function ingestViaAFD() {
     url,
   };
 
-  return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length, sendErrors, fatal: false, afdMetrics, flushStats };
+  return { mode: 'AFD', ok, skip, duplicate, dupLocal, dupServer, preSkipped, total: records.length, sendErrors, fatal: false, afdMetrics, flushStats };
   });
 }
 
