@@ -8,6 +8,7 @@ import { fetchEmployees } from '../src/services/employeesApi.service';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
+import { isAdminGerente } from '../src/utils/accessProfile';
 
 /**
  * Espelho de ponto: batidas no período pelo dia civil do horário oficial (`timestamp`).
@@ -85,18 +86,9 @@ function normalizeEmail(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
+/** Espelho operacional: colaboradores + Admin/RH (com ponto). Exclui só Admin/Gerente. */
 function isTimesheetVisibleEmployee(row: { role?: unknown; status?: unknown; invisivel?: unknown }): boolean {
-  const role = String(row.role ?? '').trim().toLowerCase();
-  if (
-    role === 'admin' ||
-    role === 'administrador' ||
-    role === 'hr' ||
-    role === 'rh' ||
-    role === 'admin_gerente' ||
-    role === 'admin/gerente'
-  ) {
-    return false;
-  }
+  if (isAdminGerente(row.role)) return false;
   return row.invisivel !== true;
 }
 
