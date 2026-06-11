@@ -160,7 +160,7 @@ const AdminRepDevices: React.FC = () => {
   const [pipelineSnapshot, setPipelineSnapshot] = useState<{
     lastIngestionAt: string | null;
     repPunchesLast24h: number;
-    appPunchesLast24h: number;
+    appPunchesLast24h: number;\\arquivo editado\\
     failuresLast24h: number;
   }>({
     lastIngestionAt: null,
