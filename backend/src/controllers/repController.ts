@@ -14,6 +14,7 @@ import {
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
+import { isPrivateOrLocalIPv4 } from '../utils/repNetwork.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
@@ -663,6 +664,77 @@ export async function repHeartbeatController(req: Request, res: Response): Promi
     json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
   } finally {
     client.release();
+  }
+}
+
+/** GET /api/rep/status?device_id= — teste de conexão (browser / sync job). */
+export async function repStatusController(req: Request, res: Response): Promise<void> {
+  const auth = requireAdminJwt(req, res);
+  if (!auth) return;
+
+  const deviceId = String(req.query.device_id || '').trim();
+  if (!deviceId) {
+    json(res, 400, { ok: false, error: 'device_id é obrigatório' });
+    return;
+  }
+
+  const result = await pool.query(
+    `select id::text, company_id::text, nome_dispositivo, tipo_conexao, ip, porta, fabricante, modelo,
+            provider_type, identifier_type, config_extra, status, ultima_sincronizacao, ativo
+       from public.rep_devices
+      where id::text = $1 and company_id::text = $2
+      limit 1`,
+    [deviceId, auth.companyId],
+  );
+  const device = result.rows[0] as Record<string, unknown> | undefined;
+  if (!device) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+  if (String(device.tipo_conexao || '') !== 'rede') {
+    json(res, 400, { ok: false, message: 'Dispositivo não é do tipo rede (IP).' });
+    return;
+  }
+
+  const ip = String(device.ip || '').trim();
+  if (ip && isPrivateOrLocalIPv4(ip)) {
+    json(res, 200, {
+      ok: false,
+      message:
+        'Este relógio está na rede interna da empresa. Use o agente PontoWebDesk no computador da empresa ' +
+        '(teste via agente ou «Sincronizar agora»). O teste direto pela internet não é possível.',
+      httpStatus: 0,
+      body: null,
+    });
+    return;
+  }
+
+  const port = Number(device.porta ?? 80);
+  const baseUrl = `http://${ip}:${Number.isFinite(port) && port > 0 ? port : 80}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const probe = await fetch(baseUrl, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeout);
+    if (probe.ok) {
+      json(res, 200, { ok: true, message: 'Conexão OK', httpStatus: probe.status, body: null });
+      return;
+    }
+    json(res, 200, {
+      ok: false,
+      message: `Resposta HTTP ${probe.status}`,
+      httpStatus: probe.status,
+      body: null,
+    });
+  } catch (error) {
+    clearTimeout(timeout);
+    const msg = error instanceof Error ? error.message : String(error);
+    json(res, 200, {
+      ok: false,
+      message: msg.includes('abort') ? 'Tempo esgotado ao contatar o relógio.' : msg,
+      httpStatus: 0,
+      body: null,
+    });
   }
 }
 

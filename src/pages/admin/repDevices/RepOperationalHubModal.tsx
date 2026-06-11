@@ -462,9 +462,7 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               <p id="rep-hub-log" className={repPageUi.c033}>
                 Log operacional
               </p>
-              <button type="button" onClick={onViewPendingPis} className={repPageUi.c050}>
-                Ver PIS pendentes →
-              </button>
+              
             </div>
             <div
               className={cx(

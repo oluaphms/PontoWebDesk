@@ -516,8 +516,11 @@ export async function promotePendingRepPunchLogs(
   data = rpcRes.data;
   error = rpcRes.error;
 
-  if (error && /rpc_not_allowed/i.test(error.message)) {
-    observabilityConsole.warn('[REP RPC] fallback HTTP promote-pending após rpc_not_allowed');
+  const promoteRpcNeedsHttpFallback = (msg: string): boolean =>
+    /rpc_not_allowed|not_found|data_api_writes_disabled|rpc_failed/i.test(msg);
+
+  if (error && promoteRpcNeedsHttpFallback(error.message)) {
+    observabilityConsole.warn('[REP RPC] fallback HTTP /rep/promote-pending após', error.message);
     try {
       const accessToken = getToken();
       if (accessToken) {
@@ -533,13 +536,22 @@ export async function promotePendingRepPunchLogs(
           ok?: boolean;
           data?: unknown;
           error?: string;
+          message?: string;
         };
         if (httpRes.ok && body.ok !== false) {
           data = body.data ?? null;
           error = null;
         } else {
-          error = { message: body.error || `promote_pending HTTP ${httpRes.status}` };
+          const httpErr = body.error || body.message || `promote_pending HTTP ${httpRes.status}`;
+          error = {
+            message:
+              httpRes.status === 404 && httpErr === 'not_found'
+                ? 'Rota de consolidação não disponível no servidor. Atualize o backend (pm2 restart pontoweb-api).'
+                : httpErr,
+          };
         }
+      } else {
+        error = { message: 'Sessão expirada. Faça login novamente.' };
       }
     } catch (fallbackErr) {
       error = { message: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr) };

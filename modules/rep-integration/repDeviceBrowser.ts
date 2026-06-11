@@ -138,6 +138,13 @@ export async function testConnectionViaApi(deviceId: string, accessToken: string
   const data = await readJsonOrText(res);
   const errText = normalizeApiError(data, res.status);
   if (!res.ok) {
+    if (res.status === 404 && errText === 'not_found') {
+      return {
+        ok: false,
+        message:
+          'Rota /rep/status não encontrada no servidor. Atualize o backend ou use teste via agente.',
+      };
+    }
     if (res.status >= 500) {
       return { ok: false, message: 'Não foi possível conectar ao dispositivo.' };
     }

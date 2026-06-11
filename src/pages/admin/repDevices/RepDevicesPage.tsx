@@ -710,10 +710,16 @@ const AdminRepDevices: React.FC = () => {
         if (outcome.ok) {
           const ms =
             outcome.responseTimeMs != null ? ` (${Math.round(outcome.responseTimeMs)}ms)` : '';
+          const okText = `Conectado via agente${ms}`;
           setMessage({
             type: 'success',
-            text: `Conectado via agente${ms}`,
+            text: okText,
           });
+          if (sendReceiveOpen) {
+            appendSrLog(`Status / conexão: ${okText}`);
+            appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
+          }
+          setClientLoginOk(true);
           await db.update('rep_devices', id, {
             status: 'ativo',
             updated_at: new Date().toISOString(),
@@ -731,20 +737,30 @@ const AdminRepDevices: React.FC = () => {
               : outcome.message === 'AGENT_COMMAND_TIMEOUT' && device
                 ? buildAgentCommandTimeoutMessage(device, true, lastSeen)
                 : outcome.message;
+          const errText = agentOnline ? timeoutText : `Não foi possível conectar ao dispositivo. ${timeoutText}`;
           setMessage({
             type: 'error',
-            text: agentOnline ? timeoutText : `Não foi possível conectar ao dispositivo. ${timeoutText}`,
+            text: errText,
           });
+          if (sendReceiveOpen) {
+            appendSrLog(`Falha: ${errText}`, 'error');
+          }
+          setClientLoginOk(false);
           if (outcome.timedOut && device && !agentOnline) {
             scrollToRepCommunication();
           }
         }
       } catch (e) {
         const device = devices.find((d) => d.id === id) ?? null;
+        const uiText = sanitizeRepConnectionErrorForUi(device, e);
         setMessage({
           type: 'error',
-          text: sanitizeRepConnectionErrorForUi(device, e),
+          text: uiText,
         });
+        if (sendReceiveOpen) {
+          appendSrLog(`Erro: ${uiText}`, 'error');
+        }
+        setClientLoginOk(false);
       } finally {
         setTestingId(null);
         setAgentTestPhase((prev) => {
@@ -754,13 +770,22 @@ const AdminRepDevices: React.FC = () => {
         });
       }
     },
-    [devices, loadDevices, resolveAgentTestProgressMessage, scrollToRepCommunication, supabase, syncStatusByDeviceId],
+    [
+      appendSrLog,
+      devices,
+      loadDevices,
+      resolveAgentTestProgressMessage,
+      scrollToRepCommunication,
+      sendReceiveOpen,
+      supabase,
+      syncStatusByDeviceId,
+    ],
   );
 
   const handleTestConnection = async (id: string) => {
     if (!getSupabaseClient()) return;
     const device = devices.find((d) => d.id === id) ?? null;
-    if (device && shouldBlockCloudRepConnectionTest(device)) {
+    if (device && isLocalAgentRepDevice(device)) {
       await handleTestViaAgent(id);
       return;
     }
@@ -2155,7 +2180,7 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog('Selecione um equipamento de rede.');
       return;
     }
-    if (shouldBlockCloudRepConnectionTest(d)) {
+    if (isLocalAgentRepDevice(d)) {
       await handleTestViaAgent(d.id);
       return;
     }

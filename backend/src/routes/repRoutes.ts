@@ -9,6 +9,7 @@ import {
   repPunchesController,
   repPromotePendingController,
   repPushEmployeeController,
+  repStatusController,
   repSyncStatusController,
 } from '../controllers/repController.js';
 import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
@@ -33,6 +34,7 @@ router.post('/collect', repCollectController);
 router.post('/exchange', repExchangeController);
 router.post('/push-employee', repPushEmployeeController);
 router.post('/promote-pending', repPromotePendingController);
+router.get('/status', repStatusController);
 router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);
