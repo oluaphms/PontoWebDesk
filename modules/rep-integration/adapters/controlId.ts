@@ -30,6 +30,11 @@ import {
   validatePisPasep11,
   repAfdCanonical11DigitsFromBlob,
 } from '../pisPasep';
+// @ts-expect-error módulo ESM partilhado com o agente Node
+import {
+  buildControlIdLoadUsersPayload,
+  parseControlIdBooleanFieldError,
+} from '../controlIdLoadUsers.mjs';
 
 function extra(device: RepDevice): Record<string, unknown> {
   return device.config_extra && typeof device.config_extra === 'object'
@@ -654,20 +659,45 @@ async function fetchAllDeviceUsersCore(
   const limit = 100;
   let offset = 0;
   let first = true;
+  const deviceExtra = extra(device);
   for (;;) {
     let path = `/load_users.fcgi?session=${encodeURIComponent(session)}`;
     if (mode671) path += '&mode=671';
-    const res = await deviceFetch(device, path, {
+    const payload = buildControlIdLoadUsersPayload({
+      limit,
+      offset,
+      mode671,
+      deviceExtra,
+    });
+    console.log('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(payload, null, 2));
+    let res = await deviceFetch(device, path, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ limit, offset }),
+      body: JSON.stringify(payload),
     });
-    const text = await res.text();
+    let text = await res.text();
+    console.log('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
+    if (!res.ok && first && /booleano/i.test(text)) {
+      const boolField = parseControlIdBooleanFieldError(text);
+      observabilityConsole.warn('[CONTROLID LOAD_USERS] retry após erro booleano', { boolField });
+      const minimal = { limit, offset, templates: false as const };
+      console.log('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(minimal, null, 2));
+      res = await deviceFetch(device, path, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(minimal),
+      });
+      text = await res.text();
+      console.log('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
+    }
     if (!res.ok) {
       if (first) {
+        const boolField = parseControlIdBooleanFieldError(text);
         return {
           users: [],
-          loadError: `load_users: HTTP ${res.status} — ${text.slice(0, 240)}`,
+          loadError: `load_users: HTTP ${res.status} — ${text.slice(0, 240)}${
+            boolField ? ` (campo booleano: ${boolField})` : ''
+          }`,
         };
       }
       break;

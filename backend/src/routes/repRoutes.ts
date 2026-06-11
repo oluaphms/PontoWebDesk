@@ -7,6 +7,7 @@ import {
   repForceSyncController,
   repHeartbeatController,
   repPunchesController,
+  repPromotePendingController,
   repPushEmployeeController,
   repSyncStatusController,
 } from '../controllers/repController.js';
@@ -31,6 +32,7 @@ router.post('/devices/:deviceId/force-sync', repForceSyncController);
 router.post('/collect', repCollectController);
 router.post('/exchange', repExchangeController);
 router.post('/push-employee', repPushEmployeeController);
+router.post('/promote-pending', repPromotePendingController);
 router.get('/commands', repCommandsController);
 router.post('/commands', repCommandsController);
 router.post('/command-result', repCommandResultController);

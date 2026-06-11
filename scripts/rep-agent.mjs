@@ -2172,22 +2172,61 @@ async function executeExchangeCommand(cmd) {
   }
 
   if (name === 'pull_users') {
+    const { buildControlIdLoadUsersPayload, parseControlIdBooleanFieldError } = await import(
+      '../modules/rep-integration/controlIdLoadUsers.mjs'
+    );
     const collected = [];
     const pageLimit = 100;
     let offset = 0;
     let first = true;
     for (;;) {
-      const payload = { limit: pageLimit, offset };
-      observabilityConsole.log('[REP USERS REQUEST]', JSON.stringify(payload));
-      const { data, text } = await postControlIdFcgi(
-        base,
-        `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
-        payload,
-      );
-      observabilityConsole.log('[REP USERS RESPONSE]', text.slice(0, 2000));
+      const payload = buildControlIdLoadUsersPayload({
+        limit: pageLimit,
+        offset,
+        mode671: Boolean(mode671),
+      });
+      console.log('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(payload, null, 2));
+      let data;
+      let text;
+      let status = 200;
+      try {
+        const res = await postControlIdFcgi(
+          base,
+          `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+          payload,
+        );
+        data = res.data;
+        text = res.text;
+      } catch (e) {
+        text = e?.message || String(e);
+        const httpMatch = /HTTP (\d+)/.exec(text);
+        status = httpMatch ? Number(httpMatch[1]) : 400;
+        const boolField = parseControlIdBooleanFieldError(text);
+        if (first && (boolField || /booleano/i.test(text))) {
+          console.log('[CONTROLID LOAD_USERS] campo booleano inválido detectado:', boolField || '(não identificado)');
+          const minimal = { limit: pageLimit, offset, templates: false };
+          console.log('[CONTROLID LOAD_USERS REQUEST] retry', JSON.stringify(minimal, null, 2));
+          const retry = await postControlIdFcgi(
+            base,
+            `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+            minimal,
+          );
+          data = retry.data;
+          text = retry.text;
+          status = 200;
+        } else if (first) {
+          throw e;
+        } else {
+          break;
+        }
+      }
+      console.log('[CONTROLID LOAD_USERS RESPONSE]', status, text.slice(0, 2000));
       if (!data && text && !controlIdOk(text)) {
         if (first) {
-          throw new Error(`load_users: HTTP — ${afdHttpSnippet(text)}`);
+          const boolField = parseControlIdBooleanFieldError(text);
+          throw new Error(
+            `load_users: HTTP — ${afdHttpSnippet(text)}${boolField ? ` (campo booleano: ${boolField})` : ''}`,
+          );
         }
         break;
       }

@@ -117,6 +117,10 @@ import { repUiClasses } from '../../../styles/repUiClasses';
 import { repPageUi } from '../../../styles/repDevicesPageUi';
 import { buildApiUrl } from '../../../services/api';
 import { getToken } from '../../../services/authToken';
+import {
+  fetchRepDiagnostics,
+  type RepDiagnosisSnapshot,
+} from '../../../services/repDiagnostics.service';
 
 const AdminRepDevices: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -175,6 +179,12 @@ const AdminRepDevices: React.FC = () => {
   const [srDeviceId, setSrDeviceId] = useState('');
   const [srLog, setSrLog] = useState<RepOpLogEntry[]>([]);
   const [srDeviceClockDisplay, setSrDeviceClockDisplay] = useState<string | null>(null);
+  const [repDiagnosis, setRepDiagnosis] = useState<RepDiagnosisSnapshot | null>(null);
+  const [repDiagnosisLoading, setRepDiagnosisLoading] = useState(false);
+  const [clientLoadUsersOk, setClientLoadUsersOk] = useState<boolean | null>(null);
+  const [clientLoadUsersError, setClientLoadUsersError] = useState<string | null>(null);
+  const [clientLoginOk, setClientLoginOk] = useState<boolean | null>(null);
+  const [clientConsolidationOk, setClientConsolidationOk] = useState<boolean | null>(null);
   /** Marcar atraso na entrada vs escala ao importar */
   const [srAllocate, setSrAllocate] = useState(false);
   /** Se marcado, não oferece no envio ao relógio inativos/demitidos/invisíveis. */
@@ -503,14 +513,32 @@ const AdminRepDevices: React.FC = () => {
     setSrLog((prev) => appendRepOpLogEntry(prev, line, level));
   }, []);
 
+  const loadRepDiagnosis = useCallback(async (deviceId?: string) => {
+    if (!user?.companyId) return;
+    setRepDiagnosisLoading(true);
+    try {
+      const res = await fetchRepDiagnostics(user.companyId, deviceId);
+      if (res.diagnosis) setRepDiagnosis(res.diagnosis);
+    } catch {
+      /* diagnóstico opcional */
+    } finally {
+      setRepDiagnosisLoading(false);
+    }
+  }, [user?.companyId]);
+
   const openOperationalHub = useCallback(
     (deviceId?: string) => {
       const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
       setSrDeviceId(targetId);
       setSrDeviceClockDisplay(null);
+      setClientLoadUsersOk(null);
+      setClientLoadUsersError(null);
+      setClientLoginOk(null);
+      setClientConsolidationOk(null);
       setSendReceiveOpen(true);
+      void loadRepDiagnosis(targetId);
     },
-    [redeDevices, srDeviceId],
+    [redeDevices, srDeviceId, loadRepDiagnosis],
   );
 
   const copyCommandToClipboard = async (command: string) => {
@@ -1230,10 +1258,11 @@ const AdminRepDevices: React.FC = () => {
       });
       if (!pr.success) {
         const err = pr.error || 'Falha ao consolidar';
+        setClientConsolidationOk(false);
         if (isTimesheetPeriodClosedError(err)) {
-          appendSrLog(`Falha: PERIODO_FECHADO (folha fechada). ${PERIODO_FECHADO_REP_ACTION}`);
+          appendSrLog(`Falha: PERIODO_FECHADO (folha fechada). ${PERIODO_FECHADO_REP_ACTION}`, 'warning');
         } else {
-          appendSrLog(`Falha: ${err}`);
+          appendSrLog(`Falha: ${err}`, 'error');
         }
         setMessage({
           type: isTimesheetPeriodClosedError(err) ? 'warning' : 'error',
@@ -1241,6 +1270,7 @@ const AdminRepDevices: React.FC = () => {
             ? `Folha fechada (PERIODO_FECHADO): reabra o mês do colaborador em Espelho de Ponto ou via RH/admin, depois volte a consolidar.`
             : err,
         });
+        void loadRepDiagnosis(d.id);
         return;
       }
       const promoted = pr.promoted ?? 0;
@@ -1325,6 +1355,7 @@ const AdminRepDevices: React.FC = () => {
           localWindow: localDay,
         });
       }
+      setClientConsolidationOk(promoteFailedTotal === 0);
       setMessage({
         type: 'success',
         text: (() => {
@@ -1338,11 +1369,13 @@ const AdminRepDevices: React.FC = () => {
           return `${bits.join('. ')}.`;
         })(),
       });
+      void loadRepDiagnosis(d.id);
       invalidateCompanyListCaches(user.companyId);
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
       await loadDevices();
     } catch (e) {
-      appendSrLog(`Erro: ${(e as Error).message}`);
+      setClientConsolidationOk(false);
+      appendSrLog(`Erro: ${(e as Error).message}`, 'error');
       setMessage({ type: 'error', text: (e as Error).message });
     } finally {
       setPromotingId(null);
@@ -2023,7 +2056,11 @@ const AdminRepDevices: React.FC = () => {
       const r = await repExchangeViaApi(d.id, op, accessToken, clock);
       if (!r.ok) {
         const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
-        appendSrLog(`Falha: ${errLine}`);
+        appendSrLog(`Falha: ${errLine}`, 'error');
+        if (op === 'pull_users') {
+          setClientLoadUsersOk(false);
+          setClientLoadUsersError(errLine);
+        }
         setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
         return;
       }
@@ -2040,19 +2077,26 @@ const AdminRepDevices: React.FC = () => {
         appendSrLog('Informações lidas. Abra o painel de detalhes.');
         setMessage({ type: 'success', text: 'Configurações lidas do relógio.' });
       } else if (op === 'pull_users') {
+        setClientLoadUsersOk(true);
+        setClientLoadUsersError(null);
         setUsersModal({
           title: `Funcionários no relógio — ${d.nome_dispositivo}`,
           users: r.users ?? [],
         });
-        appendSrLog(`${(r.users ?? []).length} cadastro(s) listado(s) no relógio.`);
+        appendSrLog(`${(r.users ?? []).length} cadastro(s) listado(s) no relógio.`, 'success');
         setMessage({
           type: 'success',
           text: `${(r.users ?? []).length} cadastro(s) no relógio (somente leitura).`,
         });
       }
     } catch (e) {
-      appendSrLog(`Erro: ${(e as Error).message}`);
-      setMessage({ type: 'error', text: (e as Error).message });
+      const msg = (e as Error).message;
+      appendSrLog(`Erro: ${msg}`, 'error');
+      if (op === 'pull_users') {
+        setClientLoadUsersOk(false);
+        setClientLoadUsersError(msg);
+      }
+      setMessage({ type: 'error', text: msg });
     } finally {
       setExchangeBusy(null);
     }
@@ -2126,11 +2170,13 @@ const AdminRepDevices: React.FC = () => {
         });
         await loadDevices();
       }
+      setClientLoginOk(r.ok);
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
       if (!r.ok && isLocalAgentRepDevice(d)) scrollToRepCommunication();
     } catch (e) {
       const uiText = sanitizeRepConnectionErrorForUi(d, e);
-      appendSrLog(`Erro: ${uiText}`);
+      setClientLoginOk(false);
+      appendSrLog(`Erro: ${uiText}`, 'error');
       setMessage({ type: 'error', text: uiText });
     } finally {
       setTestingId(null);
@@ -2146,6 +2192,7 @@ const AdminRepDevices: React.FC = () => {
     appendSrLog('Atualizando status do agente e da fila…');
     await loadSyncStatusesForDevices([d.id]);
     await srRunStatusInModal();
+    await loadRepDiagnosis(d.id);
   };
 
   const srRunPullInfo = async (title: string) => {
@@ -2554,7 +2601,14 @@ const AdminRepDevices: React.FC = () => {
         onDeviceChange={(id) => {
           setSrDeviceId(id);
           setSrDeviceClockDisplay(null);
+          void loadRepDiagnosis(id);
         }}
+        diagnosis={repDiagnosis}
+        diagnosisLoading={repDiagnosisLoading}
+        clientLoadUsersOk={clientLoadUsersOk}
+        clientLoadUsersError={clientLoadUsersError}
+        clientLoginOk={clientLoginOk}
+        clientConsolidationOk={clientConsolidationOk}
         onRefreshStatus={() => void srRefreshHubStatus()}
         onCollectStartDateChange={setCollectStartDate}
         onCollectEndDateChange={setCollectEndDate}

@@ -23,6 +23,7 @@ import {
   tenantScopeSqlForTable,
 } from '../utils/dataRowSchema.js';
 import { logger } from '../logger/logger.js';
+import { executeRepRpcProxy, isRepRpcFunction } from '../services/repRpcProxy.service.js';
 
 const ALLOWED_OPS = new Set([
   'eq',
@@ -1024,6 +1025,10 @@ const ALLOWED_RPC = new Set([
   'insert_time_record_for_user',
   'insert_time_record_for_user_v2',
   'timesheet_is_closed_for_stamp',
+  'rep_promote_pending_rep_punch_logs',
+  'rep_ingest_punch',
+  'rep_match_user_id_for_rep_punch_row',
+  'rep_ignore_punch_logs',
 ]);
 
 const INSERT_TIME_RECORD_RPC = new Set(['insert_time_record_for_user', 'insert_time_record_for_user_v2']);
@@ -1261,6 +1266,31 @@ export async function rpcDataController(req: AuthedRequest, res: Response): Prom
         meta: { fn },
       });
       res.status(500).json({ ok: false, data: null, error: 'rpc_failed' });
+    }
+    return;
+  }
+
+  if (isRepRpcFunction(fn)) {
+    try {
+      const data = await executeRepRpcProxy(fn, args, companyId);
+      res.json({ ok: true, data, error: null });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'rpc_failed';
+      logger.error({
+        module: 'data.controller',
+        action: 'REP_RPC_FAILED',
+        message: 'Falha em RPC REP',
+        userId: req.auth?.userId ?? req.auth?.sub ?? null,
+        companyId,
+        error: e,
+        meta: { fn, args },
+      });
+      res.status(msg === 'company_id mismatch' ? 403 : 500).json({
+        ok: false,
+        data: null,
+        error: msg,
+        code: msg === 'company_id mismatch' ? 'FORBIDDEN' : 'REP_RPC_FAILED',
+      });
     }
     return;
   }

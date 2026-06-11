@@ -19,6 +19,8 @@ import {
 } from '../../src/services/timeAttendanceTimeline.constants';
 import { syncEspelhoAfterRepPromote, type RepPromotedDetailRow } from './repTimesheetMirror';
 import { fetchReconcileAndUpsertOperationalDayStatus } from './repOperationalSequenceResolver';
+import { buildApiUrl } from '../../src/services/api';
+import { getToken } from '../../src/services/authToken';
 
 type AppendTimelineInput = import('../../src/services/timeAttendanceTimeline.service').AppendTimeAttendanceTimelineEventInput;
 
@@ -498,14 +500,52 @@ export async function promotePendingRepPunchLogs(
   const win = options?.localWindow;
   const onlyUid = options?.onlyUserId?.trim();
   const onlyLog = options?.onlyRepPunchLogId?.trim();
-  const { data, error } = await supabase.rpc('rep_promote_pending_rep_punch_logs', {
+  const rpcPayload = {
     p_company_id: companyId.trim(),
     p_rep_device_id: repDeviceId,
     p_local_window_start: win?.startIso ?? null,
     p_local_window_end: win?.endIso ?? null,
     p_only_user_id: onlyUid && onlyUid.length > 0 ? onlyUid : null,
     p_only_rep_punch_log_id: onlyLog && onlyLog.length > 0 ? onlyLog : null,
-  });
+  };
+  observabilityConsole.info('[REP RPC]', 'rep_promote_pending_rep_punch_logs', rpcPayload);
+
+  let data: unknown = null;
+  let error: { message: string } | null = null;
+  const rpcRes = await supabase.rpc('rep_promote_pending_rep_punch_logs', rpcPayload);
+  data = rpcRes.data;
+  error = rpcRes.error;
+
+  if (error && /rpc_not_allowed/i.test(error.message)) {
+    observabilityConsole.warn('[REP RPC] fallback HTTP promote-pending após rpc_not_allowed');
+    try {
+      const accessToken = getToken();
+      if (accessToken) {
+        const httpRes = await fetch(buildApiUrl('/rep/promote-pending'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(rpcPayload),
+        });
+        const body = (await httpRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          data?: unknown;
+          error?: string;
+        };
+        if (httpRes.ok && body.ok !== false) {
+          data = body.data ?? null;
+          error = null;
+        } else {
+          error = { message: body.error || `promote_pending HTTP ${httpRes.status}` };
+        }
+      }
+    } catch (fallbackErr) {
+      error = { message: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr) };
+    }
+  }
+
   if (error) {
     return { success: false, error: error.message };
   }

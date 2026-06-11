@@ -159,6 +159,9 @@ export const db = {
     fn: string,
     args?: DbRow,
   ): Promise<{ data: T | null; error: { message: string; code?: string; details?: unknown } | null }> => {
+    if (fn.startsWith('rep_')) {
+      console.log('[REP RPC]', fn, args ?? {});
+    }
     try {
       const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null; code?: string; details?: unknown }>(
         `/data/rpc/${fn}`,

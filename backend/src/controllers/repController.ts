@@ -13,6 +13,7 @@ import {
   promotePendingRepLogsAfterBatch,
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
+import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
@@ -1098,4 +1099,53 @@ export async function repCommandResultController(req: Request, res: Response): P
     return;
   }
   json(res, 200, { ok: true, success: true });
+}
+
+/** POST /api/rep/promote-pending — consolida rep_punch_logs → time_records (fallback se /data/rpc bloquear). */
+export async function repPromotePendingController(req: Request, res: Response): Promise<void> {
+  const tokenCompanyId = jwtCompanyId(req);
+  if (!hasValidApiKey(req) && !tokenCompanyId) {
+    json(res, 401, { ok: false, error: 'unauthorized' });
+    return;
+  }
+
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const companyId = String(body.p_company_id || tokenCompanyId || '').trim();
+  if (!companyId || (tokenCompanyId && companyId !== tokenCompanyId)) {
+    json(res, 403, { ok: false, error: 'company_id inválido' });
+    return;
+  }
+
+  const repDeviceId = String(body.p_rep_device_id || '').trim();
+  if (!repDeviceId) {
+    json(res, 400, { ok: false, error: 'p_rep_device_id é obrigatório' });
+    return;
+  }
+
+  try {
+    const exists = await repRpcExistsInDatabase('rep_promote_pending_rep_punch_logs');
+    if (!exists) {
+      json(res, 503, {
+        ok: false,
+        error: 'rpc_missing',
+        message: 'Função rep_promote_pending_rep_punch_logs não encontrada no banco. Aplique as migrações Supabase.',
+      });
+      return;
+    }
+
+    const data = await executeRepRpcProxy('rep_promote_pending_rep_punch_logs', body, companyId);
+    json(res, 200, { ok: true, data, error: null });
+  } catch (error) {
+    logger.error({
+      module: 'rep.promote',
+      action: 'REP_PROMOTE_PENDING_FAILED',
+      companyId,
+      error,
+      meta: { rep_device_id: repDeviceId },
+    });
+    json(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : 'promote_failed',
+    });
+  }
 }

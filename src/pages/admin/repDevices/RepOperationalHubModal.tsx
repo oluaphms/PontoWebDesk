@@ -17,7 +17,9 @@ import { repUiPatterns } from '../../../styles/tokens';
 import { cx } from '../../../styles/cx';
 import type { DeviceSyncStatusSnapshot, EmployeeForRep, RepDeviceRow } from './types';
 import { repOpLogLevelClass, type RepOpLogEntry } from './repOperationalLog';
+import { RepDiagnosticsSection } from './RepDiagnosticsSection';
 import { isRepAgentOnlineForDevice, shouldBlockCloudRepConnectionTest } from './utils';
+import type { RepDiagnosisSnapshot } from '../../../services/repDiagnostics.service';
 
 export type RepOperationalHubModalProps = {
   open: boolean;
@@ -55,6 +57,12 @@ export type RepOperationalHubModalProps = {
   onReadConfig: () => void;
   onReadEquipmentInfo: () => void;
   onViewPendingPis: () => void;
+  diagnosis: RepDiagnosisSnapshot | null;
+  diagnosisLoading: boolean;
+  clientLoadUsersOk: boolean | null;
+  clientLoadUsersError: string | null;
+  clientLoginOk: boolean | null;
+  clientConsolidationOk: boolean | null;
 };
 
 function buildDeviceSubtitle(device: RepDeviceRow | null): string {
@@ -101,6 +109,12 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   onReadConfig,
   onReadEquipmentInfo,
   onViewPendingPis,
+  diagnosis,
+  diagnosisLoading,
+  clientLoadUsersOk,
+  clientLoadUsersError,
+  clientLoginOk,
+  clientConsolidationOk,
 }) => {
   const [pcClock, setPcClock] = useState(() => new Date().toLocaleString('pt-BR'));
 
@@ -411,6 +425,15 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               </Button>
             </div>
           </section>
+
+          <RepDiagnosticsSection
+            diagnosis={diagnosis}
+            loading={diagnosisLoading}
+            clientLoadUsersOk={clientLoadUsersOk}
+            clientLoadUsersError={clientLoadUsersError}
+            clientLoginOk={clientLoginOk}
+            clientConsolidationOk={clientConsolidationOk}
+          />
 
           {/* BLOCO 6 — LOG */}
           <section className={repPageUi.c048} aria-labelledby="rep-hub-log">

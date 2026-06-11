@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/index.js';
+import { repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
 
 function json(res: Response, status: number, body: Record<string, unknown>): void {
   res.status(status).json(body);
@@ -64,7 +65,7 @@ export async function repDiagnosticsController(req: Request, res: Response): Pro
   const deviceClause = deviceId ? 'and rep_device_id::text = $3' : '';
   const deviceParams = deviceId ? [companyId, dayStart, deviceId] : [companyId, dayStart];
 
-  const [deviceRow, collectedToday, receivedToday, promotedToday, pendingPromotion, lastError] =
+  const [deviceRow, collectedToday, receivedToday, promotedToday, pendingPromotion, lastError, rpcPromoteExists, rpcIngestExists] =
     await Promise.all([
       deviceId
         ? pool.query(
@@ -131,6 +132,8 @@ export async function repDiagnosticsController(req: Request, res: Response): Pro
           limit 1`,
         deviceId ? [companyId, deviceId] : [companyId],
       ),
+      repRpcExistsInDatabase('rep_promote_pending_rep_punch_logs'),
+      repRpcExistsInDatabase('rep_ingest_punch'),
     ]);
 
   const device = deviceRow.rows[0] as Record<string, unknown> | undefined;
@@ -149,6 +152,38 @@ export async function repDiagnosticsController(req: Request, res: Response): Pro
       }
     : null;
 
+  const lastCollectRes = await pool.query(
+    `select max(c.updated_at) as ts
+       from public.rep_device_commands c
+       join public.rep_devices d on d.id = c.device_id
+      where d.company_id::text = $1
+        and c.command = 'collect_punches'
+        ${deviceId ? 'and d.id::text = $2' : ''}`,
+    deviceId ? [companyId, deviceId] : [companyId],
+  );
+  const lastCollect = lastCollectRes.rows[0]?.ts
+    ? new Date(String(lastCollectRes.rows[0].ts)).toISOString()
+    : null;
+
+  const lastPromoteRes = await pool.query(
+    `select max(rpl.last_promotion_attempt_at) as ts
+       from public.rep_punch_logs rpl
+      where rpl.company_id::text = $1
+        and rpl.time_record_id is not null
+        ${deviceClause}`,
+    deviceId ? [companyId, deviceId] : [companyId],
+  );
+  const lastConsolidation = lastPromoteRes.rows[0]?.ts
+    ? new Date(String(lastPromoteRes.rows[0].ts)).toISOString()
+    : null;
+
+  const rpcApiAllowed = true;
+  const consolidationFailed =
+    lastErr != null &&
+    (String(lastErr.code || '').includes('rpc') ||
+      String(lastErr.message || '').includes('rpc_not_allowed') ||
+      Number(pendingPromotion.rows[0]?.c ?? 0) > 0);
+
   json(res, 200, {
     ok: true,
     company_id: companyId,
@@ -156,7 +191,7 @@ export async function repDiagnosticsController(req: Request, res: Response): Pro
     device_name: device?.nome_dispositivo ?? null,
     agentOnline,
     lastHeartbeat: lastSeen,
-    lastCollection: null,
+    lastCollection: lastCollect,
     deviceReachable: agentOnline,
     recordsCollectedToday: Number(collectedToday.rows[0]?.c ?? 0),
     recordsReceivedToday: Number(receivedToday.rows[0]?.c ?? 0),
@@ -165,5 +200,35 @@ export async function repDiagnosticsController(req: Request, res: Response): Pro
     lastError: lastErr,
     status_runtime: device?.status_runtime ?? null,
     checked_at: new Date().toISOString(),
+    diagnosis: {
+      rpc: {
+        ok: rpcPromoteExists && rpcApiAllowed,
+        exists_in_db: rpcPromoteExists,
+        api_allowed: rpcApiAllowed,
+        ingest_exists: rpcIngestExists,
+      },
+      controlid: {
+        ok: null,
+        note: 'Teste «Listar Usuários» na central para validar load_users.fcgi',
+      },
+      login: {
+        ok: agentOnline ? true : null,
+        note: agentOnline ? 'Agente com heartbeat recente' : 'Use «Atualizar status» na central',
+      },
+      load_users: {
+        ok: null,
+        note: 'Resultado da última listagem aparece no log operacional',
+      },
+      last_collect: {
+        ok: lastCollect != null,
+        at: lastCollect,
+      },
+      last_consolidation: {
+        ok: !consolidationFailed && Number(promotedToday.rows[0]?.c ?? 0) > 0,
+        at: lastConsolidation,
+        failed: consolidationFailed,
+        error: consolidationFailed ? lastErr : null,
+      },
+    },
   });
 }
