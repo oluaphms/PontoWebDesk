@@ -192,7 +192,7 @@ export function validateProductionAgentConfig() {
 export function logConfigLoaded() {
   logBootstrap(
     'INFO',
-    `Configuração carregada de ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${trimStr(process.env.REP_DEVICE_IP)}:${trimStr(process.env.REP_DEVICE_PORT)}`
+    `[CONFIG LOADED] ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${trimStr(process.env.REP_DEVICE_IP)}:${trimStr(process.env.REP_DEVICE_PORT)} | device_id=${trimStr(process.env.REP_DEVICE_ID)}`
   );
 }
 

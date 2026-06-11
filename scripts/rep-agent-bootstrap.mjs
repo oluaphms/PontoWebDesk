@@ -4,6 +4,7 @@
 import { existsSync } from 'node:fs';
 import { CONFIG_FILE, isPackagedAgent } from './rep-agent-paths.mjs';
 import { initAgentLogger, logBootstrap } from './rep-agent-logger.mjs';
+import { logStartupMarker } from './rep-agent-startup.mjs';
 import {
   loadConfigJsonMandatory,
   validateProductionAgentConfig,
@@ -15,6 +16,10 @@ import {
  */
 export function bootstrapProductionAgent() {
   initAgentLogger();
+  logStartupMarker('AGENT STARTUP', 'Processo do agente iniciado', {
+    pid: process.pid,
+    packaged: isPackagedAgent(),
+  });
 
   const packaged = isPackagedAgent();
   const configExists = existsSync(CONFIG_FILE);

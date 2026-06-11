@@ -99,6 +99,11 @@ import {
   rememberExecutedCommand,
 } from './rep-agent-commands-state.mjs';
 import { agentLog } from './rep-agent-structured-log.mjs';
+import {
+  logStartupMarker,
+  runAgentBootSequence,
+  startHeartbeatWatchdog,
+} from './rep-agent-startup.mjs';
 
 const bootResult = bootstrapProductionAgent();
 if (!bootResult.ok) {
@@ -242,6 +247,8 @@ let repHeartbeatTimer = null;
 let commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
 /** Último heartbeat OK (0 = ainda não houve sucesso — poll de comandos em modo conservador). */
 let lastHeartbeatAt = 0;
+/** Watchdog de heartbeat (reinício de envio se o loop parar). */
+let heartbeatWatchdog = null;
 const REP_LOW_COST_MODE = /^(1|true|yes)$/i.test((process.env.REP_LOW_COST_MODE || '').trim());
 const REP_ULTRA_LOW_COST = /^(1|true|yes)$/i.test((process.env.REP_ULTRA_LOW_COST || '').trim());
 /** Poll /api/rep/commands — REP_ENABLE_COMMANDS=1 (config.json enable_commands). LOW_COST não desliga testes do painel. */
@@ -2434,6 +2441,11 @@ async function sendHeartbeat() {
   try {
     await postRepHeartbeat();
     markHeartbeat();
+    heartbeatWatchdog?.markOk();
+    logStartupMarker('HEARTBEAT SENT', 'Heartbeat enviado ao SaaS', {
+      device_id: deviceId,
+      company_id: companyId,
+    });
     log('[HEARTBEAT OK]');
     if (ENABLE_COMMAND_POLL && !repCommandPollBusy) {
       void runCommandPollOnce();
@@ -3217,6 +3229,8 @@ async function main() {
     process.exit(1);
   }
 
+  await runAgentBootSequence({ saas, apiKey });
+
   if (CLI_SYNC_USERS) {
     const result = await runSyncUsersCommand();
     observabilityConsole.log(`[rep-agent] sync-users concluído. sent=${result.sent} errors=${result.errors}`);
@@ -3242,6 +3256,14 @@ async function main() {
         (ENABLE_COMMAND_POLL ? ' (poll de comandos ativo).' : ' (poll de comandos off — enable_commands no config.json).'),
     );
   }
+  heartbeatWatchdog = startHeartbeatWatchdog({
+    intervalMs: REP_HEARTBEAT_INTERVAL_MS,
+    staleMs: REP_HEARTBEAT_INTERVAL_MS * 3,
+    onStale: () => {
+      void sendHeartbeat();
+    },
+  });
+
   startRepCommandPollLoop();
   startRepHeartbeatLoop();
   startPunchSyncLoop();
@@ -3252,6 +3274,7 @@ async function main() {
     stopRepCommandPollLoop();
     stopRepHeartbeatLoop();
     stopPunchSyncLoop();
+    heartbeatWatchdog?.stop();
     closeAgentDb();
     return;
   }
@@ -3263,6 +3286,7 @@ async function main() {
     stopRepCommandPollLoop();
     stopRepHeartbeatLoop();
     stopPunchSyncLoop();
+    heartbeatWatchdog?.stop();
     observabilityConsole.log(`[REP AGENT LOOP] sinal ${sig} recebido, encerrando após o ciclo atual.`);
   };
   process.on('SIGINT', () => stopOn('SIGINT'));

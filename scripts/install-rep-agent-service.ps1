@@ -93,7 +93,13 @@ $copyList = @(
   "scripts\rep-agent-paths.mjs",
   "scripts\rep-agent-logger.mjs",
   "scripts\rep-agent-go-live.mjs",
+  "scripts\rep-agent-startup.mjs",
+  "scripts\rep-agent-queue.mjs",
+  "scripts\rep-agent-db.mjs",
+  "scripts\rep-agent-commands-state.mjs",
+  "scripts\rep-agent-structured-log.mjs",
   "scripts\rep-punch-hash.mjs",
+  "scripts\configure-rep-agent-nssm.ps1",
   "scripts\rep-agent.env.example"
 )
 
@@ -177,15 +183,24 @@ if ($LASTEXITCODE -ne 0) {
   throw "nssm install falhou: $($installOut -join ' ')"
 }
 & $nssm set $ServiceName AppDirectory $InstallDir | Out-Null
-& $nssm set $ServiceName Start SERVICE_AUTO_START | Out-Null
-& $nssm set $ServiceName AppExit Default Restart | Out-Null
 & $nssm set $ServiceName AppEnvironmentExtra $envBlock | Out-Null
 & $nssm set $ServiceName AppStdout (Join-Path $InstallDir "logs\rep-agent.log") | Out-Null
 & $nssm set $ServiceName AppStderr (Join-Path $InstallDir "logs\rep-agent.err.log") | Out-Null
-& $nssm set $ServiceName AppRotateFiles 1 | Out-Null
-& $nssm set $ServiceName AppRotateOnline 1 | Out-Null
-& $nssm set $ServiceName AppRotateSeconds 86400 | Out-Null
-& $nssm set $ServiceName AppRotateBytes 10485760 | Out-Null
+
+$configureNssm = Join-Path $scriptDir "configure-rep-agent-nssm.ps1"
+if (-not (Test-Path $configureNssm)) {
+  $configureNssm = Join-Path $InstallDir "scripts\configure-rep-agent-nssm.ps1"
+}
+if (Test-Path $configureNssm) {
+  & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $configureNssm `
+    -ServiceName $ServiceName `
+    -NssmPath $nssm `
+    -LogDir (Join-Path $InstallDir "logs")
+} else {
+  Write-RepAgentLog 'AVISO: configure-rep-agent-nssm.ps1 ausente — recovery/rede não aplicados.' -Color Yellow
+  & $nssm set $ServiceName Start SERVICE_AUTO_START | Out-Null
+  & $nssm set $ServiceName AppExit Default Restart | Out-Null
+}
 
 Write-RepAgentLog 'Iniciando servico...'
 try {

@@ -48,6 +48,7 @@ Name: "{commonappdata}\PontoWebDesk\data\rep-agent"; Permissions: users-modify
 Source: "..\dist\rep-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.template.json"; DestDir: "{commonappdata}\PontoWebDesk"; DestName: "config.json"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\scripts\configure-rep-agent-nssm.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Run]
 ; Instalar serviço Windows via NSSM
@@ -56,9 +57,8 @@ Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent Application ""{ap
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppDirectory ""{app}"""; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent DisplayName ""PontoWebDesk REP Agent"""; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent Description ""Agente local de coleta REP (relógio Control iD → SaaS PontoWebDesk)"""; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent Start SERVICE_AUTO_START"; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppStdout ""{commonappdata}\PontoWebDesk\logs\nssm-stdout.log"""; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppStderr ""{commonappdata}\PontoWebDesk\logs\nssm-stderr.log"""; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppEnvironmentExtra ""REP_ENABLE_COMMANDS=1"""; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\configure-rep-agent-nssm.ps1"" -ServiceName PontoWebDeskAgent -NssmPath ""{app}\nssm.exe"" -LogDir ""{commonappdata}\PontoWebDesk\logs"""; Flags: runhidden waituntilterminated; StatusMsg: "Configurando recovery, Tcpip e logs..."
 Filename: "{app}\nssm.exe"; Parameters: "start PontoWebDeskAgent"; Flags: runhidden waituntilterminated; StatusMsg: "Iniciando serviço..."
 
 [UninstallRun]

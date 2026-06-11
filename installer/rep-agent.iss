@@ -42,7 +42,13 @@ Source: "..\scripts\rep-agent-go-live.mjs"; DestDir: "{app}\scripts"; Flags: ign
 Source: "..\scripts\rep-punch-hash.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\rep-agent.env.example"; DestDir: "{app}\scripts"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\scripts\install-rep-agent-service.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\configure-rep-agent-nssm.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\uninstall-rep-agent-service.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-startup.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-queue.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-db.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-commands-state.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\rep-agent-structured-log.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\install-rep-agent-service.ps1"" -InstallDir ""{app}"" -ServiceName ""PontoWebDeskRepAgent"" -EnvFilePath ""{app}\scripts\rep-agent.env"" -NssmPath ""{app}\nssm.exe"""; Flags: runhidden waituntilterminated postinstall; StatusMsg: "Instalando serviço Windows PontoWebDeskRepAgent..."
