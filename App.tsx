@@ -105,7 +105,12 @@ import { useScheduledTenantBackup } from './src/hooks/useScheduledTenantBackup';
 import { devVerboseInfo } from './src/utils/devVerboseLogs';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from './src/app/appShellBootstrap';
 import { normalizeUserRole, isAdminOrHrRole } from './src/utils/userRole';
-import { hasAdminAccess } from './src/utils/accessProfile';
+import {
+  ADMIN_PORTAL_ROLES,
+  EMPLOYEE_PORTAL_ROLES,
+  hasAdminAccess,
+  hasEmployeePortalAccess,
+} from './src/utils/accessProfile';
 import { markLoginSubmitStarted, markLoginUiComplete, markFirstRouteIfNeeded } from './src/app/loginPerformanceBudgets';
 import AdminLayout from './src/layouts/AdminLayout';
 import EmployeeLayout from './src/layouts/EmployeeLayout';
@@ -2021,6 +2026,18 @@ const AppMain: React.FC = () => {
     );
   }
 
+  if (
+    isPortalRoute &&
+    (path.startsWith('/employee') || path === '/dashboard-colaborador' || path === '/time-clock') &&
+    !hasEmployeePortalAccess(user.role)
+  ) {
+    return (
+      <AdminLayout onLogout={handleLogout} operationalChromeReady={portalChromeReady}>
+        <Forbidden403 message="Seu perfil Admin/Gerente não permite acesso ao portal do colaborador nem registro de ponto." />
+      </AdminLayout>
+    );
+  }
+
   const LayoutComponent = isAdminRoute ? AdminLayout : isEmployeeRoute ? EmployeeLayout : isAdminOrHr ? AdminLayout : EmployeeLayout;
 
   if (isPortalRoute) {
@@ -2036,7 +2053,7 @@ const AppMain: React.FC = () => {
               path="/admin"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} deniedMode="forbidden">
+                  <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]} deniedMode="forbidden">
                     <AppErrorBoundary>
                       <Outlet />
                     </AppErrorBoundary>
@@ -2116,7 +2133,7 @@ const AppMain: React.FC = () => {
               path="/employee"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                  <RoleGuard user={user} allowedRoles={[...EMPLOYEE_PORTAL_ROLES]}>
                     <AppErrorBoundary>
                       <Outlet />
                     </AppErrorBoundary>
@@ -2156,7 +2173,7 @@ const AppMain: React.FC = () => {
               path="/dashboard-admin"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['admin', 'hr']} deniedMode="forbidden">
+                  <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]} deniedMode="forbidden">
                     <Navigate to="/admin/dashboard" replace />
                   </RoleGuard>
                 </RequireAuth>
@@ -2166,7 +2183,7 @@ const AppMain: React.FC = () => {
               path="/dashboard-colaborador"
               element={
                 <RequireAuth>
-                  <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                  <RoleGuard user={user} allowedRoles={[...EMPLOYEE_PORTAL_ROLES]}>
                     <Navigate to="/employee/dashboard" replace />
                   </RoleGuard>
                 </RequireAuth>
@@ -2175,7 +2192,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/dashboard-employee"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...EMPLOYEE_PORTAL_ROLES]}>
                   <Navigate to="/employee/dashboard" replace />
                 </RoleGuard>
               }
@@ -2183,7 +2200,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/time-clock"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...EMPLOYEE_PORTAL_ROLES]}>
                   <TimeClockPage />
                 </RoleGuard>
               }
@@ -2191,7 +2208,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/time-records"
               element={
-                <RoleGuard user={user} allowedRoles={['employee', 'supervisor', 'admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...EMPLOYEE_PORTAL_ROLES]}>
                   <TimeRecordsPage />
                 </RoleGuard>
               }
@@ -2199,7 +2216,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/settings"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']} redirectTo="/employee/settings">
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]} redirectTo="/employee/settings">
                   <SettingsPage />
                 </RoleGuard>
               }
@@ -2211,7 +2228,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/employees"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]}>
                   <EmployeesPage />
                 </RoleGuard>
               }
@@ -2219,7 +2236,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/schedules"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]}>
                   <SchedulesPage />
                 </RoleGuard>
               }
@@ -2227,7 +2244,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/real-time-insights"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]}>
                   <RealTimeInsightsPage />
                 </RoleGuard>
               }
@@ -2235,7 +2252,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/company"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]}>
                   <CompanyPage user={user} />
                 </RoleGuard>
               }
@@ -2243,7 +2260,7 @@ const AppMain: React.FC = () => {
             <Route
               path="/reports"
               element={
-                <RoleGuard user={user} allowedRoles={['admin', 'hr']}>
+                <RoleGuard user={user} allowedRoles={[...ADMIN_PORTAL_ROLES]}>
                   <ReportsPage />
                 </RoleGuard>
               }

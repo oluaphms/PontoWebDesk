@@ -1813,7 +1813,10 @@ const AdminEmployees: React.FC = () => {
                           <span className="truncate">{getDisplayShortName(row.nome)}</span>
                           {hasAdminAccess(row.role) && (
                             <span className="shrink-0 inline-flex px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                              {accessProfileLabel('ADMIN_RH', row.role === 'hr' ? 'hr' : 'admin')}
+                              {accessProfileLabel(
+                                roleToAccessProfileForm(row.role).accessProfile,
+                                row.role === 'hr' ? 'hr' : 'admin',
+                              )}
                             </span>
                           )}
                         </div>
@@ -2427,7 +2430,8 @@ const AdminEmployees: React.FC = () => {
                                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                               >
                                 <option value="COLABORADOR">Colaborador — dashboard e ponto</option>
-                                <option value="ADMIN_RH">Admin/RH — acesso administrativo completo</option>
+                                <option value="ADMIN_RH">Admin/RH — administrativo completo com registro de ponto</option>
+                                <option value="ADMIN_GERENTE">Admin/Gerente — administrativo completo sem registro de ponto</option>
                               </select>
                             </div>
                             {form.accessProfile === 'ADMIN_RH' && (
@@ -2453,7 +2457,9 @@ const AdminEmployees: React.FC = () => {
                             <p className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
                               {form.accessProfile === 'COLABORADOR'
                                 ? 'Acesso ao dashboard do colaborador, registro de ponto e dados pessoais.'
-                                : 'Acesso ao painel administrativo, colaboradores, relatórios e configurações.'}
+                                : form.accessProfile === 'ADMIN_GERENTE'
+                                  ? 'Acesso total ao painel administrativo. Não registra ponto e não aparece no espelho operacional.'
+                                  : 'Acesso administrativo completo com registro de ponto, espelho e dashboard do colaborador.'}
                             </p>
                           </div>
                         )}

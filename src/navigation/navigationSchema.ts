@@ -4,7 +4,7 @@
  */
 
 import { isAdminOrHrRole } from '../utils/userRole';
-import { COLLABORATOR_MENU_PATHS, isCollaborator } from '../utils/accessProfile';
+import { COLLABORATOR_MENU_PATHS, isCollaborator, hasAdminAccess } from '../utils/accessProfile';
 
 export type NavRole = 'admin' | 'hr' | 'employee';
 
@@ -129,7 +129,7 @@ export type ResolvedRole = 'admin' | 'employee';
  * Normaliza role do usuário para admin (admin/hr) ou employee.
  */
 export function resolveRole(role: string): ResolvedRole {
-  return isAdminOrHrRole(role) ? 'admin' : 'employee';
+  return hasAdminAccess(role) ? 'admin' : 'employee';
 }
 
 /**

@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import Forbidden403 from './Forbidden403';
 import { normalizeUserRole } from '../../utils/userRole';
 
-export type AllowedRole = 'employee' | 'admin' | 'hr' | 'supervisor';
+export type AllowedRole = 'employee' | 'admin' | 'hr' | 'admin_gerente' | 'supervisor';
 
 function normalizeRoleForGuard(role: string | undefined): AllowedRole {
   return normalizeUserRole(role) as AllowedRole;

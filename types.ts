@@ -145,7 +145,7 @@ export interface TimeRecord {
   fraudScore?: number;
 }
 
-export type UserRole = 'employee' | 'admin' | 'supervisor' | 'hr';
+export type UserRole = 'employee' | 'admin' | 'supervisor' | 'hr' | 'admin_gerente';
 
 export interface Permission {
   id: string;
@@ -167,6 +167,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   supervisor: [PERMISSIONS.VIEW_REPORTS, PERMISSIONS.VIEW_AUDIT],
   hr: [PERMISSIONS.VIEW_REPORTS, PERMISSIONS.VIEW_AUDIT, PERMISSIONS.EXPORT_DATA],
   admin: Object.values(PERMISSIONS),
+  admin_gerente: Object.values(PERMISSIONS),
 };
 
 export interface User {

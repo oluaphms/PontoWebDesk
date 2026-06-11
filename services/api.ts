@@ -87,7 +87,16 @@ function normalizeEmail(value: unknown): string {
 
 function isTimesheetVisibleEmployee(row: { role?: unknown; status?: unknown; invisivel?: unknown }): boolean {
   const role = String(row.role ?? '').trim().toLowerCase();
-  if (role === 'admin' || role === 'administrador' || role === 'hr' || role === 'rh') return false;
+  if (
+    role === 'admin' ||
+    role === 'administrador' ||
+    role === 'hr' ||
+    role === 'rh' ||
+    role === 'admin_gerente' ||
+    role === 'admin/gerente'
+  ) {
+    return false;
+  }
   return row.invisivel !== true;
 }
 

@@ -1,6 +1,6 @@
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 
-export type AppRole = 'admin' | 'hr' | 'employee' | 'supervisor';
+export type AppRole = 'admin' | 'hr' | 'admin_gerente' | 'employee' | 'supervisor';
 
 export function authUserId(auth: AuthedRequest['auth']): string {
   if (!auth) return '';
@@ -25,6 +25,7 @@ export function requireCompanyId(req: AuthedRequest, res?: { status: (n: number)
 
 export function normalizeRole(role: string | undefined): string {
   const value = String(role || 'employee').trim().toLowerCase();
+  if (value === 'admin_gerente' || value === 'admin/gerente' || value === 'admin gerente') return 'admin_gerente';
   if (value === 'administrador' || value === 'admin_rh' || value === 'admin/rh') return 'admin';
   if (value === 'rh') return 'hr';
   if (value === 'gestor') return 'supervisor';
@@ -34,7 +35,7 @@ export function normalizeRole(role: string | undefined): string {
 
 export function isAdminOrHr(role: string | undefined): boolean {
   const r = normalizeRole(role);
-  return r === 'admin' || r === 'hr';
+  return r === 'admin' || r === 'hr' || r === 'admin_gerente';
 }
 
 export function isPrivilegedRole(role: string | undefined): boolean {

@@ -31,7 +31,7 @@ export type AuthLoginSuccess = {
     nome: string;
     email: string;
     role: string;
-    accessProfile: 'COLABORADOR' | 'ADMIN_RH';
+    accessProfile: 'COLABORADOR' | 'ADMIN_RH' | 'ADMIN_GERENTE';
     company_id: string;
     cargo: string | null;
     department_id: string | null;

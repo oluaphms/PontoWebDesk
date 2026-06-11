@@ -66,6 +66,12 @@ import {
 import { LoggingService } from '../../../services/loggingService';
 import { LogSeverity } from '../../../types';
 import { reverseGeocodeSnapshot, type GeocodeSnapshot } from '../../services/geolocation/reverseGeocode.service';
+import { extractLatLng } from '../../utils/reverseGeocode';
+import {
+  formatPunchGeoLines,
+  readGeoAddressFromRecord,
+  readGeoAccuracy,
+} from '../../utils/punchGeoDisplay';
 import {
   fetchRepPendingByDate,
   fetchTimesheetsDailyUiByDate,
@@ -177,25 +183,25 @@ type DayIssuesModalState = {
 } | null;
 
 function GeoDetailsToggle({
-  recordId,
-  lat,
-  lng,
+  record,
   notApplicable,
-  accuracy,
 }: {
-  recordId: string;
-  lat: number | null;
-  lng: number | null;
+  record: TimeRecord;
   notApplicable: boolean;
-  accuracy: number | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [loadingGeo, setLoadingGeo] = useState(false);
   const [geo, setGeo] = useState<GeocodeSnapshot | null>(null);
 
+  const ll = extractLatLng(record);
+  const lat = ll?.lat ?? null;
+  const lng = ll?.lng ?? null;
+  const persistedLines = formatPunchGeoLines(record);
+  const accuracy = readGeoAccuracy(record);
+
   useEffect(() => {
     let cancelled = false;
-    if (!expanded || lat == null || lng == null || geo) return;
+    if (lat == null || lng == null || geo || persistedLines.length > 0) return;
     setLoadingGeo(true);
     void reverseGeocodeSnapshot(lat, lng)
       .then(({ snapshot }) => {
@@ -210,12 +216,29 @@ function GeoDetailsToggle({
     return () => {
       cancelled = true;
     };
-  }, [expanded, lat, lng, geo]);
+  }, [lat, lng, geo, persistedLines.length]);
 
-  const gpsText = lat != null && lng != null ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—';
-  const formattedAddress = geo?.formatted_address ?? geo?.formatted ?? null;
-  const street = geo?.street ?? null;
-  const shouldShowStreet = Boolean(street && (!formattedAddress || !formattedAddress.toLowerCase().includes(street.toLowerCase())));
+  const displayLines =
+    persistedLines.length > 0
+      ? persistedLines
+      : geo
+        ? formatPunchGeoLines({
+            ...record,
+            raw_data: {
+              ...(record.raw_data && typeof record.raw_data === 'object' ? record.raw_data : {}),
+              geo_snapshot: {
+                formatted_address: geo.formatted_address ?? geo.formatted,
+                street: geo.street,
+                district: geo.district,
+                city: geo.city,
+                state: geo.state,
+              },
+            },
+          })
+        : ll
+          ? [`${ll.lat.toFixed(6)}`, `${ll.lng.toFixed(6)}`]
+          : [];
+
   const geoQuality =
     accuracy == null || !Number.isFinite(accuracy)
       ? null
@@ -225,28 +248,58 @@ function GeoDetailsToggle({
           ? 'Localização aproximada'
           : null;
 
+  if (lat == null && lng == null) {
+    return (
+      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+        <span className="font-semibold">GPS:</span>{' '}
+        {notApplicable ? 'não se aplica (Relógio REP)' : '—'}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-1">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1 text-left hover:underline"
-      >
-        <span className="font-semibold">GPS:</span> <span className="tabular-nums">{gpsText}</span>
-      </button>
+    <div className="space-y-0.5">
+      <div className="text-[10px] text-slate-600 dark:text-slate-300">
+        <span className="font-semibold">GPS:</span>
+        {loadingGeo && displayLines.length === 0 ? (
+          <span className="ml-1 text-slate-500">Resolvendo endereço...</span>
+        ) : (
+          <div className="mt-0.5 space-y-0.5 break-words">
+            {displayLines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+          </div>
+        )}
+      </div>
       {geoQuality && (
         <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
           {geoQuality}
         </span>
       )}
+      {(readGeoAddressFromRecord(record).formattedAddress || geo) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[10px] text-indigo-600 dark:text-indigo-300 hover:underline"
+        >
+          {expanded ? 'Menos detalhes' : 'Mais detalhes'}
+        </button>
+      )}
       {expanded && (
         <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
-          {lat == null || lng == null ? (
-            <div>{notApplicable ? 'GPS não se aplica (Relógio REP).' : 'Registro sem geolocalização (lançado via desktop/admin).'}</div>
-          ) : loadingGeo ? (
-            <div>Resolvendo endereço...</div>
-          ) : (
-            <>
+          {lat != null && lng != null && (
+            <div className="tabular-nums">
+              {lat.toFixed(6)}, {lng.toFixed(6)}
+            </div>
+          )}
+          {(() => {
+            const formattedAddress = geo?.formatted_address ?? geo?.formatted ?? readGeoAddressFromRecord(record).formattedAddress;
+            const street = geo?.street ?? readGeoAddressFromRecord(record).street;
+            const shouldShowStreet = Boolean(
+              street && (!formattedAddress || !formattedAddress.toLowerCase().includes(street.toLowerCase())),
+            );
+            return (
+              <>
               {formattedAddress && (
                 <div>
                   <span className="font-semibold">Endereço:</span> <span>{formattedAddress}</span>
@@ -273,7 +326,8 @@ function GeoDetailsToggle({
                 </div>
               )}
             </>
-          )}
+            );
+          })()}
         </div>
       )}
     </div>
@@ -818,17 +872,14 @@ const AdminTimesheet: React.FC = () => {
     return WEEKDAY_LABELS[new Date(y, m - 1, day).getDay()] ?? '';
   };
 
-  const renderDateWithWeekday = (dateStr: string) => {
+  const renderWeekdayCell = (dateStr: string) => {
     const weekday = formatWeekdayBR(dateStr);
-    return (
-      <span className="inline-flex items-center gap-2">
-        {weekday && (
-          <span className="inline-flex min-w-9 justify-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {weekday}
-          </span>
-        )}
-        <span>{formatDateBR(dateStr)}</span>
+    return weekday ? (
+      <span className="inline-flex min-w-9 justify-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        {weekday}
       </span>
+    ) : (
+      EMPTY_DASH
     );
   };
 
@@ -1771,7 +1822,8 @@ const AdminTimesheet: React.FC = () => {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Data / Dia</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Dia</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Data</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Entrada</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Saída int.</th>
                   <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Volta int.</th>
@@ -1784,7 +1836,7 @@ const AdminTimesheet: React.FC = () => {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 {virtualRowsEnabled && timesheetVirtualWindow.topSpacerHeight > 0 && (
                   <tr aria-hidden>
-                    <td colSpan={8} className="p-0 border-0" style={{ height: timesheetVirtualWindow.topSpacerHeight }} />
+                    <td colSpan={9} className="p-0 border-0" style={{ height: timesheetVirtualWindow.topSpacerHeight }} />
                   </tr>
                 )}
                 {periodDatesForRender.map((date) => {
@@ -1958,12 +2010,17 @@ const AdminTimesheet: React.FC = () => {
                     return renderTimeCell(null, undefined);
                   };
                   const dayRecs = day.records.filter((r) => !isStatusRecord(r));
+                  const showPunchTimes =
+                    dataNote !== 'Folga' && dataNote !== 'Falta';
                   return (
                     <React.Fragment key={date}>
                     <tr
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
                       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 52px' }}
                     >
+                      <td className="px-3 py-2 text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
+                        {renderWeekdayCell(date)}
+                      </td>
                       <td className="px-3 py-2 text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
                         <div className="flex items-center gap-2 flex-wrap">
                           {dayRecs.length > 0 ? (
@@ -1982,10 +2039,10 @@ const AdminTimesheet: React.FC = () => {
                               ) : (
                                 <ChevronRight className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
                               )}
-                              {renderDateWithWeekday(date)}
+                              {formatDateBR(date)}
                             </button>
                           ) : (
-                            renderDateWithWeekday(date)
+                            formatDateBR(date)
                           )}
                           {dailyCalcUiByDate.has(date) &&
                             (() => {
@@ -2003,23 +2060,6 @@ const AdminTimesheet: React.FC = () => {
                               );
                             })()}
                         </div>
-                        {dataNote && (
-                          <div
-                            className={`text-xs font-semibold mt-0.5 ${
-                              dataNote === 'Falta'
-                                ? 'text-red-600 dark:text-red-400'
-                                : dataNote === 'Folga'
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : dataNote === 'Feriado'
-                                    ? 'text-amber-700 dark:text-amber-300'
-                                    : dataNote === 'Inconsistente'
-                                      ? 'text-rose-600 dark:text-rose-400'
-                                    : 'text-slate-500 dark:text-slate-400'
-                            }`}
-                          >
-                            {dataNote}
-                          </div>
-                        )}
                         {(() => {
                           const rp = repPendingByDate.get(date);
                           if (!rp?.length) return null;
@@ -2046,16 +2086,16 @@ const AdminTimesheet: React.FC = () => {
                         })()}
                       </td>
                       <td className="px-3 py-2">
-                        {renderMirrorSlot(hasRealRecords ? entradaSlotTime : null, hasRealRecords ? entradaSlotRecord : undefined)}
+                        {renderMirrorSlot(showPunchTimes && hasRealRecords ? entradaSlotTime : null, showPunchTimes && hasRealRecords ? entradaSlotRecord : undefined)}
                       </td>
                       <td className="px-3 py-2">
-                        {renderMirrorSlot(hasRealRecords ? saidaIntSlotTime : null, hasRealRecords ? saidaIntSlotRecord : undefined)}
+                        {renderMirrorSlot(showPunchTimes && hasRealRecords ? saidaIntSlotTime : null, showPunchTimes && hasRealRecords ? saidaIntSlotRecord : undefined)}
                       </td>
                       <td className="px-3 py-2">
-                        {renderMirrorSlot(hasRealRecords ? voltaIntSlotTime : null, hasRealRecords ? voltaIntSlotRecord : undefined)}
+                        {renderMirrorSlot(showPunchTimes && hasRealRecords ? voltaIntSlotTime : null, showPunchTimes && hasRealRecords ? voltaIntSlotRecord : undefined)}
                       </td>
                       <td className="px-3 py-2">
-                        {renderMirrorSlot(hasRealRecords ? saidaFinalSlotTime : null, hasRealRecords ? saidaFinalSlotRecord : undefined)}
+                        {renderMirrorSlot(showPunchTimes && hasRealRecords ? saidaFinalSlotTime : null, showPunchTimes && hasRealRecords ? saidaFinalSlotRecord : undefined)}
                       </td>
                       <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">
                         {hasRealRecords && day.workedMinutes > 0
@@ -2133,7 +2173,7 @@ const AdminTimesheet: React.FC = () => {
                     </tr>
                     {dayRecs.length > 0 && detailOpenByDate[date] === true && (
                       <tr className="bg-slate-50/80 dark:bg-slate-800/40 print:bg-transparent">
-                        <td colSpan={8} className="px-3 py-3">
+                        <td colSpan={9} className="px-3 py-3">
                           <div className="space-y-2">
                             {dayRecs.map((r) => {
                               const whenIso = recordEffectiveMirrorInstant(r, date);
@@ -2143,11 +2183,6 @@ const AdminTimesheet: React.FC = () => {
                                     minute: '2-digit',
                                   })
                                 : '—';
-                              const lat = typeof r.latitude === 'number' ? r.latitude : null;
-                              const lng = typeof r.longitude === 'number' ? r.longitude : null;
-                              const raw = (r as TimeRecord & { raw_data?: { geo_snapshot?: { accuracy_meters?: number | null } } }).raw_data;
-                              const accuracyRaw = raw?.geo_snapshot?.accuracy_meters ?? (r as TimeRecord & { accuracy?: number | null }).accuracy ?? null;
-                              const accuracy = typeof accuracyRaw === 'number' && Number.isFinite(accuracyRaw) ? accuracyRaw : null;
                               const origin = resolvePunchOrigin(r);
                               return (
                                 <div key={r.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 text-xs">
@@ -2160,11 +2195,8 @@ const AdminTimesheet: React.FC = () => {
                                   </span>
                                   <div className="min-w-0 flex-1 basis-[min(100%,22rem)] max-w-2xl">
                                     <GeoDetailsToggle
-                                      recordId={r.id}
-                                      lat={lat}
-                                      lng={lng}
+                                      record={r}
                                       notApplicable={origin.kind === 'rep'}
-                                      accuracy={accuracy}
                                     />
                                   </div>
                                 </div>
@@ -2179,7 +2211,7 @@ const AdminTimesheet: React.FC = () => {
                 })}
                 {virtualRowsEnabled && timesheetVirtualWindow.bottomSpacerHeight > 0 && (
                   <tr aria-hidden>
-                    <td colSpan={8} className="p-0 border-0" style={{ height: timesheetVirtualWindow.bottomSpacerHeight }} />
+                    <td colSpan={9} className="p-0 border-0" style={{ height: timesheetVirtualWindow.bottomSpacerHeight }} />
                   </tr>
                 )}
               </tbody>

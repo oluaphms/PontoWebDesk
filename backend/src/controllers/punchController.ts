@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { insertPunchBatchSafe, insertPunchSafe } from '../services/punchService.js';
 import { authUserId, isAdminOrHr, rejectTenantOverride, requireCompanyId } from '../utils/authContext.js';
+import { canRegisterPunch } from '../utils/accessProfile.js';
 import { logAuthDenied } from '../services/authAuditService.js';
 import { logger } from '../logger/logger.js';
 
@@ -80,6 +81,18 @@ export async function createPunchController(req: AuthedRequest, res: Response): 
 
     if (!merged.type) {
       res.status(400).json({ ok: false, error: 'missing_type', message: 'Informe type (ex.: entrada, saida, pausa).' });
+      return;
+    }
+
+    const punchUserId = String(merged.user_id ?? '').trim();
+    const selfId = authUserId(req.auth);
+    if (punchUserId === selfId && !canRegisterPunch(req.auth?.role)) {
+      void logAuthDenied(req, 403, 'forbidden_punch_profile');
+      res.status(403).json({
+        ok: false,
+        error: 'forbidden_punch_profile',
+        message: 'Seu perfil Admin/Gerente não permite registro de ponto.',
+      });
       return;
     }
     logger.info({
