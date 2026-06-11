@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "release": "npm ci --include=dev && npm run build",
     "start": "node dist/server.js",
     "test:api": "node scripts/test-api.js",
     "db:apply-schema": "node scripts/apply-schema.mjs",
