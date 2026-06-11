@@ -100,10 +100,17 @@ import { RepSetupGuide } from './RepSetupGuide';
 import { appendRepOpLogEntry, type RepOpLogEntry, type RepOpLogLevel } from './repOperationalLog';
 import {
   createRepTestConnectionCommand,
+  pollRepCommandResult,
   pollRepTestConnectionResult,
+  REP_COLLECT_POLL_MAX_MS,
   type PollTestConnectionOutcome,
   type PollTestProgressPhase,
 } from '../../../services/repDeviceCommands.service';
+import {
+  fetchLastCollectCommand,
+  formatCollectDiagnosticsForLog,
+  type RepCollectCommandSnapshot,
+} from '../../../services/repCollectDiagnostics.service';
 import {
   countDeviceHistoryRecords,
   deactivateRepDevice,
@@ -178,6 +185,8 @@ const AdminRepDevices: React.FC = () => {
   const [srLog, setSrLog] = useState<RepOpLogEntry[]>([]);
   const [srDeviceClockDisplay, setSrDeviceClockDisplay] = useState<string | null>(null);
   const [deviceUsersOnClockCount, setDeviceUsersOnClockCount] = useState<number | null>(null);
+  const [lastCollectSnapshot, setLastCollectSnapshot] = useState<RepCollectCommandSnapshot | null>(null);
+  const [lastCollectLoading, setLastCollectLoading] = useState(false);
   /** Marcar atraso na entrada vs escala ao importar */
   const [srAllocate, setSrAllocate] = useState(false);
   /** Se marcado, não oferece no envio ao relógio inativos/demitidos/invisíveis. */
@@ -444,6 +453,24 @@ const AdminRepDevices: React.FC = () => {
     setSrLog((prev) => appendRepOpLogEntry(prev, line, level));
   }, []);
 
+  const loadLastCollectSnapshot = useCallback(
+    async (deviceId: string, commandId?: string) => {
+      if (!deviceId) return;
+      const accessToken = getToken();
+      if (!accessToken) return;
+      setLastCollectLoading(true);
+      try {
+        const snap = await fetchLastCollectCommand(deviceId, accessToken, commandId);
+        if (snap) setLastCollectSnapshot(snap);
+      } catch {
+        /* opcional */
+      } finally {
+        setLastCollectLoading(false);
+      }
+    },
+    [],
+  );
+
   const openOperationalHub = useCallback(
     (deviceId?: string) => {
       const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
@@ -451,8 +478,9 @@ const AdminRepDevices: React.FC = () => {
       setSrDeviceClockDisplay(null);
       setDeviceUsersOnClockCount(null);
       setSendReceiveOpen(true);
+      if (targetId) void loadLastCollectSnapshot(targetId);
     },
-    [redeDevices, srDeviceId],
+    [redeDevices, srDeviceId, loadLastCollectSnapshot],
   );
 
   const copyCommandToClipboard = async (command: string) => {
@@ -506,6 +534,34 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog('Aguardando processamento pelo agente local…');
       if (r.command_id) {
         appendSrLog(`ID do comando: ${r.command_id}`);
+        const poll = await pollRepCommandResult(targetDeviceId, r.command_id, accessToken, {
+          maxMs: REP_COLLECT_POLL_MAX_MS,
+        });
+        if (poll.ok) {
+          const rawResult = poll.command.result;
+          const result =
+            rawResult && typeof rawResult === 'object' && !Array.isArray(rawResult)
+              ? (rawResult as Record<string, unknown>)
+              : {};
+          const diag =
+            result.diagnostics && typeof result.diagnostics === 'object' && !Array.isArray(result.diagnostics)
+              ? (result.diagnostics as import('../../../services/repCollectDiagnostics.service').RepCollectDiagnosticsPayload)
+              : {};
+          for (const line of formatCollectDiagnosticsForLog(diag)) {
+            appendSrLog(line, 'success');
+          }
+          appendSrLog('[REP COMMAND FINISH] Coleta concluída pelo agente.', 'success');
+          const msg = String(result.message || 'Coleta concluída.');
+          setMessage({ type: 'success', text: msg });
+          appendSrLog(msg, 'success');
+        } else if (poll.status === 'timeout') {
+          appendSrLog('Tempo esgotado aguardando o agente concluir a coleta (5 min). Verifique agent.log.', 'warning');
+          setMessage({ type: 'warning', text: 'Coleta ainda em andamento ou agente demorou demais.' });
+        } else {
+          appendSrLog(`Falha na coleta: ${poll.message}`, 'error');
+          setMessage({ type: 'error', text: poll.message });
+        }
+        await loadLastCollectSnapshot(targetDeviceId, r.command_id);
       }
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
     } catch (e) {
@@ -2523,7 +2579,10 @@ const AdminRepDevices: React.FC = () => {
           setSrDeviceId(id);
           setSrDeviceClockDisplay(null);
           setDeviceUsersOnClockCount(null);
+          void loadLastCollectSnapshot(id);
         }}
+        lastCollectSnapshot={lastCollectSnapshot}
+        lastCollectLoading={lastCollectLoading}
         onRefreshStatus={() => void srRefreshHubStatus()}
         onCollectStartDateChange={setCollectStartDate}
         onCollectEndDateChange={setCollectEndDate}

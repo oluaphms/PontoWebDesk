@@ -550,6 +550,28 @@ export async function repPunchesController(req: Request, res: Response): Promise
     await processPunchBatch(chunk);
 
   const saved = inserted + duplicates + unresolved;
+  logger.info({
+    module: 'rep.ingest',
+    action: 'REP_UPLOAD',
+    message: '[REP UPLOAD]',
+    companyId: companyId || null,
+    meta: {
+      device_id: deviceId,
+      records: chunk.length,
+      accepted: saved,
+      rejected: errors,
+      unresolved,
+      migration_error: migrationError,
+    },
+  });
+  if (migrationError) {
+    logger.error({
+      module: 'rep.ingest',
+      action: 'MIGRATION_ERROR',
+      message: '[MIGRATION ERROR] rep_ingest_punch — aplique migração 20260520350000+',
+      companyId: companyId || null,
+    });
+  }
   await logRepPipelineTelemetry({
     deviceId,
     companyId: companyId || null,
@@ -592,6 +614,13 @@ export async function repPunchesController(req: Request, res: Response): Promise
   if (allPromoted.length > 0 && companyId) {
     await enqueueRepTimesheetRecalcJobs(companyId, allPromoted);
     calcDaysRecalculated = await processRepCalcDayJobsImmediate(companyId, Math.max(allPromoted.length, 25));
+    logger.info({
+      module: 'rep.pipeline',
+      action: 'REP_TIMESHEET',
+      message: '[REP TIMESHEET]',
+      companyId,
+      meta: { jobs: allPromoted.length, dias_recalculados: calcDaysRecalculated },
+    });
     await logRepPipelineTelemetry({
       deviceId,
       companyId,
@@ -903,6 +932,18 @@ export async function repCommandsController(req: Request, res: Response): Promis
         [auth.companyId, deviceId, command, JSON.stringify(payload)],
       );
       const row = inserted.rows[0];
+      logger.info({
+        module: 'rep.commands',
+        action: 'REP_COMMAND_CREATED',
+        message: '[REP COMMAND CREATED]',
+        companyId: auth.companyId,
+        meta: {
+          command_id: row.id,
+          device_id: deviceId,
+          command,
+          payload,
+        },
+      });
       json(res, 200, {
         ok: true,
         success: true,
@@ -996,6 +1037,7 @@ export async function repCommandsController(req: Request, res: Response): Promis
     if (!auth) return;
     const deviceId = String(req.query.device_id || '').trim();
     const commandId = String(req.query.command_id || '').trim();
+    const commandFilter = String(req.query.command || '').trim();
     const latest = String(req.query.latest || '') === 'true';
     const params: unknown[] = [auth.companyId];
     const clauses = ['company_id::text = $1'];
@@ -1006,6 +1048,10 @@ export async function repCommandsController(req: Request, res: Response): Promis
     if (commandId) {
       params.push(commandId);
       clauses.push(`id::text = $${params.length}`);
+    }
+    if (commandFilter) {
+      params.push(commandFilter);
+      clauses.push(`command = $${params.length}`);
     }
     const limit = latest ? 1 : 20;
     const result = await pool.query(

@@ -427,7 +427,7 @@ function logStartupConfig() {
     observabilityConsole.warn(
       '[rep-agent] AVISO: alvo é loopback (mock). Para relógio na LAN, ajuste .env.local ou use PowerShell:\n' +
         '  $env:REP_AGENT_SKIP_DOTENV="1"\n' +
-        '  $env:REP_DEVICE_IP="192.168.1.19"\n' +
+        '  $env:REP_DEVICE_IP="192.168.1.20"\n' +
         '  $env:REP_DEVICE_PORT="443"\n' +
         '  $env:REP_DEVICE_SCHEME="https"\n' +
         '  $env:REP_INSECURE_TLS="1"\n' +
@@ -1954,6 +1954,30 @@ async function runCycleForManualCollect() {
   return cycle;
 }
 
+function buildCollectDiagnostics(cycle, flushStats) {
+  const afd = cycle?.afdMetrics && typeof cycle.afdMetrics === 'object' ? cycle.afdMetrics : {};
+  const uploaded = Number(flushStats?.sent ?? 0) + Number(flushStats?.duplicate ?? 0) + Number(flushStats?.unresolved ?? 0);
+  return {
+    login_ok: !lastRepLoginDiagnostic,
+    login_error: lastRepLoginDiagnostic || null,
+    device_url: agentClockBaseUrl(),
+    device_ip: ip,
+    afd_downloaded: afd.downloaded === true,
+    afd_bytes: afd.bytes ?? null,
+    afd_lines: afd.lines ?? null,
+    afd_valid: afd.valid ?? null,
+    afd_invalid: afd.invalid ?? null,
+    afd_in_scope: afd.inScope ?? cycle?.total ?? null,
+    queued: Number(cycle?.ok ?? 0),
+    uploaded,
+    upload_rejected: Number(flushStats?.failed ?? 0),
+    upload_unresolved: Number(flushStats?.unresolved ?? 0),
+    pending_left: Number(flushStats?.pendingLeft ?? countPendingPunches()),
+    migration_error: flushStats?.migration_error === true,
+    mode: cycle?.mode ?? null,
+  };
+}
+
 async function executeCollectPunchesCommand(cmd) {
   const payload = cmd.payload && typeof cmd.payload === 'object' ? cmd.payload : {};
   const startDate = String(payload.start_date || '').trim();
@@ -1973,12 +1997,18 @@ async function executeCollectPunchesCommand(cmd) {
   try {
     // ingestViaAFD já usa runExclusiveRepAfdIngest — evitar duplo mutex (deadlock).
     const cycle = await runCycleForManualCollect();
+    const flushStats = cycle?.flushStats && typeof cycle.flushStats === 'object'
+      ? cycle.flushStats
+      : await flushPunchQueue();
     const sentOk = Number(cycle?.ok ?? 0);
     const parsed = Number(cycle?.total ?? 0);
+    const diagnostics = buildCollectDiagnostics(cycle, flushStats);
+    const uploaded = diagnostics.uploaded;
     const mode = String(cycle?.mode ?? '');
     const failed =
       mode === 'MANUAL_IMPORT_REQUIRED' ||
-      (sentOk === 0 && parsed === 0);
+      diagnostics.migration_error ||
+      (sentOk === 0 && parsed === 0 && uploaded === 0);
     if (failed) {
       const hint =
         scheme === 'https' && String(port) === '443'
@@ -1988,57 +2018,67 @@ async function executeCollectPunchesCommand(cmd) {
         mode: mode || 'manual',
         start_date: startDate,
         end_date: endDate,
-        error: 'nenhuma_batida_coletada',
+        error: diagnostics.migration_error ? 'migration_error' : 'nenhuma_batida_coletada',
+        diagnostics,
       });
       return {
         success: false,
-        message: `Nenhuma batida coletada no período ${startDate} a ${endDate}.${hint}`,
+        message: diagnostics.migration_error
+          ? 'Erro de migração no servidor (rep_ingest_punch). Aplique migração 20260520350000+ e reinicie a API.'
+          : `Nenhuma batida coletada no período ${startDate} a ${endDate}.${hint}`,
         start_date: startDate,
         end_date: endDate,
         sent_ok: sentOk,
+        uploaded,
         duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
         errors: cycle?.sendErrors ?? 0,
         parsed,
         pre_skipped: cycle?.preSkipped ?? 0,
         mode,
+        diagnostics,
       };
     }
     agentLog.collectionSuccess({
       mode: cycle?.mode ?? 'unknown',
       sent_ok: sentOk,
+      uploaded,
       pre_skipped: cycle?.preSkipped ?? 0,
       parsed,
       start_date: startDate,
       end_date: endDate,
+      diagnostics,
     });
     agentLog.repPromotion({
       device_id: deviceId,
       company_id: companyId,
       records_received: parsed,
-      records_saved: sentOk,
-      records_promoted: sentOk,
       records_queued: sentOk,
+      records_uploaded: uploaded,
+      records_pending: diagnostics.pending_left,
       duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
       start_date: startDate,
       end_date: endDate,
-      note: 'records_promoted=enviados à fila local; promoção real ocorre na API',
+      note: 'Promoção para time_records ocorre na API após REP UPLOAD',
     });
     agentLog.repTimesheet({
       device_id: deviceId,
       company_id: companyId,
-      pending_left: countPendingPunches(),
-      message: 'Batidas enfileiradas — upload em background via REP_UPLOAD',
+      pending_left: diagnostics.pending_left,
+      uploaded,
+      message: diagnostics.pending_left > 0 ? 'Ainda há batidas na fila local' : 'Fila local drenada',
     });
     return {
       success: true,
-      message: `Coleta concluída (${startDate} a ${endDate}): ${sentOk} batida(s) enviada(s).`,
+      message: `Coleta concluída (${startDate} a ${endDate}): ${uploaded} batida(s) enviada(s) à API${diagnostics.pending_left > 0 ? `; ${diagnostics.pending_left} ainda na fila local` : ''}.`,
       start_date: startDate,
       end_date: endDate,
       sent_ok: sentOk,
+      uploaded,
       duplicates: cycle?.duplicate ?? cycle?.skip ?? 0,
       errors: cycle?.sendErrors ?? 0,
       parsed,
       pre_skipped: cycle?.preSkipped ?? 0,
+      diagnostics,
     };
   } catch (e) {
     agentLog.collectionFailure({
@@ -3025,6 +3065,7 @@ async function ingestViaAFD() {
       total: 0,
       sendErrors: 0,
       fatal: false,
+      afdMetrics: { downloaded: false, bytes: 0, lines: 0, valid: 0, invalid: 0, inScope: 0 },
     };
   }
 
@@ -3035,6 +3076,7 @@ async function ingestViaAFD() {
     .map((l) => normalizeAfdRawLine(l))
     .filter((l) => l && /^\d+$/.test(l)).length;
   const parsedAll = parseAFD(rawText);
+  const invalidLines = Math.max(0, numericLines - parsedAll.length);
   if (numericLines > 0 && parsedAll.length < numericLines) {
     observabilityConsole.log(
       `[REP AFD] ${numericLines} linhas numéricas no arquivo, ${parsedAll.length} parseadas (tipos 3/6/7 Control iD).`
@@ -3042,13 +3084,19 @@ async function ingestViaAFD() {
   }
   const afdFileName = String(url || '').split('/').pop() || 'afd.txt';
   observabilityConsole.log(
-    '[REP PARSE]',
-    `arquivo=${afdFileName} linhas=${numericLines} registros_validos=${parsedAll.length}`,
+    '[REP AFD PARSE]',
+    JSON.stringify({
+      linhas: numericLines,
+      validas: parsedAll.length,
+      invalidas: invalidLines,
+      arquivo: afdFileName,
+    }),
   );
   agentLog.afdParse({
     arquivo: afdFileName,
     linhas: numericLines,
     registros_validos: parsedAll.length,
+    invalidas: invalidLines,
     url,
   });
   logAfdParsedDateStats(parsedAll);
@@ -3085,7 +3133,25 @@ async function ingestViaAFD() {
     observabilityConsole.log(
       '[rep-agent] Dicas: batida de teste no relógio; $env:REP_AFD_PORTARIA_671="1"; coleta manual 2026-05-19..2026-05-19 no painel.'
     );
-    return { mode: 'AFD', ok: 0, skip: 0, duplicate: 0, preSkipped: 0, total: 0, sendErrors: 0, fatal: false };
+    return {
+      mode: 'AFD',
+      ok: 0,
+      skip: 0,
+      duplicate: 0,
+      preSkipped: 0,
+      total: 0,
+      sendErrors: 0,
+      fatal: false,
+      afdMetrics: {
+        downloaded: true,
+        bytes: rawText.length,
+        lines: numericLines,
+        valid: parsedAll.length,
+        invalid: invalidLines,
+        inScope: 0,
+        url,
+      },
+    };
   }
 
   const processed = await loadProcessedNsrCache();
@@ -3172,9 +3238,19 @@ async function ingestViaAFD() {
     observabilityConsole.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
   }
 
-  await flushPunchQueue();
+  const flushStats = await flushPunchQueue();
 
-  return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length, sendErrors, fatal: false };
+  const afdMetrics = {
+    downloaded: true,
+    bytes: rawText.length,
+    lines: numericLines,
+    valid: parsedAll.length,
+    invalid: invalidLines,
+    inScope: records.length,
+    url,
+  };
+
+  return { mode: 'AFD', ok, skip, duplicate, preSkipped, total: records.length, sendErrors, fatal: false, afdMetrics, flushStats };
   });
 }
 

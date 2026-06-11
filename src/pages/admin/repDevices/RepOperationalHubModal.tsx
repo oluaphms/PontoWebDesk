@@ -18,6 +18,8 @@ import { cx } from '../../../styles/cx';
 import type { DeviceSyncStatusSnapshot, EmployeeForRep, RepDeviceRow } from './types';
 import { repOpLogLevelClass, type RepOpLogEntry } from './repOperationalLog';
 import { isRepAgentOnlineForDevice, isLocalAgentRepDevice } from './utils';
+import { RepCollectDiagnosticsSection } from './RepCollectDiagnosticsSection';
+import type { RepCollectCommandSnapshot } from '../../../services/repCollectDiagnostics.service';
 
 export type RepOperationalHubModalProps = {
   open: boolean;
@@ -58,6 +60,8 @@ export type RepOperationalHubModalProps = {
   onReadConfig: () => void;
   onReadEquipmentInfo: () => void;
   onViewPendingPis: () => void;
+  lastCollectSnapshot: RepCollectCommandSnapshot | null;
+  lastCollectLoading: boolean;
 };
 
 function buildDeviceSubtitle(device: RepDeviceRow | null): string {
@@ -107,6 +111,8 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   onReadConfig,
   onReadEquipmentInfo,
   onViewPendingPis,
+  lastCollectSnapshot,
+  lastCollectLoading,
 }) => {
   const [pcClock, setPcClock] = useState(() => new Date().toLocaleString('pt-BR'));
 
@@ -301,6 +307,8 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               ponto.
             </p>
           </section>
+
+          <RepCollectDiagnosticsSection snapshot={lastCollectSnapshot} loading={lastCollectLoading} />
 
           {/* BLOCO 3 — DATA E HORA */}
           <section className={blockClass} aria-labelledby="rep-hub-clock">

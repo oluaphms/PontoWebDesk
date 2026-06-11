@@ -221,7 +221,13 @@ export async function sendPunchBatch(opts = {}) {
     }
 
     if (!res.ok || !data || data.ok === false) {
-      observabilityConsole.warn('[BATCH ERROR]', res.status, data?.error || text.slice(0, 500));
+      observabilityConsole.warn('[REP UPLOAD]', JSON.stringify({
+        http_status: res.status,
+        records: punches.length,
+        accepted: 0,
+        rejected: punches.length,
+        error: data?.error || text.slice(0, 300),
+      }));
       bumpSyncBackoff();
       return { sent: 0, duplicate: 0, failed: punches.length, pendingLeft: countPendingPunches() };
     }
@@ -310,6 +316,9 @@ export async function sendPunchBatch(opts = {}) {
       errors: data.errors ?? null,
       migration_error: data.migration_error === true,
     };
+    if (summary.migration_error) {
+      observabilityConsole.error('[MIGRATION ERROR]', 'rep_ingest_punch desatualizada — aplique migração 20260520350000+');
+    }
     if (sent > 0 || duplicate > 0) {
       agentLog.punchSendSuccess(summary);
     } else if (failed > 0) {
@@ -363,13 +372,37 @@ export function stopPunchSyncLoop() {
   }
 }
 
-/** Drena a fila (fim de ciclo de coleta). */
+/** Drena a fila (fim de ciclo de coleta). Devolve totais agregados. */
 export async function flushPunchQueue(maxRounds = 20) {
+  const totals = {
+    sent: 0,
+    duplicate: 0,
+    failed: 0,
+    unresolved: 0,
+    pendingLeft: countPendingPunches(),
+    rounds: 0,
+    migration_error: false,
+    degraded: false,
+  };
   for (let i = 0; i < maxRounds; i += 1) {
     const pending = countPendingPunches();
-    if (pending === 0) return;
+    totals.pendingLeft = pending;
+    if (pending === 0) return totals;
     const r = await sendPunchBatch({ force: true });
-    if (!r || r.degraded) break;
-    if (r.sent === 0 && r.duplicate === 0 && r.failed > 0) break;
+    totals.rounds += 1;
+    if (!r) break;
+    if (r.degraded) {
+      totals.degraded = true;
+      break;
+    }
+    totals.sent += Number(r.sent ?? 0);
+    totals.duplicate += Number(r.duplicate ?? 0);
+    totals.failed += Number(r.failed ?? 0);
+    totals.unresolved += Number(r.unresolved ?? 0);
+    if (r.migration_error === true) totals.migration_error = true;
+    totals.pendingLeft = Number(r.pendingLeft ?? countPendingPunches());
+    if (r.sent === 0 && r.duplicate === 0 && r.unresolved === 0 && r.failed > 0) break;
   }
+  totals.pendingLeft = countPendingPunches();
+  return totals;
 }

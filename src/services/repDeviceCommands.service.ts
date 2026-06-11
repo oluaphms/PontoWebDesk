@@ -18,6 +18,11 @@ export type RepDeviceCommandRow = {
     attempt?: number;
     agent_version?: string;
     device_ip?: string;
+    diagnostics?: Record<string, unknown>;
+    sent_ok?: number;
+    uploaded?: number;
+    parsed?: number;
+    [key: string]: unknown;
   } | null;
   created_at?: string;
   updated_at?: string;
@@ -39,6 +44,8 @@ export type PollTestConnectionOutcome =
 export const REP_TEST_POLL_INTERVAL_MS = 1000;
 /** Agente faz poll a cada ~15–60s — timeout cobre vários ciclos + execução LAN. */
 export const REP_TEST_POLL_MAX_MS = 120_000;
+/** Coleta AFD + upload pode levar vários minutos em relógios grandes. */
+export const REP_COLLECT_POLL_MAX_MS = 300_000;
 export const REP_TEST_WAITING_HINT_MS = 15_000;
 export const REP_TEST_SLOW_HINT_MS = 45_000;
 
@@ -74,10 +81,11 @@ export async function createRepTestConnectionCommand(
 export async function fetchLatestRepDeviceCommand(
   deviceId: string,
   accessToken: string,
-  commandId?: string,
+  options?: { commandId?: string; command?: string },
 ): Promise<RepDeviceCommandRow | null> {
   const qs = new URLSearchParams({ device_id: deviceId, latest: 'true' });
-  if (commandId) qs.set('command_id', commandId);
+  if (options?.commandId) qs.set('command_id', options.commandId);
+  if (options?.command) qs.set('command', options.command);
   const data = (await apiGet(`/rep/commands?${qs}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -110,7 +118,7 @@ export async function pollRepCommandResult(
   const deadline = Date.now() + maxMs;
 
   while (Date.now() < deadline) {
-    const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, commandId);
+    const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, { commandId });
     if (row?.status === 'done') {
       return { ok: true, status: 'done', command: row };
     }
@@ -154,7 +162,7 @@ export async function pollRepTestConnectionResult(
 
   while (Date.now() < deadline) {
     const elapsed = Date.now() - started;
-    const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, commandId);
+    const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, { commandId });
     const commandStatus = (row?.status as RepCommandPollStatus) ?? null;
     if (elapsed >= REP_TEST_SLOW_HINT_MS) emit('agent_slow', commandStatus);
     else if (elapsed >= REP_TEST_WAITING_HINT_MS) emit('waiting_agent', commandStatus);
