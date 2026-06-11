@@ -25,8 +25,43 @@ export interface CreateFraudAlertParams {
   severity?: 'low' | 'medium' | 'high';
 }
 
+async function persistGeoSnapshotOnTimeRecord(
+  timeRecordId: string,
+  geoSnapshot: Record<string, unknown>,
+): Promise<void> {
+  const rows = await db.select(
+    'time_records',
+    [{ column: 'id', operator: 'eq', value: timeRecordId }],
+    undefined,
+    1,
+  );
+  const row = rows[0];
+  const prevRaw =
+    row?.raw_data && typeof row.raw_data === 'object' && !Array.isArray(row.raw_data)
+      ? (row.raw_data as Record<string, unknown>)
+      : {};
+  if (prevRaw.geo_snapshot) return;
+  await db.update('time_records', timeRecordId, {
+    raw_data: { ...prevRaw, geo_snapshot: geoSnapshot },
+  });
+}
+
 export async function savePunchEvidence(params: SavePunchEvidenceParams): Promise<void> {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
+  const isLocalApi = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
+
+  if (isLocalApi) {
+    if (params.geoSnapshot) {
+      try {
+        await persistGeoSnapshotOnTimeRecord(params.timeRecordId, params.geoSnapshot);
+      } catch (e) {
+        if (import.meta.env?.DEV && typeof console !== 'undefined') {
+          observabilityConsole.warn('[punch_evidence] geo snapshot (LOCAL_API) falhou:', e);
+        }
+      }
+    }
+    return;
+  }
+
   if (!isSupabaseConfigured()) return;
   const row = {
     time_record_id: params.timeRecordId,

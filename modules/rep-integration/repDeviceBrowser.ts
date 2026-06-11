@@ -4,6 +4,7 @@
 
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
 import { buildApiUrl } from '../../src/services/api';
+import { pollRepCommandResult } from '../../src/services/repDeviceCommands.service';
 
 /** Evita que o modal «Enviar e Receber» fique sem resposta se o proxy/rede travar. */
 async function fetchWithRepTimeout(
@@ -205,6 +206,72 @@ export async function pushEmployeeToDeviceViaApi(
   return { ok: true, message: toUiString(data.message, 'Funcionário enviado ao relógio.') };
 }
 
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function pad2(n: unknown): string {
+  return String(n ?? '0').padStart(2, '0');
+}
+
+/** Formata resposta do Control iD get_system_date_time para exibição. */
+export function formatRepClockDataForDisplay(data: unknown): string {
+  if (data == null) return '—';
+  if (typeof data === 'string') {
+    const t = data.trim();
+    if (isUuidLike(t)) {
+      return 'Resposta inválida (ID de comando). Aguarde o agente concluir a leitura ou tente novamente.';
+    }
+    return t;
+  }
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    const o = data as Record<string, unknown>;
+    if (o.day != null && o.month != null && o.year != null) {
+      return `${pad2(o.day)}/${pad2(o.month)}/${o.year} ${pad2(o.hour)}:${pad2(o.minute)}:${pad2(o.second)}`;
+    }
+  }
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch {
+    return String(data);
+  }
+}
+
+/** Control iD usa `name`; UI espera `nome`. */
+export function normalizeRepUsersFromDevice(raw: unknown): RepUserFromDevice[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const o = item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : {};
+      const nome = String(o.nome ?? o.name ?? '').trim();
+      const pis = o.pis != null ? String(o.pis).trim() : '';
+      const cpf = o.cpf != null ? String(o.cpf).trim() : '';
+      const matricula = String(o.matricula ?? o.registration ?? '').trim();
+      return {
+        nome: nome || '—',
+        pis: pis || undefined,
+        cpf: cpf || undefined,
+        matricula: matricula || undefined,
+        raw: o,
+      };
+    })
+    .filter((u) => u.nome !== '—' || u.pis || u.cpf || u.matricula);
+}
+
+function extractExchangeFromCommandResult(result: Record<string, unknown> | null | undefined): {
+  ok: boolean;
+  message: string;
+  data?: unknown;
+  users?: RepUserFromDevice[];
+} {
+  const r = result && typeof result === 'object' ? result : {};
+  const success = r.success !== false && r.ok !== false;
+  const message = toUiString(r.message, success ? 'Operação concluída.' : 'Operação falhou.');
+  const users = normalizeRepUsersFromDevice(r.users);
+  const data = r.data ?? (users.length ? undefined : null);
+  return { ok: success, message, data, users: users.length ? users : undefined };
+}
+
 /** Envia/recebe dados auxiliares (hora, info, lista de usuários no relógio). */
 export async function repExchangeViaApi(
   deviceId: string,
@@ -241,17 +308,33 @@ export async function repExchangeViaApi(
     return { ok: false, message: err, error: err, data: data.data, users: data.users as RepUserFromDevice[] | undefined };
   }
   if (typeof data.command_id === 'string' && data.command_id) {
+    const polled = await pollRepCommandResult(deviceId, data.command_id, accessToken);
+    if (!polled.ok) {
+      return {
+        ok: false,
+        error: polled.message,
+        message: polled.message,
+      };
+    }
+    const parsed = extractExchangeFromCommandResult(
+      (polled.command.result as Record<string, unknown> | null | undefined) ?? null,
+    );
+    if (!parsed.ok) {
+      return { ok: false, message: parsed.message, error: parsed.message };
+    }
     return {
       ok: true,
-      message: 'Comando enfileirado para o agente local. Aguarde o próximo ciclo do agente.',
-      data: data.command_id,
+      message: parsed.message,
+      data: parsed.data,
+      users: parsed.users,
     };
   }
   const okMsg = data.message != null ? toUiString(data.message) : '';
+  const directUsers = normalizeRepUsersFromDevice(data.users);
   return {
     ok: true,
     message: okMsg || undefined,
     data: data.data,
-    users: data.users as RepUserFromDevice[] | undefined,
+    users: directUsers.length ? directUsers : (data.users as RepUserFromDevice[] | undefined),
   };
 }

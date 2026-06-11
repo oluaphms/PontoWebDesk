@@ -168,6 +168,10 @@ type TimeRecord = {
   manual_reason?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  accuracy?: number | null;
+  location?: unknown;
+  raw_data?: unknown;
+  metadata?: unknown;
   is_manual?: boolean;
   source?: string | null;
   method?: string | null;

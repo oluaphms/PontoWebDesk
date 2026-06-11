@@ -94,6 +94,39 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export type RepCommandPollOutcome =
+  | { ok: true; status: 'done'; command: RepDeviceCommandRow }
+  | { ok: false; status: 'error' | 'cancelled' | 'timeout'; message: string; command?: RepDeviceCommandRow | null };
+
+/** Aguarda comando REP (exchange, push_employee, etc.) concluir no agente. */
+export async function pollRepCommandResult(
+  deviceId: string,
+  commandId: string,
+  accessToken: string,
+  options?: { intervalMs?: number; maxMs?: number },
+): Promise<RepCommandPollOutcome> {
+  const intervalMs = options?.intervalMs ?? REP_TEST_POLL_INTERVAL_MS;
+  const maxMs = options?.maxMs ?? 180_000;
+  const deadline = Date.now() + maxMs;
+
+  while (Date.now() < deadline) {
+    const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, commandId);
+    if (row?.status === 'done') {
+      return { ok: true, status: 'done', command: row };
+    }
+    if (row?.status === 'error' || row?.status === 'cancelled') {
+      const result = row.result ?? {};
+      const msg =
+        String(result.message || '').trim() ||
+        (row.status === 'cancelled' ? 'Comando cancelado.' : 'Comando falhou no agente.');
+      return { ok: false, status: row.status, message: msg, command: row };
+    }
+    await sleep(intervalMs);
+  }
+
+  return { ok: false, status: 'timeout', message: 'AGENT_COMMAND_TIMEOUT', command: null };
+}
+
 export async function pollRepTestConnectionResult(
   deviceId: string,
   commandId: string,

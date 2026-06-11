@@ -2088,13 +2088,24 @@ async function executeExchangeCommand(cmd) {
       `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
       { limit: 1000 },
     );
-    const users = Array.isArray(data?.users)
+    const rawUsers = Array.isArray(data?.users)
       ? data.users
       : Array.isArray(data)
         ? data
         : Array.isArray(data?.objects)
           ? data.objects
           : [];
+    const users = rawUsers.map((u) => {
+      const o = u && typeof u === 'object' ? u : {};
+      const nome = String(o.nome ?? o.name ?? '').trim();
+      return {
+        nome: nome || '—',
+        pis: o.pis != null ? String(o.pis) : undefined,
+        cpf: o.cpf != null ? String(o.cpf) : undefined,
+        matricula: o.matricula != null ? String(o.matricula) : o.registration != null ? String(o.registration) : undefined,
+        raw: o,
+      };
+    });
     return { success: true, ok: true, message: `${users.length} usuário(s) lido(s) do relógio.`, users, data: data ?? text };
   }
 

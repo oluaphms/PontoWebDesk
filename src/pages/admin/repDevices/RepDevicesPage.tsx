@@ -50,6 +50,7 @@ import { tryRepUniqueWeakPisMatch } from '../../../../modules/rep-integration/re
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { LS_TIMESHEET_SPECIAL_BARS, readSpecialBarsPref, SPECIAL_BARS_CHANGED } from '../../../utils/timesheetLayoutPrefs';
 import {
+  formatRepClockDataForDisplay,
   pushEmployeeToDeviceViaApi,
   repExchangeViaApi,
   toUiString,
@@ -2035,8 +2036,7 @@ const AdminRepDevices: React.FC = () => {
         return;
       }
       if (op === 'pull_clock') {
-        const body =
-          typeof r.data === 'string' ? r.data : JSON.stringify(r.data ?? {}, null, 2);
+        const body = formatRepClockDataForDisplay(r.data);
         setDetailModal({ title: 'Data e hora no relógio', body });
         appendSrLog('Hora lida. Abra o painel de detalhes.');
         setMessage({ type: 'success', text: 'Hora lida do relógio.' });

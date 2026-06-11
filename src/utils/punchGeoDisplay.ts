@@ -20,13 +20,43 @@ export type PunchGeoSnapshot = {
   } | null;
 };
 
+function readObjectField(row: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const v = row[key];
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
 export function getGeoSnapshot(row: unknown): PunchGeoSnapshot | null {
   if (!row || typeof row !== 'object') return null;
-  const raw = (row as { raw_data?: unknown }).raw_data;
-  if (!raw || typeof raw !== 'object') return null;
-  const snap = (raw as { geo_snapshot?: unknown }).geo_snapshot;
-  if (!snap || typeof snap !== 'object') return null;
-  return snap as PunchGeoSnapshot;
+  const rec = row as Record<string, unknown>;
+
+  const raw = readObjectField(rec, 'raw_data');
+  const snapFromRaw = raw?.geo_snapshot;
+  if (snapFromRaw && typeof snapFromRaw === 'object') return snapFromRaw as PunchGeoSnapshot;
+
+  const metadata = readObjectField(rec, 'metadata');
+  const snapFromMeta = metadata?.geo_snapshot;
+  if (snapFromMeta && typeof snapFromMeta === 'object') return snapFromMeta as PunchGeoSnapshot;
+
+  const payload = readObjectField(rec, 'raw_data')?.payload;
+  if (payload && typeof payload === 'object') {
+    const p = payload as Record<string, unknown>;
+    const snapFromPayload = p.geo_snapshot;
+    if (snapFromPayload && typeof snapFromPayload === 'object') return snapFromPayload as PunchGeoSnapshot;
+    const geocode = p.geocode_snapshot;
+    if (geocode && typeof geocode === 'object') {
+      return { geocode_snapshot: geocode as PunchGeoSnapshot['geocode_snapshot'] };
+    }
+  }
+
+  const location = readObjectField(rec, 'location');
+  if (location?.formatted_address || location?.formatted) {
+    return {
+      formatted_address: String(location.formatted_address ?? location.formatted ?? ''),
+      geocode_snapshot: location as PunchGeoSnapshot['geocode_snapshot'],
+    };
+  }
+
+  return null;
 }
 
 export function readGeoAddressFromRecord(row: unknown): {
