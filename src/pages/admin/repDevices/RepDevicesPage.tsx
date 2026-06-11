@@ -17,16 +17,7 @@ import {
   findTimeRecordIdByCompanySourceNsr,
 } from '../../../../services/timeRecords.service';
 import { LoadingState, Button } from '../../../../components/UI';
-import {
-  Activity,
-  ArrowLeftRight,
-  ClipboardCheck,
-  Clock,
-  Download,
-  Plus,
-  Upload,
-  UserPlus,
-} from 'lucide-react';
+import { Clock, Plus } from 'lucide-react';
 import { testRepDeviceConnection, syncRepDevice } from '../../../../modules/rep-integration/repSyncJob';
 import { enqueueRepCollect } from '../../../services/repCollect.service';
 import type { RepIngestBatchProgress } from '../../../../modules/rep-integration/repService';
@@ -103,7 +94,9 @@ import { RepConnectionStatus } from './RepConnectionStatus';
 import { RepDeploymentNote } from './RepDeploymentNote';
 import { RepDeviceDeleteModal } from './RepDeviceDeleteModal';
 import { RepDevicesListSection } from './RepDevicesListSection';
+import { RepOperationalHubModal } from './RepOperationalHubModal';
 import { RepSetupGuide } from './RepSetupGuide';
+import { appendRepOpLogEntry, type RepOpLogEntry, type RepOpLogLevel } from './repOperationalLog';
 import {
   createRepTestConnectionCommand,
   pollRepTestConnectionResult,
@@ -117,7 +110,7 @@ import {
   type RepDeviceDeleteOutcome,
 } from '../../../services/repDevices.service';
 import { useRepDevicesDerived } from './useRepDevicesDerived';
-import { repUiPatterns, uiTokens } from '../../../styles/tokens';
+import { uiTokens } from '../../../styles/tokens';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { cx } from '../../../styles/cx';
 import { repUiClasses } from '../../../styles/repUiClasses';
@@ -180,7 +173,8 @@ const AdminRepDevices: React.FC = () => {
   /** Modal Enviar e Receber (REP rede) */
   const [sendReceiveOpen, setSendReceiveOpen] = useState(false);
   const [srDeviceId, setSrDeviceId] = useState('');
-  const [srLog, setSrLog] = useState('');
+  const [srLog, setSrLog] = useState<RepOpLogEntry[]>([]);
+  const [srDeviceClockDisplay, setSrDeviceClockDisplay] = useState<string | null>(null);
   /** Marcar atraso na entrada vs escala ao importar */
   const [srAllocate, setSrAllocate] = useState(false);
   /** Se marcado, não oferece no envio ao relógio inativos/demitidos/invisíveis. */
@@ -188,8 +182,6 @@ const AdminRepDevices: React.FC = () => {
   /** Espelho de ponto com barras destacadas (layout alternativo) */
   const [srSpecialBars, setSrSpecialBars] = useState(false);
   const [srPushUserId, setSrPushUserId] = useState('');
-  /** Sub-modal: escopo ao receber batidas */
-  const [srReceiveDialogOpen, setSrReceiveDialogOpen] = useState(false);
   const [srReceiveScope, setSrReceiveScope] = useState<'incremental' | 'today_only'>('incremental');
   /** Opcional: consolidar só para um colaborador (outros NIS ficam na fila). */
   const [srConsolidateOnlyUserId, setSrConsolidateOnlyUserId] = useState('');
@@ -208,7 +200,6 @@ const AdminRepDevices: React.FC = () => {
   /** Loading durante ignorar batidas */
   const [ignoringPunches, setIgnoringPunches] = useState(false);
   /** Sub-modal: enviar / status / funcionários / config */
-  const [srSendDialogOpen, setSrSendDialogOpen] = useState(false);
   const [srPushAllRunning, setSrPushAllRunning] = useState(false);
   const [showInactiveDevices, setShowInactiveDevices] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -508,21 +499,19 @@ const AdminRepDevices: React.FC = () => {
     srPushAllRunning,
   });
 
-  const appendSrLog = useCallback((line: string) => {
-    const ts = new Date().toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    setSrLog((prev) => (prev ? `${prev}\n` : '') + `[${ts}] ${line}`);
+  const appendSrLog = useCallback((line: string, level?: RepOpLogLevel) => {
+    setSrLog((prev) => appendRepOpLogEntry(prev, line, level));
   }, []);
 
-  const openSendReceivePanel = useCallback((deviceId?: string, openSendPanel = false) => {
-    const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
-    setSrDeviceId(targetId);
-    setSendReceiveOpen(true);
-    if (openSendPanel) setSrSendDialogOpen(true);
-  }, [redeDevices, srDeviceId]);
+  const openOperationalHub = useCallback(
+    (deviceId?: string) => {
+      const targetId = deviceId || srDeviceId || redeDevices[0]?.id || '';
+      setSrDeviceId(targetId);
+      setSrDeviceClockDisplay(null);
+      setSendReceiveOpen(true);
+    },
+    [redeDevices, srDeviceId],
+  );
 
   const copyCommandToClipboard = async (command: string) => {
     try {
@@ -566,13 +555,16 @@ const AdminRepDevices: React.FC = () => {
       }
       setMessage({
         type: 'success',
-        text:
-          r.message ||
-          'Coleta enfileirada. Com o agente local ativo, as batidas serão importadas em até 1 minuto.',
+        text: r.message || 'Coleta iniciada com sucesso. Comando enviado ao agente.',
       });
       appendSrLog(
-        `[REP COLLECT] ${collectStartDate} → ${collectEndDate} (comando ${r.command_id || '—'})`,
+        `Coleta iniciada (${collectStartDate} → ${collectEndDate}). Comando enviado ao agente.`,
+        'success',
       );
+      appendSrLog('Aguardando processamento pelo agente local…');
+      if (r.command_id) {
+        appendSrLog(`ID do comando: ${r.command_id}`);
+      }
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
     } catch (e) {
       setMessage({ type: 'error', text: (e as Error).message });
@@ -1984,7 +1976,7 @@ const AdminRepDevices: React.FC = () => {
         setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
         return;
       }
-      appendSrLog(`Enviando data e hora para "${d.nome_dispositivo}"…`);
+      appendSrLog(`Enviando data e hora para «${d.nome_dispositivo}»…`);
       const clock = buildLocalClockForRep(mode671);
       const r = await repExchangeViaApi(d.id, 'push_clock', accessToken, clock);
       if (!r.ok) {
@@ -1993,8 +1985,8 @@ const AdminRepDevices: React.FC = () => {
         setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
         return;
       }
-      const okLine = toUiString(r.message, 'Data e hora gravadas no relógio.');
-      appendSrLog(okLine);
+      const okLine = toUiString(r.message, 'Data e hora enviadas ao relógio com sucesso.');
+      appendSrLog(okLine, 'success');
       setMessage({ type: 'success', text: okLine });
     } catch (e) {
       appendSrLog(`Erro: ${(e as Error).message}`);
@@ -2037,8 +2029,9 @@ const AdminRepDevices: React.FC = () => {
       }
       if (op === 'pull_clock') {
         const body = formatRepClockDataForDisplay(r.data);
+        setSrDeviceClockDisplay(body);
         setDetailModal({ title: 'Data e hora no relógio', body });
-        appendSrLog('Hora lida. Abra o painel de detalhes.');
+        appendSrLog('Hora do relógio lida com sucesso.', 'success');
         setMessage({ type: 'success', text: 'Hora lida do relógio.' });
       } else if (op === 'pull_info') {
         const body =
@@ -2141,6 +2134,53 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: uiText });
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const srRefreshHubStatus = async () => {
+    const d = srSelectedDevice;
+    if (!d) {
+      appendSrLog('Selecione um equipamento de rede.');
+      return;
+    }
+    appendSrLog('Atualizando status do agente e da fila…');
+    await loadSyncStatusesForDevices([d.id]);
+    await srRunStatusInModal();
+  };
+
+  const srRunPullInfo = async (title: string) => {
+    const d = srSelectedDevice;
+    if (!d || d.tipo_conexao !== 'rede') {
+      appendSrLog('Selecione um equipamento de rede.');
+      return;
+    }
+    if (!getSupabaseClient()) return;
+    setExchangeBusy(`${d.id}:pull_info`);
+    setMessage(null);
+    try {
+      const accessToken = getToken();
+      if (!accessToken) {
+        appendSrLog('Sessão expirada. Faça login novamente.', 'error');
+        setMessage({ type: 'error', text: 'Sessão expirada. Faça login novamente.' });
+        return;
+      }
+      appendSrLog(`Lendo informações do aparelho «${d.nome_dispositivo}»…`);
+      const r = await repExchangeViaApi(d.id, 'pull_info', accessToken);
+      if (!r.ok) {
+        const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
+        appendSrLog(`Falha: ${errLine}`, 'error');
+        setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
+        return;
+      }
+      const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data ?? {}, null, 2);
+      setDetailModal({ title, body });
+      appendSrLog('Informações lidas do relógio.', 'success');
+      setMessage({ type: 'success', text: 'Consulta concluída.' });
+    } catch (e) {
+      appendSrLog(`Erro: ${(e as Error).message}`, 'error');
+      setMessage({ type: 'error', text: (e as Error).message });
+    } finally {
+      setExchangeBusy(null);
     }
   };
 
@@ -2406,16 +2446,6 @@ const AdminRepDevices: React.FC = () => {
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
-  const repSendReceiveOverlayClass = cx(
-    'fixed inset-0 z-[128] flex items-end sm:items-center justify-center bg-black/50 p-3 sm:p-4 overflow-y-auto',
-  );
-  const repSendReceiveModalClass = cx(
-    repUiPatterns.modal,
-    'bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[min(92vh,100dvh)] md:max-h-[min(86vh,100dvh)] overflow-y-auto overflow-x-hidden flex flex-col min-w-0',
-  );
-  const repSendReceiveHeaderClass = repPageUi.c126;
-  const repSendReceiveBodyClass = repPageUi.c127;
-
   return (
     <div className={cx('p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full min-w-0 flex flex-col', uiTokens.spacing.sectionGap)}>
       <PageHeader
@@ -2472,20 +2502,14 @@ const AdminRepDevices: React.FC = () => {
         showInactiveDevices={showInactiveDevices}
         hiddenDevicesCount={hiddenDevicesCount}
         formatDate={formatDate}
-        testingId={testingId}
         deletingId={deletingId}
-        forcingSyncId={forcingSyncId}
         syncStatusByDeviceId={syncStatusByDeviceId}
         onToggleShowInactive={() => setShowInactiveDevices((v) => !v)}
         onRetryLoad={() => void loadDevices()}
         onOpenCreate={openCreate}
-        onTestConnection={handleTestConnection}
-        onTestViaAgent={handleTestViaAgent}
-        getAgentTestButtonLabel={getAgentTestButtonLabel}
         onOpenEdit={openEdit}
         onDelete={handleDeleteRequest}
-        onForceSync={handleForceSyncDevice}
-        onOpenCommunication={(deviceId) => openSendReceivePanel(deviceId, true)}
+        onOpenHub={(deviceId) => openOperationalHub(deviceId)}
       />
 
       <RepDeploymentNote repDeploymentNote={repDeploymentNote} />
@@ -2506,653 +2530,48 @@ const AdminRepDevices: React.FC = () => {
         }}
       />
 
-      {sendReceiveOpen && (
-        <div
-          className={repSendReceiveOverlayClass}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rep-send-receive-title"
-        >
-          <div
-            className={repSendReceiveModalClass}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className={repSendReceiveHeaderClass}>
-              <div className={repPageUi.c002}>
-                <span className={repPageUi.c003}>
-                  <ArrowLeftRight size={22} aria-hidden />
-                </span>
-                <div className={repPageUi.c004}>
-                  <h2 id="rep-send-receive-title" className={repPageUi.c005}>
-                    Comunicação com o relógio
-                  </h2>
-                  <p className={repPageUi.c006}>
-                    Importação de batidas, ajuste de data/hora e operações auxiliares (Control iD / rede).
-                  </p>
-                </div>
-              </div>
-              <Button type="button" variant="secondary" size="sm" className={repPageUi.c007} onClick={() => setSendReceiveOpen(false)}>
-                Fechar
-              </Button>
-            </header>
-
-            <div className={repSendReceiveBodyClass}>
-              <div className={repPageUi.c008}>
-                <p className={repPageUi.c009}>
-                  Equipamento
-                </p>
-                <select
-                  value={srDeviceId}
-                  onChange={(e) => setSrDeviceId(e.target.value)}
-                  className={repPageUi.c010}
-                >
-                  <option value="">Selecione o relógio…</option>
-                  {redeDevices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.nome_dispositivo}
-                      {d.ip ? ` — ${d.ip}:${d.porta ?? 80}` : ''}
-                    </option>
-                  ))}
-                </select>
-                {srSelectedDevice && (
-                  <p className={repPageUi.c011}>
-                    <span className={repPageUi.c012}>{srSelectedDevice.nome_dispositivo}</span>
-                    {srSelectedDevice.fabricante ? ` · ${srSelectedDevice.fabricante}` : ''}
-                    {srSelectedDevice.config_extra?.mode_671 === true ? (
-                      <span className={repPageUi.c013}>
-                        671
-                      </span>
-                    ) : null}
-                  </p>
-                )}
-                {redeDevices.length === 0 && (
-                  <p className={repPageUi.c014}>
-                    Cadastre um dispositivo do tipo rede (IP) para habilitar esta tela.
-                  </p>
-                )}
-              </div>
-
-              <div className={repPageUi.c015}>
-                <p className={repPageUi.c016}>
-                  Ações principais
-                </p>
-                <div className={repPageUi.c017}>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className={repPageUi.c018}
-                    disabled={srActionsLocked || redeDevices.length === 0}
-                    onClick={() => {
-                      setSrReceiveScope('incremental');
-                      setSrReceiveDialogOpen(true);
-                    }}
-                  >
-                    <Download size={16} className={repPageUi.c019} />
-                    Sincronizar agora
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className={repPageUi.c018}
-                    disabled={srActionsLocked || redeDevices.length === 0}
-                    onClick={() => void srRunStatusInModal()}
-                  >
-                    <Activity size={16} className={repPageUi.c019} />
-                    Testar conexão do agente
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={repPageUi.c020}
-                    disabled={srActionsLocked || redeDevices.length === 0 || !user?.companyId}
-                    onClick={srRunPromoteStaging}
-                    title="Grava na folha as marcações que estão só em rep_punch_logs"
-                  >
-                    <ClipboardCheck size={16} className={repPageUi.c019} />
-                    Reprocessar batidas
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={repPageUi.c020}
-                    disabled={srActionsLocked || redeDevices.length === 0}
-                    onClick={() => setSrSendDialogOpen(true)}
-                    title="Enviar data/hora e colaboradores para o relógio selecionado"
-                  >
-                    <Upload size={16} className={repPageUi.c019} />
-                    Enviar data/hora e colaboradores
-                  </Button>
-                </div>
-                <p className={repPageUi.c021}>
-                  <strong className={repPageUi.c022}>Sincronizar agora</strong> coleta batidas via agente local e envia ao pipeline SaaS.{' '}
-                  <strong className={repPageUi.c022}>Testar conexão do agente</strong> valida o caminho agente → dispositivo.{' '}
-                  <strong className={repPageUi.c022}>Reprocessar batidas</strong> move pendências de fila para o espelho.
-                </p>
-              </div>
-
-              <div className={repPageUi.c023}>
-                <p className={repPageUi.c024}>Opções de importação e envio</p>
-                <p className={repPageUi.c025}>
-                  «Receber batidas» grava diretamente no espelho (<code className={repPageUi.c026}>time_records</code>) quando
-                  PIS/CPF/matrícula coincidem com o cadastro; em seguida consolida a fila pendente do mesmo relógio. Com
-                  «Apenas o dia de hoje», essa consolidação usa só batidas do dia civil deste computador (não reprocessa
-                  filas antigas na mesma etapa).
-                </p>
-                <div className={repPageUi.c027}>
-                <label className={repPageUi.c028}>
-                  <input
-                    type="checkbox"
-                    checked={srAllocate}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setSrAllocate(v);
-                      try {
-                        localStorage.setItem(LS_REP_ALLOCATE, v ? '1' : '0');
-                      } catch (err) {
-                        observabilityConsole.warn('[RepDevices] Falha ao salvar alocacao:', err);
-                      }
-                    }}
-                    className={repPageUi.c029}
-                  />
-                  <span className={repPageUi.c030}>
-                    Alocar batidas
-                    <span className={repPageUi.c031}>
-                      Na <strong>entrada</strong>, marca atraso (<code className={repPageUi.c026}>is_late</code>) conforme
-                      escala semanal e tolerância do turno (cadastro em Escalas / Horários).
-                    </span>
-                  </span>
-                </label>
-                <label className={repPageUi.c028}>
-                  <input
-                    type="checkbox"
-                    checked={srSkipBlocked}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setSrSkipBlocked(v);
-                      try {
-                        localStorage.setItem(LS_REP_SKIP_BLOCKED, v ? '1' : '0');
-                      } catch (err) {
-                        observabilityConsole.warn('[RepDevices] Falha ao salvar opcao de bloqueados:', err);
-                      }
-                    }}
-                    className={repPageUi.c029}
-                  />
-                  <span className={repPageUi.c030}>
-                    Não enviar funcionários bloqueados
-                    <span className={repPageUi.c031}>
-                      Ao enviar cadastro ao relógio, considera apenas perfis ativos (exclui demitidos, invisíveis e status
-                      diferente de ativo).
-                    </span>
-                  </span>
-                </label>
-                <label className={repPageUi.c028}>
-                  <input
-                    type="checkbox"
-                    checked={srSpecialBars}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setSrSpecialBars(v);
-                      try {
-                        localStorage.setItem(LS_TIMESHEET_SPECIAL_BARS, v ? '1' : '0');
-                        window.dispatchEvent(new Event(SPECIAL_BARS_CHANGED));
-                      } catch (err) {
-                        observabilityConsole.warn('[RepDevices] Falha ao salvar barras especiais:', err);
-                      }
-                    }}
-                    className={repPageUi.c029}
-                  />
-                  <span className={repPageUi.c030}>
-                    Barras padrão especial
-                    <span className={repPageUi.c031}>
-                      Ativa no Espelho de Ponto colunas com barra lateral colorida por tipo de marcação (preferência
-                      salva neste navegador).
-                    </span>
-                  </span>
-                </label>
-                </div>
-                <div className={repPageUi.c032}>
-                  <p className={repPageUi.c033}>
-                    Fila → folha (consolidar)
-                  </p>
-                  <label className={repPageUi.c028}>
-                    <input
-                      type="checkbox"
-                      checked={srManualConsolidateLocalToday}
-                      onChange={(e) => setSrManualConsolidateLocalToday(e.target.checked)}
-                      className={repPageUi.c029}
-                    />
-                    <span className={repPageUi.c030}>
-                      No botão «Consolidar», processar só batidas do dia de hoje (calendário deste computador)
-                      <span className={repPageUi.c031}>
-                        «Receber» com «Apenas o dia de hoje» já aplica esta janela na consolidação automática; marque aqui
-                        quando usar «Consolidar» manualmente sem receber de novo.
-                      </span>
-                    </span>
-                  </label>
-                  <div className={repPageUi.c034}>
-                    <label
-                      htmlFor="rep-sr-consolidate-user"
-                      className={repPageUi.c035}
-                    >
-                      Opcional — consolidar só para este colaborador (outros NIS permanecem na fila)
-                    </label>
-                    <select
-                      id="rep-sr-consolidate-user"
-                      value={srConsolidateOnlyUserId}
-                      onChange={(e) => setSrConsolidateOnlyUserId(e.target.value)}
-                      className={repPageUi.c036}
-                    >
-                      <option value="">Todos com cadastro compatível</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.nome}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <details className={repPageUi.c037}>
-                <summary className={repPageUi.c038}>
-                  Outras operações no relógio
-                </summary>
-                <div className={repPageUi.c039}>
-                  <p className={repPageUi.c040}>Receber (leituras)</p>
-                  <div className={repPageUi.c041}>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={srActionsLocked || !srSelectedDevice}
-                      onClick={() => srRunExchangeOp('pull_clock')}
-                    >
-                      Ler hora
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={srActionsLocked || !srSelectedDevice}
-                      onClick={() => srRunExchangeOp('pull_users')}
-                    >
-                      Funcionários no aparelho
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={srActionsLocked || !srSelectedDevice}
-                      onClick={() => srRunExchangeOp('pull_info')}
-                    >
-                      Info / config
-                    </Button>
-                  </div>
-                  <p className={repPageUi.c042}>Enviar cadastro</p>
-                  <div className={repPageUi.c043}>
-                    <div className={repPageUi.c044}>
-                      <label className={repPageUi.c045}>Funcionário</label>
-                      <select
-                        value={srPushUserId}
-                        onChange={(e) => setSrPushUserId(e.target.value)}
-                        disabled={employeesForModalPush.length === 0}
-                        className={repPageUi.c046}
-                      >
-                        <option value="">Selecione…</option>
-                        {employeesForModalPush.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={repPageUi.c007}
-                      disabled={srActionsLocked || !srSelectedDevice || !srPushUserId || employeesForModalPush.length === 0}
-                      onClick={srRunPushEmployee}
-                    >
-                      <UserPlus size={14} className={repPageUi.c047} />
-                      Enviar ao relógio
-                    </Button>
-                  </div>
-                </div>
-              </details>
-
-              <div className={repPageUi.c048}>
-                <div className={repPageUi.c049}>
-                  <label
-                    htmlFor="rep-sr-log"
-                    className={repPageUi.c033}
-                  >
-                    Registro de atividade
-                  </label>
-                  <button
-                    type="button"
-                    onClick={loadPendingPisDiagnostics}
-                    className={repPageUi.c050}
-                  >
-                    Ver PIS pendentes →
-                  </button>
-                </div>
-                <textarea
-                  id="rep-sr-log"
-                  readOnly
-                  rows={12}
-                  value={srLog}
-                  placeholder="As mensagens da comunicação aparecem aqui. Receber muitas batidas pode levar vários minutos."
-                  className={repPageUi.c051}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {sendReceiveOpen && srReceiveDialogOpen && (
-        <div
-          className={repUiClasses.modalOverlay}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rep-receive-scope-title"
-          onClick={() => setSrReceiveDialogOpen(false)}
-        >
-          <div
-            className={repUiClasses.modalPanelMd}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 id="rep-receive-scope-title" className={repUiClasses.modalTitle}>
-              O que importar do relógio?
-            </h3>
-            <p className={repUiClasses.modalSubtitle}>
-              Equipamento:{' '}
-              <span className={repPageUi.c052}>{srSelectedDevice?.nome_dispositivo ?? '—'}</span>
-            </p>
-            <div className={repUiClasses.stackY3}>
-              <label className={repUiClasses.optionCard}>
-                <input
-                  type="radio"
-                  name="sr-receive-scope"
-                  className={repPageUi.c053}
-                  checked={srReceiveScope === 'incremental'}
-                  onChange={() => setSrReceiveScope('incremental')}
-                />
-                <span>
-                  <span className={repUiClasses.optionTitle}>Desde a última sincronização</span>
-                  <span className={repUiClasses.optionDesc}>
-                    Trazer batidas novas em relação ao último sync (com margem de segurança). Recomendado no dia a dia.
-                  </span>
-                </span>
-              </label>
-              <label className={repUiClasses.optionCard}>
-                <input
-                  type="radio"
-                  name="sr-receive-scope"
-                  className={repPageUi.c053}
-                  checked={srReceiveScope === 'today_only'}
-                  onChange={() => setSrReceiveScope('today_only')}
-                />
-                <span>
-                  <span className={repUiClasses.optionTitle}>Apenas o dia de hoje</span>
-                  <span className={repUiClasses.optionDesc}>
-                    Só grava marcações cuja data/hora cai no dia de hoje no calendário deste computador (após baixar do
-                    aparelho). A consolidação da fila nesta operação usa a mesma janela (não reabre pendentes de outros
-                    dias). Opcional: na área «Fila → folha», restrinja a um colaborador.
-                  </span>
-                </span>
-              </label>
-            </div>
-            <div className={repUiClasses.actionsEnd}>
-              <Button type="button" variant="outline" onClick={() => setSrReceiveDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                disabled={srActionsLocked || !srSelectedDevice}
-                onClick={() => {
-                  setSrReceiveDialogOpen(false);
-                  void srRunReceivePunches(srReceiveScope);
-                }}
-              >
-                Continuar e receber
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {sendReceiveOpen && srSendDialogOpen && (
-        <div
-          className={repUiClasses.modalOverlayScrollable}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rep-send-panel-title"
-          onClick={() => setSrSendDialogOpen(false)}
-        >
-          <div
-            className={repUiClasses.modalPanelLg}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 id="rep-send-panel-title" className={repUiClasses.modalTitle}>
-              Enviar e consultar no relógio
-            </h3>
-            <p className={repUiClasses.modalSubtitle}>
-              {srSelectedDevice ? (
-                <>
-                  <span className={repPageUi.c012}>{srSelectedDevice.nome_dispositivo}</span>
-                  {srSelectedDevice.ip ? ` · ${srSelectedDevice.ip}:${srSelectedDevice.porta ?? 80}` : ''}
-                </>
-              ) : (
-                'Selecione um equipamento acima.'
-              )}
-            </p>
-
-            <div className={repPageUi.c054}>
-              <div className={cx(repUiClasses.cardBase, repUiClasses.cardMuted)}>
-                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
-                  Status e conexão
-                </p>
-                <p className={repUiClasses.sectionText}>
-                  {srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)
-                    ? 'Relógios na rede interna são verificados pelo agente instalado na empresa.'
-                    : 'Testa o caminho até o aparelho (equivalente a testar conexão no cadastro).'}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={repPageUi.c055}
-                  disabled={srActionsLocked || !srSelectedDevice || testingId === srSelectedDevice?.id}
-                  onClick={() => {
-                    if (srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)) {
-                      void handleTestViaAgent(srSelectedDevice.id);
-                      return;
-                    }
-                    void srRunStatusInModal();
-                  }}
-                >
-                  <Activity size={16} className={repPageUi.c019} />
-                  {srSelectedDevice && shouldBlockCloudRepConnectionTest(srSelectedDevice)
-                    ? getAgentTestButtonLabel(srSelectedDevice.id)
-                    : 'Testar status / conexão'}
-                </Button>
-              </div>
-
-              <div className={repUiClasses.cardBase}>
-                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
-                  Coleta de batidas
-                </p>
-                <p className={repUiClasses.sectionText}>
-                  Enfileira coleta no agente local para o período indicado (rede do relógio).
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <label className={repPageUi.c022}>
-                    Data inicial
-                    <input
-                      type="date"
-                      className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                      value={collectStartDate}
-                      onChange={(e) => setCollectStartDate(e.target.value)}
-                      disabled={collectBusy}
-                    />
-                  </label>
-                  <label className={repPageUi.c022}>
-                    Data final
-                    <input
-                      type="date"
-                      className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                      value={collectEndDate}
-                      onChange={(e) => setCollectEndDate(e.target.value)}
-                      disabled={collectBusy}
-                    />
-                  </label>
-                </div>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={repPageUi.c055}
-                  disabled={srActionsLocked || !srSelectedDevice || collectBusy}
-                  loading={collectBusy}
-                  onClick={() => {
-                    if (srSelectedDevice) void runCollectNow(srSelectedDevice.id);
-                  }}
-                >
-                  <Upload size={16} className={repPageUi.c019} />
-                  Coletar agora
-                </Button>
-              </div>
-
-              <div className={repUiClasses.cardBase}>
-                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
-                  Data e hora
-                </p>
-                <p className={repUiClasses.sectionText}>
-                  Envia para o relógio a data e hora deste computador (Control iD / rede).
-                </p>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={repPageUi.c055}
-                  disabled={srActionsLocked || !srSelectedDevice || !!exchangeBusy}
-                  onClick={() => {
-                    void srRunSendClock();
-                  }}
-                >
-                  <Upload size={16} className={repPageUi.c019} />
-                  Enviar data e hora agora
-                </Button>
-              </div>
-
-              <div className={repUiClasses.cardBase}>
-                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
-                  Funcionários (cadastro no aparelho)
-                </p>
-                <p className={repUiClasses.sectionText}>
-                  Um colaborador selecionado ou envio em lote dos elegíveis (ativos, conforme opções abaixo no painel
-                  principal).
-                </p>
-                <div className={repPageUi.c043}>
-                  <div className={repPageUi.c044}>
-                    <label className={repPageUi.c045}>Colaborador</label>
-                    <select
-                      value={srPushUserId}
-                      onChange={(e) => setSrPushUserId(e.target.value)}
-                      disabled={employeesForModalPush.length === 0 || srPushAllRunning}
-                      className={repUiClasses.selectBase}
-                    >
-                      <option value="">Selecione…</option>
-                      {employeesForModalPush.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.nome}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      srActionsLocked || !srSelectedDevice || !srPushUserId || employeesForModalPush.length === 0 || srPushAllRunning
-                    }
-                    onClick={() => {
-                      void srRunPushEmployee();
-                    }}
-                  >
-                    <UserPlus size={14} className={repPageUi.c047} />
-                    Enviar um
-                  </Button>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={repPageUi.c056}
-                  disabled={srActionsLocked || !srSelectedDevice || employeesForModalPush.length === 0 || srPushAllRunning}
-                  loading={srPushAllRunning}
-                  onClick={() => {
-                    void srRunPushAllEligibleEmployees();
-                  }}
-                >
-                  Enviar todos os elegíveis ({employeesForModalPush.length})
-                </Button>
-              </div>
-
-              <div className={repUiClasses.cardBase}>
-                <p className={cx(repUiClasses.labelCaps, 'mb-2')}>
-                  Leituras no aparelho (config / usuários)
-                </p>
-                <p className={repUiClasses.sectionText}>
-                  Somente leitura no relógio — não altera o cadastro no PontoWebDesk. Lê hora, informações e lista de usuários no aparelho.
-                </p>
-                <div className={repPageUi.c041}>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={srActionsLocked || !srSelectedDevice || !!exchangeBusy}
-                    onClick={() => {
-                      setSrSendDialogOpen(false);
-                      void srRunExchangeOp('pull_clock');
-                    }}
-                  >
-                    Ler hora no relógio
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={srActionsLocked || !srSelectedDevice || !!exchangeBusy}
-                    onClick={() => {
-                      setSrSendDialogOpen(false);
-                      void srRunExchangeOp('pull_info');
-                    }}
-                  >
-                    Ler info / config
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={srActionsLocked || !srSelectedDevice || !!exchangeBusy}
-                    onClick={() => {
-                      setSrSendDialogOpen(false);
-                      void srRunExchangeOp('pull_users');
-                    }}
-                  >
-                    Listar usuários no aparelho
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <Button type="button" variant="secondary" className={repPageUi.c057} onClick={() => setSrSendDialogOpen(false)}>
-              Fechar
-            </Button>
-          </div>
-        </div>
-      )}
+      <RepOperationalHubModal
+        open={sendReceiveOpen}
+        redeDevices={redeDevices}
+        deviceId={srDeviceId}
+        selectedDevice={srSelectedDevice}
+        syncSnapshot={srSelectedDevice ? syncStatusByDeviceId[srSelectedDevice.id] : undefined}
+        formatDate={formatDate}
+        employeesForPush={employeesForModalPush}
+        pushUserId={srPushUserId}
+        collectStartDate={collectStartDate}
+        collectEndDate={collectEndDate}
+        deviceClockDisplay={srDeviceClockDisplay}
+        logs={srLog}
+        actionsLocked={srActionsLocked}
+        collectBusy={collectBusy}
+        exchangeBusy={Boolean(exchangeBusy)}
+        pushAllRunning={srPushAllRunning}
+        testingConnection={Boolean(srSelectedDevice && testingId === srSelectedDevice.id)}
+        promoting={Boolean(srSelectedDevice && promotingId === srSelectedDevice.id)}
+        getAgentTestButtonLabel={getAgentTestButtonLabel}
+        onClose={() => setSendReceiveOpen(false)}
+        onDeviceChange={(id) => {
+          setSrDeviceId(id);
+          setSrDeviceClockDisplay(null);
+        }}
+        onRefreshStatus={() => void srRefreshHubStatus()}
+        onCollectStartDateChange={setCollectStartDate}
+        onCollectEndDateChange={setCollectEndDate}
+        onCollectNow={() => {
+          if (srSelectedDevice) void runCollectNow(srSelectedDevice.id);
+        }}
+        onReprocessPending={() => void srRunPromoteStaging()}
+        onReadClock={() => void srRunExchangeOp('pull_clock')}
+        onSendClock={() => void srRunSendClock()}
+        onPushUserIdChange={setSrPushUserId}
+        onPushEmployee={() => void srRunPushEmployee()}
+        onPushAllEligible={() => void srRunPushAllEligibleEmployees()}
+        onListUsers={() => void srRunExchangeOp('pull_users')}
+        onReadConfig={() => void srRunPullInfo('Configurações do relógio')}
+        onReadEquipmentInfo={() => void srRunPullInfo('Informações do equipamento')}
+        onViewPendingPis={() => loadPendingPisDiagnostics()}
+      />
 
       {detailModal && (
         <div

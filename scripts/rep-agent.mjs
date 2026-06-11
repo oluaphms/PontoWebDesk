@@ -2172,30 +2172,58 @@ async function executeExchangeCommand(cmd) {
   }
 
   if (name === 'pull_users') {
-    const { data, text } = await postControlIdFcgi(
-      base,
-      `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
-      { limit: 1000 },
-    );
-    const rawUsers = Array.isArray(data?.users)
-      ? data.users
-      : Array.isArray(data)
-        ? data
-        : Array.isArray(data?.objects)
-          ? data.objects
-          : [];
-    const users = rawUsers.map((u) => {
-      const o = u && typeof u === 'object' ? u : {};
-      const nome = String(o.nome ?? o.name ?? '').trim();
-      return {
-        nome: nome || '—',
-        pis: o.pis != null ? String(o.pis) : undefined,
-        cpf: o.cpf != null ? String(o.cpf) : undefined,
-        matricula: o.matricula != null ? String(o.matricula) : o.registration != null ? String(o.registration) : undefined,
-        raw: o,
-      };
-    });
-    return { success: true, ok: true, message: `${users.length} usuário(s) lido(s) do relógio.`, users, data: data ?? text };
+    const collected = [];
+    const pageLimit = 100;
+    let offset = 0;
+    let first = true;
+    for (;;) {
+      const payload = { limit: pageLimit, offset };
+      observabilityConsole.log('[REP USERS REQUEST]', JSON.stringify(payload));
+      const { data, text } = await postControlIdFcgi(
+        base,
+        `/load_users.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
+        payload,
+      );
+      observabilityConsole.log('[REP USERS RESPONSE]', text.slice(0, 2000));
+      if (!data && text && !controlIdOk(text)) {
+        if (first) {
+          throw new Error(`load_users: HTTP — ${afdHttpSnippet(text)}`);
+        }
+        break;
+      }
+      first = false;
+      const batch = Array.isArray(data?.users)
+        ? data.users
+        : Array.isArray(data)
+          ? data
+          : Array.isArray(data?.objects)
+            ? data.objects
+            : [];
+      for (const u of batch) {
+        const o = u && typeof u === 'object' ? u : {};
+        const nome = String(o.nome ?? o.name ?? '').trim();
+        collected.push({
+          nome: nome || '—',
+          pis: o.pis != null ? String(o.pis) : undefined,
+          cpf: o.cpf != null ? String(o.cpf) : undefined,
+          matricula:
+            o.matricula != null
+              ? String(o.matricula)
+              : o.registration != null
+                ? String(o.registration)
+                : undefined,
+          raw: o,
+        });
+      }
+      if (batch.length < pageLimit) break;
+      offset += pageLimit;
+    }
+    return {
+      success: true,
+      ok: true,
+      message: `${collected.length} usuário(s) lido(s) do relógio.`,
+      users: collected,
+    };
   }
 
   throw new Error(`Comando REP não suportado pelo agente: ${name}`);

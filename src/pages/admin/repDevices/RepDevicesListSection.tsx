@@ -3,15 +3,10 @@
 // Sempre utilizar uiTokens ou helpers centralizados.
 import React from 'react';
 import { Button } from '../../../../components/UI';
-import { Clock, Loader2, Network, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Clock, Loader2, Network, Pencil, Plus, Trash2 } from 'lucide-react';
 import { repDeviceConnectionStatusBadge, repDeviceRuntimeBadge } from './badges';
 import type { DeviceSyncStatusSnapshot, RepDeviceRow } from './types';
-import {
-  isLocalAgentRepDevice,
-  repConnectionCellText,
-  resolveRepConnectionForDevice,
-  shouldBlockCloudRepConnectionTest,
-} from './utils';
+import { isLocalAgentRepDevice, repConnectionCellText, resolveRepConnectionForDevice } from './utils';
 import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { uiTokens } from '../../../styles/tokens';
 import { repListUi } from '../../../styles/repDevicesListUi';
@@ -32,20 +27,14 @@ export type RepDevicesListSectionProps = {
   showInactiveDevices: boolean;
   hiddenDevicesCount: number;
   formatDate: (s: string | null) => string;
-  testingId: string | null;
   deletingId: string | null;
-  forcingSyncId: string | null;
   syncStatusByDeviceId: Record<string, DeviceSyncStatusSnapshot | undefined>;
   onToggleShowInactive: () => void;
   onRetryLoad: () => void;
   onOpenCreate: () => void;
-  onTestConnection: (deviceId: string) => void;
-  onTestViaAgent: (deviceId: string) => void;
-  getAgentTestButtonLabel: (deviceId: string) => string;
   onOpenEdit: (device: RepDeviceRow) => void;
   onDelete: (deviceId: string, deviceName: string) => void;
-  onForceSync: (deviceId: string) => void;
-  onOpenCommunication: (deviceId: string) => void;
+  onOpenHub: (deviceId: string) => void;
 };
 
 export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
@@ -57,20 +46,14 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
   showInactiveDevices,
   hiddenDevicesCount,
   formatDate,
-  testingId,
   deletingId,
-  forcingSyncId,
   syncStatusByDeviceId,
   onToggleShowInactive,
   onRetryLoad,
   onOpenCreate,
-  onTestConnection,
-  onTestViaAgent,
-  getAgentTestButtonLabel,
   onOpenEdit,
   onDelete,
-  onForceSync,
-  onOpenCommunication,
+  onOpenHub,
 }) => {
   if (loadingList) {
     return (
@@ -224,45 +207,15 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
               </div>
 
               <div className={repListUi.c016}>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
-                  disabled={forcingSyncId === d.id}
-                  onClick={() => onForceSync(d.id)}
-                >
-                  Sincronizar agora
-                </Button>
-                {d.tipo_conexao === 'rede' && shouldBlockCloudRepConnectionTest(d) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
-                    disabled={testingId === d.id}
-                    onClick={() => onTestViaAgent(d.id)}
-                  >
-                    {getAgentTestButtonLabel(d.id)}
-                  </Button>
-                )}
-                {d.tipo_conexao === 'rede' && !shouldBlockCloudRepConnectionTest(d) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
-                    disabled={testingId === d.id}
-                    onClick={() => onTestConnection(d.id)}
-                  >
-                    Testar conexão
-                  </Button>
-                )}
                 {d.tipo_conexao === 'rede' && (
                   <Button
                     size="sm"
                     variant="outline"
                     className={cx(buttonStyles.base, buttonStyles.ghost, uiTokens.radius.button, uiTokens.transition.default)}
-                    onClick={() => onOpenCommunication(d.id)}
+                    onClick={() => onOpenHub(d.id)}
                   >
-                    Enviar/Receber
+                    <ArrowLeftRight size={14} className={repListUi.c004} aria-hidden />
+                    Abrir Central REP
                   </Button>
                 )}
                 <Button
@@ -368,58 +321,6 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                     </td>
                     <td className={repListUi.c041}>
                       <div className={repListUi.c031}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={cx(
-                            buttonStyles.base,
-                            buttonStyles.ghost,
-                            uiTokens.radius.button,
-                            uiTokens.transition.default,
-                            'text-xs whitespace-nowrap px-2.5',
-                          )}
-                          disabled={forcingSyncId === d.id}
-                          onClick={() => onForceSync(d.id)}
-                          title="Sincronizar agora"
-                        >
-                          Sincronizar
-                        </Button>
-                        {d.tipo_conexao === 'rede' && shouldBlockCloudRepConnectionTest(d) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={cx(
-                              buttonStyles.base,
-                              buttonStyles.ghost,
-                              uiTokens.radius.button,
-                              uiTokens.transition.default,
-                              'text-xs whitespace-nowrap px-2.5',
-                            )}
-                            disabled={testingId === d.id}
-                            onClick={() => onTestViaAgent(d.id)}
-                            title="Testar conexão via agente local"
-                          >
-                            {getAgentTestButtonLabel(d.id)}
-                          </Button>
-                        )}
-                        {d.tipo_conexao === 'rede' && !shouldBlockCloudRepConnectionTest(d) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={cx(
-                              buttonStyles.base,
-                              buttonStyles.ghost,
-                              uiTokens.radius.button,
-                              uiTokens.transition.default,
-                              'text-xs whitespace-nowrap px-2.5',
-                            )}
-                            disabled={testingId === d.id}
-                            onClick={() => onTestConnection(d.id)}
-                            title="Testar conexão"
-                          >
-                            Testar
-                          </Button>
-                        )}
                         {d.tipo_conexao === 'rede' && (
                           <Button
                             size="sm"
@@ -431,10 +332,11 @@ export const RepDevicesListSection: React.FC<RepDevicesListSectionProps> = ({
                               uiTokens.transition.default,
                               'text-xs whitespace-nowrap px-2.5',
                             )}
-                            onClick={() => onOpenCommunication(d.id)}
-                            title="Enviar data/hora e colaboradores ao relógio"
+                            onClick={() => onOpenHub(d.id)}
+                            title="Abrir central operacional do relógio"
                           >
-                            Enviar/Receber
+                            <ArrowLeftRight size={14} className={repListUi.c004} aria-hidden />
+                            Abrir Central REP
                           </Button>
                         )}
                         <Button
