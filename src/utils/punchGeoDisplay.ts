@@ -72,6 +72,18 @@ export function getGeoSnapshot(row: unknown): PunchGeoSnapshot | null {
   return null;
 }
 
+/** True quando já existe endereço persistido (não só coordenadas). */
+export function hasPersistedGeoAddress(row: unknown): boolean {
+  const addr = readGeoAddressFromRecord(row);
+  return Boolean(
+    addr.formattedAddress?.trim() ||
+      addr.street?.trim() ||
+      addr.district?.trim() ||
+      addr.city?.trim() ||
+      addr.state?.trim(),
+  );
+}
+
 export function readGeoAddressFromRecord(row: unknown): {
   street: string | null;
   district: string | null;

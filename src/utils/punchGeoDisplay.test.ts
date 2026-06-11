@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractLatLng } from './reverseGeocode';
-import { formatPunchGeoLines } from './punchGeoDisplay';
+import { formatPunchGeoLines, hasPersistedGeoAddress } from './punchGeoDisplay';
 
 describe('punchGeoDisplay', () => {
   it('extrai latitude/longitude como string do banco', () => {
@@ -33,12 +33,22 @@ describe('punchGeoDisplay', () => {
   });
 
   it('lê coordenadas de metadata.payload (RPC app)', () => {
-    const lines = formatPunchGeoLines({
+    const row = {
       metadata: {
         payload: { latitude: -10.911234, longitude: -37.071234 },
       },
-    });
+    };
+    expect(hasPersistedGeoAddress(row)).toBe(false);
+    const lines = formatPunchGeoLines(row);
     expect(lines[0]).toBe('-10.911234');
     expect(lines[1]).toBe('-37.071234');
+  });
+
+  it('hasPersistedGeoAddress detecta endereço em geo_snapshot', () => {
+    expect(
+      hasPersistedGeoAddress({
+        raw_data: { geo_snapshot: { formatted_address: 'Rua A, 100' } },
+      }),
+    ).toBe(true);
   });
 });
