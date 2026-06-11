@@ -1019,14 +1019,17 @@ async function loginControlIdViaCurl(url, login, password) {
     const data = parseJsonSafe(stdout);
     const sid = typeof data?.session === 'string' ? data.session.trim() : '';
     if (!sid) {
+      lastRepLoginDiagnostic = `curl sem session (${url}): ${afdHttpSnippet(stdout)}`;
       observabilityConsole.error('[REP LOGIN CURL ERROR]', 'sem session', afdHttpSnippet(stdout));
       return null;
     }
+    lastRepLoginDiagnostic = '';
     observabilityConsole.log('[REP LOGIN SUCCESS] via curl');
     const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
     observabilityConsole.log('[REP SESSION]', sessLog);
     return sid;
   } catch (e) {
+    lastRepLoginDiagnostic = `curl: ${e?.message || String(e)}`;
     observabilityConsole.error('[REP LOGIN CURL ERROR]', e?.message || String(e));
     return null;
   }
@@ -1039,6 +1042,7 @@ async function loginControlIdViaCurl(url, login, password) {
 async function loginControlId(base) {
   const password = (process.env.REP_DEVICE_PASSWORD || '').trim();
   if (!password) {
+    lastRepLoginDiagnostic = 'device_password vazio no config.json';
     observabilityConsole.warn('[REP LOGIN] REP_DEVICE_PASSWORD vazio — login.fcgi ignorado');
     return null;
   }
@@ -1056,29 +1060,35 @@ async function loginControlId(base) {
   try {
     const res = await clockPostJson(url, { login, password });
     if (res.status < 200 || res.status >= 300) {
+      lastRepLoginDiagnostic = `HTTP ${res.status} em ${url}: ${afdHttpSnippet(res.text)}`;
       observabilityConsole.error('[REP LOGIN ERROR]', `HTTP ${res.status}`, afdHttpSnippet(res.text));
       return null;
     }
     const data = parseJsonSafe(res.text);
     if (!data || typeof data !== 'object') {
+      lastRepLoginDiagnostic = `resposta não-JSON de ${url}`;
       observabilityConsole.error('[REP LOGIN ERROR]', 'resposta não-JSON', afdHttpSnippet(res.text));
       return null;
     }
     if (data.error) {
+      lastRepLoginDiagnostic = String(data.error);
       observabilityConsole.error('[REP LOGIN ERROR]', String(data.error));
       return null;
     }
     const sid = typeof data.session === 'string' ? data.session.trim() : '';
     if (!sid) {
+      lastRepLoginDiagnostic = `login sem session (${url})`;
       observabilityConsole.error('[REP LOGIN ERROR]', 'sem campo session', afdHttpSnippet(res.text));
       return null;
     }
+    lastRepLoginDiagnostic = '';
     observabilityConsole.log('[REP LOGIN SUCCESS]');
     const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
     observabilityConsole.log('[REP SESSION]', sessLog);
     return sid;
   } catch (e) {
     const msg = e?.message || String(e);
+    lastRepLoginDiagnostic = msg;
     observabilityConsole.error('[REP LOGIN ERROR]', msg);
     if (/timeout/i.test(msg)) {
       observabilityConsole.log('[REP LOGIN] fallback curl (Windows)…');
@@ -1233,16 +1243,21 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
 function deviceConnectionBases() {
   const primary = `${scheme}://${ip}:${port}`;
   const bases = [primary];
+  // Control iD na LAN: porta 80 costuma ser TLS (https:80), não HTTP puro; 443 pode estar fechada.
   if (scheme === 'https' && String(port) === '443') {
-    bases.push(`http://${ip}:80`);
+    bases.push(`https://${ip}:80`, `http://${ip}:80`);
   } else if (scheme === 'http' && String(port) === '80') {
-    bases.push(`https://${ip}:443`);
+    bases.push(`https://${ip}:80`, `https://${ip}:443`);
+  } else if (scheme === 'https' && String(port) === '80') {
+    bases.push(`http://${ip}:80`, `https://${ip}:443`);
   }
   return [...new Set(bases)];
 }
 
 /** Base efetiva após login bem-sucedido (pode ser fallback http:80). */
 let effectiveClockBase = null;
+/** Último motivo de falha no login.fcgi (para mensagens ao painel). */
+let lastRepLoginDiagnostic = '';
 
 function agentClockBaseUrl() {
   return effectiveClockBase || `${scheme}://${ip}:${port}`;
@@ -1265,8 +1280,14 @@ async function loginControlIdAcrossBases() {
       if (session) {
         effectiveClockBase = base;
         if (i > 0) {
+          const hint =
+            base === `https://${ip}:80`
+              ? 'device_scheme=https, device_port=80, insecure_tls=true'
+              : base === `http://${ip}:80`
+                ? 'device_scheme=http, device_port=80'
+                : `device_scheme=https, device_port=443`;
           observabilityConsole.warn(
-            `[rep-agent] Login OK em ${base}. Ajuste config.json: device_scheme=http, device_port=80 (evita tentar https:443 primeiro).`,
+            `[rep-agent] Login OK em ${base}. Ajuste config.json: ${hint} (evita tentar outros endereços primeiro).`,
           );
         }
         return session;
@@ -2029,8 +2050,13 @@ async function controlIdSessionForCommand() {
   if (repDeviceSession) return repDeviceSession;
   const session = await loginControlIdAcrossBases();
   if (!session) {
+    const bases = deviceConnectionBases().join(', ');
+    const pwdHint = repDevicePassword ? 'definida' : 'VAZIA — preencha device_password';
+    const detail = lastRepLoginDiagnostic ? ` Detalhe: ${lastRepLoginDiagnostic}.` : '';
     throw new Error(
-      'Não foi possível abrir sessão no relógio (login.fcgi). Verifique IP, device_scheme=http, device_port=80 e REP_DEVICE_PASSWORD.',
+      `Não foi possível abrir sessão no relógio (login.fcgi) em ${bases}. ` +
+        `Senha: ${pwdHint}. Verifique IP ${ip}, device_scheme=${scheme}, device_port=${port}, ` +
+        `device_login e device_password no config.json.${detail}`,
     );
   }
   return session;

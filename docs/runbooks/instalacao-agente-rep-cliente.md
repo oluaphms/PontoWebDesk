@@ -296,7 +296,7 @@ O `deploy-rep-agent.ps1`:
 
 - Relógio desligado ou IP errado.
 - PC do agente não alcança `device_ip` (teste `ping 192.168.1.20`).
-- Porta errada (`80` vs `443`) ou `device_scheme` incorreto.
+- Porta errada (`80` vs `443`) ou `device_scheme` incorreto. **Control iD na LAN:** a porta **80** costuma ser **HTTPS** (TLS), não HTTP puro — use `"device_scheme": "https"`, `"device_port": 80`, `"insecure_tls": true`. Se `http://IP:80` der conexão resetada, teste `https://IP:80`.
 - No log, procure: `[REP LOGIN ERROR]`, `[REP LOGIN CURL ERROR]`.
 
 ### Agente Online, mas “aguardando execução do comando” no painel
