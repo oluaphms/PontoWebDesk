@@ -12,6 +12,7 @@ type PunchOriginRecord = {
   metadata?: unknown;
   raw_data?: unknown;
   is_manual?: boolean | null;
+  manual_reason?: string | null;
   device_id?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
@@ -93,15 +94,40 @@ function hasColaboradorDeviceSignals(r: PunchOriginRecord): boolean {
   return deviceType === 'mobile' || deviceType === 'web';
 }
 
+function readOriginFields(r: PunchOriginRecord): {
+  o: string;
+  s: string;
+  st: string;
+  m: string;
+} {
+  const legacy = legacyPayloadHints(r);
+  return {
+    o: readString(r.origin) || legacy.origin,
+    s: readString(r.source) || legacy.source,
+    st: readString(r.source_type),
+    m: readString(r.method) || legacy.method,
+  };
+}
+
+function readManualReason(r: PunchOriginRecord): string {
+  const direct = String(r.manual_reason ?? '').trim();
+  if (direct) return direct;
+  for (const container of [asRecord(r.metadata), asRecord(r.raw_data)].filter(Boolean)) {
+    const fromMeta = String(container?.manual_reason ?? '').trim();
+    if (fromMeta) return fromMeta;
+  }
+  return '';
+}
+
 /**
  * Batida registrada pelo próprio colaborador (app/portal/REP com identidade).
  * O RPC do espelho RH usa `source` manual|admin — nunca web|mobile|app.
  */
 export function isColaboradorSelfServicePunch(r: PunchOriginRecord): boolean {
-  const legacy = legacyPayloadHints(r);
-  const o = readString(r.origin) || legacy.origin;
-  const s = readString(r.source) || legacy.source;
-  const m = readString(r.method) || legacy.method;
+  const { o, s, m } = readOriginFields(r);
+
+  // Ajuste RH no espelho (origin=admin + motivo): GPS não vira "app"
+  if (o === 'admin' && !isColaboradorCaptureMethod(m) && readManualReason(r)) return false;
 
   if (s === 'web' || s === 'mobile' || s === 'app') return true;
   if (o === 'mobile' || o === 'app') return true;
@@ -114,18 +140,22 @@ export function isColaboradorSelfServicePunch(r: PunchOriginRecord): boolean {
 
 /** Batida lançada pelo RH/Admin no espelho — não confundir com `method=manual` do colaborador. */
 export function isRhAdjustmentOrigin(r: PunchOriginRecord): boolean {
-  if (isColaboradorSelfServicePunch(r)) return false;
+  if (isRepPunchRecord(r)) return false;
 
-  const legacy = legacyPayloadHints(r);
-  const o = readString(r.origin) || legacy.origin;
-  const s = readString(r.source) || legacy.source;
-  const st = readString(r.source_type);
-  const m = readString(r.method) || legacy.method;
+  const { o, s, st, m } = readOriginFields(r);
 
-  if (o === 'admin' || s === 'admin' || m === 'admin' || st === 'admin') return true;
-  if (s === 'manual' && (o === 'admin' || m === 'admin')) return true;
-  if (st === 'manual' && (o === 'admin' || s === 'admin')) return true;
-  if (m === 'manual' && (o === 'admin' || s === 'admin')) return true;
+  if (s === 'web' || s === 'mobile' || s === 'app') return false;
+  if (isColaboradorCaptureMethod(m)) return false;
+
+  if (o === 'admin') {
+    const reason = readManualReason(r);
+    if (!reason) return false;
+    if (s !== 'manual' && s !== 'admin') return false;
+    if (m !== 'manual' && m !== 'admin') return false;
+    return true;
+  }
+  if (s === 'admin' || m === 'admin' || st === 'admin') return true;
+  if (s === 'manual' && m === 'admin') return true;
   return false;
 }
 

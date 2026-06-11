@@ -7,7 +7,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { localCalendarYmd } from './localDateTimeToIso';
 import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 import { isDevVerboseLogsEnabled } from './devVerboseLogs';
-import { resolvePunchOrigin } from './punchOrigin';
+import { isColaboradorSelfServicePunch, isRhAdjustmentOrigin, resolvePunchOrigin } from './punchOrigin';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 
@@ -31,10 +31,12 @@ export interface TimeRecord {
   source_type?: string | null;
   metadata?: unknown;
   raw_data?: unknown;
+  nsr?: number | string | null;
 }
 
 /** Batida vinda do REP / relógio (origem para rótulo e auditoria — não altera slot no espelho). */
 export function isRepMirrorRecord(record: TimeRecord): boolean {
+  if (record.nsr != null && String(record.nsr).trim() !== '') return true;
   const o = String(record.origin ?? '')
     .trim()
     .toLowerCase();
@@ -358,7 +360,8 @@ export function isManualRecord(record: TimeRecord): boolean {
 /** Admin/RH podem editar somente batidas lançadas manualmente pelo espelho. */
 export function isEditableManualMirrorRecord(record: TimeRecord): boolean {
   if (isRepMirrorRecord(record)) return false;
-  return resolvePunchOrigin(record).kind === 'admin';
+  if (isColaboradorSelfServicePunch(record)) return false;
+  return isRhAdjustmentOrigin(record);
 }
 
 /**
