@@ -90,7 +90,7 @@ foreach ($url in $urls) {
     if ($text) {
       Write-Host "  Resposta: $($text.Substring(0, [Math]::Min(200, $text.Length)))"
     } else {
-      Write-Host "  Resposta: (vazia — comum com HTTP em porta TLS; tente https na mesma porta)"
+      Write-Host "  Resposta: (vazia - comum com HTTP em porta TLS; tente https na mesma porta)"
     }
   }
 }
@@ -100,7 +100,7 @@ Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
 if (-not $anyOk) {
   Write-Host "`nSe todas falharem:" -ForegroundColor Yellow
   Write-Host "  1) Confirme IP do relogio no painel Control iD"
-  Write-Host "  2) Porta 80 no Control iD costuma ser HTTPS — use device_scheme=https, device_port=80, insecure_tls=true"
+  Write-Host "  2) Porta 80 no Control iD costuma ser HTTPS - use device_scheme=https, device_port=80, insecure_tls=true"
   Write-Host "  3) Corrija device_password no config.json"
   Write-Host "  4) Teste https://${ip}:80 no navegador deste PC (aceite certificado)"
   Write-Host "  5) Reinicie: nssm restart PontoWebDeskAgent"

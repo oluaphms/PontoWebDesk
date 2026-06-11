@@ -28,6 +28,7 @@ import { observabilityConsole } from '../services/observabilityConsole.js';
  *   REP_DEVICE_BEARER ou REP_DEVICE_AUTH_TOKEN (opcional) Authorization no relógio (ex.: Bearer ...)
  *   REP_DEVICE_LOGIN      Utilizador login.fcgi (default admin). MODO PRODUÇÃO idClass.
  *   REP_DEVICE_PASSWORD   Palavra-passe do relógio (login.fcgi + get_afd.fcgi). Nunca logada.
+ *   REP_FCGI_USE_CURL       Windows: POST .fcgi (hora, usuários, etc.) via curl (default 1). Node https trava em HTTPS:80.
  *   REP_DEVICE_CONTROLID_FCGI  "1" — tenta primeiro AFD por .fcgi mesmo sem palavra-passe (requer REP_DEVICE_SESSION).
  *   REP_AFD_PORTARIA_671    "1" — pede AFD no formato Portaria 671 (query mode=671 em get_afd.fcgi).
  *   REP_RECEIVE_SCOPE       incremental | today_only — só com REP_FORCE_MODE=1 (senão auto go-live).
@@ -1031,6 +1032,58 @@ async function loginControlIdViaCurl(url, login, password) {
   } catch (e) {
     lastRepLoginDiagnostic = `curl: ${e?.message || String(e)}`;
     observabilityConsole.error('[REP LOGIN CURL ERROR]', e?.message || String(e));
+    return null;
+  }
+}
+
+const CURL_HTTP_CODE_MARKER = '\n__CURL_HTTP_CODE__';
+
+function repDeviceUseCurlEnv() {
+  const v = (process.env.REP_FCGI_USE_CURL ?? process.env.REP_LOGIN_USE_CURL ?? '1').trim();
+  return process.platform === 'win32' && !/^(0|false|no)$/i.test(v);
+}
+
+/**
+ * POST JSON .fcgi via curl (Windows) — Node https.request trava em Control iD HTTPS:80.
+ */
+async function clockPostJsonViaCurl(urlString, payload, { maxTimeSec = 25 } = {}) {
+  if (!repDeviceUseCurlEnv()) return null;
+  const body = JSON.stringify(payload ?? {});
+  try {
+    const { stdout } = await execFileAsync(
+      'curl.exe',
+      [
+        '-sk',
+        '--connect-timeout',
+        '10',
+        '--max-time',
+        String(maxTimeSec),
+        '-w',
+        `${CURL_HTTP_CODE_MARKER}%{http_code}`,
+        '-H',
+        'Content-Type: application/json',
+        '-H',
+        'Connection: close',
+        '-d',
+        body,
+        urlString,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: (maxTimeSec + 8) * 1000,
+        windowsHide: true,
+        maxBuffer: 512 * 1024,
+      },
+    );
+    const markerIdx = stdout.lastIndexOf(CURL_HTTP_CODE_MARKER);
+    if (markerIdx >= 0) {
+      const text = stdout.slice(0, markerIdx);
+      const status = parseInt(stdout.slice(markerIdx + CURL_HTTP_CODE_MARKER.length), 10) || 0;
+      return { status, text };
+    }
+    return { status: 200, text: stdout };
+  } catch (e) {
+    observabilityConsole.error('[REP FCGI CURL]', urlString.split('?')[0], e?.message || String(e));
     return null;
   }
 }
@@ -2063,7 +2116,17 @@ async function controlIdSessionForCommand() {
 }
 
 async function postControlIdFcgi(base, path, body) {
-  const res = await clockPostJson(`${base}${path}`, body ?? {});
+  const url = `${base}${path}`;
+  let res = null;
+  if (repDeviceUseCurlEnv()) {
+    res = await clockPostJsonViaCurl(url, body ?? {});
+    if (res) {
+      observabilityConsole.log('[REP FCGI] via curl OK', path.split('?')[0]);
+    }
+  }
+  if (!res) {
+    res = await clockPostJson(url, body ?? {});
+  }
   const data = parseJsonSafe(res.text);
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`HTTP ${res.status} em ${path}: ${afdHttpSnippet(res.text)}`);
