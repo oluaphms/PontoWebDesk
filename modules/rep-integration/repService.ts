@@ -493,6 +493,8 @@ export async function promotePendingRepPunchLogs(
   promoteFailedRejected?: number;
   promoteFailedDetail?: RepPromoteFailedDetailRow[];
   skippedNoUser?: number;
+  /** Sem match de colaborador (campo skipped_unresolved_identity da RPC). */
+  skippedUnresolvedIdentity?: number;
   /** Com filtro por colaborador: batidas que casa(m) com outro utilizador. */
   skippedOtherUser?: number;
   error?: string;
@@ -609,8 +611,13 @@ export async function promotePendingRepPunchLogs(
     rep_promote_recovered_detail?: RepPromoteRecoveredDetailRow[] | null;
     skipped_no_user?: number;
     skipped_other_user?: number;
+    /** Contagem real de «sem match» na RPC (skipped_no_user no SQL costuma ser 0). */
+    skipped_unresolved_identity?: number;
     promoted_detail?: RepPromotedDetailRow[] | null;
   };
+  const skippedUnresolved = Number(row.skipped_unresolved_identity ?? 0) || 0;
+  const skippedNoUserTotal =
+    (Number(row.skipped_no_user ?? 0) || 0) + skippedUnresolved;
   const failedRows = row.promote_failed_detail ?? [];
   if (row.success === true && Array.isArray(row.promoted_detail) && row.promoted_detail.length > 0) {
     try {
@@ -625,7 +632,7 @@ export async function promotePendingRepPunchLogs(
   }
 
   if (row.success === true) {
-    const snu = row.skipped_no_user ?? 0;
+    const snu = skippedNoUserTotal;
     const sou = row.skipped_other_user ?? 0;
     if (snu > 0) {
       enqueueAppendTimeAttendanceTimelineEvent({
@@ -820,7 +827,8 @@ export async function promotePendingRepPunchLogs(
     promoteFailedInvalidSequence: row.promote_failed_invalid_sequence,
     promoteFailedRejected: row.promote_failed_rejected,
     promoteFailedDetail: failedRows.length ? failedRows : undefined,
-    skippedNoUser: row.skipped_no_user,
+    skippedNoUser: skippedNoUserTotal,
+    skippedUnresolvedIdentity: skippedUnresolved,
     skippedOtherUser: row.skipped_other_user,
   };
 }

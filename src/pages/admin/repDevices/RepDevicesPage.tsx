@@ -1353,8 +1353,7 @@ const AdminRepDevices: React.FC = () => {
           localWindow: localDay,
           filteredByUserOnly: Boolean(onlyUid) && skippedOtherFinal > 0,
         });
-      }
-      if (promotedFinal === 0 && skippedFinal === 0) {
+      } else if (promotedFinal === 0) {
         await appendRepConsolidationOutcomeDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
           localWindow: localDay,
         });

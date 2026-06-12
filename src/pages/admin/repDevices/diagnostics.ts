@@ -135,8 +135,11 @@ export async function appendRepConsolidationOutcomeDiagnostics(
 
   if (!pendingErr && (pendingCount ?? 0) > 0) {
     log(
-      `Diagnóstico: ${pendingCount} batida(s) ainda na fila (sem espelho) neste relógio${opts?.localWindow ? ' na janela escolhida' : ''}.`,
+      `Diagnóstico: ${pendingCount} batida(s) ainda na fila (sem espelho) neste relógio${opts?.localWindow ? ' na janela escolhida' : ''} — cruzar PIS/CPF com o cadastro:`,
     );
+    await appendRepPendingQueueDiagnostics(client, companyId, deviceId, log, {
+      localWindow: opts?.localWindow,
+    });
     return;
   }
 
