@@ -86,6 +86,7 @@ import {
   readLsBool,
   repMaskTailDigits,
   filterActiveRepPunchLogs,
+  markRepPunchLogsIgnoredByIds,
   sanitizeRepConnectionErrorForUi,
   shouldBlockCloudRepConnectionTest,
   withUiTimeout,
@@ -1478,23 +1479,25 @@ const AdminRepDevices: React.FC = () => {
     const nsrList = Array.from(selectedPunches);
 
     try {
-      const { data, error } = await getSupabaseClient()!.rpc('rep_ignore_punch_logs', {
-        p_company_id: user?.companyId,
-        p_nsr_list: nsrList,
-        p_ignored_by: user?.id,
+      const client = getSupabaseClient();
+      if (!client || !user?.companyId) return;
+      const { data: idRows, error: idErr } = await client
+        .from('rep_punch_logs')
+        .select('id')
+        .eq('company_id', user.companyId)
+        .in('nsr', nsrList)
+        .limit(200);
+      if (idErr) throw new Error(idErr.message);
+      const ids = (idRows ?? [])
+        .map((row) => String((row as { id?: unknown }).id ?? '').trim())
+        .filter(Boolean);
+      const ignoredCount = await markRepPunchLogsIgnoredByIds(client, ids, user.id);
+      setMessage({
+        type: 'success',
+        text: `${ignoredCount} batida(s) marcada(s) como ignorada(s). Elas não aparecerão mais na fila de pendentes.`,
       });
-
-      if (error) {
-        setMessage({ type: 'error', text: 'Erro ao ignorar batidas: ' + error.message });
-      } else {
-        const result = data as { success: boolean; ignored_count: number };
-        setMessage({
-          type: 'success',
-          text: `${result.ignored_count} batida(s) marcada(s) como ignorada(s). Elas não aparecerão mais na fila de pendentes.`,
-        });
-        setSelectedPunches(new Set());
-        await loadPendingPisDiagnostics();
-      }
+      setSelectedPunches(new Set());
+      await loadPendingPisDiagnostics();
     } catch (e) {
       setMessage({ type: 'error', text: 'Erro ao ignorar batidas: ' + (e as Error).message });
     } finally {
@@ -1515,37 +1518,30 @@ const AdminRepDevices: React.FC = () => {
     try {
       const { data: rawRows, error } = await client
         .from('rep_punch_logs')
-        .select('nsr, pis, cpf, raw_data')
+        .select('id, nsr, pis, cpf, raw_data')
         .eq('company_id', user.companyId)
         .eq('rep_device_id', d.id)
         .is('time_record_id', null)
         .limit(200);
       if (error) throw new Error(error.message);
-      const nsrList = filterActiveRepPunchLogs(rawRows)
-        .filter((row) => {
-          const canon = repPunchLogEffectivePisCanonForDiagnostics({
-            pis: row.pis as string | null,
-            cpf: row.cpf as string | null,
-            raw_data: row.raw_data,
-          });
-          const rawDigits = String(row.pis || row.cpf || '').replace(/\D/g, '');
-          return !canon && rawDigits.length === 0;
-        })
-        .map((row) => row.nsr)
-        .filter((n): n is number => n != null);
-      if (nsrList.length === 0) {
+      const toIgnore = filterActiveRepPunchLogs(rawRows).filter((row) => {
+        const canon = repPunchLogEffectivePisCanonForDiagnostics({
+          pis: row.pis as string | null,
+          cpf: row.cpf as string | null,
+          raw_data: row.raw_data,
+        });
+        const rawDigits = String(row.pis || row.cpf || '').replace(/\D/g, '');
+        return !canon && rawDigits.length === 0;
+      });
+      if (toIgnore.length === 0) {
         appendSrLog('Nenhuma batida pendente sem PIS/CPF para ignorar neste relógio.', 'warning');
         setMessage({ type: 'warning', text: 'Não há batidas sem identificador na fila.' });
         return;
       }
-      const { data, error: rpcErr } = await client.rpc('rep_ignore_punch_logs', {
-        p_company_id: user.companyId,
-        p_nsr_list: nsrList,
-        p_ignored_by: user.id,
-      });
-      if (rpcErr) throw new Error(rpcErr.message);
-      const result = data as { success?: boolean; ignored_count?: number };
-      const count = Number(result?.ignored_count ?? 0);
+      const ids = toIgnore
+        .map((row) => String((row as { id?: unknown }).id ?? '').trim())
+        .filter(Boolean);
+      const count = await markRepPunchLogsIgnoredByIds(client, ids, user.id);
       appendSrLog(
         `${count} batida(s) sem PIS (tipo 6) marcada(s) como ignorada(s). Próximo: Coletar 2026-06-08 → 2026-06-12 e Consolidar.`,
         'success',

@@ -13,6 +13,32 @@ export function filterActiveRepPunchLogs<T extends { ignored?: boolean | null }>
   return (rows ?? []).filter(isActiveRepPunchLog);
 }
 
+type RepPunchLogIgnoreClient = {
+  from: (table: string) => {
+    update: (data: Record<string, unknown>) => {
+      eq: (column: string, value: unknown) => Promise<{ error: { message: string } | null }>;
+    };
+  };
+};
+
+/** Ignora batidas por id (evita RPC rep_ignore_punch_logs quando company_id é UUID). */
+export async function markRepPunchLogsIgnoredByIds(
+  client: RepPunchLogIgnoreClient,
+  ids: string[],
+  ignoredBy?: string | null,
+): Promise<number> {
+  if (!ids.length) return 0;
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const id of ids) {
+    const patch: Record<string, unknown> = { ignored: true, ignored_at: now };
+    if (ignoredBy) patch.ignored_by = ignoredBy;
+    const { error } = await client.from('rep_punch_logs').update(patch).eq('id', id);
+    if (!error) updated += 1;
+  }
+  return updated;
+}
+
 /** Última atividade do agente em linguagem natural (pt-BR). */
 export function formatRelativeTimePt(iso: string | null): string | null {
   if (!iso) return null;
