@@ -10,7 +10,7 @@ import {
   repPunchLogEffectivePisCanonForDiagnostics,
 } from '../../../../modules/rep-integration/repPunchPendingIdentity';
 import { formatRepIdentificationDiagLine } from '../../../../modules/rep-integration/repWeakPisFallbackMatch';
-import { filterActiveRepPunchLogs, repMaskTailDigits } from './utils';
+import { excludeIgnoredRepPunchLogs, filterActiveRepPunchLogs, repMaskTailDigits } from './utils';
 
 /** Lista no log os identificadores das batidas ainda sem funcionário (para cruzar com o cadastro). */
 export async function appendRepPendingQueueDiagnostics(
@@ -23,12 +23,14 @@ export async function appendRepPendingQueueDiagnostics(
     filteredByUserOnly?: boolean;
   },
 ): Promise<{ allWithoutIdentifier: boolean; shownCount: number }> {
-  let q = client
-    .from('rep_punch_logs')
-    .select('nsr, pis, cpf, matricula, data_hora, raw_data')
-    .eq('company_id', companyId)
-    .eq('rep_device_id', deviceId)
-    .is('time_record_id', null);
+  let q = excludeIgnoredRepPunchLogs(
+    client
+      .from('rep_punch_logs')
+      .select('nsr, pis, cpf, matricula, data_hora, raw_data, ignored')
+      .eq('company_id', companyId)
+      .eq('rep_device_id', deviceId)
+      .is('time_record_id', null),
+  );
   if (opts?.localWindow) {
     q = q.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
   }
@@ -140,12 +142,14 @@ export async function appendRepConsolidationOutcomeDiagnostics(
   log: (line: string) => void,
   opts?: { localWindow?: { startIso: string; endIso: string } },
 ): Promise<void> {
-  let pendingQ = client
-    .from('rep_punch_logs')
-    .select('id', { count: 'exact', head: true })
-    .eq('company_id', companyId)
-    .eq('rep_device_id', deviceId)
-    .is('time_record_id', null);
+  let pendingQ = excludeIgnoredRepPunchLogs(
+    client
+      .from('rep_punch_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('rep_device_id', deviceId)
+      .is('time_record_id', null),
+  );
   if (opts?.localWindow) {
     pendingQ = pendingQ.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
   }

@@ -13,6 +13,15 @@ export function filterActiveRepPunchLogs<T extends { ignored?: boolean | null }>
   return (rows ?? []).filter(isActiveRepPunchLog);
 }
 
+type RepPunchLogsNeqQuery = {
+  neq: (column: string, value: unknown) => RepPunchLogsNeqQuery;
+};
+
+/** Exclui linhas com `ignored=true` no servidor (inclui `null`/`false`). */
+export function excludeIgnoredRepPunchLogs<Q extends RepPunchLogsNeqQuery>(q: Q): Q {
+  return q.neq('ignored', true);
+}
+
 type RepPunchLogIgnoreClient = {
   from: (table: string) => {
     update: (data: Record<string, unknown>) => {

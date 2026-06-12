@@ -85,6 +85,7 @@ import {
   parseRepRpcUserRow,
   readLsBool,
   repMaskTailDigits,
+  excludeIgnoredRepPunchLogs,
   filterActiveRepPunchLogs,
   markRepPunchLogsIgnoredByIds,
   sanitizeRepConnectionErrorForUi,
@@ -1516,13 +1517,16 @@ const AdminRepDevices: React.FC = () => {
     if (!client) return;
     setIgnoringUnidentified(true);
     try {
-      const { data: rawRows, error } = await client
-        .from('rep_punch_logs')
-        .select('id, nsr, pis, cpf, raw_data')
-        .eq('company_id', user.companyId)
-        .eq('rep_device_id', d.id)
-        .is('time_record_id', null)
-        .limit(200);
+      const { data: rawRows, error } = await excludeIgnoredRepPunchLogs(
+        client
+          .from('rep_punch_logs')
+          .select('id, nsr, pis, cpf, raw_data, ignored')
+          .eq('company_id', user.companyId)
+          .eq('rep_device_id', d.id)
+          .is('time_record_id', null),
+      )
+        .order('data_hora', { ascending: true })
+        .limit(500);
       if (error) throw new Error(error.message);
       const toIgnore = filterActiveRepPunchLogs(rawRows).filter((row) => {
         const canon = repPunchLogEffectivePisCanonForDiagnostics({
@@ -1703,12 +1707,14 @@ const AdminRepDevices: React.FC = () => {
     const client = getSupabaseClient();
     if (!client) return 0;
 
-    let q = client
-      .from('rep_punch_logs')
-      .select('id, pis, cpf, matricula, raw_data')
-      .eq('company_id', companyId)
-      .eq('rep_device_id', deviceId)
-      .is('time_record_id', null);
+    let q = excludeIgnoredRepPunchLogs(
+      client
+        .from('rep_punch_logs')
+        .select('id, pis, cpf, matricula, raw_data, ignored')
+        .eq('company_id', companyId)
+        .eq('rep_device_id', deviceId)
+        .is('time_record_id', null),
+    );
 
     if (localWindow) {
       q = q.gte('data_hora', localWindow.startIso).lte('data_hora', localWindow.endIso);
@@ -1823,12 +1829,14 @@ const AdminRepDevices: React.FC = () => {
     const client = getSupabaseClient();
     if (!client) return 0;
 
-    let q = client
-      .from('rep_punch_logs')
-      .select('id, pis, cpf, matricula, data_hora, tipo_marcacao, nsr, time_record_id, raw_data')
-      .eq('company_id', companyId)
-      .eq('rep_device_id', deviceId)
-      .is('time_record_id', null);
+    let q = excludeIgnoredRepPunchLogs(
+      client
+        .from('rep_punch_logs')
+        .select('id, pis, cpf, matricula, data_hora, tipo_marcacao, nsr, time_record_id, raw_data, ignored')
+        .eq('company_id', companyId)
+        .eq('rep_device_id', deviceId)
+        .is('time_record_id', null),
+    );
 
     if (localWindow) {
       q = q.gte('data_hora', localWindow.startIso).lte('data_hora', localWindow.endIso);
