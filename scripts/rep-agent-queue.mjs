@@ -91,6 +91,23 @@ export function savePunchLocal(body) {
   };
 }
 
+/**
+ * Coleta manual por intervalo: reabre batida já marcada como enviada para novo upload.
+ * Útil quando o parser AFD foi corrigido ou a promoção no servidor falhou.
+ */
+export function requeueSentPunchForManualCollect(body) {
+  const db = getAgentDb();
+  const id = punchQueueId(body);
+  const payload = JSON.stringify({ ...body, punch_hash: id, hash: id });
+  const info = db
+    .prepare(
+      `UPDATE punches SET payload = ?, status = 'pending', sent_at = NULL
+       WHERE id = ? AND status = 'sent'`,
+    )
+    .run(payload, id);
+  return Number(info.changes) > 0;
+}
+
 export function getPendingPunches(limit = BATCH_SIZE) {
   const db = getAgentDb();
   return db

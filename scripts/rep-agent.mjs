@@ -90,6 +90,7 @@ import { AGENT_DB_PATH, closeAgentDb } from './rep-agent-db.mjs';
 import {
   initPunchQueue,
   savePunchLocal,
+  requeueSentPunchForManualCollect,
   startPunchSyncLoop,
   stopPunchSyncLoop,
   flushPunchQueue,
@@ -2150,7 +2151,7 @@ async function executeCollectPunchesCommand(cmd) {
       collectMessage += `; ${diagnostics.pending_left} ainda na fila local`;
     }
     if (uploaded === 0 && parsed > 0 && dupCount > 0) {
-      collectMessage += `. ${dupCount} batida(s) no período já constavam no cache local ou na fila (duplicadas)`;
+      collectMessage += `. ${dupCount} batida(s) no período já constavam no cache NSR ou marcadas como enviadas na fila local`;
     } else if (uploaded === 0 && parsed > 0 && sentOk === 0 && dupCount === 0) {
       collectMessage += `. ${parsed} batida(s) no período sem envio novo — verifique filtro NSR ou logs do agente`;
     }
@@ -3273,8 +3274,16 @@ async function ingestViaAFD() {
     const body = normalizeAfdPunch(rec);
     try {
       const r = postPunch(body);
-      const wasDuplicate = !!(r && r.duplicate);
-      const wasQueued = !!(r && (r.queued || r.alreadyPending));
+      let wasDuplicate = !!(r && r.duplicate);
+      let wasQueued = !!(r && (r.queued || r.alreadyPending));
+
+      if (wasDuplicate && agentPolicy.bypassNsrFilter && requeueSentPunchForManualCollect(body)) {
+        wasDuplicate = false;
+        wasQueued = true;
+        observabilityConsole.log(
+          `[REP PUNCH REQUEUE] nsr=${nsrKey} reaberta para reenvio (coleta manual)`,
+        );
+      }
 
       processed.add(nsrKey);
       if (wasDuplicate) {

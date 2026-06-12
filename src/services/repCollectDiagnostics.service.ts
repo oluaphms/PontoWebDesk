@@ -70,7 +70,7 @@ export function formatCollectDiagnosticsForLog(d: RepCollectDiagnosticsPayload):
   if (typeof d.queued === 'number') lines.push(`[REP QUEUE SAVE] enfileiradas=${d.queued}`);
   if (typeof d.duplicates === 'number' && d.duplicates > 0) {
     lines.push(
-      `[REP DUPLICATE] total=${d.duplicates}${d.dup_local != null ? ` cache=${d.dup_local}` : ''}${d.dup_server != null ? ` fila=${d.dup_server}` : ''}`,
+      `[REP DUPLICATE] total=${d.duplicates}${d.dup_local != null ? ` cache=${d.dup_local}` : ''}${d.dup_server != null ? ` ja_enviadas_local=${d.dup_server}` : ''}`,
     );
   }
   if (typeof d.pre_skipped === 'number' && d.pre_skipped > 0) {

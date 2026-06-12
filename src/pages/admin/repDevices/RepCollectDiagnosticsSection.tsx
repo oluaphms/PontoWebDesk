@@ -77,7 +77,7 @@ export const RepCollectDiagnosticsSection: React.FC<RepCollectDiagnosticsSection
             <li>
               <strong>Duplicadas (já tratadas):</strong> {d.duplicates}
               {d.dup_local != null || d.dup_server != null
-                ? ` (cache ${d.dup_local ?? 0}, fila ${d.dup_server ?? 0})`
+                ? ` (cache NSR ${d.dup_local ?? 0}, já enviadas local ${d.dup_server ?? 0})`
                 : ''}
             </li>
           ) : null}
