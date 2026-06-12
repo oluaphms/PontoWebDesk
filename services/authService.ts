@@ -92,7 +92,6 @@ import { LoggingService } from './loggingService';
 import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/appShellBootstrap';
 import { isLocalApiMode } from '../src/config/system';
 import { isSupabaseCloudEnvConfigured, readSupabaseAnonKey, readSupabaseUrl } from '../src/config/env';
-import { createClient } from '@supabase/supabase-js';
 
 export interface AuthResult {
   user: User | null;
@@ -1552,18 +1551,31 @@ class AuthService {
 
     try {
       const redirectTo = `${this.getResetRedirectUrl()}/reset-password`;
-      const client = createClient(supabaseUrl, anonKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
+      const baseUrl = supabaseUrl.replace(/\/+$/, '');
+      const recoverUrl = `${baseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`;
+      const res = await fetch(recoverUrl, {
+        method: 'POST',
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
       });
-      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
-      if (error) {
-        let errorMessage = error.message || 'Erro ao enviar email de recuperação';
-        if (/redirect|url.*config|smtp/i.test(errorMessage)) {
-          errorMessage = `Falha ao enviar. No Supabase: Authentication → URL Configuration, adicione: ${this.getResetRedirectUrl()}`;
-        }
-        return { success: false, error: errorMessage };
+      if (res.ok) {
+        return { success: true, error: null };
       }
-      return { success: true, error: null };
+      let errorMessage = 'Erro ao enviar email de recuperação';
+      try {
+        const payload = (await res.json()) as { msg?: string; error_description?: string; error?: string };
+        errorMessage = payload.msg || payload.error_description || payload.error || errorMessage;
+      } catch {
+        // corpo vazio ou não-JSON
+      }
+      if (/redirect|url.*config|smtp/i.test(errorMessage)) {
+        errorMessage = `Falha ao enviar. No Supabase: Authentication → URL Configuration, adicione: ${this.getResetRedirectUrl()}`;
+      }
+      return { success: false, error: errorMessage };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Erro ao enviar email de recuperação';
       return { success: false, error: message };
