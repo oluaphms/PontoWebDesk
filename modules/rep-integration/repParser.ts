@@ -57,38 +57,54 @@ function normalizeAfdLineInput(line: string): string {
   return withoutLetter;
 }
 
-/** Control iD Portaria 671 — HHMM/HHMMSS + PIS + CRC; valida DV do PIS (ver `scripts/rep-afd-pis.mjs`). */
-function parseControlIdMarcacaoTail(rest: string): { timeRaw: string; pis: string } | null {
-  const d = normalizeDocument(rest);
-  if (d.length < 15) return null;
+function stripTrailingMarcacaoLetterAfd(s: string): string {
+  return s.replace(/([A-Za-z])$/, '');
+}
 
-  for (const crcLen of [4, 3, 2]) {
-    if (d.length < 4 + 11 + crcLen) continue;
-    const body = d.slice(0, -crcLen);
-    for (const timeLen of [4, 6]) {
-      if (body.length < timeLen + 11) continue;
-      const timeRaw = body.slice(0, timeLen);
-      const pis12 = body.slice(timeLen, timeLen + 12);
-      if (pis12.length === 12) {
-        const canon = repAfdCanonical11DigitsFromBlob(pis12);
-        if (canon && validatePisPasep11(canon)) {
-          return { timeRaw, pis: canon };
-        }
-      }
-      const pis11 = body.slice(timeLen, timeLen + 11);
-      if (validatePisPasep11(pis11)) {
-        return { timeRaw, pis: pis11 };
+function parseMarcacaoBodyDigits(d: string): { timeRaw: string; pis: string } | null {
+  for (const timeLen of [4, 6]) {
+    if (d.length < timeLen + 11) continue;
+    const timeRaw = d.slice(0, timeLen);
+    const pis12 = d.slice(timeLen, timeLen + 12);
+    if (pis12.length === 12) {
+      const canon = repAfdCanonical11DigitsFromBlob(pis12);
+      if (canon && validatePisPasep11(canon)) {
+        return { timeRaw, pis: canon };
       }
     }
-    for (let i = 0; i <= body.length - 11; i++) {
-      const w = body.slice(i, i + 11);
-      if (!validatePisPasep11(w)) continue;
-      const timeRaw = body.slice(0, i);
-      if (timeRaw.length === 4 || timeRaw.length === 6) {
-        return { timeRaw, pis: w };
-      }
+    const pis11 = d.slice(timeLen, timeLen + 11);
+    if (validatePisPasep11(pis11)) {
+      return { timeRaw, pis: pis11 };
     }
   }
+  for (let i = 0; i <= d.length - 11; i++) {
+    const w = d.slice(i, i + 11);
+    if (!validatePisPasep11(w)) continue;
+    const timeRaw = d.slice(0, i);
+    if (timeRaw.length === 4 || timeRaw.length === 6) {
+      return { timeRaw, pis: w };
+    }
+  }
+  return null;
+}
+
+/** Control iD Portaria 671 — HHMM/HHMMSS + PIS + CRC; valida DV do PIS (ver `scripts/rep-afd-pis.mjs`). */
+function parseControlIdMarcacaoTail(rest: string): { timeRaw: string; pis: string } | null {
+  const alnum = stripTrailingMarcacaoLetterAfd(rest.trim());
+  if (!alnum) return null;
+
+  for (const crcLen of [4, 3, 2]) {
+    if (alnum.length < 15 + crcLen) continue;
+    const crc = alnum.slice(-crcLen);
+    if (!/^[0-9a-fA-F]+$/i.test(crc)) continue;
+    const bodyDigits = normalizeDocument(alnum.slice(0, -crcLen));
+    if (bodyDigits.length < 15) continue;
+    const hit = parseMarcacaoBodyDigits(bodyDigits);
+    if (hit) return hit;
+  }
+
+  const bodyDigits = normalizeDocument(alnum);
+  if (bodyDigits.length >= 15) return parseMarcacaoBodyDigits(bodyDigits);
   return null;
 }
 
@@ -123,6 +139,7 @@ export function parseAfdLine(line: string): ParsedAfdRecord | null {
         }
       }
     }
+    if (/[a-fA-F]/.test(prefix37[4]!)) return null;
   }
 
   let m = trimmed.match(AFD_LINE_RECORD_37_LOOSE);

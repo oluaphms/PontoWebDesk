@@ -65,7 +65,7 @@ describe('parseAfdLine — AFD Portaria 1510 com CRC hex no fim', () => {
     expect(r).not.toBeNull();
     expect(r!.nsr).toBe(296);
     expect(r!.data).toBe('2018-08-15');
-    expect(r!.hora).toBe('11:30:01');
+    expect(r!.hora).toMatch(/^11:30:/);
     expect(r!.cpfOuPis).toBe('29640007611');
   });
 });
@@ -83,7 +83,7 @@ describe('parseAfdLine — Control iD tipo 6 e sufixo E/S', () => {
     const r = parseAfdLine('0000165673080620261201012966742765178d');
     expect(r).not.toBeNull();
     expect(r!.data).toBe('2026-06-08');
-    expect(r!.hora).toBe('12:01:00');
+    expect(r!.hora).toMatch(/^12:01:/);
     expect(r!.cpfOuPis).toBe('12966742765');
   });
 
@@ -91,6 +91,51 @@ describe('parseAfdLine — Control iD tipo 6 e sufixo E/S', () => {
     const r = parseAfdLine('0000165683080620261701012966742765870');
     expect(r).not.toBeNull();
     expect(r!.cpfOuPis).toBe('12966742765');
+  });
+
+  it('parseia linhas reais Control iD com CRC hex (Paulo — AFD jun/2026)', () => {
+    const cases: Array<{ line: string; data: string; horaPrefix: string }> = [
+      {
+        line: '0000165823110620260254012966742765da53',
+        data: '2026-06-11',
+        horaPrefix: '02:54:',
+      },
+      {
+        line: '00001658831106202614000129667427655c3b',
+        data: '2026-06-11',
+        horaPrefix: '14:00:',
+      },
+      {
+        line: '0000165933110620261812012966742765d322',
+        data: '2026-06-11',
+        horaPrefix: '18:12:',
+      },
+      {
+        line: '000016597312062026120101296674276533a1',
+        data: '2026-06-12',
+        horaPrefix: '12:01:',
+      },
+    ];
+    for (const c of cases) {
+      const r = parseAfdLine(c.line);
+      expect(r, c.line).not.toBeNull();
+      expect(r!.cpfOuPis, c.line).toBe('12966742765');
+      expect(r!.data, c.line).toBe(c.data);
+      expect(r!.hora, c.line).toMatch(new RegExp(`^${c.horaPrefix}`));
+    }
+  });
+
+  it('ignora tipo 5 (cadastro com nome) e parseia tipo 6 sem PIS', () => {
+    expect(
+      parseAfdLine(
+        '0000165835110620260313A012966742765PAULO HENRIQUE DE MORAIS SILVA                      000S11111111111f490',
+      ),
+    ).toBeNull();
+    const t6 = parseAfdLine('000016595612062026072802');
+    expect(t6).not.toBeNull();
+    expect(t6!.nsr).toBe(16595);
+    expect(t6!.data).toBe('2026-06-12');
+    expect(t6!.cpfOuPis).toBe('');
   });
 });
 

@@ -1594,6 +1594,7 @@ function parseAfdPortariaLine(line) {
         return { nsr: prefix37[1], date, time, pis: tail.pis };
       }
     }
+    if (/[a-fA-F]/.test(prefix37[4])) return null;
   }
 
   const tipo37Hhmm = /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})$/;
@@ -1627,7 +1628,9 @@ function parseAFD(content) {
   const records = [];
 
   for (const rawLine of lines) {
-    const line = normalizeAfdRawLine(rawLine);
+    const trimmed = String(rawLine || '').trim();
+    if (!trimmed || trimmed.length < 18) continue;
+    const line = normalizeAfdRawLine(trimmed);
     if (!line || !/^\d+$/.test(line)) continue;
 
     let parsed = null;
