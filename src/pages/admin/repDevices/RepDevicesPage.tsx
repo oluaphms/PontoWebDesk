@@ -21,7 +21,7 @@ import { Clock, Plus } from 'lucide-react';
 import { testRepDeviceConnection, syncRepDevice } from '../../../../modules/rep-integration/repSyncJob';
 import { enqueueRepCollect } from '../../../services/repCollect.service';
 import type { RepIngestBatchProgress } from '../../../../modules/rep-integration/repService';
-import { getLocalCalendarDayBoundsIso } from '../../../../modules/rep-integration/repLocalDay';
+import { getLocalCalendarDayBoundsIso, getLocalCalendarYmd } from '../../../../modules/rep-integration/repLocalDay';
 import { promotePendingRepPunchLogs } from '../../../../modules/rep-integration/repService';
 import {
   extractAfdLineIdentifierDigitBlob,
@@ -198,7 +198,7 @@ const AdminRepDevices: React.FC = () => {
   /** Opcional: consolidar só para um colaborador (outros NIS ficam na fila). */
   const [srConsolidateOnlyUserId, setSrConsolidateOnlyUserId] = useState('');
   /** Botão «Consolidar»: só pendentes no dia civil deste computador (recebimento «só hoje» já usa a mesma janela automaticamente). */
-  const [srManualConsolidateLocalToday, setSrManualConsolidateLocalToday] = useState(true);
+  const [srManualConsolidateLocalToday, setSrManualConsolidateLocalToday] = useState(false);
   /** Diagnóstico de PIS pendentes na fila */
   const [pendingPisModal, setPendingPisModal] = useState<{ open: boolean; rows: PendingPunchDiag[] }>({ open: false, rows: [] });
   /** Funcionário selecionado para reatribuir batidas pendentes */
@@ -554,6 +554,20 @@ const AdminRepDevices: React.FC = () => {
           const msg = String(result.message || 'Coleta concluída.');
           setMessage({ type: 'success', text: msg });
           appendSrLog(msg, 'success');
+          const uploaded = Number(diag.uploaded ?? 0);
+          const localToday = getLocalCalendarYmd();
+          if (
+            uploaded > 0 &&
+            srManualConsolidateLocalToday &&
+            (collectStartDate < localToday || collectEndDate < localToday)
+          ) {
+            appendSrLog(
+              `Atenção: a coleta inclui dia(s) anteriores a hoje (${localToday}), mas «Consolidar só hoje» está marcado — desmarque no hub REP antes de consolidar.`,
+              'warning',
+            );
+          } else if (uploaded > 0 && !srManualConsolidateLocalToday) {
+            appendSrLog('Próximo passo: use «Consolidar Pendências» (sem filtro «só hoje») para gravar no espelho.', 'success');
+          }
         } else if (poll.status === 'timeout') {
           appendSrLog('Tempo esgotado aguardando o agente concluir a coleta (5 min). Verifique agent.log.', 'warning');
           setMessage({ type: 'warning', text: 'Coleta ainda em andamento ou agente demorou demais.' });
@@ -1354,10 +1368,20 @@ const AdminRepDevices: React.FC = () => {
           if (onlyUid && skippedOtherFinal > 0) {
             bits.push(`${skippedOtherFinal} não gravada(s): cadastro noutro colaborador (filtro «só este»)`);
           }
-          if (bits.length === 0) return 'Nada a consolidar na janela/filtro escolhido(s).';
+          if (bits.length === 0) {
+            return srManualConsolidateLocalToday
+              ? `Nada a consolidar hoje (${getLocalCalendarYmd()}). Desmarque «só o dia de hoje» para processar batidas de outros dias.`
+              : 'Nada a consolidar na janela/filtro escolhido(s).';
+          }
           return `${bits.join('. ')}.`;
         })(),
       });
+      if (promotedFinal === 0 && srManualConsolidateLocalToday) {
+        appendSrLog(
+          `Nenhuma batida consolidada: o filtro «só hoje» (${getLocalCalendarYmd()}) não inclui dias anteriores. Desmarque a opção e consolide de novo.`,
+          'warning',
+        );
+      }
       invalidateCompanyListCaches(user.companyId);
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
       await loadDevices();

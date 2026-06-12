@@ -298,8 +298,8 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
                 disabled={promoting || actionsLocked}
               />
               <span>
-                Consolidar só o dia de hoje (calendário deste computador). Desmarque para processar toda a fila
-                pendente deste relógio.
+                Consolidar só o dia de hoje (calendário deste computador). Deixe desmarcado após coletar dias
+                anteriores — senão batidas de ontem não entram no espelho.
               </span>
             </label>
             <p className={repPageUi.c021}>
