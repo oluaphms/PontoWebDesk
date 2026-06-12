@@ -85,6 +85,7 @@ import {
   parseRepRpcUserRow,
   readLsBool,
   repMaskTailDigits,
+  filterActiveRepPunchLogs,
   sanitizeRepConnectionErrorForUi,
   shouldBlockCloudRepConnectionTest,
   withUiTimeout,
@@ -1408,16 +1409,12 @@ const AdminRepDevices: React.FC = () => {
       .eq('rep_device_id', d.id)
       .is('time_record_id', null);
 
-    // Por padrão, não mostrar batidas ignoradas (a menos que showIgnoredPunches esteja ativado)
-    if (!showIgnoredPunches) {
-      q = q.or('ignored.is.false,ignored.is.null');
-    }
-
     if (localDay) {
       q = q.gte('data_hora', localDay.startIso).lte('data_hora', localDay.endIso);
     }
 
-    const { data, error } = await q.order('data_hora', { ascending: false }).limit(50);
+    const { data: rawData, error } = await q.order('data_hora', { ascending: false }).limit(50);
+    const data = showIgnoredPunches ? rawData : filterActiveRepPunchLogs(rawData);
 
     if (error) {
       setMessage({ type: 'error', text: 'Erro ao buscar pendências: ' + error.message });
@@ -1646,16 +1643,15 @@ const AdminRepDevices: React.FC = () => {
       .select('id, pis, cpf, matricula, raw_data')
       .eq('company_id', companyId)
       .eq('rep_device_id', deviceId)
-      .is('time_record_id', null)
-      .or('ignored.is.false,ignored.is.null')
-      .limit(200);
+      .is('time_record_id', null);
 
     if (localWindow) {
       q = q.gte('data_hora', localWindow.startIso).lte('data_hora', localWindow.endIso);
     }
 
-    const { data, error } = await q;
-    if (error || !data?.length) return 0;
+    const { data: rawRows, error } = await q.limit(200);
+    const data = filterActiveRepPunchLogs(rawRows);
+    if (error || !data.length) return 0;
 
     const fetchedUsers = await fetchRepMatchUsersForBlob(client, companyId);
     const usersForMatch = fetchedUsers.length > 0 ? fetchedUsers : employees;
@@ -1746,7 +1742,7 @@ const AdminRepDevices: React.FC = () => {
       }
       if (needsMat) patch.matricula = targetMatricula;
 
-      const { error: upErr } = await client.from('rep_punch_logs').update(patch).eq('id', row.id).is('time_record_id', null);
+      const { error: upErr } = await client.from('rep_punch_logs').update(patch).eq('id', row.id);
 
       if (!upErr) fixed += 1;
     }
@@ -1767,17 +1763,15 @@ const AdminRepDevices: React.FC = () => {
       .select('id, pis, cpf, matricula, data_hora, tipo_marcacao, nsr, time_record_id, raw_data')
       .eq('company_id', companyId)
       .eq('rep_device_id', deviceId)
-      .is('time_record_id', null)
-      .or('ignored.is.false,ignored.is.null')
-      .order('data_hora', { ascending: true })
-      .limit(200);
+      .is('time_record_id', null);
 
     if (localWindow) {
       q = q.gte('data_hora', localWindow.startIso).lte('data_hora', localWindow.endIso);
     }
 
-    const { data, error } = await q;
-    if (error || !data?.length) return 0;
+    const { data: rawRows, error } = await q.order('data_hora', { ascending: true }).limit(200);
+    const data = filterActiveRepPunchLogs(rawRows);
+    if (error || !data.length) return 0;
 
     const fetchedUsers = await fetchRepMatchUsersForBlob(client, companyId);
     const usersForMatch = fetchedUsers.length > 0 ? fetchedUsers : employees;

@@ -4,6 +4,15 @@ import type { RepDeviceClockSet } from '../../../../modules/rep-integration/type
 import type { EmployeeForRep, RepAgentConnectionState, RepDeviceRow, RepRpcUserRow } from './types';
 import { TIPOS_CONEXAO } from './constants';
 
+/** Batida REP ainda elegível para consolidação (API HTTP não suporta `.or()` do PostgREST). */
+export function isActiveRepPunchLog(row: { ignored?: boolean | null }): boolean {
+  return row.ignored !== true;
+}
+
+export function filterActiveRepPunchLogs<T extends { ignored?: boolean | null }>(rows: T[] | null | undefined): T[] {
+  return (rows ?? []).filter(isActiveRepPunchLog);
+}
+
 /** Última atividade do agente em linguagem natural (pt-BR). */
 export function formatRelativeTimePt(iso: string | null): string | null {
   if (!iso) return null;

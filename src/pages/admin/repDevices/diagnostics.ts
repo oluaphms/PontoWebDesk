@@ -10,7 +10,7 @@ import {
   repPunchLogEffectivePisCanonForDiagnostics,
 } from '../../../../modules/rep-integration/repPunchPendingIdentity';
 import { formatRepIdentificationDiagLine } from '../../../../modules/rep-integration/repWeakPisFallbackMatch';
-import { repMaskTailDigits } from './utils';
+import { filterActiveRepPunchLogs, repMaskTailDigits } from './utils';
 
 /** Lista no log os identificadores das batidas ainda sem funcionário (para cruzar com o cadastro). */
 export async function appendRepPendingQueueDiagnostics(
@@ -32,13 +32,14 @@ export async function appendRepPendingQueueDiagnostics(
   if (opts?.localWindow) {
     q = q.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
   }
-  const { data, error } = await q.order('data_hora', { ascending: true }).limit(5);
+  const { data: rawRows, error } = await q.order('data_hora', { ascending: true }).limit(20);
 
   if (error) {
     log(`Não foi possível ler a fila pendente (diagnóstico): ${error.message}`);
     return;
   }
-  if (!data?.length) return;
+  const data = filterActiveRepPunchLogs(rawRows).slice(0, 5);
+  if (!data.length) return;
 
   if (opts?.localWindow) {
     log('Diagnóstico — batidas ainda na fila nesta janela de data/hora (alinhada ao consolidar «só hoje» quando aplicável):');
@@ -126,8 +127,7 @@ export async function appendRepConsolidationOutcomeDiagnostics(
     .select('id', { count: 'exact', head: true })
     .eq('company_id', companyId)
     .eq('rep_device_id', deviceId)
-    .is('time_record_id', null)
-    .eq('ignored', false);
+    .is('time_record_id', null);
   if (opts?.localWindow) {
     pendingQ = pendingQ.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
   }
