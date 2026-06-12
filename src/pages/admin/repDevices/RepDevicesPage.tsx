@@ -1889,6 +1889,8 @@ const AdminRepDevices: React.FC = () => {
         }
       }
 
+      if (row.time_record_id) continue;
+
       const { error: upErr } = await client
         .from('rep_punch_logs')
         .update({
@@ -1897,8 +1899,7 @@ const AdminRepDevices: React.FC = () => {
           nome_funcionario: emp.nome,
           raw_data: rawForSave,
         })
-        .eq('id', row.id)
-        .is('time_record_id', null);
+        .eq('id', row.id);
 
       if (!upErr) promoted += 1;
     }
