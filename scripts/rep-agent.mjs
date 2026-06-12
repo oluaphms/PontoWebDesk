@@ -3289,6 +3289,17 @@ async function ingestViaAFD() {
       continue;
     }
 
+    // Portaria 671 tipo 6: marcação no AFD sem PIS/crachá — não há como casar colaborador.
+    if (!rec.pis) {
+      preSkipped += 1;
+      if (preSkipped <= 5) {
+        observabilityConsole.log(
+          `[REP AFD SKIP] nsr=${nsrKey} ${rec.date} ${rec.time} — registro tipo 6 (sem identificador no AFD)`,
+        );
+      }
+      continue;
+    }
+
     const body = normalizeAfdPunch(rec);
     try {
       const r = postPunch(body);
