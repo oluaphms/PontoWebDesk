@@ -49,6 +49,8 @@ export type RepOperationalHubModalProps = {
   onCollectEndDateChange: (value: string) => void;
   onCollectNow: () => void;
   onReprocessPending: () => void;
+  onIgnoreUnidentifiedPending: () => void;
+  ignoringUnidentified: boolean;
   consolidateLocalToday: boolean;
   onConsolidateLocalTodayChange: (value: boolean) => void;
   onReadClock: () => void;
@@ -100,6 +102,8 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
   onCollectEndDateChange,
   onCollectNow,
   onReprocessPending,
+  onIgnoreUnidentifiedPending,
+  ignoringUnidentified,
   consolidateLocalToday,
   onConsolidateLocalTodayChange,
   onReadClock,
@@ -287,6 +291,17 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
               >
                 <ClipboardCheck size={16} className={repPageUi.c019} />
                 Consolidar Pendências
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={actionsLocked || !selectedDevice || promoting || ignoringUnidentified}
+                loading={ignoringUnidentified}
+                onClick={onIgnoreUnidentifiedPending}
+                title="Remove da fila batidas AFD tipo 6 (sem PIS/crachá no relógio)"
+              >
+                Ignorar fila sem PIS
               </Button>
             </div>
             <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">

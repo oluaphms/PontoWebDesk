@@ -212,6 +212,7 @@ const AdminRepDevices: React.FC = () => {
   const [showIgnoredPunches, setShowIgnoredPunches] = useState(false);
   /** Loading durante ignorar batidas */
   const [ignoringPunches, setIgnoringPunches] = useState(false);
+  const [ignoringUnidentified, setIgnoringUnidentified] = useState(false);
   /** Sub-modal: enviar / status / funcionários / config */
   const [srPushAllRunning, setSrPushAllRunning] = useState(false);
   const [showInactiveDevices, setShowInactiveDevices] = useState(false);
@@ -1350,10 +1351,16 @@ const AdminRepDevices: React.FC = () => {
         );
       }
       if (skippedFinal > 0 || (onlyUid && skippedOtherFinal > 0)) {
-        await appendRepPendingQueueDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
+        const pendingDiag = await appendRepPendingQueueDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
           localWindow: localDay,
           filteredByUserOnly: Boolean(onlyUid) && skippedOtherFinal > 0,
         });
+        if (pendingDiag.allWithoutIdentifier) {
+          appendSrLog(
+            'Estas pendências não têm PIS (AFD tipo 6). Use o botão «Ignorar fila sem PIS» no hub — consolidar de novo não altera nada.',
+            'warning',
+          );
+        }
       } else if (promotedFinal === 0) {
         await appendRepConsolidationOutcomeDiagnostics(supabase, consolidateCompanyId, d.id, appendSrLog, {
           localWindow: localDay,
@@ -1492,6 +1499,68 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: 'error', text: 'Erro ao ignorar batidas: ' + (e as Error).message });
     } finally {
       setIgnoringPunches(false);
+    }
+  };
+
+  /** Marca como ignoradas batidas pendentes sem PIS/CPF (AFD tipo 6 ou ingestão sem identificador). */
+  const ignoreUnidentifiedPendingPunches = async (deviceOverride?: RepDeviceRow | null) => {
+    const d = deviceOverride ?? srSelectedDevice;
+    if (!d?.id || !user?.companyId) {
+      setMessage({ type: 'error', text: 'Selecione o relógio no hub REP.' });
+      return;
+    }
+    const client = getSupabaseClient();
+    if (!client) return;
+    setIgnoringUnidentified(true);
+    try {
+      const { data: rawRows, error } = await client
+        .from('rep_punch_logs')
+        .select('nsr, pis, cpf, raw_data')
+        .eq('company_id', user.companyId)
+        .eq('rep_device_id', d.id)
+        .is('time_record_id', null)
+        .limit(200);
+      if (error) throw new Error(error.message);
+      const nsrList = filterActiveRepPunchLogs(rawRows)
+        .filter((row) => {
+          const canon = repPunchLogEffectivePisCanonForDiagnostics({
+            pis: row.pis as string | null,
+            cpf: row.cpf as string | null,
+            raw_data: row.raw_data,
+          });
+          const rawDigits = String(row.pis || row.cpf || '').replace(/\D/g, '');
+          return !canon && rawDigits.length === 0;
+        })
+        .map((row) => row.nsr)
+        .filter((n): n is number => n != null);
+      if (nsrList.length === 0) {
+        appendSrLog('Nenhuma batida pendente sem PIS/CPF para ignorar neste relógio.', 'warning');
+        setMessage({ type: 'warning', text: 'Não há batidas sem identificador na fila.' });
+        return;
+      }
+      const { data, error: rpcErr } = await client.rpc('rep_ignore_punch_logs', {
+        p_company_id: user.companyId,
+        p_nsr_list: nsrList,
+        p_ignored_by: user.id,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      const result = data as { success?: boolean; ignored_count?: number };
+      const count = Number(result?.ignored_count ?? 0);
+      appendSrLog(
+        `${count} batida(s) sem PIS (tipo 6) marcada(s) como ignorada(s). Próximo: Coletar 2026-06-08 → 2026-06-12 e Consolidar.`,
+        'success',
+      );
+      setMessage({
+        type: 'success',
+        text: `${count} batida(s) sem identificador removida(s) da fila. Colete o período com batidas do Paulo (com PIS) e consolide.`,
+      });
+      if (user.companyId) invalidateRepPendingQueries(user.companyId);
+    } catch (e) {
+      const msg = (e as Error).message;
+      appendSrLog(`Falha ao ignorar fila sem PIS: ${msg}`, 'error');
+      setMessage({ type: 'error', text: msg });
+    } finally {
+      setIgnoringUnidentified(false);
     }
   };
 
@@ -2608,6 +2677,8 @@ const AdminRepDevices: React.FC = () => {
           if (srSelectedDevice) void runCollectNow(srSelectedDevice.id);
         }}
         onReprocessPending={() => void srRunPromoteStaging()}
+        onIgnoreUnidentifiedPending={() => void ignoreUnidentifiedPendingPunches()}
+        ignoringUnidentified={ignoringUnidentified}
         consolidateLocalToday={srManualConsolidateLocalToday}
         onConsolidateLocalTodayChange={setSrManualConsolidateLocalToday}
         onReadClock={() => void srRunExchangeOp('pull_clock')}

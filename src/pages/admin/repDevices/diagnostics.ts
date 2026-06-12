@@ -22,7 +22,7 @@ export async function appendRepPendingQueueDiagnostics(
     localWindow?: { startIso: string; endIso: string };
     filteredByUserOnly?: boolean;
   },
-): Promise<void> {
+): Promise<{ allWithoutIdentifier: boolean; shownCount: number }> {
   let q = client
     .from('rep_punch_logs')
     .select('nsr, pis, cpf, matricula, data_hora, raw_data')
@@ -36,10 +36,10 @@ export async function appendRepPendingQueueDiagnostics(
 
   if (error) {
     log(`Não foi possível ler a fila pendente (diagnóstico): ${error.message}`);
-    return;
+    return { allWithoutIdentifier: false, shownCount: 0 };
   }
   const data = filterActiveRepPunchLogs(rawRows).slice(0, 5);
-  if (!data.length) return;
+  if (!data.length) return { allWithoutIdentifier: false, shownCount: 0 };
 
   if (opts?.localWindow) {
     log('Diagnóstico — batidas ainda na fila nesta janela de data/hora (alinhada ao consolidar «só hoje» quando aplicável):');
@@ -90,12 +90,29 @@ export async function appendRepPendingQueueDiagnostics(
         ? `     blob AFD identificador: ${idBlob.length} dígitos, másc. ${repMaskTailDigits(idBlob, 4)} (prefixo/infixo vs nº identificador no cadastro)`
         : '     blob AFD identificador: — (linha compacta ausente ou formato não reconhecido; consolidação por crachá no servidor não corre)',
     );
-    log(
-      `     ${formatRepIdentificationDiagLine(row.nsr as number | null, {
+    const diagLine = formatRepIdentificationDiagLine(row.nsr as number | null, {
+      pis: row.pis as string | null,
+      cpf: row.cpf as string | null,
+      raw_data: row.raw_data,
+    });
+    log(`     ${diagLine}`);
+    if (!canon && rawSnippet === '—' && !afdLine) {
+      log(
+        '     → provável **AFD tipo 6** (marcação sem PIS/crachá no relógio). Consolidar **não** resolve; use «Ignorar fila sem PIS» ou «Ver pendências».',
+      );
+    }
+  }
+  const withoutId = data.filter(
+    (row) =>
+      !repPunchLogEffectivePisCanonForDiagnostics({
         pis: row.pis as string | null,
         cpf: row.cpf as string | null,
         raw_data: row.raw_data,
-      })}`,
+      }),
+  );
+  if (withoutId.length === data.length) {
+    log(
+      'Resumo: todas as amostras acima **não têm identificador** (tipo 6 ou ingestão antiga). Não são batidas do Paulo. Limpe com «Ignorar fila sem PIS» e depois **Coletar** 2026-06-08 → 2026-06-12 para batidas com PIS.',
     );
   }
   if (sawLikelyPisNotBadge) {
@@ -108,6 +125,7 @@ export async function appendRepPendingQueueDiagnostics(
       'As pendências têm **fins de PIS/CPF canónico diferentes** — são **identificadores distintos** (várias pessoas ou vários NIS). Cada um precisa de **um colaborador** na mesma empresa com esse PIS (ou o número equivalente em folha/crachá).',
     );
   }
+  return { allWithoutIdentifier: withoutId.length === data.length && data.length > 0, shownCount: data.length };
 }
 
 function formatRepLogTimestamp(dataHora: unknown): string {
