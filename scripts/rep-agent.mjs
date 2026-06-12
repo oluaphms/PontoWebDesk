@@ -1566,13 +1566,25 @@ function normalizeAfdRawLine(rawLine) {
   return withoutLetter;
 }
 
+function parseAfdTipo37Tail(nsr, dateRaw, tailRest) {
+  const tail = parseControlIdMarcacaoTail(tailRest);
+  if (!tail) return null;
+  const date = afdNormalizeDate(dateRaw);
+  const time =
+    tail.timeRaw.length === 4
+      ? afdNormalizeTime(`${tail.timeRaw}00`)
+      : afdNormalizeTime(tail.timeRaw);
+  if (!date || !time || !tail.pis) return null;
+  return { nsr, date, time, pis: tail.pis };
+}
+
 /** Portaria 1510/671 — tipo 3/7 (com PIS) ou 6 (marcação sem identificador no AFD). */
 function parseAfdPortariaLine(line) {
-  const trimmed = normalizeAfdRawLine(line);
-  if (!trimmed) return null;
+  const raw = String(line || '').trim();
+  if (!raw) return null;
 
   const tipo6 = /^(\d{9})(6)(\d{8})(\d{6})$/;
-  const m6 = trimmed.match(tipo6);
+  const m6 = raw.match(tipo6);
   if (m6) {
     const date = afdNormalizeDate(m6[3]);
     const time = afdNormalizeTime(m6[4]);
@@ -1580,21 +1592,21 @@ function parseAfdPortariaLine(line) {
     return { nsr: m6[1], date, time, pis: null };
   }
 
-  // Control iD Portaria 671: hora HHMM (4 dígitos) + PIS (11–14 dígitos com zeros/CRC já removidos).
-  const prefix37 = trimmed.match(/^(\d{9})([37])(\d{8})(.+)$/);
+  const withoutLetter = raw.replace(/([A-Za-z])$/, '');
+  const prefix37 = withoutLetter.match(/^(\d{9})([37])(\d{8})(.+)$/);
   if (prefix37) {
-    const tail = parseControlIdMarcacaoTail(prefix37[4]);
-    if (tail) {
-      const date = afdNormalizeDate(prefix37[3]);
-      const time =
-        tail.timeRaw.length === 4
-          ? afdNormalizeTime(`${tail.timeRaw}00`)
-          : afdNormalizeTime(tail.timeRaw);
-      if (date && time && tail.pis) {
-        return { nsr: prefix37[1], date, time, pis: tail.pis };
-      }
-    }
+    const hit = parseAfdTipo37Tail(prefix37[1], prefix37[3], prefix37[4]);
+    if (hit) return hit;
     if (/[a-fA-F]/.test(prefix37[4])) return null;
+  }
+
+  const trimmed = normalizeAfdRawLine(raw);
+  if (!trimmed || !/^\d+$/.test(trimmed)) return null;
+
+  const prefix37Norm = trimmed.match(/^(\d{9})([37])(\d{8})(.+)$/);
+  if (prefix37Norm) {
+    const hit = parseAfdTipo37Tail(prefix37Norm[1], prefix37Norm[3], prefix37Norm[4]);
+    if (hit) return hit;
   }
 
   const tipo37Hhmm = /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})$/;
@@ -1617,6 +1629,39 @@ function parseAfdPortariaLine(line) {
   return { nsr: m[1], date, time, pis };
 }
 
+/** Uma linha AFD bruta → registro (Control iD com CRC hex ou legado só dígitos). */
+function tryParseAfdRecord(rawLine) {
+  const trimmed = String(rawLine || '').trim();
+  if (!trimmed || trimmed.length < 18 || /\s/.test(trimmed)) return null;
+  if (!/^[\dA-Za-z]+$/.test(trimmed)) return null;
+
+  const portaria = parseAfdPortariaLine(trimmed);
+  if (portaria) return portaria;
+
+  const line = normalizeAfdRawLine(trimmed);
+  if (!line || !/^\d+$/.test(line)) return null;
+
+  if (line.length === 35) {
+    return buildAfdRecord({
+      nsr: line.slice(0, 12),
+      dateRaw: line.slice(12, 20),
+      timeRaw: line.slice(20, 24),
+      pis: line.slice(24, 35),
+      timeIsHhmm: true,
+    });
+  }
+  if (line.length === 34 && line[9] === '3') {
+    return buildAfdRecord({
+      nsr: line.slice(0, 9),
+      dateRaw: line.slice(10, 18),
+      timeRaw: line.slice(18, 22),
+      pis: line.slice(22, 34),
+      timeIsHhmm: true,
+    });
+  }
+  return parseAfdPortariaLine(line);
+}
+
 /**
  * Parser AFD: formatos simplificado (35 chars), Portaria 1510 tipo 3 (34 chars)
  * e linhas 37+ dígitos (DDMMAAAA + HHMMSS) usadas pelo Control iD / Portaria 671.
@@ -1628,29 +1673,7 @@ function parseAFD(content) {
   const records = [];
 
   for (const rawLine of lines) {
-    const trimmed = String(rawLine || '').trim();
-    if (!trimmed || trimmed.length < 18) continue;
-    const line = normalizeAfdRawLine(trimmed);
-    if (!line || !/^\d+$/.test(line)) continue;
-
-    let parsed = null;
-
-    if (line.length === 35) {
-      const nsr = line.slice(0, 12);
-      const dateRaw = line.slice(12, 20);
-      const timeRaw = line.slice(20, 24);
-      const pis = line.slice(24, 35);
-      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm: true });
-    } else if (line.length === 34 && line[9] === '3') {
-      const nsr = line.slice(0, 9);
-      const dateRaw = line.slice(10, 18);
-      const timeRaw = line.slice(18, 22);
-      const pis = line.slice(22, 34);
-      parsed = buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm: true });
-    } else {
-      parsed = parseAfdPortariaLine(line);
-    }
-
+    const parsed = tryParseAfdRecord(rawLine);
     if (parsed) records.push(parsed);
   }
 
@@ -3184,10 +3207,11 @@ async function ingestViaAFD() {
 
   const { url, content } = downloaded;
   const rawText = extractAfdFileText(content);
-  const numericLines = rawText
-    .split(/\r?\n/)
-    .map((l) => normalizeAfdRawLine(l))
-    .filter((l) => l && /^\d+$/.test(l)).length;
+  const afdRawLines = rawText.split(/\r?\n/).filter((l) => {
+    const t = String(l || '').trim();
+    return t.length >= 18 && !/\s/.test(t) && /^[\dA-Za-z]+$/.test(t);
+  });
+  const numericLines = afdRawLines.length;
   const parsedAll = parseAFD(rawText);
   const invalidLines = Math.max(0, numericLines - parsedAll.length);
   if (numericLines > 0 && parsedAll.length < numericLines) {
@@ -3214,14 +3238,27 @@ async function ingestViaAFD() {
   });
   logAfdParsedDateStats(parsedAll);
   const records = applyVolumeAirbagAfd(parsedAll);
+  const inScopeWithPis = records.filter((r) => r.pis).length;
+  const inScopeTipo6 = records.length - inScopeWithPis;
   logSyncCounts(parsedAll.length, records.length);
   observabilityConsole.log(
     '[REP AFD PARSED]',
     `${records.length} registros no escopo`,
+    `(${inScopeWithPis} com PIS, ${inScopeTipo6} tipo 6)`,
     parsedAll.length !== records.length ? `(de ${parsedAll.length} no arquivo)` : '',
     '|',
     url
   );
+  if (inScopeWithPis > 0) {
+    for (const rec of records.filter((r) => r.pis).slice(0, 5)) {
+      observabilityConsole.log(
+        `[REP AFD PIS] nsr=${rec.nsr} ${rec.date} ${rec.time} pis=${rec.pis}`,
+      );
+    }
+    if (inScopeWithPis > 5) {
+      observabilityConsole.log(`[REP AFD PIS] … e mais ${inScopeWithPis - 5} com PIS no escopo`);
+    }
+  }
 
   if (records.length === 0) {
     const lineCount = rawText.split(/\r?\n/).filter((l) => l.trim()).length;
