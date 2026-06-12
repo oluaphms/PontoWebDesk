@@ -3277,12 +3277,18 @@ async function ingestViaAFD() {
       let wasDuplicate = !!(r && r.duplicate);
       let wasQueued = !!(r && (r.queued || r.alreadyPending));
 
-      if (wasDuplicate && agentPolicy.bypassNsrFilter && requeueSentPunchForManualCollect(body)) {
-        wasDuplicate = false;
-        wasQueued = true;
-        observabilityConsole.log(
-          `[REP PUNCH REQUEUE] nsr=${nsrKey} reaberta para reenvio (coleta manual)`,
-        );
+      if (wasDuplicate && agentPolicy.bypassNsrFilter) {
+        if (requeueSentPunchForManualCollect(body)) {
+          wasDuplicate = false;
+          wasQueued = true;
+          observabilityConsole.log(
+            `[REP PUNCH REQUEUE] nsr=${nsrKey} reaberta para reenvio (coleta manual)`,
+          );
+        } else {
+          observabilityConsole.warn(
+            `[REP PUNCH REQUEUE SKIP] nsr=${nsrKey} já marcada como enviada e não foi possível reabrir na fila local`,
+          );
+        }
       }
 
       processed.add(nsrKey);

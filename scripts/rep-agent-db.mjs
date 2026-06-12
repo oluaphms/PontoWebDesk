@@ -95,6 +95,17 @@ function createJsonQueueDb() {
             persist();
             return { changes: 1 };
           }
+          if (normalized.startsWith('update punches set payload =')) {
+            const [payload, id] = args;
+            const key = String(id || '');
+            const row = state.punches[key];
+            if (!row || row.status !== 'sent') return { changes: 0 };
+            row.payload = String(payload || '{}');
+            row.status = 'pending';
+            row.sent_at = null;
+            persist();
+            return { changes: 1 };
+          }
           if (normalized.startsWith('update punches set status =')) {
             const [sentAt, id] = args;
             const key = String(id || '');
