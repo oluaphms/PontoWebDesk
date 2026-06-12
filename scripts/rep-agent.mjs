@@ -1686,6 +1686,22 @@ function buildAfdRecord({ nsr, dateRaw, timeRaw, pis, timeIsHhmm = false }) {
   return { nsr, date, time, pis: pisNorm };
 }
 
+/** Linha AFD compacta (tipo 3) para `raw_data.raw` — match por crachá/PIS no servidor. */
+function buildCompactAfdLineForRepRaw(rec) {
+  const nsr = String(rec.nsr ?? '').replace(/\D/g, '');
+  if (!nsr) return null;
+  const nsr9 = nsr.padStart(9, '0').slice(-9);
+  const m = String(rec.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dateRaw = `${m[3]}${m[2]}${m[1]}`;
+  const tp = String(rec.time || '00:00:00').split(':');
+  const timeRaw = `${(tp[0] ?? '00').padStart(2, '0')}${(tp[1] ?? '00').padStart(2, '0')}`;
+  const pisD = String(rec.pis || '').replace(/\D/g, '');
+  if (pisD.length < 11) return null;
+  const pis12 = pisD.padStart(12, '0').slice(-12);
+  return `${nsr9}3${dateRaw}${timeRaw}${pis12}`;
+}
+
 /** Converte registro AFD para o payload aceito por /api/rep/punch (sem alterar o contrato). */
 function normalizeAfdPunch(rec) {
   const timePart = String(rec.time || '').includes(':') && rec.time.split(':').length >= 3 ? rec.time : `${rec.time}:00`;
@@ -1697,6 +1713,7 @@ function normalizeAfdPunch(rec) {
     data_hora,
     nsr: rec.nsr,
   });
+  const compactLine = buildCompactAfdLineForRepRaw(rec);
   return {
     company_id: companyId,
     device_id: deviceId,
@@ -1707,6 +1724,7 @@ function normalizeAfdPunch(rec) {
     nsr: rec.nsr,
     hash: punch_hash,
     punch_hash,
+    ...(compactLine ? { raw_data: { raw: compactLine, source: 'REP_AFD' } } : {}),
   };
 }
 
