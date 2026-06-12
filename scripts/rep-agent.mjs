@@ -91,6 +91,7 @@ import { AGENT_DB_PATH, closeAgentDb } from './rep-agent-db.mjs';
 import {
   initPunchQueue,
   savePunchLocal,
+  forceQueuePunchForManualCollect,
   requeueSentPunchForManualCollect,
   startPunchSyncLoop,
   stopPunchSyncLoop,
@@ -2163,7 +2164,17 @@ async function executeCollectPunchesCommand(cmd) {
     if (uploaded === 0 && parsed > 0 && dupCount > 0) {
       collectMessage += `. ${dupCount} batida(s) no período já constavam no cache NSR ou marcadas como enviadas na fila local`;
     } else if (uploaded === 0 && parsed > 0 && sentOk === 0 && dupCount === 0) {
-      collectMessage += `. ${parsed} batida(s) no período sem envio novo — verifique filtro NSR ou logs do agente`;
+      const tipo6 = Number(cycle?.preSkippedTipo6 ?? diagnostics.skipped_tipo6 ?? 0);
+      const nsrSkip = Number(cycle?.preSkippedNsr ?? diagnostics.skipped_nsr ?? 0);
+      if (tipo6 > 0 && tipo6 >= parsed) {
+        collectMessage += `. As ${parsed} marcação(ões) no período são AFD tipo 6 (sem PIS no relógio) — nada a enviar`;
+      } else if (tipo6 > 0) {
+        collectMessage += `. ${tipo6} ignorada(s) por ser tipo 6 (sem PIS); restante sem envio — ver agent.log`;
+      } else if (nsrSkip > 0) {
+        collectMessage += `. ${nsrSkip} ignorada(s) por filtro lastNSR`;
+      } else {
+        collectMessage += `. ${parsed} batida(s) no período sem envio novo — verifique agent.log`;
+      }
     }
     collectMessage += '.';
     return {
@@ -3298,22 +3309,14 @@ async function ingestViaAFD() {
 
     const body = normalizeAfdPunch(rec);
     try {
-      const r = postPunch(body);
+      const r = agentPolicy.bypassNsrFilter ? forceQueuePunchForManualCollect(body) : postPunch(body);
       let wasDuplicate = !!(r && r.duplicate);
-      let wasQueued = !!(r && (r.queued || r.alreadyPending));
+      let wasQueued = !!(r && (r.queued || r.alreadyPending || r.requeued));
 
-      if (wasDuplicate && agentPolicy.bypassNsrFilter) {
-        if (requeueSentPunchForManualCollect(body)) {
-          wasDuplicate = false;
-          wasQueued = true;
-          observabilityConsole.log(
-            `[REP PUNCH REQUEUE] nsr=${nsrKey} reaberta para reenvio (coleta manual)`,
-          );
-        } else {
-          observabilityConsole.warn(
-            `[REP PUNCH REQUEUE SKIP] nsr=${nsrKey} já marcada como enviada e não foi possível reabrir na fila local`,
-          );
-        }
+      if (r?.requeued) {
+        observabilityConsole.log(
+          `[REP PUNCH REQUEUE] nsr=${nsrKey} reaberta para reenvio (coleta manual)`,
+        );
       }
 
       processed.add(nsrKey);

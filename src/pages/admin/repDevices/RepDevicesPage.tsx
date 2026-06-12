@@ -571,6 +571,21 @@ const AdminRepDevices: React.FC = () => {
             );
           } else if (uploaded > 0 && !srManualConsolidateLocalToday) {
             appendSrLog('Próximo passo: use «Consolidar Pendências» (sem filtro «só hoje») para gravar no espelho.', 'success');
+          } else if (uploaded === 0) {
+            const tipo6 = Number(diag.skipped_tipo6 ?? 0);
+            const inScope = Number(diag.afd_in_scope ?? 0);
+            const queued = Number(diag.queued ?? 0);
+            if (tipo6 > 0 && inScope > 0 && tipo6 >= inScope) {
+              appendSrLog(
+                `As ${inScope} marcação(ões) neste período são tipo 6 (sem PIS no relógio). Batidas com PIS do Paulo já podem estar no espelho de coletas anteriores — confira o espelho antes de consolidar.`,
+                'warning',
+              );
+            } else if (queued > 0 && uploaded === 0) {
+              appendSrLog(
+                `${queued} batida(s) enfileirada(s) mas upload=0 — aguarde o agente ou verifique agent.log / fila local.`,
+                'warning',
+              );
+            }
           }
         } else if (poll.status === 'timeout') {
           appendSrLog('Tempo esgotado aguardando o agente concluir a coleta (5 min). Verifique agent.log.', 'warning');

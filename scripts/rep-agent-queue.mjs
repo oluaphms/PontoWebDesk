@@ -108,6 +108,30 @@ export function requeueSentPunchForManualCollect(body) {
   return Number(info.changes) > 0;
 }
 
+/** Coleta manual: sempre reabre/enfileira (payload pode ter PIS corrigido pelo parser). */
+export function forceQueuePunchForManualCollect(body) {
+  const db = getAgentDb();
+  const id = punchQueueId(body);
+  const payload = JSON.stringify({ ...body, punch_hash: id, hash: id });
+  const existing = db.prepare('SELECT status FROM punches WHERE id = ?').get(id);
+  db.prepare(
+    `INSERT INTO punches (id, payload, status, created_at)
+     VALUES (?, ?, 'pending', ?)
+     ON CONFLICT(id) DO UPDATE SET
+       payload = excluded.payload,
+       status = 'pending',
+       sent_at = NULL`,
+  ).run(id, payload, Date.now());
+  const wasSent = existing?.status === 'sent';
+  return {
+    id,
+    queued: true,
+    duplicate: false,
+    alreadyPending: existing?.status === 'pending',
+    requeued: wasSent,
+  };
+}
+
 export function getPendingPunches(limit = BATCH_SIZE) {
   const db = getAgentDb();
   return db

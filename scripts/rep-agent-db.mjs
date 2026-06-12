@@ -81,6 +81,24 @@ function createJsonQueueDb() {
           return [];
         },
         run(...args) {
+          if (
+            normalized.startsWith('insert into punches') &&
+            normalized.includes('on conflict')
+          ) {
+            const [id, payload, createdAt] = args;
+            const key = String(id || '');
+            if (!key) return { changes: 0 };
+            const prev = state.punches[key];
+            state.punches[key] = {
+              id: key,
+              payload: String(payload || '{}'),
+              status: 'pending',
+              created_at: Number(prev?.created_at ?? createdAt) || Date.now(),
+              sent_at: null,
+            };
+            persist();
+            return { changes: 1 };
+          }
           if (normalized.startsWith('insert or ignore into punches')) {
             const [id, payload, createdAt] = args;
             const key = String(id || '');
