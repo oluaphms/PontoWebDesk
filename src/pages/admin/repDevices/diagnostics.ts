@@ -112,9 +112,17 @@ export async function appendRepPendingQueueDiagnostics(
         raw_data: row.raw_data,
       }),
   );
-  if (withoutId.length === data.length) {
+  const withRawDigits = data.filter((row) => {
+    const rawDigits = String(row.pis || row.cpf || '').replace(/\D/g, '');
+    return rawDigits.length > 0;
+  });
+  if (withoutId.length === data.length && withRawDigits.length === 0) {
     log(
-      'Resumo: todas as amostras acima **não têm identificador** (tipo 6 ou ingestão antiga). Não são batidas do Paulo. Limpe com «Ignorar fila sem PIS» e depois **Coletar** 2026-06-08 → 2026-06-12 para batidas com PIS.',
+      'Resumo: todas as amostras acima **não têm identificador** (tipo 6 ou ingestão antiga). Limpe com «Ignorar fila sem PIS» e **Coletar** de novo.',
+    );
+  } else if (withoutId.length === data.length && withRawDigits.length > 0) {
+    log(
+      'Resumo: há dígitos no log mas **PIS com DV inválido** (parser AFD antigo ou linha Control iD mal lida). **Redeploy do agente** + **Coletar** de novo; ou ignore estas linhas e confira o espelho das batidas já promovidas na ingestão.',
     );
   }
   if (sawLikelyPisNotBadge) {

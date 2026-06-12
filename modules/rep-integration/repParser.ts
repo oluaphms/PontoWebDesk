@@ -4,7 +4,7 @@
  */
 
 import type { ParsedAfdRecord } from './types';
-import { normalizeDocument, repAfdCanonical11DigitsFromBlob } from './pisPasep';
+import { normalizeDocument, repAfdCanonical11DigitsFromBlob, validatePisPasep11 } from './pisPasep';
 
 const AFD_LINE_REGEX = /^(\d{9})[\s\t]*(\d{8})[\s\t]*(\d{6})[\s\t]*(\d{11})[\s\t]*([A-Za-z])?/;
 const AFD_LINE_REGEX_ALT = /^(\d{1,9})[\s\t]+(\d{8})[\s\t]+(\d{6})[\s\t]+(\d{10,32})[\s\t]*([A-Za-z])?/;
@@ -45,16 +45,51 @@ function normalizeAfdLineInput(line: string): string {
   if (!trimmed || trimmed.length < 18) return '';
   if (/\s/.test(trimmed)) return trimmed;
   if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
-  // 38 chars: identificador 14 dígitos (Control iD) OU PIS(11)+CRC(3 hex) — Portaria 1510
-  const id14 = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{14})$/);
+  const withoutLetter = trimmed.replace(/([A-Za-z])$/, '');
+  const id14 = withoutLetter.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{14})$/);
   if (id14) {
     return `${id14[1]}${id14[2]}${id14[3]}${id14[4]}${id14[5]}`;
   }
-  const withCrc = trimmed.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{11})[0-9a-fA-F]{3}$/i);
+  const withCrc = withoutLetter.match(/^(\d{9})([37])(\d{8})(\d{6})(\d{11})[0-9a-fA-F]{3}$/i);
   if (withCrc) {
     return `${withCrc[1]}${withCrc[2]}${withCrc[3]}${withCrc[4]}${withCrc[5]}`;
   }
-  return trimmed.replace(/([A-Za-z])$/, '');
+  return withoutLetter;
+}
+
+/** Control iD Portaria 671 — HHMM/HHMMSS + PIS + CRC; valida DV do PIS (ver `scripts/rep-afd-pis.mjs`). */
+function parseControlIdMarcacaoTail(rest: string): { timeRaw: string; pis: string } | null {
+  const d = normalizeDocument(rest);
+  if (d.length < 15) return null;
+
+  for (const crcLen of [4, 3, 2]) {
+    if (d.length < 4 + 11 + crcLen) continue;
+    const body = d.slice(0, -crcLen);
+    for (const timeLen of [4, 6]) {
+      if (body.length < timeLen + 11) continue;
+      const timeRaw = body.slice(0, timeLen);
+      const pis12 = body.slice(timeLen, timeLen + 12);
+      if (pis12.length === 12) {
+        const canon = repAfdCanonical11DigitsFromBlob(pis12);
+        if (canon && validatePisPasep11(canon)) {
+          return { timeRaw, pis: canon };
+        }
+      }
+      const pis11 = body.slice(timeLen, timeLen + 11);
+      if (validatePisPasep11(pis11)) {
+        return { timeRaw, pis: pis11 };
+      }
+    }
+    for (let i = 0; i <= body.length - 11; i++) {
+      const w = body.slice(i, i + 11);
+      if (!validatePisPasep11(w)) continue;
+      const timeRaw = body.slice(0, i);
+      if (timeRaw.length === 4 || timeRaw.length === 6) {
+        return { timeRaw, pis: w };
+      }
+    }
+  }
+  return null;
 }
 
 export function parseAfdLine(line: string): ParsedAfdRecord | null {
@@ -70,6 +105,24 @@ export function parseAfdLine(line: string): ParsedAfdRecord | null {
     const hora = normalizeTime(m6[4]!);
     if (!data || !hora) return null;
     return { nsr, data, hora, cpfOuPis: '', tipo: 'E', raw: line };
+  }
+
+  const prefix37 = trimmed.match(/^(\d{9})([37])(\d{8})(.+)$/);
+  if (prefix37) {
+    const tail = parseControlIdMarcacaoTail(prefix37[4]!);
+    if (tail) {
+      const nsr = parseInt(prefix37[1]!, 10);
+      if (!Number.isNaN(nsr)) {
+        const data = normalizeDate(prefix37[3]!);
+        const hora =
+          tail.timeRaw.length === 4
+            ? normalizeTime(`${tail.timeRaw}00`)
+            : normalizeTime(tail.timeRaw);
+        if (data && hora) {
+          return { nsr, data, hora, cpfOuPis: tail.pis, tipo: 'E', raw: line };
+        }
+      }
+    }
   }
 
   let m = trimmed.match(AFD_LINE_RECORD_37_LOOSE);

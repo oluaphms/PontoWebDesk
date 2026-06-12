@@ -86,6 +86,7 @@ import {
   parseYmdEndMs,
 } from './rep-agent-go-live.mjs';
 import { computeRepPunchHash } from './rep-punch-hash.mjs';
+import { parseControlIdMarcacaoTail, repAfdCanonical11DigitsFromBlob } from './rep-afd-pis.mjs';
 import { AGENT_DB_PATH, closeAgentDb } from './rep-agent-db.mjs';
 import {
   initPunchQueue,
@@ -1512,30 +1513,7 @@ function afdNormalizeTime(hhmmss) {
 }
 
 function afdCanonical11Digits(blob) {
-  const d = String(blob || '').replace(/\D/g, '');
-  if (!d) return null;
-  if (d.length === 11) return d;
-  if (d.length === 12 && d.startsWith('0')) return d.slice(1);
-  if (d.length > 11 && d.length <= 14) {
-    if (d.length >= 12 && d[0] === '0') {
-      const trimmed = d.slice(1);
-      if (trimmed.length === 11) return trimmed;
-      if (trimmed.length > 11) return trimmed.slice(0, 11);
-    }
-    for (let i = 0; i <= d.length - 11; i++) {
-      const wnd = d.slice(i, i + 11);
-      if (wnd[0] !== '0') return wnd;
-    }
-    return d.slice(-11);
-  }
-  if (d.length > 14) {
-    for (let i = 0; i <= d.length - 11; i++) {
-      const wnd = d.slice(i, i + 11);
-      if (wnd[0] !== '0') return wnd;
-    }
-    return d.slice(0, 11);
-  }
-  return d.padStart(11, '0');
+  return repAfdCanonical11DigitsFromBlob(blob);
 }
 
 /** Remove sufixo E/S (1 letra) ou CRC hex Control iD Portaria 671 no fim da linha. */
@@ -1545,22 +1523,20 @@ function normalizeAfdRawLine(rawLine) {
   if (/\s/.test(trimmed)) return trimmed;
   if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
 
-  // Control iD Portaria 671: hora HHMM (4) + PIS (11–12, pode ter 0 à esquerda) + CRC hex (4)
-  const portaria37HhmmCrc = trimmed.match(
-    /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})([0-9a-fA-F]{4})$/i,
-  );
-  if (portaria37HhmmCrc) {
-    return (
-      portaria37HhmmCrc[1] +
-      portaria37HhmmCrc[2] +
-      portaria37HhmmCrc[3] +
-      portaria37HhmmCrc[4] +
-      portaria37HhmmCrc[5]
-    );
+  const withoutLetter = trimmed.replace(/([A-Za-z])$/, '');
+
+  const prefix37 = withoutLetter.match(/^(\d{9})([37])(\d{8})(.+)$/);
+  if (prefix37) {
+    const tail = parseControlIdMarcacaoTail(prefix37[4]);
+    if (tail) {
+      const pisField = tail.pis.length === 11 && tail.timeRaw.length === 4
+        ? `0${tail.pis}`.slice(-12)
+        : tail.pis.padStart(12, '0').slice(-12);
+      return `${prefix37[1]}${prefix37[2]}${prefix37[3]}${tail.timeRaw}${pisField}`;
+    }
   }
 
-  // Tipo 3/7 legado: hora HHMMSS (6) + PIS (11) + CRC hex (2–4 chars)
-  const portaria37HhmmssCrc = trimmed.match(
+  const portaria37HhmmssCrc = withoutLetter.match(
     /^(\d{9})([37])(\d{8})(\d{6})(\d{11})([0-9a-fA-F]{2,4})$/i,
   );
   if (portaria37HhmmssCrc) {
@@ -1573,7 +1549,6 @@ function normalizeAfdRawLine(rawLine) {
     );
   }
 
-  // Variante: CRC 2–3 dígitos + 1 letra (ex. …65178d)
   const portaria37CrcLetter = trimmed.match(
     /^(\d{9})([37])(\d{8})(\d{6})(\d{11})(\d{2,3})([A-Za-z])$/,
   );
@@ -1587,7 +1562,7 @@ function normalizeAfdRawLine(rawLine) {
     );
   }
 
-  return trimmed.replace(/([A-Za-z])$/, '');
+  return withoutLetter;
 }
 
 /** Portaria 1510/671 — tipo 3/7 (com PIS) ou 6 (marcação sem identificador no AFD). */
@@ -1605,6 +1580,21 @@ function parseAfdPortariaLine(line) {
   }
 
   // Control iD Portaria 671: hora HHMM (4 dígitos) + PIS (11–14 dígitos com zeros/CRC já removidos).
+  const prefix37 = trimmed.match(/^(\d{9})([37])(\d{8})(.+)$/);
+  if (prefix37) {
+    const tail = parseControlIdMarcacaoTail(prefix37[4]);
+    if (tail) {
+      const date = afdNormalizeDate(prefix37[3]);
+      const time =
+        tail.timeRaw.length === 4
+          ? afdNormalizeTime(`${tail.timeRaw}00`)
+          : afdNormalizeTime(tail.timeRaw);
+      if (date && time && tail.pis) {
+        return { nsr: prefix37[1], date, time, pis: tail.pis };
+      }
+    }
+  }
+
   const tipo37Hhmm = /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})$/;
   const m4 = trimmed.match(tipo37Hhmm);
   if (m4) {

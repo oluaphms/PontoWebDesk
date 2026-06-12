@@ -83,7 +83,14 @@ describe('parseAfdLine — Control iD tipo 6 e sufixo E/S', () => {
     const r = parseAfdLine('0000165673080620261201012966742765178d');
     expect(r).not.toBeNull();
     expect(r!.data).toBe('2026-06-08');
-    expect(r!.hora).toBe('12:01:01');
+    expect(r!.hora).toBe('12:01:00');
+    expect(r!.cpfOuPis).toBe('12966742765');
+  });
+
+  it('parseia Portaria 671 HHMM + PIS 12 dígitos + CRC (Control iD)', () => {
+    const r = parseAfdLine('0000165683080620261701012966742765870');
+    expect(r).not.toBeNull();
+    expect(r!.cpfOuPis).toBe('12966742765');
   });
 });
 
