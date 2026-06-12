@@ -91,6 +91,8 @@ import { resolveTenantId } from '../src/services/tenantScope';
 import { LoggingService } from './loggingService';
 import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/appShellBootstrap';
 import { isLocalApiMode } from '../src/config/system';
+import { isSupabaseCloudEnvConfigured, readSupabaseAnonKey, readSupabaseUrl } from '../src/config/env';
+import { createClient } from '@supabase/supabase-js';
 
 export interface AuthResult {
   user: User | null;
@@ -1499,6 +1501,7 @@ class AuthService {
   /**
    * Recuperação de senha – envia link por e-mail (Supabase Auth).
    * redirectTo usa VITE_APP_URL ou origin + '/reset-password'.
+   * VPS: tenta POST /auth/reset-password; se 404, Supabase Auth direto (comportamento pré-migração).
    */
   async resetPassword(email: string): Promise<{ success: boolean; error: string | null }> {
     const normalizedEmail = email.trim().toLowerCase();
@@ -1512,10 +1515,13 @@ class AuthService {
       }
     }
 
+    const supabaseFallback = await this.resetPasswordViaSupabaseAuth(normalizedEmail);
+    if (supabaseFallback) return supabaseFallback;
+
     if (isLocalApiMode()) {
       return {
         success: false,
-        error: 'Recuperação de senha por e-mail ainda não está disponível no modo API local. Solicite a redefinição ao administrador.',
+        error: 'Recuperação de senha por e-mail indisponível. Solicite a redefinição ao administrador.',
       };
     }
 
@@ -1535,6 +1541,35 @@ class AuthService {
     }
   }
 
+  /** Supabase Auth direto quando a VPS ainda não expõe POST /auth/reset-password. */
+  private async resetPasswordViaSupabaseAuth(
+    email: string,
+  ): Promise<{ success: boolean; error: string | null } | null> {
+    if (!isSupabaseCloudEnvConfigured()) return null;
+    const supabaseUrl = readSupabaseUrl();
+    const anonKey = readSupabaseAnonKey();
+    if (!supabaseUrl || !anonKey) return null;
+
+    try {
+      const redirectTo = `${this.getResetRedirectUrl()}/reset-password`;
+      const client = createClient(supabaseUrl, anonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) {
+        let errorMessage = error.message || 'Erro ao enviar email de recuperação';
+        if (/redirect|url.*config|smtp/i.test(errorMessage)) {
+          errorMessage = `Falha ao enviar. No Supabase: Authentication → URL Configuration, adicione: ${this.getResetRedirectUrl()}`;
+        }
+        return { success: false, error: errorMessage };
+      }
+      return { success: true, error: null };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Erro ao enviar email de recuperação';
+      return { success: false, error: message };
+    }
+  }
+
   /** URL base para redirect de recuperação (VITE_APP_URL ou origin). */
   private getResetRedirectUrl(): string {
     return getAppBaseUrl();
@@ -1545,11 +1580,11 @@ class AuthService {
    * Usado na recuperação de senha quando o usuário não informa e-mail.
    */
   async getEmailForReset(identifier: string): Promise<string | null> {
-    if (!isSupabaseConfigured()) return null;
     const q = identifier.trim().toLowerCase();
     if (!q) return null;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (emailRegex.test(q)) return q;
+    if (!isSupabaseConfigured() && !isLocalApiMode()) return null;
     try {
       const rows = await db.select('users', [{ column: 'email', operator: 'eq', value: q }], undefined as any, 1);
       if (rows?.[0]?.email) return String(rows[0].email).trim().toLowerCase();

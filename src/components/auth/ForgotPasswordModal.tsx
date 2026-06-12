@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Mail, CheckCircle, AlertTriangle } from 'lucide-react';
-import { Button, Input } from '../../../components/UI';
+import { Button } from '../../../components/UI';
 import { authService } from '../../../services/authService';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 
@@ -48,20 +49,42 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
     }
   };
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setEmail('');
     setSuccess(false);
     setError(null);
     onClose();
-  };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden />
+  const modal = (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6"
+      role="presentation"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm cursor-default"
+        aria-label="Fechar"
+        onClick={handleClose}
+      />
       <div
-        className="relative w-full h-full bg-white dark:bg-slate-900 border border-slate-200/40 dark:border-slate-800 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto flex flex-col lg:max-w-lg lg:h-[90vh] lg:rounded-2xl lg:my-6"
+        className="relative z-10 w-full max-w-md max-h-[min(90vh,520px)] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/40 dark:border-slate-800 shadow-2xl p-5 sm:p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto flex flex-col"
         role="dialog"
         aria-modal="true"
         aria-labelledby="forgot-password-title"
@@ -127,6 +150,8 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 };
 
 export default ForgotPasswordModal;
