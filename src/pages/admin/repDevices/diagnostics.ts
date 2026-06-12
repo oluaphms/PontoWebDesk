@@ -109,6 +109,10 @@ export async function appendRepPendingQueueDiagnostics(
   }
 }
 
+function formatRepLogTimestamp(dataHora: unknown): string {
+  return dataHora ? String(dataHora).slice(0, 16).replace('T', ' ') : '—';
+}
+
 /** Quando "Consolidado: 0/0", mostra se a janela já tinha promoção prévia ou se há pendências ignoradas. */
 export async function appendRepConsolidationOutcomeDiagnostics(
   client: SupabaseClient,
@@ -117,29 +121,64 @@ export async function appendRepConsolidationOutcomeDiagnostics(
   log: (line: string) => void,
   opts?: { localWindow?: { startIso: string; endIso: string } },
 ): Promise<void> {
-  let promotedQ = client
+  let pendingQ = client
+    .from('rep_punch_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .eq('rep_device_id', deviceId)
+    .is('time_record_id', null)
+    .eq('ignored', false);
+  if (opts?.localWindow) {
+    pendingQ = pendingQ.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
+  }
+  const { count: pendingCount, error: pendingErr } = await pendingQ;
+
+  if (!pendingErr && (pendingCount ?? 0) > 0) {
+    log(
+      `Diagnóstico: ${pendingCount} batida(s) ainda na fila (sem espelho) neste relógio${opts?.localWindow ? ' na janela escolhida' : ''}.`,
+    );
+    return;
+  }
+
+  if (opts?.localWindow) {
+    log(
+      'Diagnóstico: nenhuma batida pendente na janela de hoje — nada a consolidar neste filtro de data.',
+    );
+  } else {
+    log(
+      'Diagnóstico: fila pendente vazia neste relógio. Uploads recentes podem já ter ido ao espelho na ingestão, ou ter sido duplicados (mesmo NSR já promovido).',
+    );
+  }
+
+  const recentStart = new Date();
+  recentStart.setDate(recentStart.getDate() - 7);
+  const { data: recentRows, error: recentErr } = await client
     .from('rep_punch_logs')
     .select('nsr, data_hora, time_record_id, resolved_user_id')
     .eq('company_id', companyId)
     .eq('rep_device_id', deviceId)
-    .not('time_record_id', 'is', null);
-  if (opts?.localWindow) {
-    promotedQ = promotedQ.gte('data_hora', opts.localWindow.startIso).lte('data_hora', opts.localWindow.endIso);
-  }
-  const { data: promotedRows, error: promotedErr } = await promotedQ
+    .gte('data_hora', recentStart.toISOString())
     .order('data_hora', { ascending: false })
-    .limit(3);
+    .limit(12);
 
-  if (!promotedErr && promotedRows && promotedRows.length > 0) {
-    const sample = promotedRows
-      .map((r) => {
-        const t = r.data_hora ? String(r.data_hora).slice(0, 16).replace('T', ' ') : '—';
-        return `NSR ${r.nsr ?? '—'} @ ${t} (resolved_user_id: ${String(r.resolved_user_id ?? '—')})`;
-      })
-      .join(' | ');
-    log(
-      `Diagnóstico: já existe(m) ${promotedRows.length} batida(s) desta janela promovida(s) para o espelho neste relógio. Ex.: ${sample}.`,
-    );
+  if (!recentErr && recentRows && recentRows.length > 0) {
+    const byDay = new Map<string, typeof recentRows>();
+    for (const row of recentRows) {
+      const day = row.data_hora ? String(row.data_hora).slice(0, 10) : '—';
+      const bucket = byDay.get(day) ?? [];
+      bucket.push(row);
+      byDay.set(day, bucket);
+    }
+    for (const [day, rows] of [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 3)) {
+      const lines = rows
+        .slice(0, 5)
+        .map((r) => {
+          const espelho = r.time_record_id ? 'espelho' : 'só fila';
+          return `NSR ${r.nsr ?? '—'} @ ${formatRepLogTimestamp(r.data_hora)} (${espelho})`;
+        })
+        .join(' | ');
+      log(`Diagnóstico — ${day}: ${lines}.`);
+    }
   }
 
   let ignoredQ = client
