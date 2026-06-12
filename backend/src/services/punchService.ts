@@ -412,7 +412,7 @@ async function promoteExistingPunchIfNeeded(client: PoolClient, punchId: string)
   }
 }
 
-export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boolean; duplicate?: boolean; id?: string; punch_hash: string }> {
+export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boolean; duplicate?: boolean; id?: string; punch_hash: string; time_record_id?: string | null }> {
   const companyId = String(punch.company_id || punch.companyId || '').trim();
   const userId = String(punch.user_id || punch.userId || '').trim();
   const type = normalizeType(punch.type);

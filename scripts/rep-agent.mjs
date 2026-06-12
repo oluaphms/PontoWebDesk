@@ -1513,16 +1513,79 @@ function afdNormalizeTime(hhmmss) {
 function afdCanonical11Digits(blob) {
   const d = String(blob || '').replace(/\D/g, '');
   if (!d) return null;
-  if (d.length <= 11) return d.padStart(11, '0');
-  return d.slice(-11);
+  if (d.length === 11) return d;
+  if (d.length === 12 && d.startsWith('0')) return d.slice(1);
+  if (d.length > 11 && d.length <= 14) {
+    if (d.length >= 12 && d[0] === '0') {
+      const trimmed = d.slice(1);
+      if (trimmed.length === 11) return trimmed;
+      if (trimmed.length > 11) return trimmed.slice(0, 11);
+    }
+    for (let i = 0; i <= d.length - 11; i++) {
+      const wnd = d.slice(i, i + 11);
+      if (wnd[0] !== '0') return wnd;
+    }
+    return d.slice(-11);
+  }
+  if (d.length > 14) {
+    for (let i = 0; i <= d.length - 11; i++) {
+      const wnd = d.slice(i, i + 11);
+      if (wnd[0] !== '0') return wnd;
+    }
+    return d.slice(0, 11);
+  }
+  return d.padStart(11, '0');
 }
 
-/** Remove sufixo E/S (1 letra) que alguns firmwares Control iD acrescentam ao fim da linha. */
+/** Remove sufixo E/S (1 letra) ou CRC hex Control iD Portaria 671 no fim da linha. */
 function normalizeAfdRawLine(rawLine) {
   const trimmed = String(rawLine || '').trim();
   if (!trimmed || trimmed.length < 18) return '';
   if (/\s/.test(trimmed)) return trimmed;
   if (!/^[\dA-Za-z]+$/.test(trimmed)) return '';
+
+  // Control iD Portaria 671: hora HHMM (4) + PIS (11–12, pode ter 0 à esquerda) + CRC hex (4)
+  const portaria37HhmmCrc = trimmed.match(
+    /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})([0-9a-fA-F]{4})$/i,
+  );
+  if (portaria37HhmmCrc) {
+    return (
+      portaria37HhmmCrc[1] +
+      portaria37HhmmCrc[2] +
+      portaria37HhmmCrc[3] +
+      portaria37HhmmCrc[4] +
+      portaria37HhmmCrc[5]
+    );
+  }
+
+  // Tipo 3/7 legado: hora HHMMSS (6) + PIS (11) + CRC hex (2–4 chars)
+  const portaria37HhmmssCrc = trimmed.match(
+    /^(\d{9})([37])(\d{8})(\d{6})(\d{11})([0-9a-fA-F]{2,4})$/i,
+  );
+  if (portaria37HhmmssCrc) {
+    return (
+      portaria37HhmmssCrc[1] +
+      portaria37HhmmssCrc[2] +
+      portaria37HhmmssCrc[3] +
+      portaria37HhmmssCrc[4] +
+      portaria37HhmmssCrc[5]
+    );
+  }
+
+  // Variante: CRC 2–3 dígitos + 1 letra (ex. …65178d)
+  const portaria37CrcLetter = trimmed.match(
+    /^(\d{9})([37])(\d{8})(\d{6})(\d{11})(\d{2,3})([A-Za-z])$/,
+  );
+  if (portaria37CrcLetter) {
+    return (
+      portaria37CrcLetter[1] +
+      portaria37CrcLetter[2] +
+      portaria37CrcLetter[3] +
+      portaria37CrcLetter[4] +
+      portaria37CrcLetter[5]
+    );
+  }
+
   return trimmed.replace(/([A-Za-z])$/, '');
 }
 
@@ -1538,6 +1601,16 @@ function parseAfdPortariaLine(line) {
     const time = afdNormalizeTime(m6[4]);
     if (!date || !time) return null;
     return { nsr: m6[1], date, time, pis: null };
+  }
+
+  // Control iD Portaria 671: hora HHMM (4 dígitos) + PIS (11–14 dígitos com zeros/CRC já removidos).
+  const tipo37Hhmm = /^(\d{9})([37])(\d{8})(\d{4})(\d{11,12})$/;
+  const m4 = trimmed.match(tipo37Hhmm);
+  if (m4) {
+    const date = afdNormalizeDate(m4[3]);
+    const time = afdNormalizeTime(`${m4[4]}00`);
+    const pis = afdCanonical11Digits(m4[5]);
+    if (date && time && pis) return { nsr: m4[1], date, time, pis };
   }
 
   const loose = /^(\d{9})\s*([37])\s*(\d{8})\s*(\d{6})\s*(\d{10,32})(?:\s*([A-Za-z]))?/;

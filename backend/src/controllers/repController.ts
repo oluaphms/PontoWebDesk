@@ -1270,6 +1270,7 @@ export async function repPromotePendingController(req: Request, res: Response): 
     logger.error({
       module: 'rep.promote',
       action: 'REP_PROMOTE_PENDING_FAILED',
+      message: 'Falha ao consolidar rep_punch_logs',
       companyId,
       error,
       meta: { rep_device_id: repDeviceId },
