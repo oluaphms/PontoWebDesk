@@ -2055,6 +2055,8 @@ function buildCollectDiagnostics(cycle, flushStats) {
     dup_local: Number(cycle?.dupLocal ?? 0),
     dup_server: Number(cycle?.dupServer ?? 0),
     pre_skipped: Number(cycle?.preSkipped ?? 0),
+    skipped_nsr: Number(cycle?.preSkippedNsr ?? 0),
+    skipped_tipo6: Number(cycle?.preSkippedTipo6 ?? 0),
     uploaded,
     upload_rejected: Number(flushStats?.failed ?? 0),
     upload_unresolved: Number(flushStats?.unresolved ?? 0),
@@ -3258,6 +3260,8 @@ async function ingestViaAFD() {
   let skip = 0;
   let sendErrors = 0;
   let preSkipped = 0;
+  let preSkippedNsr = 0;
+  let preSkippedTipo6 = 0;
   let dupLocal = 0;
   let dupServer = 0;
   const dupLocalSamples = [];
@@ -3270,6 +3274,7 @@ async function ingestViaAFD() {
     // Filtro incremental por último NSR (desligado em coleta manual por intervalo).
     if (!agentPolicy.bypassNsrFilter && lastNsr && compareNsr(nsrKey, lastNsr) <= 0) {
       preSkipped += 1;
+      preSkippedNsr += 1;
       continue;
     }
 
@@ -3282,7 +3287,8 @@ async function ingestViaAFD() {
     // Portaria 671 tipo 6: marcação no AFD sem PIS/crachá — não há como casar colaborador.
     if (!rec.pis) {
       preSkipped += 1;
-      if (preSkipped <= 5) {
+      preSkippedTipo6 += 1;
+      if (preSkippedTipo6 <= 5) {
         observabilityConsole.log(
           `[REP AFD SKIP] nsr=${nsrKey} ${rec.date} ${rec.time} — registro tipo 6 (sem identificador no AFD)`,
         );
@@ -3356,8 +3362,13 @@ async function ingestViaAFD() {
 
   await saveProcessedNsrCache(processed);
 
-  if (preSkipped > 0) {
-    observabilityConsole.log(`[REP NSR FILTER] ${preSkipped} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`);
+  if (preSkippedNsr > 0) {
+    observabilityConsole.log(
+      `[REP NSR FILTER] ${preSkippedNsr} registros anteriores ao lastNSR=${lastNsrMap[devKey] || '(vazio)'} ignorados (${devKey})`,
+    );
+  }
+  if (preSkippedTipo6 > 0) {
+    observabilityConsole.log(`[REP AFD TIPO 6] ${preSkippedTipo6} marcação(ões) sem PIS no AFD (não enfileiradas)`);
   }
 
   const flushStats = await flushPunchQueue();
@@ -3372,7 +3383,22 @@ async function ingestViaAFD() {
     url,
   };
 
-  return { mode: 'AFD', ok, skip, duplicate, dupLocal, dupServer, preSkipped, total: records.length, sendErrors, fatal: false, afdMetrics, flushStats };
+  return {
+    mode: 'AFD',
+    ok,
+    skip,
+    duplicate,
+    dupLocal,
+    dupServer,
+    preSkipped,
+    preSkippedNsr,
+    preSkippedTipo6,
+    total: records.length,
+    sendErrors,
+    fatal: false,
+    afdMetrics,
+    flushStats,
+  };
   });
 }
 

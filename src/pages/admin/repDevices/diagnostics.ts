@@ -22,7 +22,7 @@ export async function appendRepPendingQueueDiagnostics(
     localWindow?: { startIso: string; endIso: string };
     filteredByUserOnly?: boolean;
   },
-): Promise<{ allWithoutIdentifier: boolean; shownCount: number }> {
+): Promise<{ allWithoutIdentifier: boolean; allInvalidPis: boolean; shownCount: number }> {
   let q = excludeIgnoredRepPunchLogs(
     client
       .from('rep_punch_logs')
@@ -38,10 +38,10 @@ export async function appendRepPendingQueueDiagnostics(
 
   if (error) {
     log(`Não foi possível ler a fila pendente (diagnóstico): ${error.message}`);
-    return { allWithoutIdentifier: false, shownCount: 0 };
+    return { allWithoutIdentifier: false, allInvalidPis: false, shownCount: 0 };
   }
   const data = filterActiveRepPunchLogs(rawRows).slice(0, 5);
-  if (!data.length) return { allWithoutIdentifier: false, shownCount: 0 };
+  if (!data.length) return { allWithoutIdentifier: false, allInvalidPis: false, shownCount: 0 };
 
   if (opts?.localWindow) {
     log('Diagnóstico — batidas ainda na fila nesta janela de data/hora (alinhada ao consolidar «só hoje» quando aplicável):');
@@ -135,7 +135,13 @@ export async function appendRepPendingQueueDiagnostics(
       'As pendências têm **fins de PIS/CPF canónico diferentes** — são **identificadores distintos** (várias pessoas ou vários NIS). Cada um precisa de **um colaborador** na mesma empresa com esse PIS (ou o número equivalente em folha/crachá).',
     );
   }
-  return { allWithoutIdentifier: withoutId.length === data.length && data.length > 0, shownCount: data.length };
+  return {
+    allWithoutIdentifier:
+      withoutId.length === data.length && withRawDigits.length === 0 && data.length > 0,
+    allInvalidPis:
+      withoutId.length === data.length && withRawDigits.length > 0 && data.length > 0,
+    shownCount: data.length,
+  };
 }
 
 function formatRepLogTimestamp(dataHora: unknown): string {

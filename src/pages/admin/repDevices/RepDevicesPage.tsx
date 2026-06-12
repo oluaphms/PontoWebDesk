@@ -1357,9 +1357,14 @@ const AdminRepDevices: React.FC = () => {
           localWindow: localDay,
           filteredByUserOnly: Boolean(onlyUid) && skippedOtherFinal > 0,
         });
-        if (pendingDiag.allWithoutIdentifier) {
+        if (pendingDiag.allInvalidPis) {
           appendSrLog(
-            'Estas pendências não têm PIS (AFD tipo 6). Use o botão «Ignorar fila sem PIS» no hub — consolidar de novo não altera nada.',
+            'Estas pendências têm PIS corrompido (ingestão antiga). Use «Ignorar fila sem PIS» para limpar, redeploy do agente e Coletar o período de novo.',
+            'warning',
+          );
+        } else if (pendingDiag.allWithoutIdentifier) {
+          appendSrLog(
+            'Estas pendências não têm PIS (AFD tipo 6). Use «Ignorar fila sem PIS» no hub — consolidar de novo não altera nada.',
             'warning',
           );
         }
@@ -1506,7 +1511,7 @@ const AdminRepDevices: React.FC = () => {
     }
   };
 
-  /** Marca como ignoradas batidas pendentes sem PIS/CPF (AFD tipo 6 ou ingestão sem identificador). */
+  /** Marca como ignoradas batidas pendentes sem PIS/CPF válido (tipo 6, PIS corrompido ou ingestão irreconciliável). */
   const ignoreUnidentifiedPendingPunches = async (deviceOverride?: RepDeviceRow | null) => {
     const d = deviceOverride ?? srSelectedDevice;
     if (!d?.id || !user?.companyId) {
@@ -1534,12 +1539,11 @@ const AdminRepDevices: React.FC = () => {
           cpf: row.cpf as string | null,
           raw_data: row.raw_data,
         });
-        const rawDigits = String(row.pis || row.cpf || '').replace(/\D/g, '');
-        return !canon && rawDigits.length === 0;
+        return !canon;
       });
       if (toIgnore.length === 0) {
-        appendSrLog('Nenhuma batida pendente sem PIS/CPF para ignorar neste relógio.', 'warning');
-        setMessage({ type: 'warning', text: 'Não há batidas sem identificador na fila.' });
+        appendSrLog('Nenhuma batida pendente irreconciliável na fila deste relógio.', 'warning');
+        setMessage({ type: 'warning', text: 'Não há batidas sem PIS válido na fila.' });
         return;
       }
       const ids = toIgnore
@@ -1547,12 +1551,12 @@ const AdminRepDevices: React.FC = () => {
         .filter(Boolean);
       const count = await markRepPunchLogsIgnoredByIds(client, ids, user.id);
       appendSrLog(
-        `${count} batida(s) sem PIS (tipo 6) marcada(s) como ignorada(s). Próximo: Coletar 2026-06-08 → 2026-06-12 e Consolidar.`,
+        `${count} batida(s) irreconciliável(is) marcada(s) como ignorada(s). Próximo: redeploy do agente (se ainda não fez) e Coletar 2026-06-08 → 2026-06-12.`,
         'success',
       );
       setMessage({
         type: 'success',
-        text: `${count} batida(s) sem identificador removida(s) da fila. Colete o período com batidas do Paulo (com PIS) e consolide.`,
+        text: `${count} batida(s) removida(s) da fila (sem PIS válido). Colete o período com o agente atualizado.`,
       });
       if (user.companyId) invalidateRepPendingQueries(user.companyId);
     } catch (e) {

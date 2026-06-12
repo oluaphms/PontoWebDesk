@@ -299,7 +299,7 @@ export const RepOperationalHubModal: React.FC<RepOperationalHubModalProps> = ({
                 disabled={actionsLocked || !selectedDevice || promoting || ignoringUnidentified}
                 loading={ignoringUnidentified}
                 onClick={onIgnoreUnidentifiedPending}
-                title="Remove da fila batidas AFD tipo 6 (sem PIS/crachá no relógio)"
+                title="Remove da fila batidas sem PIS válido (tipo 6, PIS corrompido ou lixo de quarentena)"
               >
                 Ignorar fila sem PIS
               </Button>

@@ -16,6 +16,8 @@ export type RepCollectDiagnosticsPayload = {
   dup_local?: number;
   dup_server?: number;
   pre_skipped?: number;
+  skipped_nsr?: number;
+  skipped_tipo6?: number;
   uploaded?: number;
   upload_rejected?: number;
   upload_unresolved?: number;
@@ -73,8 +75,21 @@ export function formatCollectDiagnosticsForLog(d: RepCollectDiagnosticsPayload):
       `[REP DUPLICATE] total=${d.duplicates}${d.dup_local != null ? ` cache=${d.dup_local}` : ''}${d.dup_server != null ? ` ja_enviadas_local=${d.dup_server}` : ''}`,
     );
   }
-  if (typeof d.pre_skipped === 'number' && d.pre_skipped > 0) {
-    lines.push(`[REP NSR FILTER] ignoradas=${d.pre_skipped}`);
+  const skippedNsr = d.skipped_nsr ?? 0;
+  const skippedTipo6 = d.skipped_tipo6 ?? 0;
+  if (skippedNsr > 0) {
+    lines.push(`[REP NSR FILTER] ignoradas=${skippedNsr}`);
+  }
+  if (skippedTipo6 > 0) {
+    lines.push(`[REP AFD TIPO 6] sem PIS=${skippedTipo6}`);
+  }
+  if (
+    skippedNsr === 0 &&
+    skippedTipo6 === 0 &&
+    typeof d.pre_skipped === 'number' &&
+    d.pre_skipped > 0
+  ) {
+    lines.push(`[REP SKIP] ignoradas=${d.pre_skipped}`);
   }
   if (typeof d.uploaded === 'number') {
     lines.push(
