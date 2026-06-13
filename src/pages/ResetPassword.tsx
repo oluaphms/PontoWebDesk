@@ -14,8 +14,7 @@ const ResetPasswordPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const hash = typeof window !== 'undefined' ? window.location.hash : '';
-    if (!hash.includes('type=recovery')) {
+    if (!authService.hasRecoveryLinkInUrl()) {
       setStep('expired');
       return;
     }

@@ -351,7 +351,7 @@ const AppMain: React.FC = () => {
   const { setLanguage } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
-  const isRecoveryHash = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
+  const isRecoveryHash = typeof window !== 'undefined' && authService.hasRecoveryLinkInUrl();
   const handleRouteRetry = useCallback(() => {
     setRouteLoadAttempt((prev) => prev + 1);
   }, []);
@@ -432,10 +432,10 @@ const AppMain: React.FC = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!window.location.hash.includes('type=recovery')) return;
+    if (!authService.hasRecoveryLinkInUrl()) return;
     if (location.pathname === '/reset-password') return;
 
-    navigate(`/reset-password${window.location.hash}`, { replace: true });
+    navigate(`/reset-password${window.location.search}${window.location.hash}`, { replace: true });
   }, [location.pathname, navigate]);
 
   useEffect(() => {

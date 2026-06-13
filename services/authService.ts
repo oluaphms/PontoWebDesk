@@ -92,6 +92,14 @@ import { LoggingService } from './loggingService';
 import { createMinimalSessionShell, dispatchProfileEnriched } from '../src/app/appShellBootstrap';
 import { isLocalApiMode } from '../src/config/system';
 import { isSupabaseCloudEnvConfigured, readSupabaseAnonKey, readSupabaseUrl } from '../src/config/env';
+import {
+  clearCachedRecoverySession,
+  clearRecoveryParamsFromUrl,
+  getCachedRecoverySession,
+  hasRecoveryLinkInUrl,
+  restoreRecoverySessionFromUrl,
+  updateSupabaseAuthPassword,
+} from './supabaseAuthRecovery';
 
 export interface AuthResult {
   user: User | null;
@@ -1486,6 +1494,21 @@ class AuthService {
    * Alterar senha do usuário atual
    */
   async updatePassword(newPassword: string): Promise<void> {
+    const recovery = getCachedRecoverySession();
+    if (recovery?.access_token) {
+      try {
+        await updateSupabaseAuthPassword(recovery.access_token, newPassword);
+        await apiPost('/auth/recovery/complete', {
+          access_token: recovery.access_token,
+          password: newPassword,
+        });
+        clearCachedRecoverySession();
+        return;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Erro ao redefinir senha';
+        throw new Error(message);
+      }
+    }
     try {
       if (isLocalApiMode()) {
         await getProvider().updatePassword(newPassword);
@@ -1495,6 +1518,11 @@ class AuthService {
     } catch (error: any) {
       throw new Error(error.message || 'Erro ao alterar senha');
     }
+  }
+
+  /** Indica se a URL atual contém parâmetros de recuperação de senha (hash ou query). */
+  hasRecoveryLinkInUrl(): boolean {
+    return hasRecoveryLinkInUrl();
   }
 
   /**
@@ -1612,6 +1640,18 @@ class AuthService {
    * Usar antes de updateUser({ password }) no fluxo de redefinir senha.
    */
   async getOrRestoreRecoverySession(): Promise<{ session: any }> {
+    if (isSupabaseCloudEnvConfigured()) {
+      const recovery = await restoreRecoverySessionFromUrl();
+      if (recovery?.user?.id) {
+        return {
+          session: {
+            access_token: recovery.access_token,
+            refresh_token: recovery.refresh_token,
+            user: recovery.user,
+          },
+        };
+      }
+    }
     if (!isSupabaseConfigured()) return { session: null };
     try {
       if (typeof supabase.auth.initialize === 'function') await supabase.auth.initialize();
@@ -1642,19 +1682,9 @@ class AuthService {
     }
   }
 
-  /** Remove o hash de recuperação da URL após redefinir a senha (segurança). */
+  /** Remove parâmetros de recuperação da URL após redefinir a senha (segurança). */
   clearRecoveryHashFromUrl(): void {
-    try {
-      if (typeof window !== 'undefined' && window.history?.replaceState && window.location?.hash) {
-        const hash = window.location.hash.replace(/^#/, '');
-        const params = new URLSearchParams(hash);
-        if (params.get('type') === 'recovery') {
-          window.history.replaceState({}, '', window.location.pathname + window.location.search || '/');
-        }
-      }
-    } catch {
-      // ignore
-    }
+    clearRecoveryParamsFromUrl();
   }
 
   /**
