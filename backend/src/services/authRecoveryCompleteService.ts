@@ -27,6 +27,37 @@ async function fetchSupabaseAuthUser(
   return { id: String(user.id), email: user.email != null ? String(user.email) : null };
 }
 
+async function updateSupabaseAuthPassword(
+  accessToken: string,
+  password: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
+  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  if (!supabaseUrl || !anonKey) {
+    return { ok: false, status: 500, error: 'Supabase não configurado no servidor.' };
+  }
+
+  const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: 'PUT',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ password }),
+  });
+  if (res.ok) return { ok: true };
+
+  let message = 'Erro ao redefinir senha no servidor de autenticação.';
+  try {
+    const body = (await res.json()) as { msg?: string; error_description?: string; message?: string };
+    message = body.msg || body.error_description || body.message || message;
+  } catch {
+    // corpo vazio ou não-JSON
+  }
+  return { ok: false, status: res.status === 422 ? 400 : res.status, error: message };
+}
+
 export async function completePasswordRecovery(params: {
   accessToken: string;
   newPassword: string;
@@ -61,6 +92,11 @@ export async function completePasswordRecovery(params: {
   const passwordIssue = validatePasswordWithPolicy(newPassword, passwordPolicy);
   if (passwordIssue) {
     return { ok: false, status: 400, error: passwordIssue };
+  }
+
+  const supabaseUpdate = await updateSupabaseAuthPassword(accessToken, newPassword);
+  if (!supabaseUpdate.ok) {
+    return { ok: false, status: supabaseUpdate.status, error: supabaseUpdate.error };
   }
 
   const hash = await bcrypt.hash(newPassword, BCRYPT_COST);

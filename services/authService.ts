@@ -98,7 +98,6 @@ import {
   getCachedRecoverySession,
   hasRecoveryLinkInUrl,
   restoreRecoverySessionFromUrl,
-  updateSupabaseAuthPassword,
 } from './supabaseAuthRecovery';
 
 export interface AuthResult {
@@ -1497,7 +1496,6 @@ class AuthService {
     const recovery = getCachedRecoverySession();
     if (recovery?.access_token) {
       try {
-        await updateSupabaseAuthPassword(recovery.access_token, newPassword);
         await apiPost('/auth/recovery/complete', {
           access_token: recovery.access_token,
           password: newPassword,
