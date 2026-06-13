@@ -7,7 +7,11 @@ import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClien
 import { insertAdminMirrorTimeRecord } from '../../services/timeRecords.service';
 import { recalculate_period } from '../engine/timeEngine';
 import type { RawTimeRecord } from './timeProcessingService';
-import { summarizeDayRecords } from './timeProcessingService';
+import {
+  summarizeDayRecords,
+  getEmployeeTimesheetScheduleContext,
+  buildScheduleByDayLookup,
+} from './timeProcessingService';
 import {
   deriveTimesheetProcessingStatus,
   type TimesheetProcessingStatus,
@@ -17,12 +21,13 @@ import {
   type OperationalDisplayStatus,
 } from '../utils/timesheetOperationalUx';
 import {
-  calendarDateForEspelhoRow,
   extractLocalCalendarDateFromIso,
   localCalendarDayEndUtc,
   localCalendarDayStartUtc,
   logCalendarDayConsistencyDebug,
 } from '../utils/calendarUtils';
+import { espelhoRowDateForRecord, type DayScheduleSlots } from '../utils/timesheetMirror';
+import type { TimeRecord } from '../../types';
 import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
 import { monthYearFromCivilYmd } from './timesheetClosure';
 import { appendTimeAttendanceTimelineEvent } from './timeAttendanceTimeline.service';
@@ -35,6 +40,55 @@ import {
   registerTenantScopedCache,
 } from '../domain/operational/cache/tenantCacheIsolation';
 import { opLog } from '../utils/operationalLogger';
+
+function addDaysToYmdLocal(ymd: string, delta: number): string {
+  const parts = ymd.split('-').map((x) => parseInt(x, 10));
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d + delta);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+/** Pré-carrega lookup de escala por colaborador (mesma fonte do Espelho de Ponto). */
+async function loadScheduleByDayForEmployees(
+  companyId: string,
+  employeeIds: Iterable<string>,
+): Promise<Map<string, (dateYmd: string) => DayScheduleSlots | null>> {
+  const map = new Map<string, (dateYmd: string) => DayScheduleSlots | null>();
+  await Promise.all(
+    [...employeeIds].map(async (employeeId) => {
+      try {
+        const ctx = await getEmployeeTimesheetScheduleContext(employeeId, companyId);
+        map.set(employeeId, buildScheduleByDayLookup(ctx.windowByJsDow));
+      } catch {
+        map.set(employeeId, () => null);
+      }
+    }),
+  );
+  return map;
+}
+
+/**
+ * Data da jornada para agrupamento na tela — delega a `espelhoRowDateForRecord` (Espelho de Ponto).
+ */
+export function journeyDayForAttendanceRecord(
+  record: RawTimeRecord,
+  periodStartYmd: string,
+  periodEndYmd: string,
+  scheduleByDay?: (dateYmd: string) => DayScheduleSlots | null | undefined,
+): string {
+  return espelhoRowDateForRecord(
+    record as unknown as TimeRecord,
+    periodStartYmd,
+    periodEndYmd,
+    scheduleByDay,
+  );
+}
 
 const AUTO_RECALC_DEBOUNCE_MS = 10_000;
 /** Teto de disparos de recálculo por carregamento da lista (evita rajada de RPC). */
@@ -1268,6 +1322,8 @@ export async function getTimeAttendanceData(
 
   const safeStart = String(startDate).slice(0, 10);
   const safeEnd = String(endDate).slice(0, 10);
+  const fetchStart = addDaysToYmdLocal(safeStart, -1);
+  const fetchEnd = addDaysToYmdLocal(safeEnd, 1);
 
   const [sheetRows, recordRows, repPendingFlat] = await Promise.all([
     db.select(
@@ -1288,8 +1344,8 @@ export async function getTimeAttendanceData(
         'time_records',
         [
           { column: 'company_id', operator: 'eq', value: companyId },
-          { column: 'timestamp', operator: 'gte', value: localCalendarDayStartUtc(safeStart) },
-          { column: 'timestamp', operator: 'lte', value: localCalendarDayEndUtc(safeEnd) },
+          { column: 'timestamp', operator: 'gte', value: localCalendarDayStartUtc(fetchStart) },
+          { column: 'timestamp', operator: 'lte', value: localCalendarDayEndUtc(fetchEnd) },
         ],
         {
           columns: 'id,user_id,company_id,type,created_at,timestamp',
@@ -1301,6 +1357,13 @@ export async function getTimeAttendanceData(
     fetchPendingRepPunchLogsForPeriod(companyId, safeStart, safeEnd),
   ]);
 
+  const uniqueEmployeeIds = new Set<string>();
+  for (const r of recordRows ?? []) {
+    const uid = typeof r.user_id === 'string' ? r.user_id : '';
+    if (uid) uniqueEmployeeIds.add(uid);
+  }
+  const scheduleByEmployee = await loadScheduleByDayForEmployees(companyId, uniqueEmployeeIds);
+
   const punchesByKey = new Map<string, RawTimeRecord[]>();
   const calendarDebugLogged = new Set<string>();
   const MAX_CALENDAR_DEBUG_LOGS = 50;
@@ -1308,7 +1371,8 @@ export async function getTimeAttendanceData(
     const uid = typeof r.user_id === 'string' ? r.user_id : '';
     if (!uid) continue;
     const raw = r as unknown as RawTimeRecord;
-    const day = calendarDateForEspelhoRow(raw, safeStart, safeEnd);
+    const scheduleByDay = scheduleByEmployee.get(uid);
+    const day = journeyDayForAttendanceRecord(raw, fetchStart, fetchEnd, scheduleByDay);
     if (day < safeStart || day > safeEnd) continue;
     const key = `${uid}|${day}`;
     if (calendarDebugLogged.size < MAX_CALENDAR_DEBUG_LOGS && !calendarDebugLogged.has(key)) {

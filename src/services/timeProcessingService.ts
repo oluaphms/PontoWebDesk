@@ -23,7 +23,6 @@ import {
 } from './timeAttendanceTimeline.constants';
 import { LogType } from '../../types';
 import { normalizeRecordTypeForMirror, type NormalizedMirrorRecordType, espelhoRowDateForRecord, type DayScheduleSlots } from '../utils/timesheetMirror';
-import type { TimeRecord } from '../../types';
 
 export {
   assertMonthOpenForEmployee,
@@ -87,6 +86,31 @@ export type DayExpectedWindow = {
   saida_intervalo?: string;
   volta_intervalo?: string;
 };
+
+/** Mesma conversão usada pelo Espelho de Ponto (`Timesheet.tsx`). */
+export function dayExpectedWindowToDayScheduleSlots(win: DayExpectedWindow): DayScheduleSlots {
+  const [eh = '08', em = '00'] = String(win.entrada || '08:00').split(':');
+  const [sh = '17', sm = '00'] = String(win.saida || '17:00').split(':');
+  return {
+    entrada: `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`,
+    saida_final: `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`,
+    saida_intervalo: win.saida_intervalo || '12:00',
+    volta_intervalo: win.volta_intervalo || '14:00',
+    toleranceMin: win.toleranceMin ?? 60,
+  };
+}
+
+/** Lookup de escala por data civil — reutilizado pelo Espelho e pela Jornada de Trabalho. */
+export function buildScheduleByDayLookup(
+  windowByJsDow: Record<number, DayExpectedWindow | null>,
+): (dateYmd: string) => DayScheduleSlots | null {
+  return (dateYmd: string) => {
+    const dow = new Date(`${dateYmd}T12:00:00`).getDay();
+    const win = windowByJsDow[dow];
+    if (!win) return null;
+    return dayExpectedWindowToDayScheduleSlots(win);
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
