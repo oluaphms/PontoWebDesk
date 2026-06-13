@@ -35,6 +35,15 @@ function civilDateSaoPauloFromIso(iso: string): string | null {
   return `${y}-${m}-${day}`;
 }
 
+function addDaysYmd(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, (d || 1) + delta);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 function parseDataHora(row: RepPromotedDetailRow): string | null {
   const raw = row.data_hora;
   if (raw == null) return null;
@@ -80,10 +89,14 @@ export async function syncEspelhoAfterRepPromote(
       });
       continue;
     }
-    const key = `${uid}|${civilDate}`;
-    if (!pairsToRecalc.has(key)) {
-      pairsToRecalc.set(key, { user_id: uid, civilDate });
+    const datesForRecalc = [civilDate, addDaysYmd(civilDate, -1)];
+    for (const recalcDate of datesForRecalc) {
+      const key = `${uid}|${recalcDate}`;
+      if (!pairsToRecalc.has(key)) {
+        pairsToRecalc.set(key, { user_id: uid, civilDate: recalcDate });
+      }
     }
+    const key = `${uid}|${civilDate}`;
     const list = rowsByKey.get(key) ?? [];
     list.push({ ...row, user_id: uid, data_hora: iso });
     rowsByKey.set(key, list);

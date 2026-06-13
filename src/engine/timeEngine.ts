@@ -921,26 +921,37 @@ export async function get_day_type(
 /** Esperado oficial a partir da escala resolvida (sem contingência nem STRICT). */
 export function computeScheduledExpectedMinutes(dayType: DayType, schedule: WorkScheduleInfo | null): number {
   if (!schedule || dayType === 'HOLIDAY' || dayType === 'SUNDAY') return 0;
-  if (dayType === 'SATURDAY') {
-    const start = hhmmToMinutes(schedule.start_time);
-    const end = hhmmToMinutes(schedule.end_time);
-    const breakStart = hhmmToMinutes(schedule.break_start);
-    const breakEnd = hhmmToMinutes(schedule.break_end);
-    if (start != null && end != null && end > start) {
-      const breakMinutes = breakStart != null && breakEnd != null && breakEnd > breakStart ? breakEnd - breakStart : 0;
-      return Math.max(0, end - start - breakMinutes);
+  const computeSpan = (start: number | null, end: number | null, breakStart: number | null, breakEnd: number | null, dailyHoursFallback: number): number => {
+    if (start == null || end == null) return Math.round(dailyHoursFallback * 60);
+    const isOvernight = end < start;
+    let breakMinutes = 0;
+    if (breakStart != null && breakEnd != null && breakEnd > breakStart) {
+      if (!isOvernight && breakStart >= start && breakEnd <= end) {
+        breakMinutes = breakEnd - breakStart;
+      } else if (isOvernight && (breakStart >= start || breakStart <= end) && (breakEnd >= start || breakEnd <= end)) {
+        breakMinutes = breakEnd - breakStart;
+      }
     }
-    return Math.round((Number(schedule.daily_hours || 4) || 4) * 60);
+    const span = isOvernight ? (24 * 60 - start) + end : end - start;
+    if (span > 0) return Math.max(0, span - breakMinutes);
+    return Math.round(dailyHoursFallback * 60);
+  };
+  if (dayType === 'SATURDAY') {
+    return computeSpan(
+      hhmmToMinutes(schedule.start_time),
+      hhmmToMinutes(schedule.end_time),
+      hhmmToMinutes(schedule.break_start),
+      hhmmToMinutes(schedule.break_end),
+      Number(schedule.daily_hours || 4) || 4,
+    );
   }
-  const start = hhmmToMinutes(schedule.start_time);
-  const end = hhmmToMinutes(schedule.end_time);
-  const breakStart = hhmmToMinutes(schedule.break_start);
-  const breakEnd = hhmmToMinutes(schedule.break_end);
-  if (start != null && end != null && end > start) {
-    const breakMinutes = breakStart != null && breakEnd != null && breakEnd > breakStart ? breakEnd - breakStart : 0;
-    return Math.max(0, end - start - breakMinutes);
-  }
-  return Math.round((Number(schedule.daily_hours || 8) || 8) * 60);
+  return computeSpan(
+    hhmmToMinutes(schedule.start_time),
+    hhmmToMinutes(schedule.end_time),
+    hhmmToMinutes(schedule.break_start),
+    hhmmToMinutes(schedule.break_end),
+    Number(schedule.daily_hours || 8) || 8,
+  );
 }
 
 export async function get_expected_hours(
@@ -1007,7 +1018,7 @@ export async function calculate_day(
 ): Promise<DaySummary['daily']> {
   const companyRules = await getCompanyRules(companyId);
   const dayType = await get_day_type(dateStr, companyId);
-  const records = await getDayRecords(employeeId, dateStr);
+  const records = await getDayRecords(employeeId, dateStr, companyId);
   const base = await processDailyTime(employeeId, companyId, dateStr, {
     toleranceOverride: companyRules.tolerance_minutes,
   });
@@ -1490,7 +1501,7 @@ export async function recalculate_period(
   for (const date of days) {
     try {
       const dailyBase = await calculate_day(employeeId, companyId, date);
-      const dayRecords = await getDayRecords(employeeId, date);
+      const dayRecords = await getDayRecords(employeeId, date, companyId);
       const scheduleForAudit = await resolveEmployeeScheduleForDate(employeeId, companyId, date);
       const nightRaw = calculateNightHoursForDate(dayRecords, date);
       const core = await applyBankNightAndExtras(
@@ -1738,7 +1749,7 @@ export async function processEmployeeDay(
   const companyRules = await getCompanyRules(companyId);
   const dayType = await get_day_type(dateStr, companyId);
   const resolved = await resolveEmployeeScheduleForDate(employeeId, companyId, dateStr);
-  const records = await getDayRecords(employeeId, dateStr);
+  const records = await getDayRecords(employeeId, dateStr, companyId);
   const dailyBase = await calculate_day(employeeId, companyId, dateStr);
   const isHolidayDay = dayType === 'HOLIDAY';
   const explicitIsWorkDay = isHolidayDay ? false : resolved.schedule ? undefined : false;

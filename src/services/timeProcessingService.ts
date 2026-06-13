@@ -22,7 +22,8 @@ import {
   TimeAttendanceTimelineSeverity,
 } from './timeAttendanceTimeline.constants';
 import { LogType } from '../../types';
-import { normalizeRecordTypeForMirror, type NormalizedMirrorRecordType } from '../utils/timesheetMirror';
+import { normalizeRecordTypeForMirror, type NormalizedMirrorRecordType, espelhoRowDateForRecord, type DayScheduleSlots } from '../utils/timesheetMirror';
+import type { TimeRecord } from '../../types';
 
 export {
   assertMonthOpenForEmployee,
@@ -126,6 +127,64 @@ export function jsGetDayToScheduleDayIndex(jsDow: number): number {
 /** Mantido por compatibilidade; ESS já está no índice JS. */
 export function scheduleDayIndexToJsGetDay(idx: number): number {
   return idx;
+}
+
+function isMinuteInOvernightWindow(minute: number, startM: number, endM: number): boolean {
+  return minute >= startM || minute <= endM;
+}
+
+/** Converte escala resolvida para slots do espelho (agrupamento cross-day). */
+export function workScheduleToDayScheduleSlots(s: WorkScheduleInfo): DayScheduleSlots {
+  return {
+    entrada: s.start_time,
+    saida_intervalo: s.break_start,
+    volta_intervalo: s.break_end,
+    saida_final: s.end_time,
+    toleranceMin: s.tolerance_minutes ?? 60,
+  };
+}
+
+/**
+ * Filtra batidas pela data da jornada (shift/work date), não pelo dia civil.
+ * Reutiliza `espelhoRowDateForRecord` — mesma regra do espelho de ponto.
+ */
+export function filterRecordsByJourneyDate(
+  records: RawTimeRecord[],
+  journeyDateYmd: string,
+  periodStartYmd: string,
+  periodEndYmd: string,
+  scheduleByDay: (date: string) => DayScheduleSlots | null | undefined,
+): RawTimeRecord[] {
+  return records.filter((r) => {
+    const journey = espelhoRowDateForRecord(
+      r as unknown as TimeRecord,
+      periodStartYmd,
+      periodEndYmd,
+      scheduleByDay,
+    );
+    return journey === journeyDateYmd;
+  });
+}
+
+async function buildScheduleByDayCache(
+  employeeId: string,
+  companyId: string,
+  dates: string[],
+): Promise<Map<string, DayScheduleSlots | null>> {
+  const cache = new Map<string, DayScheduleSlots | null>();
+  await Promise.all(
+    dates.map(async (ymd) => {
+      const resolved = await resolveEmployeeScheduleForDate(employeeId, companyId, ymd);
+      cache.set(ymd, resolved.schedule ? workScheduleToDayScheduleSlots(resolved.schedule) : null);
+    }),
+  );
+  return cache;
+}
+
+function scheduleLookupFromCache(
+  cache: Map<string, DayScheduleSlots | null>,
+): (date: string) => DayScheduleSlots | null | undefined {
+  return (date: string) => (cache.has(date) ? cache.get(date)! : undefined);
 }
 
 function formatHHmm(d: Date): string {
@@ -318,12 +377,19 @@ export function expectedMinutesFromDayWindow(win: DayExpectedWindow): number {
 export function expectedMinutesFromSchedule(s: WorkScheduleInfo): number {
   const start = timeToMinutes(s.start_time);
   const end = timeToMinutes(s.end_time);
-  const brk =
-    timeToMinutes(s.break_end) > timeToMinutes(s.break_start)
-      ? timeToMinutes(s.break_end) - timeToMinutes(s.break_start)
-      : 0;
-  const span = Math.max(0, end - start - brk);
-  if (span > 0) return span;
+  const brkStart = timeToMinutes(s.break_start);
+  const brkEnd = timeToMinutes(s.break_end);
+  const isOvernight = end < start;
+  let brk = 0;
+  if (brkEnd > brkStart) {
+    if (!isOvernight && brkStart >= start && brkEnd <= end) {
+      brk = brkEnd - brkStart;
+    } else if (isOvernight && isMinuteInOvernightWindow(brkStart, start, end) && isMinuteInOvernightWindow(brkEnd, start, end)) {
+      brk = brkEnd - brkStart;
+    }
+  }
+  const span = isOvernight ? (24 * 60 - start) + end : Math.max(0, end - start);
+  if (span > 0) return Math.max(0, span - brk);
   return Math.max(0, (s.daily_hours || 8) * 60);
 }
 
@@ -333,14 +399,19 @@ export function shiftRecordToWorkScheduleInfo(sh: Record<string, unknown>): Work
   const end_time = padTime((sh.end_time || sh.exit_time) as string | undefined, '17:00');
   const startM = timeToMinutes(start_time);
   const endM = timeToMinutes(end_time);
-  const span = Math.max(0, endM - startM);
+  const isOvernight = endM < startM;
+  const span = isOvernight ? (24 * 60 - startM) + endM : Math.max(0, endM - startM);
   const breakMin = Number(sh.break_minutes ?? 60);
 
   let break_start = sh.break_start_time ? padTime(String(sh.break_start_time), '12:00') : start_time;
   let break_end = sh.break_end_time ? padTime(String(sh.break_end_time), '13:00') : start_time;
   const bs = timeToMinutes(break_start);
   const be = timeToMinutes(break_end);
-  const breakInside = be > bs && bs >= startM && be <= endM;
+  const breakInside = be > bs && (
+    isOvernight
+      ? isMinuteInOvernightWindow(bs, startM, endM) && isMinuteInOvernightWindow(be, startM, endM)
+      : bs >= startM && be <= endM
+  );
 
   if (!breakInside) {
     if (span > 6 * 60 && breakMin > 0 && (!sh.break_start_time || !sh.break_end_time)) {
@@ -738,7 +809,8 @@ async function getLegacyScheduleFromUser(
 }
 
 /**
- * Busca registros de ponto do colaborador em uma data (timezone local do ISO).
+ * Busca registros de ponto do colaborador em uma data de jornada (shift date).
+ * Com `companyId`, agrupa batidas pós-meia-noite na jornada noturna (mesma regra do espelho).
  */
 export async function getDayRecords(
   employeeId: string,
@@ -748,15 +820,28 @@ export async function getDayRecords(
   if (!isSupabaseConfigured()) return [];
 
   const prev = addDaysToYmdLocal(dateStr, -1);
+  const prev2 = addDaysToYmdLocal(dateStr, -2);
   const next = addDaysToYmdLocal(dateStr, 1);
-  const start = `${prev}T00:00:00`;
+  const start = `${prev2}T00:00:00`;
   const end = `${next}T23:59:59.999`;
 
   try {
     const rows = (await getTimeRecordsForUserDayRange(employeeId, start, end, companyId)) as RawTimeRecord[];
     const list = Array.isArray(rows) ? rows : [];
-    return list.filter(
-      (r) => getLocalDateString(new Date(recordEventInstantMs(r))) === dateStr,
+
+    if (!companyId) {
+      return list.filter(
+        (r) => getLocalDateString(new Date(recordEventInstantMs(r))) === dateStr,
+      );
+    }
+
+    const scheduleCache = await buildScheduleByDayCache(employeeId, companyId, [prev2, prev, dateStr, next]);
+    return filterRecordsByJourneyDate(
+      list,
+      dateStr,
+      prev2,
+      next,
+      scheduleLookupFromCache(scheduleCache),
     );
   } catch (e) {
     observabilityConsole.warn('[timeProcessingService] getDayRecords:', e);
@@ -872,7 +957,7 @@ export async function processDailyTime(
   dateStr: string,
   opts?: ProcessDailyTimeOpts
 ): Promise<DailyProcessResult> {
-  const records = await getDayRecords(employeeId, dateStr);
+  const records = await getDayRecords(employeeId, dateStr, companyId);
   const { totalMinutes, entrada, saida, inicio_intervalo, fim_intervalo } = summarizeDayRecords(records);
 
   let schedule: WorkScheduleInfo | null = null;
