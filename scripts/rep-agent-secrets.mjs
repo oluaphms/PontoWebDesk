@@ -6,22 +6,6 @@ import { execFileSync } from 'node:child_process';
 
 export const DPAPI_SCOPE = 'LocalMachine';
 
-const PS_PROTECT = `
-param([string]$Plain, [string]$Scope)
-Add-Type -AssemblyName System.Security
-$bytes = [Text.Encoding]::UTF8.GetBytes($Plain)
-$prot = [Security.Cryptography.ProtectedData]::Protect($bytes, $null, [Security.Cryptography.DataProtectionScope]::$Scope)
-[Convert]::ToBase64String($prot)
-`;
-
-const PS_UNPROTECT = `
-param([string]$B64, [string]$Scope)
-Add-Type -AssemblyName System.Security
-$prot = [Convert]::FromBase64String($B64)
-$plain = [Security.Cryptography.ProtectedData]::Unprotect($prot, $null, [Security.Cryptography.DataProtectionScope]::$Scope)
-[Text.Encoding]::UTF8.GetString($plain)
-`;
-
 function isWindows() {
   return process.platform === 'win32';
 }
@@ -30,15 +14,17 @@ function allowPlainSecrets() {
   return !isWindows() || /^(1|true|yes)$/i.test(String(process.env.REP_ALLOW_PLAIN_SECRETS || '').trim());
 }
 
-function runPs(script, args) {
-  const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  const psArgs = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded, ...args];
-  const out = execFileSync('powershell.exe', psArgs, {
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 15_000,
-    maxBuffer: 256 * 1024,
-  });
+function runPowerShell(command) {
+  const out = execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 15_000,
+      maxBuffer: 256 * 1024,
+    },
+  );
   return String(out || '').trim();
 }
 
@@ -51,9 +37,16 @@ export function dpapiProtect(plaintext) {
   if (!value) return '';
   if (!isWindows()) {
     if (allowPlainSecrets()) return value;
-    throw new Error('DPAPI indisponível fora do Windows. Use REP_ALLOW_PLAIN_SECRETS=1 apenas em dev.');
+    throw new Error('DPAPI indisponivel fora do Windows. Use REP_ALLOW_PLAIN_SECRETS=1 apenas em dev.');
   }
-  return runPs(PS_PROTECT, ['-Plain', value, '-Scope', DPAPI_SCOPE]);
+  const plainB64 = Buffer.from(value, 'utf8').toString('base64');
+  const cmd = [
+    'Add-Type -AssemblyName System.Security',
+    `$bytes = [Convert]::FromBase64String('${plainB64}')`,
+    `$prot = [Security.Cryptography.ProtectedData]::Protect($bytes, $null, [Security.Cryptography.DataProtectionScope]::${DPAPI_SCOPE})`,
+    '[Convert]::ToBase64String($prot)',
+  ].join('; ');
+  return runPowerShell(cmd);
 }
 
 /**
@@ -65,9 +58,16 @@ export function dpapiUnprotect(b64) {
   if (!blob) return '';
   if (!isWindows()) {
     if (allowPlainSecrets()) return blob;
-    throw new Error('DPAPI indisponível fora do Windows.');
+    throw new Error('DPAPI indisponivel fora do Windows.');
   }
-  return runPs(PS_UNPROTECT, ['-B64', blob, '-Scope', DPAPI_SCOPE]);
+  const safeBlob = blob.replace(/'/g, "''");
+  const cmd = [
+    'Add-Type -AssemblyName System.Security',
+    `$prot = [Convert]::FromBase64String('${safeBlob}')`,
+    `$plain = [Security.Cryptography.ProtectedData]::Unprotect($prot, $null, [Security.Cryptography.DataProtectionScope]::${DPAPI_SCOPE})`,
+    '[Text.Encoding]::UTF8.GetString($plain)',
+  ].join('; ');
+  return runPowerShell(cmd);
 }
 
 /** Campos de segredo suportados no config.json */

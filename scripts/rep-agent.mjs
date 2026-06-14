@@ -113,6 +113,12 @@ import { runAgentUpdateProbe } from './rep-agent-bootstrap.mjs';
 
 const bootResult = bootstrapProductionAgent();
 if (!bootResult.ok) {
+  const msg = bootResult.message || 'Falha no bootstrap do agente REP';
+  try {
+    observabilityConsole.error(`[rep-agent] ${msg}`);
+  } catch {
+    console.error(`[rep-agent] ${msg}`);
+  }
   process.exit(1);
 }
 
