@@ -131,6 +131,7 @@ import { repUiClasses } from '../../../styles/repUiClasses';
 import { repPageUi } from '../../../styles/repDevicesPageUi';
 import { buildApiUrl, buildSessionAuthHeaders } from '../../../services/api';
 import { getToken } from '../../../services/authToken';
+import { fetchRepDeviceSyncStatus } from '../../../services/repDeviceSyncStatus.service';
 import { fetchEmployees } from '../../../services/employeesApi.service';
 
 const AdminRepDevices: React.FC = () => {
@@ -282,15 +283,8 @@ const AdminRepDevices: React.FC = () => {
       if (!accessToken) return;
       const entries = await Promise.all(
         deviceIds.map(async (id) => {
-          const res = await fetch(buildApiUrl(`/rep/devices/${encodeURIComponent(id)}/sync-status`), {
-            method: 'GET',
-            credentials: 'include',
-            headers: buildSessionAuthHeaders(accessToken),
-          });
-          if (!res.ok) return [id, undefined] as const;
-          const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
-          if (!body) return [id, undefined] as const;
-          return [id, body] as const;
+          const snap = await fetchRepDeviceSyncStatus(id, accessToken);
+          return [id, snap] as const;
         }),
       );
       const next: Record<string, DeviceSyncStatusSnapshot | undefined> = {};
@@ -445,6 +439,7 @@ const AdminRepDevices: React.FC = () => {
     srActionsLocked,
   } = useRepDevicesDerived({
     devices,
+    syncStatusByDeviceId,
     showInactiveDevices,
     srDeviceId,
     employees,

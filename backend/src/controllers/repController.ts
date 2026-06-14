@@ -748,16 +748,33 @@ export async function repHeartbeatController(req: Request, res: Response): Promi
   const client = await pool.connect();
   try {
     await client.query('begin');
-    await client.query(
+    const updated = await client.query(
       `update public.rep_devices
           set last_seen_at = $1::timestamptz,
               status_runtime = 'online',
               updated_at = $1::timestamptz
         where id::text = $2
-          and company_id::text = $3`,
+          and company_id::text = $3
+        returning id::text`,
       [now, auth.deviceId, auth.companyId],
     );
     await client.query('commit');
+    if (!updated.rowCount) {
+      logger.warn({
+        module: 'rep.heartbeat',
+        action: 'AGENT_HEARTBEAT_NO_ROW',
+        companyId: auth.companyId,
+        message: 'Heartbeat autenticado mas nenhuma linha rep_devices atualizada (device_id/company_id?)',
+        meta: { device_id: auth.deviceId },
+      });
+      json(res, 404, {
+        ok: false,
+        success: false,
+        error: 'device_not_found',
+        message: 'device_id não encontrado na empresa — confira REP_DEVICE_ID no config.json do agente.',
+      });
+      return;
+    }
     logger.info({
       module: 'rep.heartbeat',
       action: 'AGENT_HEARTBEAT',

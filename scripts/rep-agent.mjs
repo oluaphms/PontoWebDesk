@@ -2851,7 +2851,11 @@ async function postRepHeartbeat() {
   const latency = Date.now() - t0;
   syncLog('[HEARTBEAT]', { latency_ms: latency, detail: { status: res.status, ok: res.ok } });
   if (!res.ok) {
-    throw new Error(`Heartbeat falhou com HTTP ${res.status}`);
+    const detail =
+      res.status === 404
+        ? 'device_id não confere com o painel — ajuste REP_DEVICE_ID no config.json'
+        : `HTTP ${res.status}`;
+    throw new Error(`Heartbeat falhou (${detail})`);
   }
   agentLog.heartbeat({ device_id: deviceId, latency_ms: latency });
 }

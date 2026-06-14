@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { isAgentRecentlySeen, isEmployeeEligibleForRepPush } from './utils';
+import { isAgentRecentlySeen, isEmployeeEligibleForRepPush, isRepAgentOnlineForDevice, resolveRepAgentLastSeenForUi } from './utils';
 import type {
   AgentHealthStatus,
   AgentSnapshot,
   ColetaPublicStatus,
+  DeviceSyncStatusSnapshot,
   EmployeeForRep,
   RepDeviceRow,
   RepPipelineSnapshot,
@@ -12,6 +13,7 @@ import type {
 
 type UseRepDevicesDerivedParams = {
   devices: RepDeviceRow[];
+  syncStatusByDeviceId?: Record<string, DeviceSyncStatusSnapshot | undefined>;
   showInactiveDevices: boolean;
   srDeviceId: string;
   employees: EmployeeForRep[];
@@ -28,6 +30,7 @@ type UseRepDevicesDerivedParams = {
 export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
   const {
     devices,
+    syncStatusByDeviceId = {},
     showInactiveDevices,
     srDeviceId,
     employees,
@@ -54,7 +57,8 @@ export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
     const now = Date.now();
     const activityMs = devices
       .map((d) => {
-        const candidates = [d.last_seen_at, d.ultima_sincronizacao].filter(Boolean) as string[];
+        const seenIso = resolveRepAgentLastSeenForUi(d, syncStatusByDeviceId[d.id]);
+        const candidates = [seenIso, d.last_seen_at, d.ultima_sincronizacao].filter(Boolean) as string[];
         return candidates
           .map((iso) => Date.parse(iso))
           .filter((v) => Number.isFinite(v))
@@ -63,7 +67,9 @@ export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
       .filter((v): v is number => Number.isFinite(v))
       .sort((a, b) => b - a);
     const latestActivityMs = activityMs[0];
-    const hasRecentHeartbeat = devices.some((d) => isAgentRecentlySeen(d.last_seen_at));
+    const hasRecentHeartbeat = devices.some((d) =>
+      isRepAgentOnlineForDevice(d, syncStatusByDeviceId[d.id]),
+    );
     const hasRecentSync =
       Number.isFinite(latestActivityMs) && now - latestActivityMs <= 15 * 60 * 1000;
     const hasOldSync = Number.isFinite(latestActivityMs) && now - latestActivityMs <= 2 * 60 * 60 * 1000;
@@ -81,7 +87,7 @@ export function useRepDevicesDerived(params: UseRepDevicesDerivedParams) {
       mode,
       lastSync: Number.isFinite(latestActivityMs) ? new Date(latestActivityMs).toISOString() : null,
     };
-  }, [devices]);
+  }, [devices, syncStatusByDeviceId]);
 
   const punches24hTotal = pipelineSnapshot.repPunchesLast24h + pipelineSnapshot.appPunchesLast24h;
   const agentIsActive = agentSnapshot.status !== 'OFFLINE';
