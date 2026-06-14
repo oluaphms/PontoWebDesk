@@ -392,6 +392,20 @@ async function initializeAgentPolicy() {
   agentPolicy.forceMode = policy.forceMode;
 }
 
+function isLanDeviceIp(host) {
+  const h = String(host || '').trim();
+  if (!h) return false;
+  if (h === '127.0.0.1' || h.toLowerCase() === 'localhost') return true;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
 function logStartupConfig() {
   const keyHint =
     apiKey.length > 10 ? `${apiKey.slice(0, 4)}…${apiKey.slice(-3)}` : apiKey.length > 0 ? '(definida)' : '';
@@ -418,6 +432,12 @@ function logStartupConfig() {
     `| punch_db=${AGENT_DB_PATH}`,
     `| pending=${countPendingPunches()}`
   );
+  if (scheme === 'https' && !insecureTls && isLanDeviceIp(ip)) {
+    observabilityConsole.warn(
+      '[rep-agent] AVISO: HTTPS no relógio sem insecure_tls=true — certificados self-signed na LAN costumam falhar. ' +
+        'Ajuste config.json: "insecure_tls": true (rede interna).',
+    );
+  }
   if (scheme === 'http' && (port === '443' || port === '442')) {
     observabilityConsole.warn(
       '[rep-agent] AVISO: porta ' +
@@ -906,7 +926,7 @@ async function fetchPunchesFromClock() {
         ? ' Está em 127.0.0.1 — provável mock no .env.local. Relógio real: $env:REP_DEVICE_IP="192.168.x.x"; $env:REP_DEVICE_PORT="443"; $env:REP_DEVICE_SCHEME="https". Mock: node scripts\\rep-agent-mock.mjs (porta ' +
           port +
           ').'
-        : ` Verifique se o relógio está ligado, na mesma rede, e se IP/porta estão corretos. Control iD na LAN costuma usar HTTP:80 (não HTTPS:443).${
+        : ` Verifique se o relógio está ligado, na mesma rede, e se IP/porta estão corretos. Use a porta exibida no painel do relógio (ex.: HTTPS:443) e insecure_tls=true para certificado self-signed na LAN.${
             port === '442'
               ? ' Porta 442 recusada — teste REP_DEVICE_PORT=443 ou REP_DEVICE_SCHEME=http e REP_DEVICE_PORT=80.'
               : ''
@@ -1311,12 +1331,11 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
 
 function deviceConnectionBases() {
   const primary = `${scheme}://${ip}:${port}`;
-  // Control iD na LAN: porta 80 costuma responder primeiro (https:80 ou http:80); 443 pode estar fechada.
-  if (scheme === 'https' && String(port) === '443') {
-    return [...new Set([`https://${ip}:80`, `http://${ip}:80`, primary])];
-  }
   const bases = [primary];
-  if (scheme === 'http' && String(port) === '80') {
+  // Fallbacks só após falha na porta configurada (ex.: outros firmwares Control iD usam :80).
+  if (scheme === 'https' && String(port) === '443') {
+    bases.push(`https://${ip}:80`, `http://${ip}:80`);
+  } else if (scheme === 'http' && String(port) === '80') {
     bases.push(`https://${ip}:80`, `https://${ip}:443`);
   } else if (scheme === 'https' && String(port) === '80') {
     bases.push(`http://${ip}:80`, `https://${ip}:443`);

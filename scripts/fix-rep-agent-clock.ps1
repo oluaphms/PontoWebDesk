@@ -1,5 +1,5 @@
 #Requires -RunAsAdministrator
-# Ajusta config.json do agente para Control iD na LAN (http:80) e timeout de comando.
+# Ajusta config.json do agente para HTTPS:443 (porta exibida no relógio) + timeout e comandos.
 # Uso: powershell -ExecutionPolicy Bypass -File scripts\fix-rep-agent-clock.ps1
 
 $ErrorActionPreference = 'Stop'
@@ -26,12 +26,11 @@ function Update-CfgField([string]$Name, $Value) {
   }
 }
 
-Write-Host 'Ajustando relogio Control iD (LAN)...' -ForegroundColor Cyan
-if ($cfg.device_port -eq 443 -or $cfg.device_scheme -eq 'https') {
-  Update-CfgField 'device_scheme' 'http'
-  Update-CfgField 'device_port' 80
-  Update-CfgField 'insecure_tls' $false
-}
+Write-Host 'Ajustando agente para relogio HTTPS:443 (porta do painel do equipamento)...' -ForegroundColor Cyan
+Update-CfgField 'device_scheme' 'https'
+Update-CfgField 'device_port' 443
+# Certificado self-signed na LAN — necessario para curl/Node aceitarem TLS no relogio.
+Update-CfgField 'insecure_tls' $true
 Update-CfgField 'enable_commands' $true
 Update-CfgField 'command_exec_timeout_ms' 30000
 if (-not $cfg.command_poll_interval_ms) {
@@ -47,12 +46,13 @@ if ($changed) {
 }
 
 if (Test-Path $nssm) {
-  & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=30000" | Out-Null
-  Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=30000' -ForegroundColor Green
+  & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=30000`nREP_INSECURE_TLS=1" | Out-Null
+  Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=30000, REP_INSECURE_TLS=1' -ForegroundColor Green
 }
 
 Write-Host "`nProximo passo (obrigatorio):" -ForegroundColor Cyan
 Write-Host '  cd D:\PontoWebDesk'
 Write-Host '  npm run build:agent'
 Write-Host '  powershell -ExecutionPolicy Bypass -File scripts\deploy-rep-agent.ps1'
-Write-Host "`nNo log, procure: enable_commands=on | [REP COMMAND POLL] ativo | [REP LOGIN SUCCESS]" -ForegroundColor Green
+Write-Host "`nNo log, procure:" -ForegroundColor Green
+Write-Host '  relogio=https://IP:443 | enable_commands=on | [REP COMMAND POLL] ativo | [REP LOGIN SUCCESS]'
