@@ -1253,8 +1253,6 @@ export async function repPushEmployeeController(req: Request, res: Response): Pr
 }
 
 export async function repCommandResultController(req: Request, res: Response): Promise<void> {
-  const auth = await requireRepDeviceAuth(req, res);
-  if (!auth) return;
   const commandId = String(req.body?.command_id || '').trim();
   const executionId = String(req.body?.execution_id || '').trim();
   const status = String(req.body?.status || '').trim().toLowerCase();
@@ -1266,6 +1264,32 @@ export async function repCommandResultController(req: Request, res: Response): P
     json(res, 400, { ok: false, success: false, error: 'status inválido' });
     return;
   }
+
+  let deviceId = String(req.body?.device_id || req.query.device_id || '').trim();
+  if (!deviceId) {
+    const lookup = await pool.query(
+      `select device_id::text from public.rep_device_commands where id::text = $1 limit 1`,
+      [commandId],
+    );
+    deviceId = String(lookup.rows[0]?.device_id || '').trim();
+  }
+  if (!deviceId) {
+    json(res, 404, { ok: false, success: false, error: 'command_not_found' });
+    return;
+  }
+
+  const token = authHeaderToken(req);
+  const authResult = await verifyRepAgentTokenVps(token, deviceId);
+  if (!authResult.ok) {
+    repAgentAuthDenied(res, authResult);
+    return;
+  }
+  const companyId = await fetchRepDeviceCompanyId(deviceId);
+  if (!companyId) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+
   const existing = await pool.query(
     `select c.status, c.execution_id::text
        from public.rep_device_commands c
@@ -1274,7 +1298,7 @@ export async function repCommandResultController(req: Request, res: Response): P
         and d.id::text = $2
         and d.company_id::text = $3
       limit 1`,
-    [commandId, auth.deviceId, auth.companyId],
+    [commandId, deviceId, companyId],
   );
   const row = existing.rows[0];
   if (!row) {
@@ -1302,7 +1326,7 @@ export async function repCommandResultController(req: Request, res: Response): P
         and d.id::text = $5
         and d.company_id::text = $6
       returning c.id::text`,
-    [commandId, executionId, status, JSON.stringify(req.body?.result ?? null), auth.deviceId, auth.companyId],
+    [commandId, executionId, status, JSON.stringify(req.body?.result ?? null), deviceId, companyId],
   );
   if (!updated.rows[0]) {
     json(res, 200, { ok: true, success: true, ignored: true, reason: 'execution_mismatch_or_already_finished' });

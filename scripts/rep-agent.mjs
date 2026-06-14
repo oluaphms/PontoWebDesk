@@ -2007,6 +2007,7 @@ async function postRepCommandResult(commandId, executionId, status, result) {
       body: JSON.stringify({
         command_id: commandId,
         execution_id: executionId,
+        device_id: deviceId,
         status,
         result,
       }),

@@ -152,6 +152,25 @@ Rename-Item -Path $tmpTarget -NewName (Split-Path -Leaf $target) -Force
 Write-Host 'Ativando poll de comandos (test_connection no painel)...'
 Enable-RepAgentCommands
 
+$migrateScript = Join-Path $repoRoot 'scripts\migrate-rep-agent-secrets-dpapi.ps1'
+if (Test-Path $migrateScript) {
+  if (Test-Path $configPath) {
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $raw = $enc.GetString([System.IO.File]::ReadAllBytes($configPath))
+    if ($raw.Length -gt 0 -and [int][char]$raw[0] -eq 0xFEFF) { $raw = $raw.Substring(1) }
+    $cfg = $raw | ConvertFrom-Json
+    $needsDpapi = ($cfg.api_key -and -not $cfg.api_key_dpapi) -or ($cfg.device_password -and -not $cfg.device_password_dpapi)
+    if ($needsDpapi) {
+      Write-Host 'Migrando api_key/device_password para DPAPI (obrigatorio no build recente)...' -ForegroundColor Cyan
+      & powershell -ExecutionPolicy Bypass -File $migrateScript -ConfigPath $configPath
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host 'ERRO: migracao DPAPI falhou — o agente nao iniciara sem ela.' -ForegroundColor Red
+        exit 1
+      }
+    }
+  }
+}
+
 Write-Host "Iniciando servico..."
 $startMsg = Invoke-NssmQuiet -NssmArgs @('start', $svc)
 if ($startMsg) { Write-Host $startMsg }
