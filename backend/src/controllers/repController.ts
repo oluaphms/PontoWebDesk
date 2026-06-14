@@ -16,6 +16,7 @@ import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcPr
 import { resolveRepAdminCaller } from '../services/repAdminAuthService.js';
 import { verifyRepAgentTokenVps, fetchRepDeviceCompanyId, type RepAgentAuthResult } from '../services/repAgentAuthService.js';
 import { signRepCommandRow } from '../services/repCommandHmacService.js';
+import { isPrivateOrLocalIPv4 } from '../utils/repNetwork.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {

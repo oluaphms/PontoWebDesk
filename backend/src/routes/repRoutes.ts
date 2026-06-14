@@ -22,6 +22,7 @@ import {
 } from '../controllers/repImportAfdController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { repAgentVersionController } from '../controllers/repAgentVersionController.js';
+import { repDeviceCredentialsController } from '../controllers/repDeviceCredentialsController.js';
 
 const router = Router();
 
