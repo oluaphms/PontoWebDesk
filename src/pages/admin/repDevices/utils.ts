@@ -379,6 +379,16 @@ export function buildAgentCommandTimeoutMessage(
   return 'O agente na empresa não respondeu a tempo. Verifique se o Agente PontoWebDesk está em execução na rede do relógio.';
 }
 
+export function formatRepAgentCommandError(
+  rawMessage: string,
+  device: Pick<RepDeviceRow, 'last_seen_at' | 'nome_dispositivo' | 'ultima_sincronizacao'>,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
+): string {
+  if (rawMessage !== 'AGENT_COMMAND_TIMEOUT') return rawMessage;
+  const lastSeen = resolveRepAgentLastSeenForUi(device, syncSnapshot);
+  return buildAgentCommandTimeoutMessage(device, true, lastSeen);
+}
+
 export function readLsBool(key: string, defaultVal: boolean): boolean {
   if (typeof window === 'undefined') return defaultVal;
   let v: string | null = null;

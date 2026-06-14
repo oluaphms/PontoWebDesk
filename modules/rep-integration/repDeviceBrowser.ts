@@ -4,7 +4,7 @@
 
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
 import { buildApiUrl, buildSessionAuthHeaders } from '../../src/services/api';
-import { pollRepCommandResult } from '../../src/services/repDeviceCommands.service';
+import { pollRepCommandResult, REP_EXCHANGE_POLL_MAX_MS } from '../../src/services/repDeviceCommands.service';
 
 function repAuthInit(accessToken: string, method: 'GET' | 'POST'): RequestInit {
   return {
@@ -311,7 +311,9 @@ export async function repExchangeViaApi(
     return { ok: false, message: err, error: err, data: data.data, users: data.users as RepUserFromDevice[] | undefined };
   }
   if (typeof data.command_id === 'string' && data.command_id) {
-    const polled = await pollRepCommandResult(deviceId, data.command_id, accessToken);
+    const polled = await pollRepCommandResult(deviceId, data.command_id, accessToken, {
+      maxMs: REP_EXCHANGE_POLL_MAX_MS,
+    });
     if (!polled.ok) {
       return {
         ok: false,

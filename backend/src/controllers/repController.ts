@@ -30,7 +30,8 @@ type RepDeviceAuth = {
 };
 
 const REP_DEVICE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const STUCK_COMMAND_PROCESSING_MS = 30_000;
+/** Deve ser maior que a execução LAN no agente (pull_clock, collect, etc.) para não invalidar execution_id. */
+const STUCK_COMMAND_PROCESSING_MS = 120_000;
 const ADMIN_REP_COMMANDS = new Set([
   'test_connection',
   'collect_punches',
@@ -49,6 +50,37 @@ function json(res: Response, status: number, body: Record<string, unknown>): voi
 function authHeaderToken(req: Request): string {
   const raw = String(req.headers.authorization || req.headers['x-rep-api-key'] || req.headers['x-api-key'] || '').trim();
   return raw.replace(/^Bearer\s+/i, '').trim();
+}
+
+async function requeueStuckRepCommands(companyId: string, deviceId: string): Promise<void> {
+  if (!companyId || !deviceId) return;
+  await pool.query(
+    `update public.rep_device_commands
+        set status = 'pending',
+            execution_id = null,
+            result = '{"message":"Reenfileirado após timeout do agente"}'::jsonb,
+            updated_at = now()
+      where company_id::text = $1
+        and device_id::text = $2
+        and status = 'processing'
+        and execution_id is not null
+        and updated_at < now() - ($3::text)::interval`,
+    [companyId, deviceId, `${STUCK_COMMAND_PROCESSING_MS} milliseconds`],
+  );
+}
+
+async function cancelActiveRepCommands(deviceId: string, command: string): Promise<void> {
+  await pool.query(
+    `update public.rep_device_commands
+        set status = 'cancelled',
+            execution_id = null,
+            result = '{"message":"Substituído por novo comando"}'::jsonb,
+            updated_at = now()
+      where device_id::text = $1
+        and command = $2
+        and status in ('pending', 'processing')`,
+    [deviceId, command],
+  );
 }
 
 function repAgentAuthDenied(res: Response, result: Extract<RepAgentAuthResult, { ok: false }>): void {
@@ -946,40 +978,7 @@ export async function repCommandsController(req: Request, res: Response): Promis
         return;
       }
       if (command !== 'push_employee') {
-        const active = await pool.query(
-          `select id::text, status, execution_id::text
-             from public.rep_device_commands
-            where device_id::text = $1
-              and command = $2
-              and status in ('pending', 'processing')
-            order by created_at asc
-            limit 1`,
-          [deviceId, command],
-        );
-        if (active.rows[0]) {
-          json(res, 200, {
-            ok: true,
-            success: true,
-            command_id: active.rows[0].id,
-            status: active.rows[0].status,
-            execution_id: active.rows[0].execution_id ?? null,
-            reused: true,
-          });
-          return;
-        }
-      }
-      if (command === 'test_connection') {
-        await pool.query(
-          `update public.rep_device_commands
-              set status = 'cancelled',
-                  execution_id = null,
-                  result = '{"message":"Substituído por novo teste"}'::jsonb,
-                  updated_at = now()
-            where device_id::text = $1
-              and command = 'test_connection'
-              and status in ('pending', 'processing')`,
-          [deviceId],
-        );
+        await cancelActiveRepCommands(deviceId, command);
       }
       const payload = req.body?.payload && typeof req.body.payload === 'object' && !Array.isArray(req.body.payload)
         ? { ...(req.body.payload as Record<string, unknown>), requested_by: auth.userId }
@@ -1046,19 +1045,7 @@ export async function repCommandsController(req: Request, res: Response): Promis
         json(res, 200, { ok: true, success: true, commands: [], reason: 'device_not_found' });
         return;
       }
-      await pool.query(
-        `update public.rep_device_commands
-            set status = 'pending',
-                execution_id = null,
-                result = '{"message":"Reenfileirado após timeout do agente"}'::jsonb,
-                updated_at = now()
-          where company_id::text = $1
-            and device_id::text = $2
-            and status = 'processing'
-            and execution_id is not null
-            and updated_at < now() - ($3::text)::interval`,
-        [companyId, deviceId, `${STUCK_COMMAND_PROCESSING_MS} milliseconds`],
-      );
+      await requeueStuckRepCommands(companyId, deviceId);
       const pending = await pool.query(
         `select id
            from public.rep_device_commands
@@ -1110,6 +1097,9 @@ export async function repCommandsController(req: Request, res: Response): Promis
     const commandId = String(req.query.command_id || '').trim();
     const commandFilter = String(req.query.command || '').trim();
     const latest = String(req.query.latest || '') === 'true';
+    if (deviceId) {
+      await requeueStuckRepCommands(auth.companyId, deviceId);
+    }
     const params: unknown[] = [auth.companyId];
     const clauses = ['company_id::text = $1'];
     if (deviceId) {

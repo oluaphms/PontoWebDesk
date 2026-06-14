@@ -42,8 +42,10 @@ export type PollTestConnectionOutcome =
   | { ok: false; message: string; timedOut?: boolean; slowAgent?: boolean };
 
 export const REP_TEST_POLL_INTERVAL_MS = 1000;
-/** Agente faz poll a cada ~15–60s — timeout cobre vários ciclos + execução LAN. */
-export const REP_TEST_POLL_MAX_MS = 120_000;
+/** Agente faz poll a cada ~5–60s — timeout cobre vários ciclos + execução LAN. */
+export const REP_TEST_POLL_MAX_MS = 180_000;
+/** Exchange (pull_clock, pull_info, etc.) — login.fcgi + .fcgi pode levar mais de 1 min. */
+export const REP_EXCHANGE_POLL_MAX_MS = 300_000;
 /** Coleta AFD + upload pode levar vários minutos em relógios grandes. */
 export const REP_COLLECT_POLL_MAX_MS = 300_000;
 export const REP_TEST_WAITING_HINT_MS = 15_000;
@@ -106,7 +108,7 @@ export async function pollRepCommandResult(
   options?: { intervalMs?: number; maxMs?: number },
 ): Promise<RepCommandPollOutcome> {
   const intervalMs = options?.intervalMs ?? REP_TEST_POLL_INTERVAL_MS;
-  const maxMs = options?.maxMs ?? 180_000;
+  const maxMs = options?.maxMs ?? REP_EXCHANGE_POLL_MAX_MS;
   const deadline = Date.now() + maxMs;
 
   while (Date.now() < deadline) {

@@ -2522,6 +2522,14 @@ async function executeRepCommand(cmd) {
   const hmacCheck = verifyRepCommandHmac(apiKey, cmd);
   if (!hmacCheck.ok) {
     syncLog('[REP COMMANDS] HMAC inválido — ignorado', { detail: { command_id: id, reason: hmacCheck.message } });
+    try {
+      await postRepCommandResult(id, executionId, 'error', {
+        success: false,
+        message: hmacCheck.message || 'Assinatura do comando inválida (atualize o agente).',
+      });
+    } catch (postErr) {
+      observabilityConsole.warn('[REP COMMANDS] falha ao reportar HMAC inválido', postErr?.message || postErr);
+    }
     return;
   }
 
@@ -2575,8 +2583,25 @@ async function executeRepCommand(cmd) {
       resultPayload = await executePushEmployeeCommand(cmd);
       finalStatus = resultPayload.success ? 'done' : 'error';
     } else {
-      resultPayload = await executeExchangeCommand(cmd);
-      finalStatus = resultPayload.success ? 'done' : 'error';
+      let exchangeResult;
+      try {
+        exchangeResult = await Promise.race([
+          executeExchangeCommand(cmd),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('timeout')), REP_COMMAND_EXEC_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (e) {
+        const isTimeout = (e?.message || String(e)) === 'timeout';
+        exchangeResult = {
+          success: false,
+          message: isTimeout
+            ? `Timeout ao executar ${name} no relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).`
+            : e?.message || String(e),
+        };
+      }
+      resultPayload = exchangeResult;
+      finalStatus = exchangeResult.success ? 'done' : 'error';
     }
   } catch (e) {
     resultPayload = {

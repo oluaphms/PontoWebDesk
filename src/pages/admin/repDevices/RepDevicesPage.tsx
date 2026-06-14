@@ -74,6 +74,7 @@ import {
   isEmployeeEligibleForRepPush,
   mapApiEmployeeToRep,
   buildAgentCommandTimeoutMessage,
+  formatRepAgentCommandError,
   buildLocalRepAgentGuidance,
   buildLocalRepAgentUserMessage,
   enrichRepConnectionTestMessage,
@@ -2156,9 +2157,10 @@ const AdminRepDevices: React.FC = () => {
       const clock = op === 'push_clock' ? buildLocalClockForRep(mode671) : undefined;
       const r = await repExchangeViaApi(d.id, op, accessToken, clock);
       if (!r.ok) {
-        const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
+        const rawErr = toUiString(r.error ?? r.message, 'Operação não concluída.');
+        const errLine = formatRepAgentCommandError(rawErr, d, syncStatusByDeviceId[d.id]);
         appendSrLog(`Falha: ${errLine}`, 'error');
-        setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
+        setMessage({ type: 'error', text: toUiString(errLine, 'Operação falhou.') });
         return;
       }
       if (op === 'pull_clock') {
@@ -2304,9 +2306,10 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog(`Lendo informações do aparelho «${d.nome_dispositivo}»…`);
       const r = await repExchangeViaApi(d.id, 'pull_info', accessToken);
       if (!r.ok) {
-        const errLine = toUiString(r.error ?? r.message, 'Operação não concluída.');
+        const rawErr = toUiString(r.error ?? r.message, 'Operação não concluída.');
+        const errLine = formatRepAgentCommandError(rawErr, d, syncStatusByDeviceId[d.id]);
         appendSrLog(`Falha: ${errLine}`, 'error');
-        setMessage({ type: 'error', text: toUiString(r.error ?? r.message, 'Operação falhou.') });
+        setMessage({ type: 'error', text: toUiString(errLine, 'Operação falhou.') });
         return;
       }
       const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data ?? {}, null, 2);
