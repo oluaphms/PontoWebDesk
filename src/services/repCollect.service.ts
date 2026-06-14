@@ -32,7 +32,7 @@ export async function enqueueRepCollect(
         ...payload,
         receive_scope: payload.receive_scope ?? 'date_range',
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { headers: { Accept: 'application/json' } },
     )) as RepCollectResponse;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Falha na coleta REP';

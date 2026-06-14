@@ -56,12 +56,7 @@ export async function createRepTestConnectionCommand(
   const data = (await apiPost(
     '/rep/commands',
     { device_id: deviceId, command: 'test_connection' },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    },
+    { headers: { Accept: 'application/json' } },
   )) as {
     error?: string;
     command_id?: string;
@@ -87,10 +82,7 @@ export async function fetchLatestRepDeviceCommand(
   if (options?.commandId) qs.set('command_id', options.commandId);
   if (options?.command) qs.set('command', options.command);
   const data = (await apiGet(`/rep/commands?${qs}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
+    headers: { Accept: 'application/json' },
   })) as {
     error?: string;
     command?: RepDeviceCommandRow | null;

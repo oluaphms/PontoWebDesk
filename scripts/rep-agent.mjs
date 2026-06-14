@@ -2556,7 +2556,7 @@ async function executeRepCommand(cmd) {
         testResult = {
           success: false,
           message: isTimeout
-            ? 'Timeout ao conectar ao relógio (limite de 10s).'
+            ? `Timeout ao conectar ao relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).`
             : e?.message || String(e),
           response_time_ms: REP_COMMAND_EXEC_TIMEOUT_MS,
         };

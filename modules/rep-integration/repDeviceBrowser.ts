@@ -3,8 +3,20 @@
  */
 
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
-import { buildApiUrl } from '../../src/services/api';
+import { buildApiUrl, buildSessionAuthHeaders } from '../../src/services/api';
 import { pollRepCommandResult } from '../../src/services/repDeviceCommands.service';
+
+function repAuthInit(accessToken: string, method: 'GET' | 'POST'): RequestInit {
+  return {
+    method,
+    credentials: 'include',
+    headers: {
+      ...buildSessionAuthHeaders(accessToken),
+      Accept: 'application/json',
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+    },
+  };
+}
 
 /** Evita que o modal «Enviar e Receber» fique sem resposta se o proxy/rede travar. */
 async function fetchWithRepTimeout(
@@ -106,10 +118,7 @@ export async function fetchPunchesViaApi(
   if (since) u.searchParams.set('since', since.toISOString());
   const res = await fetchWithRepTimeout(
     u.toString(),
-    {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-    },
+    repAuthInit(accessToken, 'GET'),
     PUNCHES_FETCH_TIMEOUT_MS
   );
   const data = await readJsonOrText(res);
@@ -129,10 +138,7 @@ export async function testConnectionViaApi(deviceId: string, accessToken: string
   u.searchParams.set('device_id', deviceId);
   const res = await fetchWithRepTimeout(
     u.toString(),
-    {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-    },
+    repAuthInit(accessToken, 'GET'),
     90_000
   );
   const data = await readJsonOrText(res);
@@ -169,12 +175,7 @@ export async function pushEmployeeToDeviceViaApi(
   const res = await fetchWithRepTimeout(
     u.toString(),
     {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      ...repAuthInit(accessToken, 'POST'),
       body: JSON.stringify({ device_id: deviceId, user_id: userId }),
     },
     120_000
@@ -296,12 +297,7 @@ export async function repExchangeViaApi(
   const res = await fetchWithRepTimeout(
     u.toString(),
     {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      ...repAuthInit(accessToken, 'POST'),
       body: JSON.stringify({ device_id: deviceId, op, ...(clock ? { clock } : {}) }),
     },
     180_000
