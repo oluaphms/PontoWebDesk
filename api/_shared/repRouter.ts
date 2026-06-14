@@ -74,6 +74,12 @@ export async function routeRepRequest(request: Request): Promise<Response | null
     return handleSyncStatus(request, s1);
   }
 
+  // --- devices/{id}/credentials (senha criptografada — nunca em config_extra) ---
+  if (s0 === 'devices' && s2 === 'credentials' && s1) {
+    const { handleRepDeviceCredentials } = await import('./repDeviceCredentialsHttp.js');
+    return handleRepDeviceCredentials(request, s1);
+  }
+
   // --- devices/{id}/… (pending-users, ack-sync, heartbeat, force-sync) ---
   if (s0 === 'devices' && s1 && s2) {
     try {

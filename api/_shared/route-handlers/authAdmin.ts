@@ -114,6 +114,49 @@ async function getCallerAdminContext(adminSup: any, callerId: string): Promise<C
   };
 }
 
+async function assertTargetUserInCallerTenant(
+  adminSup: any,
+  targetUserId: string,
+  callerCompanyId: string | null,
+): Promise<{ ok: true } | { ok: false; response: Response; corsHeaders: Record<string, string> }> {
+  if (!callerCompanyId || !targetUserId) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: 'Empresa do solicitante não identificada.', code: 'FORBIDDEN' },
+        { status: 403 },
+      ),
+      corsHeaders: {},
+    };
+  }
+  const { data: row, error } = await adminSup
+    .from('users')
+    .select('company_id')
+    .eq('id', targetUserId)
+    .maybeSingle();
+  if (error || !row?.company_id) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: 'Usuário alvo não encontrado no tenant.', code: 'USER_NOT_FOUND' },
+        { status: 404 },
+      ),
+      corsHeaders: {},
+    };
+  }
+  if (String(row.company_id) !== String(callerCompanyId)) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: 'Operação não permitida para usuário de outra empresa.', code: 'CROSS_TENANT_FORBIDDEN' },
+        { status: 403 },
+      ),
+      corsHeaders: {},
+    };
+  }
+  return { ok: true };
+}
+
 const ConfirmEmailBodySchema = z.object({
   action: z.literal('confirm-email'),
   email: z.string().email(),
@@ -402,6 +445,13 @@ async function handleRequest(request: Request): Promise<Response> {
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      const tenantCheck = await assertTargetUserInCallerTenant(adminSup, String(target.id), callerCompanyId);
+      if (!tenantCheck.ok) {
+        return new Response(tenantCheck.response.body, {
+          status: tenantCheck.response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const { error: updateErr } = await adminAuth.updateUserById(target.id, { email_confirm: true });
       if (updateErr) {
         return Response.json(
@@ -429,6 +479,13 @@ async function handleRequest(request: Request): Promise<Response> {
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      const tenantCheckPwd = await assertTargetUserInCallerTenant(adminSup, String(target.id), callerCompanyId);
+      if (!tenantCheckPwd.ok) {
+        return new Response(tenantCheckPwd.response.body, {
+          status: tenantCheckPwd.response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const { error: updateErr } = await adminAuth.updateUserById(target.id, { password: newPassword });
       if (updateErr) {
         return Response.json(
@@ -455,6 +512,13 @@ async function handleRequest(request: Request): Promise<Response> {
           { success: false, error: 'Usuário não encontrado para rollback.', code: 'AUTH_ERROR' },
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
+      }
+      const tenantCheckDel = await assertTargetUserInCallerTenant(adminSup, userIdToDelete, callerCompanyId);
+      if (!tenantCheckDel.ok) {
+        return new Response(tenantCheckDel.response.body, {
+          status: tenantCheckDel.response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
       const { error: deleteErr } = await adminAuth.deleteUser(userIdToDelete);
       if (deleteErr) {
@@ -613,7 +677,6 @@ async function handleRequest(request: Request): Promise<Response> {
             pis: pis || null,
             pis_pasep: pis || null,
             company_id: companyId,
-            generated_password: generatedPassword,
           },
         });
         if (createError) {
@@ -632,7 +695,7 @@ async function handleRequest(request: Request): Promise<Response> {
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-        observabilityConsole.info({ step: 'create_auth_user', success: true, user_id: userId, used_fallback_email: !email, generated_password: generatedPassword });
+        observabilityConsole.info({ step: 'create_auth_user', success: true, user_id: userId, used_fallback_email: !email });
         return Response.json(
           { success: true, user_id: userId, error: null },
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

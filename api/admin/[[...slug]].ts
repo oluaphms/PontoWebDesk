@@ -29,7 +29,7 @@ import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 import { noCache } from '../_shared/cache.js';
 import { logger } from '../../src/shared/logger/logger.js';
-import { encryptDeviceCredential } from '../_shared/deviceCredentialCrypto.js';
+import { encryptDeviceCredentialOrThrow } from '../_shared/deviceCredentialCrypto.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -654,14 +654,14 @@ async function handleOnboarding(request: Request): Promise<Response> {
   let deviceId: string | null = null;
   if (device) {
     try {
-      const encryptedPassword = device.password ? encryptDeviceCredential(device.password) : null;
+      const encryptedPassword = device.password ? encryptDeviceCredentialOrThrow(device.password) : null;
       const { data, error } = await sb.from('devices').insert({
         company_id: companyId,
         brand: device.brand,
         ip: device.ip,
         port: device.port ?? null,
         username: device.username ?? null,
-        password: encryptedPassword ? null : device.password ?? null,
+        password: null,
         password_encrypted: encryptedPassword?.encrypted ?? null,
         password_iv: encryptedPassword?.iv ?? null,
         password_tag: encryptedPassword?.tag ?? null,

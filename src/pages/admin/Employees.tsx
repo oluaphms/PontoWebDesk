@@ -488,34 +488,6 @@ const CSV_TEMPLATE = `nome,email,senha,cargo,telefone,cpf,departamento,escala,ti
 Carlos Souza,carlos@empresa.com,123456,Técnico,79998213456,12345678910,TI,09:00-18:00,CLT,2024-01-15,,1990-05-20,1234567890,SSP/SP,São Paulo,Solteiro(a)
 Fernanda Lima,fernanda@empresa.com,123456,Financeiro,79999441822,23456789011,Financeiro,08:00-17:00,CLT,,,,,,,`;
 
-const ADMIN_PWD_CACHE_PREFIX = 'pontowebdesk_admin_pwd_';
-
-function adminPasswordCacheKey(companyId: string, employeeId: string): string {
-  return `${ADMIN_PWD_CACHE_PREFIX}${companyId}_${employeeId}`;
-}
-
-/** Senha em texto claro só nesta sessão do navegador — para o RH repassar ao colaborador. */
-function readCachedEmployeePassword(companyId: string, employeeId: string): string {
-  if (!companyId || !employeeId) return '';
-  try {
-    return sessionStorage.getItem(adminPasswordCacheKey(companyId, employeeId)) || '';
-  } catch {
-    return '';
-  }
-}
-
-function writeCachedEmployeePassword(companyId: string, employeeId: string, password: string): void {
-  if (!companyId || !employeeId) return;
-  try {
-    const key = adminPasswordCacheKey(companyId, employeeId);
-    const value = password.trim();
-    if (value) sessionStorage.setItem(key, value);
-    else sessionStorage.removeItem(key);
-  } catch {
-    // storage indisponível
-  }
-}
-
 function getDisplayShortName(fullName: string): string {
   const clean = String(fullName || '').trim();
   if (!clean) return '—';
@@ -720,17 +692,12 @@ const AdminEmployees: React.FC = () => {
   };
 
   const savedPasswordForEditing =
-    editingId && effectiveCompanyId
-      ? sessionPasswordByEmployee[editingId] ||
-        readCachedEmployeePassword(effectiveCompanyId, editingId)
+    editingId && sessionPasswordByEmployee[editingId]
+      ? sessionPasswordByEmployee[editingId]
       : '';
 
   const openPasswordModal = () => {
-    const cached =
-      editingId && effectiveCompanyId
-        ? sessionPasswordByEmployee[editingId] ||
-          readCachedEmployeePassword(effectiveCompanyId, editingId)
-        : '';
+    const cached = editingId ? sessionPasswordByEmployee[editingId] || '' : '';
     setPasswordDraft(cached);
     setShowPasswordDraft(true);
     setPasswordJustSaved(!!cached);
@@ -794,8 +761,7 @@ const AdminEmployees: React.FC = () => {
       return;
     }
 
-    if (editingId && effectiveCompanyId) {
-      writeCachedEmployeePassword(effectiveCompanyId, editingId, nextPassword);
+    if (editingId) {
       setSessionPasswordByEmployee((prev) => ({ ...prev, [editingId]: nextPassword }));
     }
     setPasswordDraft(nextPassword);
@@ -1036,12 +1002,6 @@ const AdminEmployees: React.FC = () => {
     setShowPasswordInAccessPanel(false);
     setPasswordMessage(null);
     setEmployeeModalExtra('none');
-    if (effectiveCompanyId) {
-      const cachedPwd = readCachedEmployeePassword(effectiveCompanyId, row.id);
-      if (cachedPwd) {
-        setSessionPasswordByEmployee((prev) => ({ ...prev, [row.id]: cachedPwd }));
-      }
-    }
     const accessForm = roleToAccessProfileForm(row.role);
     const photoRaw =
       typeof row.employee_config?.photo_url === 'string' ? row.employee_config.photo_url : '';

@@ -22,6 +22,15 @@ describe('dataTablePolicy multi-tenant hardening', () => {
     ).toEqual({ name: 'RH', company_id: 'company-a' });
   });
 
+  it('scopes devices table by company_id for admin/hr', () => {
+    expect(isTableReadable('devices', 'admin')).toBe(true);
+    expect(isTableReadable('devices', 'employee')).toBe(false);
+    expect(tableHasTenantScope('devices')).toBe(true);
+    expect(
+      applyTenantToRow('devices', { name: 'Relógio', company_id: 'other' }, 'company-a'),
+    ).toEqual({ name: 'Relógio', company_id: 'company-a' });
+  });
+
   it('keeps employees readable through the generic API for legacy dashboard links', () => {
     expect(ALLOWED_TABLES.has('employees')).toBe(true);
     expect(isTableReadable('employees', 'admin')).toBe(true);

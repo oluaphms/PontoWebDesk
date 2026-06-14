@@ -12,7 +12,7 @@ export const localApiProvider: IDataProvider = {
         throw new Error(String(data?.message || data?.error || data?.code || 'Falha no login'));
       }
       const token = String(data?.token || '').trim();
-      setToken(token || 'cookie');
+      setToken(token || '__http_only_cookie_session__');
       return data;
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;

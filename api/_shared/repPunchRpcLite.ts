@@ -9,7 +9,7 @@ import { getSupabaseConfig, getSupabaseUrlSource } from './getSupabaseConfig.js'
 import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services/planEnforcement.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
-import { computeRepPunchHash } from './repPunchHash.js';
+import { verifyRepAgentToken } from './repAgentAuth.js';
 import { syncEspelhoAfterRepPromote } from '../../modules/rep-integration/repTimesheetMirror.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
@@ -620,14 +620,6 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
     const blockedOrigin = requireTrustedOrigin(request, cors);
     if (blockedOrigin) return blockedOrigin;
 
-    const apiKey = (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
-    const authHeader = request.headers.get('Authorization') || request.headers.get('X-REP-API-Key') || '';
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (!apiKey || token !== apiKey) {
-      repLog('warn', 'unauthorized', { has_api_key: Boolean(apiKey) });
-      return jsonResponse(headersJson, 401, { error: 'Unauthorized' });
-    }
-
     let body: RepPunchBody;
     try {
       const raw = await request.json();
@@ -636,6 +628,28 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       repLog('warn', 'invalid_body_json', {});
       return jsonResponse(headersJson, 400, { error: 'Body inválido' });
     }
+
+    const authHeader = request.headers.get('Authorization') || request.headers.get('X-REP-API-Key') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const deviceIdPreview = String(body?.device_id || '').trim();
+
+    let url: string;
+    let serviceKey: string;
+    try {
+      ({ url, serviceKey } = getSupabaseConfig());
+    } catch {
+      repLog('warn', 'supabase_config_missing', {});
+      return jsonResponse(headersJson, 500, { error: 'Configuração Supabase ausente.' });
+    }
+
+    const authClient = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    if (!(await verifyRepAgentToken(authClient, token, deviceIdPreview))) {
+      repLog('warn', 'unauthorized', { has_device_id: Boolean(deviceIdPreview) });
+      return jsonResponse(headersJson, 401, { error: 'Unauthorized' });
+    }
+
     const {
       company_id,
       data_hora,

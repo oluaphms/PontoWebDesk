@@ -310,7 +310,6 @@ export async function sendPunchBatch(opts = {}) {
         failureDetails.push({
           punch_hash: id,
           error: item?.error || (item ? 'rejeitado pela API' : 'sem resultado no lote (hash divergente?)'),
-          company_id: body?.company_id ?? null,
         });
       }
     }
@@ -322,7 +321,6 @@ export async function sendPunchBatch(opts = {}) {
     const accepted = sent + duplicate + unresolved;
     const uploadMeta = {
       device_id: punches[0]?.device_id ?? null,
-      company_id: punches[0]?.company_id ?? null,
       enviados: punches.length,
       records: punches.length,
       accepted,

@@ -24,7 +24,7 @@ import { observabilityConsole } from '../services/observabilityConsole.js';
  *                       (também aplicado ao HTTPS após redirect 301/302 a partir de http://IP)
  *   REP_COMPANY_ID      UUID da empresa (public.companies ou tenant)
  *   REP_DEVICE_ID       (opcional) UUID do rep_devices cadastrado no painel
- *   REP_DEVICE_SESSION  (opcional) token de sessão — enviado junto a comandos em firmwares que exigem
+ *   REP_DEVICE_SESSION  (obsoleto) — não persistir; sessão apenas em memória após login.fcgi
  *   REP_DEVICE_BEARER ou REP_DEVICE_AUTH_TOKEN (opcional) Authorization no relógio (ex.: Bearer ...)
  *   REP_DEVICE_LOGIN      Utilizador login.fcgi (default admin). MODO PRODUÇÃO idClass.
  *   REP_DEVICE_PASSWORD   Palavra-passe do relógio (login.fcgi + get_afd.fcgi). Nunca logada.
@@ -108,6 +108,8 @@ import {
   runAgentBootSequence,
   startHeartbeatWatchdog,
 } from './rep-agent-startup.mjs';
+import { verifyRepCommandHmac } from './rep-agent-command-hmac.mjs';
+import { runAgentUpdateProbe } from './rep-agent-bootstrap.mjs';
 
 const bootResult = bootstrapProductionAgent();
 if (!bootResult.ok) {
@@ -173,8 +175,8 @@ const port = (process.env.REP_DEVICE_PORT || defaultDevicePort).trim();
 const companyId = (process.env.REP_COMPANY_ID || '').trim();
 const deviceId = (process.env.REP_DEVICE_ID || '').trim() || undefined;
 const insecureTls = /^(1|true|yes)$/i.test((process.env.REP_INSECURE_TLS || '').trim());
-/** Sessão API Control iD (.fcgi); ou obtida via login com REP_DEVICE_PASSWORD. */
-const repDeviceSession = (process.env.REP_DEVICE_SESSION || '').trim();
+/** Sessão Control iD em memória (nunca lida de config.json). */
+let clockSessionMemory = null;
 const repDevicePassword = (process.env.REP_DEVICE_PASSWORD || '').trim();
 const repDeviceControlIdFcgi = /^(1|true|yes)$/i.test(
   (process.env.REP_DEVICE_CONTROLID_FCGI || process.env.REP_DEVICE_USE_CONTROLID || '').trim()
@@ -327,7 +329,7 @@ if (scheme === 'https' && insecureTls) {
   observabilityConsole.log('[rep-agent] TLS self-signed habilitado apenas para requisições ao relógio (LAN).');
 }
 if (isPackagedAgent()) {
-  observabilityConsole.log(`[rep-agent] build=${REP_AGENT_BUILD_ID} | login_win=curl-first`);
+  observabilityConsole.log(`[rep-agent] build=${REP_AGENT_BUILD_ID} | tls_clock=${insecureTls ? 'insecure_opt_in' : 'strict'}`);
 }
 
 function fail(msg) {
@@ -357,10 +359,8 @@ if (!ip) {
   );
 }
 if (!companyId && !CLI_SYNC_USERS) {
-  fail(
-    isPackagedAgent() || bootResult.source === 'config.json'
-      ? `Preencha company_id em ${CONFIG_FILE}.`
-      : 'Defina REP_COMPANY_ID no .env / .env.local ou em config.json.'
+  observabilityConsole.warn(
+    '[rep-agent] company_id ausente no config — OK em VPS (tenant derivado do device_id na API).',
   );
 }
 
@@ -396,8 +396,8 @@ function logStartupConfig() {
     `| empresa=${companyId.slice(0, 8)}…`,
     `| API_KEY=${keyHint}`,
     repAgentSkipDotenv ? '| dotenv=off' : '| dotenv=on',
-    repDevicePassword || repDeviceSession
-      ? `| relógio API=${repDeviceSession ? 'sessão' : 'login.fcgi'}`
+    repDevicePassword || clockSessionMemory
+      ? `| relógio API=${clockSessionMemory ? 'sessão(mem)' : 'login.fcgi'}`
       : repDeviceControlIdFcgi
         ? '| relógio API=controlid_fcgi (falta sessão ou REP_DEVICE_PASSWORD)'
         : '',
@@ -733,7 +733,7 @@ const DEVICE_ENDPOINT_PATHS = [
 const AFD_DOWNLOAD_PATHS = ['/afd', '/rep/afd', '/download/afd', '/api/afd', '/files/afd'];
 
 function buildCommandPayloads() {
-  const session = repDeviceSession;
+  const session = clockSessionMemory;
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
   const todayEnd = new Date().toISOString();
@@ -991,16 +991,21 @@ async function probeDeviceWantsPostForApi(base) {
   return false;
 }
 
+/** Args TLS do curl — sem -k por padrão; só com REP_INSECURE_TLS=1 explícito. */
+function curlTlsArgs() {
+  return insecureTls ? ['-k'] : [];
+}
+
 /**
- * Fallback Windows: curl costuma falar com firmware Control iD quando https.request do Node trava.
- * Ativado após timeout no login.fcgi (REP_LOGIN_USE_CURL=0 desliga).
+ * Fallback Windows: curl com body via stdin (evita senha em argv).
  */
 async function loginControlIdViaCurl(url, login, password) {
   if (process.platform !== 'win32') return null;
   if (/^(0|false|no)$/i.test((process.env.REP_LOGIN_USE_CURL || '1').trim())) return null;
   const body = JSON.stringify({ login, password });
   const args = [
-    '-sk',
+    '-s',
+    ...curlTlsArgs(),
     '--connect-timeout',
     '10',
     '--max-time',
@@ -1009,13 +1014,14 @@ async function loginControlIdViaCurl(url, login, password) {
     'Content-Type: application/json',
     '-H',
     'Connection: close',
-    '-d',
-    body,
+    '--data-binary',
+    '@-',
     url,
   ];
   try {
     const { stdout } = await execFileAsync('curl.exe', args, {
       encoding: 'utf8',
+      input: body,
       timeout: 18_000,
       windowsHide: true,
       maxBuffer: 256 * 1024,
@@ -1029,8 +1035,8 @@ async function loginControlIdViaCurl(url, login, password) {
     }
     lastRepLoginDiagnostic = '';
     observabilityConsole.log('[REP LOGIN SUCCESS] via curl');
-    const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
-    observabilityConsole.log('[REP SESSION]', sessLog);
+    clockSessionMemory = sid;
+    observabilityConsole.log('[REP SESSION]', '[active]');
     return sid;
   } catch (e) {
     lastRepLoginDiagnostic = `curl: ${e?.message || String(e)}`;
@@ -1056,7 +1062,8 @@ async function clockPostJsonViaCurl(urlString, payload, { maxTimeSec = 25 } = {}
     const { stdout } = await execFileAsync(
       'curl.exe',
       [
-        '-sk',
+        '-s',
+        ...curlTlsArgs(),
         '--connect-timeout',
         '10',
         '--max-time',
@@ -1067,12 +1074,13 @@ async function clockPostJsonViaCurl(urlString, payload, { maxTimeSec = 25 } = {}
         'Content-Type: application/json',
         '-H',
         'Connection: close',
-        '-d',
-        body,
+        '--data-binary',
+        '@-',
         urlString,
       ],
       {
         encoding: 'utf8',
+        input: body,
         timeout: (maxTimeSec + 8) * 1000,
         windowsHide: true,
         maxBuffer: 512 * 1024,
@@ -1139,8 +1147,8 @@ async function loginControlId(base) {
     }
     lastRepLoginDiagnostic = '';
     observabilityConsole.log('[REP LOGIN SUCCESS]');
-    const sessLog = sid.length <= 16 ? sid : `${sid.slice(0, 12)}…`;
-    observabilityConsole.log('[REP SESSION]', sessLog);
+    clockSessionMemory = sid;
+    observabilityConsole.log('[REP SESSION]', '[active]');
     return sid;
   } catch (e) {
     const msg = e?.message || String(e);
@@ -1178,7 +1186,8 @@ async function fetchAfdWithSessionViaCurl(base, session, { lastNsr = 0, use671 =
     const { stdout } = await execFileAsync(
       'curl.exe',
       [
-        '-sk',
+        '-s',
+        ...curlTlsArgs(),
         '--connect-timeout',
         '10',
         '--max-time',
@@ -1187,11 +1196,11 @@ async function fetchAfdWithSessionViaCurl(base, session, { lastNsr = 0, use671 =
         'Content-Type: application/json',
         '-H',
         'Connection: close',
-        '-d',
-        body,
+        '--data-binary',
+        '@-',
         url,
       ],
-      { encoding: 'utf8', timeout: 125_000, windowsHide: true, maxBuffer: REP_AFD_MAX_BYTES }
+      { encoding: 'utf8', input: body, timeout: 125_000, windowsHide: true, maxBuffer: REP_AFD_MAX_BYTES }
     );
     const text = extractAfdFileText(stdout);
     if (isPlausibleAfdText(text)) {
@@ -1254,7 +1263,7 @@ async function fetchAfdWithSession(base, session, { lastNsr = 0 } = {}) {
  */
 async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   let postExpected = false;
-  const hasCredentials = !!(repDeviceSession || repDevicePassword);
+  const hasCredentials = !!repDevicePassword;
   if (hasCredentials) {
     observabilityConsole.log('[REP AFD] credenciais configuradas — login.fcgi direto (sem probe /api/punches)');
   } else {
@@ -1264,16 +1273,14 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
       postExpected = false;
     }
   }
-  const looksControlId = !!(repDeviceSession || repDevicePassword || repDeviceControlIdFcgi || postExpected);
+  const looksControlId = !!(repDevicePassword || repDeviceControlIdFcgi || postExpected);
   if (!looksControlId) return null;
 
-  let session = repDeviceSession;
-  if (session) {
-    observabilityConsole.log('[REP AFD] usando device_session do config (sem login.fcgi)');
-  } else if (repDevicePassword) {
+  let session = clockSessionMemory;
+  if (!session && repDevicePassword) {
     session = await loginControlIdAcrossBases();
     if (!session) return null;
-  } else {
+  } else if (!session) {
     return null;
   }
 
@@ -1284,7 +1291,6 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
   const lineCount = (raw.match(/\r?\n/g) || []).length + (raw.length > 0 ? 1 : 0);
   const payload = {
     device_id: deviceId,
-    company_id: companyId,
     url: `${base}/get_afd.fcgi`,
     bytes: raw.length,
     lines: lineCount,
@@ -1399,7 +1405,6 @@ async function downloadAFDAtBase(base, { lastNsr = 0 } = {}) {
           const lineCount = (content.match(/\r?\n/g) || []).length + (content.length > 0 ? 1 : 0);
           const payload = {
             device_id: deviceId,
-            company_id: companyId,
             url,
             bytes: content.length,
             lines: lineCount,
@@ -1437,11 +1442,11 @@ async function downloadAFDAtBase(base, { lastNsr = 0 } = {}) {
     }
   }
 
-  if (!repDeviceSession && !repDevicePassword && !repDeviceControlIdFcgi) {
+  if (!repDevicePassword && !repDeviceControlIdFcgi) {
     observabilityConsole.warn(
       '[rep-agent] Dica Control iD iDClass: o AFD obtém-se com POST /get_afd.fcgi?session=… (após POST /login.fcgi). Defina REP_DEVICE_PASSWORD e opcionalmente REP_DEVICE_LOGIN (default admin), ou REP_DEVICE_SESSION. Para formato Portaria 671: REP_AFD_PORTARIA_671=1.'
     );
-  } else if (repDevicePassword || repDeviceSession) {
+  } else if (repDevicePassword) {
     observabilityConsole.warn(
       '[rep-agent] login/get_afd.fcgi não devolveram AFD reconhecível; verifique credenciais, firmware ou tente REP_AFD_PORTARIA_671=1.'
     );
@@ -1732,7 +1737,6 @@ function normalizeAfdPunch(rec) {
   });
   const compactLine = buildCompactAfdLineForRepRaw(rec);
   return {
-    company_id: companyId,
     device_id: deviceId,
     employee_identifier: pis,
     pis,
@@ -2165,7 +2169,6 @@ async function executeCollectPunchesCommand(cmd) {
     });
     agentLog.repPromotion({
       device_id: deviceId,
-      company_id: companyId,
       records_received: parsed,
       records_queued: sentOk,
       records_uploaded: uploaded,
@@ -2177,7 +2180,6 @@ async function executeCollectPunchesCommand(cmd) {
     });
     agentLog.repTimesheet({
       device_id: deviceId,
-      company_id: companyId,
       pending_left: diagnostics.pending_left,
       uploaded,
       message: diagnostics.pending_left > 0 ? 'Ainda há batidas na fila local' : 'Fila local drenada',
@@ -2276,7 +2278,7 @@ function localClockPayload(payloadClock) {
 }
 
 async function controlIdSessionForCommand() {
-  if (repDeviceSession) return repDeviceSession;
+  if (clockSessionMemory) return clockSessionMemory;
   const session = await loginControlIdAcrossBases();
   if (!session) {
     const bases = deviceConnectionBases().join(', ');
@@ -2498,6 +2500,10 @@ async function executeRepCommand(cmd) {
   const cmdStatus = String(cmd.status || '').trim().toLowerCase();
 
   if (!id || !['test_connection', 'collect_punches', 'push_clock', 'pull_clock', 'pull_info', 'pull_users', 'push_employee'].includes(name)) return;
+  if (executedCommandsPersistent.has(id)) {
+    syncLog('[REP COMMANDS] já executado — ignorado', { detail: { command_id: id } });
+    return;
+  }
   if (!executionId) {
     syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
     return;
@@ -2506,18 +2512,22 @@ async function executeRepCommand(cmd) {
     return;
   }
 
+  const hmacCheck = verifyRepCommandHmac(apiKey, cmd);
+  if (!hmacCheck.ok) {
+    syncLog('[REP COMMANDS] HMAC inválido — ignorado', { detail: { command_id: id, reason: hmacCheck.message } });
+    return;
+  }
+
   currentExecutionId = executionId;
   const cmdT0 = Date.now();
   agentLog.commandReceived({
     device_id: deviceId,
-    company_id: companyId,
     command_id: id,
     command: name,
     execution_id: executionId,
   });
   agentLog.commandStart({
     device_id: deviceId,
-    company_id: companyId,
     command_id: id,
     command: name,
     execution_id: executionId,
@@ -2586,7 +2596,6 @@ async function executeRepCommand(cmd) {
     const recordsReceived = Number(resultPayload?.parsed ?? resultPayload?.total ?? 0);
     agentLog.commandFinish({
       device_id: deviceId,
-      company_id: companyId,
       command_id: id,
       command: name,
       execution_id: executionId,
@@ -2613,9 +2622,9 @@ function bumpCommandPollBackoff() {
 
 /** @returns {boolean} true se poll concluiu sem erro de rede/API retryable */
 async function pollAndExecuteRepCommands() {
-  if (!companyId || !apiKey || !saas) return false;
+  if (!deviceId || !apiKey || !saas) return false;
 
-  const qs = new URLSearchParams({ company_id: companyId });
+  const qs = new URLSearchParams();
   if (deviceId) qs.set('device_id', deviceId);
   const url = `${saas}/api/rep/commands?${qs}`;
   const maxAttempts = 2;
@@ -2652,11 +2661,11 @@ async function pollAndExecuteRepCommands() {
         const reason = String(data.reason || '').trim();
         if (reason === 'device_not_found_or_company') {
           observabilityConsole.warn(
-            '[REP COMMANDS] poll vazio — device_id ou company_id do config.json não conferem com o SaaS.',
-            { company_id: companyId, device_id: deviceId || null },
+            '[REP COMMANDS] poll vazio — device_id do config.json não confere com o SaaS.',
+            { device_id: deviceId || null },
           );
-        } else if (reason === 'company_id_required') {
-          observabilityConsole.warn('[REP COMMANDS] poll vazio — company_id ausente no agente.');
+        } else if (reason === 'device_id_required') {
+          observabilityConsole.warn('[REP COMMANDS] poll vazio — device_id ausente no agente.');
         } else {
           log('[REP COMMANDS] vazio', reason ? { reason } : undefined);
         }
@@ -2670,7 +2679,7 @@ async function pollAndExecuteRepCommands() {
       });
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();
-        if (!cmdId || repCommandsInFlight.has(cmdId)) continue;
+        if (!cmdId || repCommandsInFlight.has(cmdId) || executedCommandsPersistent.has(cmdId)) continue;
         repCommandsInFlight.add(cmdId);
         void executeRepCommand(cmd)
           .catch((cmdErr) => {
@@ -2736,7 +2745,7 @@ function startRepCommandPollLoop() {
     observabilityConsole.log('[REP COMMAND POLL] desativado (REP_ENABLE_COMMANDS=0 ou REP_ULTRA_LOW_COST=1)');
     return;
   }
-  if (!companyId || !apiKey || !saas) return;
+  if (!deviceId || !apiKey || !saas) return;
   commandPollDelayMs = REP_COMMAND_POLL_MIN_MS;
   if (repCommandPollTimer) return;
   void runCommandPollOnce().finally(() => scheduleNextCommandPoll());
@@ -2758,7 +2767,6 @@ async function postRepHeartbeat() {
   const t0 = Date.now();
   const hbBody = {
     device_id: deviceId,
-    company_id: companyId,
     agent_version: process.env.REP_AGENT_VERSION || 'rep-agent.mjs',
   };
   let res = await fetchJsonWithTimeout(
@@ -2792,7 +2800,7 @@ async function postRepHeartbeat() {
   if (!res.ok) {
     throw new Error(`Heartbeat falhou com HTTP ${res.status}`);
   }
-  agentLog.heartbeat({ device_id: deviceId, company_id: companyId, latency_ms: latency });
+  agentLog.heartbeat({ device_id: deviceId, latency_ms: latency });
 }
 
 async function sendHeartbeat() {
@@ -2803,7 +2811,6 @@ async function sendHeartbeat() {
     heartbeatWatchdog?.markOk();
     logStartupMarker('HEARTBEAT SENT', 'Heartbeat enviado ao SaaS', {
       device_id: deviceId,
-      company_id: companyId,
     });
     log('[HEARTBEAT OK]');
     if (ENABLE_COMMAND_POLL && !repCommandPollBusy) {
@@ -3472,7 +3479,7 @@ function shouldForceAfdMode() {
 /** Control iD: evita varrer 40+ rotas /api quando há credenciais .fcgi (REP_AGENT_PROBE_API=1 força varredura). */
 function shouldUseControlIdAfdFastPath() {
   if (/^(1|true|yes)$/i.test((process.env.REP_AGENT_PROBE_API || '').trim())) return false;
-  return !!(repDevicePassword || repDeviceSession || repDeviceControlIdFcgi);
+  return !!(repDevicePassword || repDeviceControlIdFcgi);
 }
 
 function logAfdCycleResult(r) {
@@ -3574,7 +3581,6 @@ async function ingestViaApiDirect() {
       nsr: rawNsr != null && rawNsr !== '' ? rawNsr : undefined,
     });
     const body = {
-      company_id: companyId,
       device_id: deviceId,
       data_hora,
       tipo_marcacao: normalizeTipo(p.tipo ?? p.type),
@@ -3680,6 +3686,7 @@ async function main() {
   }
 
   await runAgentBootSequence({ saas, apiKey });
+  void runAgentUpdateProbe();
 
   if (CLI_SYNC_USERS) {
     const result = await runSyncUsersCommand();

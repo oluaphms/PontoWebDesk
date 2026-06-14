@@ -71,8 +71,14 @@ function Parse-EnvFile {
 
 function Build-EnvBlock {
   param([System.Collections.Generic.Dictionary[string,string]]$EnvMap)
+  $secretKeys = @(
+    'API_KEY', 'REP_API_KEY', 'REP_BRIDGE_TOKEN', 'REP_AGENT_TOKEN',
+    'REP_DEVICE_PASSWORD', 'DEVICE_PASSWORD', 'JWT_SECRET',
+    'SUPABASE_SERVICE_ROLE_KEY', 'DEVICE_CREDENTIALS_MASTER_KEY', 'CREDENTIALS_MASTER_KEY'
+  )
   $pairs = @()
   foreach ($key in $EnvMap.Keys | Sort-Object) {
+    if ($secretKeys -contains $key) { continue }
     $pairs += "$key=$($EnvMap[$key])"
   }
   return ($pairs -join "`n")
@@ -98,6 +104,14 @@ $copyList = @(
   "scripts\rep-agent-db.mjs",
   "scripts\rep-agent-commands-state.mjs",
   "scripts\rep-agent-structured-log.mjs",
+  "scripts\rep-agent-secrets.mjs",
+  "scripts\rep-agent-security.mjs",
+  "scripts\rep-agent-command-hmac.mjs",
+  "scripts\rep-agent-auto-update.mjs",
+  "scripts\secure-rep-agent-programdata.ps1",
+  "scripts\migrate-rep-agent-secrets-dpapi.ps1",
+  "scripts\migrate-rep-agent-secrets-dpapi.mjs",
+  "scripts\create-rep-agent-service-account.ps1",
   "scripts\rep-punch-hash.mjs",
   "scripts\configure-rep-agent-nssm.ps1",
   "scripts\rep-agent.env.example"
@@ -200,6 +214,30 @@ if (Test-Path $configureNssm) {
   Write-RepAgentLog 'AVISO: configure-rep-agent-nssm.ps1 ausente — recovery/rede não aplicados.' -Color Yellow
   & $nssm set $ServiceName Start SERVICE_AUTO_START | Out-Null
   & $nssm set $ServiceName AppExit Default Restart | Out-Null
+}
+
+$secureAcl = Join-Path $scriptDir "secure-rep-agent-programdata.ps1"
+if (-not (Test-Path $secureAcl)) {
+  $secureAcl = Join-Path $InstallDir "scripts\secure-rep-agent-programdata.ps1"
+}
+if (Test-Path $secureAcl) {
+  Write-RepAgentLog 'Aplicando ACL restritiva em ProgramData...'
+  & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $secureAcl -ServiceAccount "NT SERVICE\$ServiceName" 2>&1 | Out-Host
+} else {
+  Write-RepAgentLog 'AVISO: secure-rep-agent-programdata.ps1 ausente.' -Color Yellow
+}
+
+$migrateDpapi = Join-Path $scriptDir "migrate-rep-agent-secrets-dpapi.ps1"
+if (Test-Path (Join-Path $repoRoot "installer\config.template.json")) {
+  $programDataConfig = "C:\ProgramData\PontoWebDesk\config.json"
+  if ((Test-Path $programDataConfig) -and (Test-Path $migrateDpapi)) {
+    Write-RepAgentLog 'Verificando migração DPAPI de config.json...' -Color DarkGray
+    try {
+      & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $migrateDpapi -ConfigPath $programDataConfig 2>&1 | Out-Host
+    } catch {
+      Write-RepAgentLog "AVISO: migração DPAPI: $($_.Exception.Message)" -Color Yellow
+    }
+  }
 }
 
 Write-RepAgentLog 'Iniciando servico...'

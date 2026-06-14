@@ -10,7 +10,10 @@ export const USER_SCOPED_TABLES = new Set([
 ]);
 
 /** Somente admin/hr — sem filtro tenant automático. */
-export const ADMIN_ONLY_TABLES = new Set(['companies', 'devices']);
+export const ADMIN_ONLY_TABLES = new Set(['companies']);
+
+/** Admin/hr com escopo company_id (coluna tenant na tabela). */
+export const TENANT_ADMIN_TABLES = new Set(['devices']);
 
 /** Monitoramento, logs e integrações não são recursos de colaborador. */
 const PRIVILEGED_ONLY_TABLES = new Set([
@@ -88,14 +91,14 @@ export function isGenericDataApiWritesEnabled(): boolean {
 export function isTableReadable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
   if (table === 'global_settings') return true;
-  if (ADMIN_ONLY_TABLES.has(table)) return isAdminOrHr(role);
+  if (ADMIN_ONLY_TABLES.has(table) || TENANT_ADMIN_TABLES.has(table)) return isAdminOrHr(role);
   if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   return true;
 }
 
 export function isTableWritable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
-  if (ADMIN_ONLY_TABLES.has(table)) return isAdminOrHr(role);
+  if (ADMIN_ONLY_TABLES.has(table) || TENANT_ADMIN_TABLES.has(table)) return isAdminOrHr(role);
   if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   if (WRITE_REQUIRES_ADMIN_HR.has(table)) return isAdminOrHr(role);
   return true;
@@ -105,6 +108,7 @@ export function isTableWritable(table: string, role: string | undefined): boolea
 export function tableHasTenantScope(table: string): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
   if (ADMIN_ONLY_TABLES.has(table) || USER_SCOPED_TABLES.has(table)) return false;
+  if (TENANT_ADMIN_TABLES.has(table)) return true;
   return true;
 }
 

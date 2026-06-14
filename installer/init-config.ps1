@@ -1,8 +1,12 @@
-# Cria C:\ProgramData\PontoWebDesk\config.json e subpastas (execute como admin se der erro de permissão)
+# Cria C:\ProgramData\PontoWebDesk\config.json e subpastas + ACL restritiva
 $ErrorActionPreference = 'Stop'
 $root = 'C:\ProgramData\PontoWebDesk'
 $template = Join-Path $PSScriptRoot 'config.template.json'
 $config = Join-Path $root 'config.json'
+$secureScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\secure-rep-agent-programdata.ps1'
+if (-not (Test-Path $secureScript)) {
+  $secureScript = Join-Path $PSScriptRoot '..\scripts\secure-rep-agent-programdata.ps1'
+}
 
 foreach ($sub in @('logs', 'state', 'data\rep-agent')) {
   New-Item -ItemType Directory -Path (Join-Path $root $sub) -Force | Out-Null
@@ -15,7 +19,13 @@ if (-not (Test-Path $config)) {
   Write-Host "Já existe (não sobrescrevi): $config"
 }
 
+if (Test-Path $secureScript) {
+  & $secureScript -Root $root
+} else {
+  Write-Warning "secure-rep-agent-programdata.ps1 não encontrado — aplique ACL manualmente."
+}
+
 Write-Host ""
-Write-Host "Edite o arquivo e preencha saas_url, api_key, device_id, company_id, device_ip."
+Write-Host "Edite o arquivo e preencha saas_url, api_key_dpapi (ou migre com migrate-rep-agent-secrets-dpapi.ps1), device_id, device_ip."
 Write-Host "Depois reinicie o serviço (se instalado):"
 Write-Host '  & "C:\Program Files\PontoWebDesk\nssm.exe" restart PontoWebDeskAgent'

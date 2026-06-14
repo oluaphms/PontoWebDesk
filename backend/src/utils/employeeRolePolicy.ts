@@ -1,5 +1,5 @@
 import { normalizeRole } from './authContext.js';
-import { hasAdminAccess } from './accessProfile.js';
+import { isAdminRH } from './accessProfile.js';
 
 const PRIVILEGED_ASSIGNABLE_ROLES = new Set(['admin', 'hr']);
 
@@ -16,7 +16,7 @@ export function validateEmployeeRoleAssignment(
   callerRole: string | undefined,
 ): { ok: true; role: string } | { ok: false; error: string; code: string } {
   const role = normalizeAssignableEmployeeRole(requestedRole);
-  if (PRIVILEGED_ASSIGNABLE_ROLES.has(role) && !hasAdminAccess(callerRole)) {
+  if (PRIVILEGED_ASSIGNABLE_ROLES.has(role) && !isAdminRH(callerRole)) {
     return {
       ok: false,
       error: 'Apenas Admin/RH pode atribuir perfil administrativo.',

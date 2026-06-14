@@ -38,17 +38,21 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Dirs]
-Name: "{commonappdata}\PontoWebDesk"; Permissions: users-modify
-Name: "{commonappdata}\PontoWebDesk\logs"; Permissions: users-modify
-Name: "{commonappdata}\PontoWebDesk\state"; Permissions: users-modify
-Name: "{commonappdata}\PontoWebDesk\data"; Permissions: users-modify
-Name: "{commonappdata}\PontoWebDesk\data\rep-agent"; Permissions: users-modify
+Name: "{commonappdata}\PontoWebDesk"
+Name: "{commonappdata}\PontoWebDesk\logs"
+Name: "{commonappdata}\PontoWebDesk\state"
+Name: "{commonappdata}\PontoWebDesk\data"
+Name: "{commonappdata}\PontoWebDesk\data\rep-agent"
 
 [Files]
 Source: "..\dist\rep-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.template.json"; DestDir: "{commonappdata}\PontoWebDesk"; DestName: "config.json"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "..\scripts\configure-rep-agent-nssm.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\secure-rep-agent-programdata.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\create-rep-agent-service-account.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\migrate-rep-agent-secrets-dpapi.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\migrate-rep-agent-secrets-dpapi.mjs"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Run]
 ; Instalar serviço Windows via NSSM
@@ -58,6 +62,8 @@ Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppDirectory ""{a
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent DisplayName ""PontoWebDesk REP Agent"""; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent Description ""Agente local de coleta REP (relógio Control iD → SaaS PontoWebDesk)"""; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent AppEnvironmentExtra ""REP_ENABLE_COMMANDS=1"""; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\secure-rep-agent-programdata.ps1"" -ServiceAccount ""NT SERVICE\PontoWebDeskAgent"""; Flags: runhidden waituntilterminated; StatusMsg: "Aplicando ACL restritiva em ProgramData..."
+Filename: "{app}\nssm.exe"; Parameters: "set PontoWebDeskAgent ObjectName NT SERVICE\PontoWebDeskAgent"; Flags: runhidden waituntilterminated
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\configure-rep-agent-nssm.ps1"" -ServiceName PontoWebDeskAgent -NssmPath ""{app}\nssm.exe"" -LogDir ""{commonappdata}\PontoWebDesk\logs"""; Flags: runhidden waituntilterminated; StatusMsg: "Configurando recovery, Tcpip e logs..."
 Filename: "{app}\nssm.exe"; Parameters: "start PontoWebDeskAgent"; Flags: runhidden waituntilterminated; StatusMsg: "Iniciando serviço..."
 
@@ -74,8 +80,11 @@ begin
       'Instalação concluída.' + #13#10 + #13#10 +
       '1. Edite o arquivo:' + #13#10 +
       '   C:\\ProgramData\\PontoWebDesk\\config.json' + #13#10 + #13#10 +
-      '2. Preencha saas_url, api_key, device_id, company_id e device_ip.' + #13#10 + #13#10 +
-      '3. Reinicie o serviço após salvar a configuração válida:' + #13#10 +
+      '2. Preencha saas_url, device_id e device_ip.' + #13#10 +
+      '   Migre segredos: powershell -File scripts\migrate-rep-agent-secrets-dpapi.ps1' + #13#10 + #13#10 +
+      '3. Conta de serviço dedicada (opcional):' + #13#10 +
+      '   powershell -File scripts\create-rep-agent-service-account.ps1' + #13#10 + #13#10 +
+      '4. Reinicie o serviço após configuração válida:' + #13#10 +
       '   nssm restart PontoWebDeskAgent' + #13#10 + #13#10 +
       'Logs: C:\\ProgramData\\PontoWebDesk\\logs\\agent.log',
       mbInformation,

@@ -48,6 +48,8 @@ import {
 } from '../../../../modules/rep-integration/repDeviceBrowser';
 import type { RepExchangeOp, RepUserFromDevice } from '../../../../modules/rep-integration/types';
 import { upsertTimeClockDeviceMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
+import { stripRepSecretsFromConfigExtra, isRepPasswordConfigured } from '../../../utils/repDeviceConfigExtra';
+import { saveRepDevicePassword } from '../../../services/repDeviceCredentials.service';
 import type { RepDeviceRowForMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { invalidateCompanyListCaches } from '../../../services/queryCache';
 import { invalidateRepPendingQueries } from '../../../lib/reactQueryInvalidation';
@@ -248,10 +250,14 @@ const AdminRepDevices: React.FC = () => {
       const list = (await db.select('rep_devices', [
         { column: 'company_id', operator: 'eq', value: user.companyId },
       ])) as RepDeviceRow[];
-      setDevices(list || []);
-      if (Array.isArray(list) && list.length > 0) {
+      const sanitized = (list || []).map((row) => ({
+        ...row,
+        config_extra: stripRepSecretsFromConfigExtra(row.config_extra),
+      }));
+      setDevices(sanitized);
+      if (Array.isArray(sanitized) && sanitized.length > 0) {
         void loadSyncStatusesForDevices(
-          list.filter((d) => d.ativo !== false).map((d) => d.id),
+          sanitized.filter((d) => d.ativo !== false).map((d) => d.id),
         );
       } else {
         setSyncStatusByDeviceId({});
@@ -2395,8 +2401,9 @@ const AdminRepDevices: React.FC = () => {
 
   const openEdit = (d: RepDeviceRow) => {
     setEditingId(d.id);
-    const ex =
-      d.config_extra && typeof d.config_extra === 'object' ? { ...d.config_extra } : ({} as Record<string, unknown>);
+    const ex = stripRepSecretsFromConfigExtra(
+      d.config_extra && typeof d.config_extra === 'object' ? d.config_extra : {},
+    );
     setConfigExtraBaseline(ex);
     setForm({
       nome_dispositivo: d.nome_dispositivo,
@@ -2410,12 +2417,25 @@ const AdminRepDevices: React.FC = () => {
       tlsInsecure: ex.tls_insecure === true || ex.accept_self_signed === true,
       repStatusPost: ex.status_use_post === true,
       repLogin: typeof ex.rep_login === 'string' ? ex.rep_login : 'admin',
-      repPassword: typeof ex.rep_password === 'string' ? ex.rep_password : 'admin',
+      repPassword: '',
       mode671: ex.mode_671 === true,
       provider_type: (d.provider_type || '').trim(),
       identifier_type: d.identifier_type === 'cpf' || d.identifier_type === 'both' ? d.identifier_type : 'pis',
     });
     setModalOpen(true);
+  };
+
+  const buildSafeConfigExtra = (baseline: Record<string, unknown>, passwordConfigured: boolean) => {
+    const config_extra = stripRepSecretsFromConfigExtra(baseline);
+    config_extra.https = form.repHttps;
+    config_extra.tls_insecure = form.tlsInsecure;
+    config_extra.status_use_post = form.repStatusPost;
+    config_extra.rep_login = form.repLogin.trim() || 'admin';
+    config_extra.mode_671 = form.mode671;
+    if (passwordConfigured) {
+      config_extra.password_configured = true;
+    }
+    return config_extra;
   };
 
   const saveDevice = async () => {
@@ -2439,16 +2459,11 @@ const AdminRepDevices: React.FC = () => {
     }
     try {
       const providerSlug = form.provider_type.trim() || null;
+      const passwordToSave = form.repPassword.trim();
       if (editingId) {
-        const config_extra = {
-          ...configExtraBaseline,
-          https: form.repHttps,
-          tls_insecure: form.tlsInsecure,
-          status_use_post: form.repStatusPost,
-          rep_login: form.repLogin.trim() || 'admin',
-          rep_password: form.repPassword,
-          mode_671: form.mode671,
-        };
+        const passwordConfigured =
+          isRepPasswordConfigured({ config_extra: configExtraBaseline }) || Boolean(passwordToSave);
+        const config_extra = buildSafeConfigExtra(configExtraBaseline, passwordConfigured);
         await db.update('rep_devices', editingId, {
           nome_dispositivo: form.nome_dispositivo.trim(),
           provider_type: providerSlug,
@@ -2462,6 +2477,17 @@ const AdminRepDevices: React.FC = () => {
           config_extra,
           updated_at: new Date().toISOString(),
         });
+        if (passwordToSave) {
+          const cred = await saveRepDevicePassword({
+            deviceId: editingId,
+            password: passwordToSave,
+            repLogin: form.repLogin.trim() || 'admin',
+          });
+          if (!cred.ok) {
+            setMessage({ type: 'error', text: cred.error || 'Falha ao salvar senha do relógio.' });
+            return;
+          }
+        }
         if (getSupabaseClient()) {
           const mirrorRow: RepDeviceRowForMirror = {
             id: editingId,
@@ -2504,27 +2530,21 @@ const AdminRepDevices: React.FC = () => {
           tipo_conexao: form.tipo_conexao,
           ativo: form.ativo,
           status: 'inativo',
-          config_extra: {
-            https: form.repHttps,
-            tls_insecure: form.tlsInsecure,
-            status_use_post: form.repStatusPost,
-            rep_login: form.repLogin.trim() || 'admin',
-            rep_password: form.repPassword,
-            mode_671: form.mode671,
-          },
+          config_extra: buildSafeConfigExtra({}, Boolean(passwordToSave)),
         })) as RepDeviceRow;
+        if (inserted?.id && passwordToSave) {
+          const cred = await saveRepDevicePassword({
+            deviceId: inserted.id,
+            password: passwordToSave,
+            repLogin: form.repLogin.trim() || 'admin',
+          });
+          if (!cred.ok) {
+            setMessage({ type: 'error', text: cred.error || 'Falha ao salvar senha do relógio.' });
+            return;
+          }
+        }
         if (getSupabaseClient() && inserted?.id) {
-          const ex =
-            inserted.config_extra && typeof inserted.config_extra === 'object'
-              ? (inserted.config_extra as Record<string, unknown>)
-              : {
-                  https: form.repHttps,
-                  tls_insecure: form.tlsInsecure,
-                  status_use_post: form.repStatusPost,
-                  rep_login: form.repLogin.trim() || 'admin',
-                  rep_password: form.repPassword,
-                  mode_671: form.mode671,
-                };
+          const ex = stripRepSecretsFromConfigExtra(inserted.config_extra);
           const mirrorRow = {
             id: inserted.id,
             company_id: user.companyId,
@@ -3308,6 +3328,11 @@ const AdminRepDevices: React.FC = () => {
                             onChange={(e) => setForm((f) => ({ ...f, repPassword: e.target.value }))}
                             className={repPageUi.c122}
                             autoComplete="new-password"
+                            placeholder={
+                              editingId && isRepPasswordConfigured({ config_extra: configExtraBaseline })
+                                ? 'Senha já configurada — informe nova senha para alterar'
+                                : 'Senha do relógio'
+                            }
                           />
                         </div>
                       </div>

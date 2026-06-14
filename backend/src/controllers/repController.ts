@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
@@ -14,14 +13,19 @@ import {
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
-import { getAuthCookie } from '../security/authCookies.js';
-import { isPrivateOrLocalIPv4 } from '../utils/repNetwork.js';
+import { resolveRepAdminCaller } from '../services/repAdminAuthService.js';
+import { verifyRepAgentTokenVps, fetchRepDeviceCompanyId, type RepAgentAuthResult } from '../services/repAgentAuthService.js';
+import { signRepCommandRow } from '../services/repCommandHmacService.js';
 
 type RepPunchBody = Record<string, unknown>;
 type AdminJwtContext = {
   userId: string;
   companyId: string;
   role: string;
+};
+type RepDeviceAuth = {
+  deviceId: string;
+  companyId: string;
 };
 
 const REP_DEVICE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,42 +50,84 @@ function authHeaderToken(req: Request): string {
   return raw.replace(/^Bearer\s+/i, '').trim();
 }
 
-function hasValidApiKey(req: Request): boolean {
-  const apiKey = String(process.env.API_KEY || process.env.REP_API_KEY || '').trim();
-  return Boolean(apiKey && authHeaderToken(req) === apiKey);
+function repAgentAuthDenied(res: Response, result: Extract<RepAgentAuthResult, { ok: false }>): void {
+  if (result.code === 'DEVICE_INACTIVE') {
+    json(res, 403, { ok: false, success: false, error: 'device_inactive', code: 'DEVICE_INACTIVE' });
+    return;
+  }
+  json(res, 401, { ok: false, success: false, error: 'unauthorized' });
 }
 
-function jwtContext(req: Request): AdminJwtContext | null {
-  const secret = String(process.env.JWT_SECRET || '').trim();
-  const token = authHeaderToken(req) || getAuthCookie(req) || '';
-  if (!secret || !token) return null;
-  try {
-    const decoded = jwt.verify(token, secret) as { sub?: unknown; userId?: unknown; companyId?: unknown; role?: unknown };
-    const role = String(decoded.role || '').trim().toLowerCase();
-    const companyId = String(decoded.companyId || '').trim();
-    const userId = String(decoded.sub || decoded.userId || '').trim();
-    if ((role !== 'admin' && role !== 'hr') || !companyId || !userId) return null;
-    return { userId, companyId, role };
-  } catch {
+async function requireRepDeviceAuth(req: Request, res: Response): Promise<RepDeviceAuth | null> {
+  const token = authHeaderToken(req);
+  const deviceId = String(
+    req.params.deviceId ||
+      req.body?.device_id ||
+      req.body?.p_rep_device_id ||
+      req.query.device_id ||
+      '',
+  ).trim();
+  if (!deviceId) {
+    json(res, 400, { ok: false, success: false, error: 'device_id é obrigatório' });
     return null;
   }
+  const authResult = await verifyRepAgentTokenVps(token, deviceId);
+  if (!authResult.ok) {
+    repAgentAuthDenied(res, authResult);
+    return null;
+  }
+  const companyId = await fetchRepDeviceCompanyId(deviceId);
+  if (!companyId) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return null;
+  }
+  return { deviceId, companyId };
 }
 
-function jwtCompanyId(req: Request): string {
-  return jwtContext(req)?.companyId ?? '';
+async function requireRepDeviceAuthFromPunches(req: Request, res: Response): Promise<RepDeviceAuth | null> {
+  const list = Array.isArray(req.body?.punches) ? req.body.punches : [];
+  const first = list[0] && typeof list[0] === 'object' ? (list[0] as RepPunchBody) : {};
+  const deviceId = String(req.body?.device_id || first.device_id || req.query.device_id || '').trim();
+  const token = authHeaderToken(req);
+  if (!deviceId) {
+    json(res, 400, { ok: false, success: false, error: 'device_id é obrigatório' });
+    return null;
+  }
+  const authResult = await verifyRepAgentTokenVps(token, deviceId);
+  if (!authResult.ok) {
+    repAgentAuthDenied(res, authResult);
+    return null;
+  }
+  const companyId = await fetchRepDeviceCompanyId(deviceId);
+  if (!companyId) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return null;
+  }
+  return { deviceId, companyId };
 }
 
-function requireAdminJwt(req: Request, res: Response): AdminJwtContext | null {
-  const context = jwtContext(req);
-  if (context) return context;
-  json(res, 401, { ok: false, success: false, error: 'unauthorized' });
-  return null;
+async function requireRepAuth(req: Request, res: Response): Promise<boolean> {
+  const auth = await requireRepDeviceAuth(req, res);
+  return auth != null;
 }
 
-function requireRepAuth(req: Request, res: Response): boolean {
-  if (hasValidApiKey(req)) return true;
-  json(res, 401, { ok: false, success: false, error: 'unauthorized' });
-  return false;
+async function requireRepAdminCaller(req: Request, res: Response): Promise<AdminJwtContext | null> {
+  const result = await resolveRepAdminCaller(req);
+  if (!result.ok) {
+    json(res, result.failure.status, {
+      ok: false,
+      success: false,
+      error: result.failure.code,
+      code: result.failure.code,
+    });
+    return null;
+  }
+  return result.caller;
+}
+
+async function repAdminCompanyId(req: Request): Promise<string> {
+  const result = await resolveRepAdminCaller(req);
+  return result.ok ? result.caller.companyId : '';
 }
 
 function normalizeUuid(value: unknown): string | null {
@@ -184,7 +230,12 @@ function punchHashFromBody(body: RepPunchBody): string | null {
   return hash || null;
 }
 
-function buildRawData(body: RepPunchBody, tsIso: string, punchHash: string | null): Record<string, unknown> {
+function buildRawData(
+  body: RepPunchBody,
+  tsIso: string,
+  punchHash: string | null,
+  companyId: string,
+): Record<string, unknown> {
   const incoming = body.raw_data && typeof body.raw_data === 'object' && !Array.isArray(body.raw_data)
     ? (body.raw_data as Record<string, unknown>)
     : {};
@@ -193,7 +244,7 @@ function buildRawData(body: RepPunchBody, tsIso: string, punchHash: string | nul
     ...incoming,
     source: 'REP',
     ingest: 'vps-rep-punch',
-    company_id: body.company_id ?? null,
+    company_id: companyId,
     timestamp_utc: tsIso,
     device_id: normalizeUuid(body.device_id),
     nsr: body.nsr ?? null,
@@ -217,19 +268,30 @@ async function repIngestHasPunchHashParam(): Promise<boolean> {
   return (result.rowCount ?? 0) > 0;
 }
 
-async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknown>> {
-  const companyId = String(body.company_id || body.companyId || '').trim();
+async function ingestRepPunch(body: RepPunchBody, auth: RepDeviceAuth): Promise<Record<string, unknown>> {
+  const companyId = auth.companyId;
   const dataHoraRaw = String(body.data_hora || body.timestamp || '').trim();
-  const deviceId = normalizeUuid(body.device_id);
-  if (!companyId || !dataHoraRaw) {
+  const bodyDeviceId = normalizeUuid(body.device_id);
+  if (bodyDeviceId && bodyDeviceId !== auth.deviceId) {
     logger.warn({
       module: 'rep.ingest',
       action: 'PUNCH_REJECTED',
-      companyId: companyId || null,
-      message: 'Batida rejeitada: company_id e data_hora são obrigatórios',
+      companyId,
+      message: 'Batida rejeitada: device_id não pertence ao dispositivo autenticado',
+      meta: { device_id: bodyDeviceId, authenticated_device_id: auth.deviceId },
+    });
+    return { success: false, error: 'device_id não pertence ao dispositivo autenticado' };
+  }
+  const deviceId = auth.deviceId;
+  if (!dataHoraRaw) {
+    logger.warn({
+      module: 'rep.ingest',
+      action: 'PUNCH_REJECTED',
+      companyId,
+      message: 'Batida rejeitada: data_hora é obrigatório',
       meta: { device_id: deviceId, reason: 'missing_required_fields' },
     });
-    return { success: false, error: 'company_id e data_hora são obrigatórios' };
+    return { success: false, error: 'data_hora é obrigatório' };
   }
 
   const ts = new Date(dataHoraRaw);
@@ -244,19 +306,8 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
     return { success: false, error: 'data_hora inválido' };
   }
 
-  if (body.device_id != null && String(body.device_id).trim() && !deviceId) {
-    logger.warn({
-      module: 'rep.ingest',
-      action: 'PUNCH_REJECTED',
-      companyId,
-      message: 'Batida rejeitada: device_id inválido',
-      meta: { device_id: String(body.device_id) },
-    });
-    return { success: false, error: 'device_id inválido (UUID esperado)' };
-  }
-
   const punchHash = punchHashFromBody(body);
-  const rawData = buildRawData(body, ts.toISOString(), punchHash);
+  const rawData = buildRawData(body, ts.toISOString(), punchHash, companyId);
 
   const forcedUserId = normalizeUuid(body.employee_id) ?? normalizeUuid(body.user_id);
   const match = await resolveUserForRepPunch({
@@ -403,7 +454,10 @@ async function ingestRepPunch(body: RepPunchBody): Promise<Record<string, unknow
   return { ...out, resolved_user_id: resolvedUserId };
 }
 
-async function processPunchBatch(list: RepPunchBody[]): Promise<{
+async function processPunchBatch(
+  list: RepPunchBody[],
+  auth: RepDeviceAuth,
+): Promise<{
   results: Array<Record<string, unknown>>;
   inserted: number;
   duplicates: number;
@@ -424,7 +478,7 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
     const body = item && typeof item === 'object' ? item : {};
     const punchHash = punchHashFromBody(body);
     try {
-      const result = await ingestRepPunch(body);
+      const result = await ingestRepPunch(body, auth);
       const duplicate = result.duplicate === true || String(result.error || '').includes('já importado');
       const success = result.success !== false || duplicate;
       const wasPromoted = Boolean(result.time_record_id);
@@ -443,7 +497,7 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
         logger.error({
           module: 'rep.ingest',
           action: 'REP_MIGRATION_REQUIRED',
-          companyId: String(body.company_id || body.companyId || '').trim() || null,
+          companyId: auth.companyId,
           message:
             'RPC rep_ingest_punch desatualizada no banco — aplique migrações 20260520350000+ (fix company_id uuid) e reinicie a API',
           meta: { error: errMsg, punch_hash: punchHash },
@@ -486,7 +540,7 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
         logger.error({
           module: 'rep.ingest',
           action: 'REP_MIGRATION_REQUIRED',
-          companyId: String(body.company_id || body.companyId || '').trim() || null,
+          companyId: auth.companyId,
           message:
             'RPC rep_ingest_punch desatualizada no banco — aplique migrações 20260520350000+ (fix company_id uuid) e reinicie a API',
           meta: { error: errMsg, punch_hash: punchHash },
@@ -511,7 +565,8 @@ async function processPunchBatch(list: RepPunchBody[]): Promise<{
 }
 
 export async function repPunchesController(req: Request, res: Response): Promise<void> {
-  if (!requireRepAuth(req, res)) return;
+  const auth = await requireRepDeviceAuthFromPunches(req, res);
+  if (!auth) return;
   const list = Array.isArray(req.body?.punches) ? req.body.punches : [];
   if (list.length === 0) {
     json(res, 200, { ok: true, processed: 0, results: [] });
@@ -530,9 +585,8 @@ export async function repPunchesController(req: Request, res: Response): Promise
   }
 
   const chunk = list.slice(0, MAX_BATCH) as RepPunchBody[];
-  const first = chunk[0] ?? {};
-  const companyId = String(first.company_id || first.companyId || '').trim();
-  const deviceId = normalizeUuid(first.device_id);
+  const companyId = auth.companyId;
+  const deviceId = auth.deviceId;
 
   logger.info({
     module: 'rep.ingest',
@@ -547,7 +601,7 @@ export async function repPunchesController(req: Request, res: Response): Promise
   });
 
   const { results, inserted, duplicates, errors, unresolved, promoted, migrationError } =
-    await processPunchBatch(chunk);
+    await processPunchBatch(chunk, auth);
 
   const saved = inserted + duplicates + unresolved;
   logger.info({
@@ -655,38 +709,28 @@ export async function repPunchesController(req: Request, res: Response): Promise
 }
 
 export async function repHeartbeatController(req: Request, res: Response): Promise<void> {
-  if (!requireRepAuth(req, res)) return;
-  const deviceId = String(req.params.deviceId || req.body?.device_id || req.query.device_id || '').trim();
-  if (!deviceId) {
-    json(res, 400, { ok: false, error: 'device_id é obrigatório' });
-    return;
-  }
-  const companyId = String(req.body?.company_id || req.query.company_id || '').trim();
+  const auth = await requireRepDeviceAuth(req, res);
+  if (!auth) return;
   const now = new Date().toISOString();
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const params: unknown[] = [now, deviceId];
-    let scope = 'id::text = $2';
-    if (companyId) {
-      params.push(companyId);
-      scope += ' and company_id::text = $3';
-    }
     await client.query(
       `update public.rep_devices
           set last_seen_at = $1::timestamptz,
               status_runtime = 'online',
               updated_at = $1::timestamptz
-        where ${scope}`,
-      params,
+        where id::text = $2
+          and company_id::text = $3`,
+      [now, auth.deviceId, auth.companyId],
     );
     await client.query('commit');
     logger.info({
       module: 'rep.heartbeat',
       action: 'AGENT_HEARTBEAT',
-      companyId: companyId || null,
+      companyId: auth.companyId,
       message: 'Heartbeat REP recebido',
-      meta: { device_id: deviceId, last_seen_at: now },
+      meta: { device_id: auth.deviceId, last_seen_at: now },
     });
     json(res, 200, { ok: true, success: true, last_seen_at: now });
   } catch (error) {
@@ -699,7 +743,7 @@ export async function repHeartbeatController(req: Request, res: Response): Promi
 
 /** GET /api/rep/status?device_id= — teste de conexão (browser / sync job). */
 export async function repStatusController(req: Request, res: Response): Promise<void> {
-  const auth = requireAdminJwt(req, res);
+  const auth = await requireRepAdminCaller(req, res);
   if (!auth) return;
 
   const deviceId = String(req.query.device_id || '').trim();
@@ -769,22 +813,37 @@ export async function repStatusController(req: Request, res: Response): Promise<
 }
 
 export async function repSyncStatusController(req: Request, res: Response): Promise<void> {
-  const tokenCompanyId = jwtCompanyId(req);
-  if (!hasValidApiKey(req) && !tokenCompanyId) {
-    json(res, 401, { ok: false, success: false, error: 'unauthorized' });
-    return;
-  }
   const deviceId = String(req.params.deviceId || req.query.device_id || '').trim();
   if (!deviceId) {
     json(res, 400, { ok: false, error: 'device_id é obrigatório' });
     return;
   }
-  const params: unknown[] = [deviceId];
-  const clauses = ['d.id::text = $1'];
-  if (tokenCompanyId) {
-    params.push(tokenCompanyId);
-    clauses.push(`d.company_id::text = $${params.length}`);
+
+  const tokenCompanyId = await repAdminCompanyId(req);
+  const token = authHeaderToken(req);
+  const agentAuth = await verifyRepAgentTokenVps(token, deviceId);
+  if (!agentAuth.ok && !tokenCompanyId) {
+    if (agentAuth.code === 'DEVICE_INACTIVE') {
+      repAgentAuthDenied(res, agentAuth);
+      return;
+    }
+    json(res, 401, { ok: false, success: false, error: 'unauthorized' });
+    return;
   }
+
+  const deviceCompanyId = await fetchRepDeviceCompanyId(deviceId);
+  if (!deviceCompanyId) {
+    json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+  if (tokenCompanyId && deviceCompanyId !== tokenCompanyId) {
+    json(res, 403, { ok: false, success: false, error: 'device_not_found' });
+    return;
+  }
+
+  const companyId = deviceCompanyId;
+  const params: unknown[] = [deviceId, companyId];
+  const clauses = ['d.id::text = $1', 'd.company_id::text = $2'];
   const result = await pool.query(
     `select d.status_runtime, d.last_seen_at, d.ultima_sincronizacao,
             coalesce(cmd.pending, 0)::int as cmd_pending,
@@ -831,7 +890,7 @@ export async function repSyncStatusController(req: Request, res: Response): Prom
 }
 
 export async function repForceSyncController(req: Request, res: Response): Promise<void> {
-  const auth = requireAdminJwt(req, res);
+  const auth = await requireRepAdminCaller(req, res);
   if (!auth) return;
   const deviceId = String(req.params.deviceId || req.query.device_id || req.body?.device_id || '').trim();
   if (!deviceId) {
@@ -867,7 +926,7 @@ export async function repForceSyncController(req: Request, res: Response): Promi
 
 export async function repCommandsController(req: Request, res: Response): Promise<void> {
   if (req.method === 'POST') {
-    const auth = requireAdminJwt(req, res);
+    const auth = await requireRepAdminCaller(req, res);
     if (!auth) return;
     const deviceId = String(req.body?.device_id || req.query.device_id || '').trim();
     const command = String(req.body?.command || '').trim() || 'test_connection';
@@ -973,22 +1032,18 @@ export async function repCommandsController(req: Request, res: Response): Promis
   }
 
   if (req.method === 'GET') {
-    if (hasValidApiKey(req)) {
-      const companyId = String(req.query.company_id || '').trim();
-      const deviceId = String(req.query.device_id || '').trim();
-      if (!companyId) {
-        json(res, 200, { ok: true, success: true, commands: [], reason: 'company_id_required' });
+    const token = authHeaderToken(req);
+    const deviceId = String(req.query.device_id || '').trim();
+    const agentAuth = deviceId ? await verifyRepAgentTokenVps(token, deviceId) : { ok: false as const, code: 'unauthorized' as const };
+    if (agentAuth.ok) {
+      if (!deviceId) {
+        json(res, 200, { ok: true, success: true, commands: [], reason: 'device_id_required' });
         return;
       }
-      if (deviceId) {
-        const device = await pool.query(
-          `select 1 from public.rep_devices where id::text = $1 and company_id::text = $2 limit 1`,
-          [deviceId, companyId],
-        );
-        if (!device.rows[0]) {
-          json(res, 200, { ok: true, success: true, commands: [], reason: 'device_not_found_or_company' });
-          return;
-        }
+      const companyId = await fetchRepDeviceCompanyId(deviceId);
+      if (!companyId) {
+        json(res, 200, { ok: true, success: true, commands: [], reason: 'device_not_found' });
+        return;
       }
       await pool.query(
         `update public.rep_device_commands
@@ -997,22 +1052,23 @@ export async function repCommandsController(req: Request, res: Response): Promis
                 result = '{"message":"Reenfileirado após timeout do agente"}'::jsonb,
                 updated_at = now()
           where company_id::text = $1
+            and device_id::text = $2
             and status = 'processing'
             and execution_id is not null
-            and updated_at < now() - ($2::text)::interval`,
-        [companyId, `${STUCK_COMMAND_PROCESSING_MS} milliseconds`],
+            and updated_at < now() - ($3::text)::interval`,
+        [companyId, deviceId, `${STUCK_COMMAND_PROCESSING_MS} milliseconds`],
       );
       const pending = await pool.query(
         `select id
            from public.rep_device_commands
           where company_id::text = $1
+            and device_id::text = $2
             and status = 'pending'
-            ${deviceId ? 'and device_id::text = $2' : ''}
           order by
             case when command = 'test_connection' then 0 else 1 end asc,
             created_at asc
           limit 10`,
-        deviceId ? [companyId, deviceId] : [companyId],
+        [companyId, deviceId],
       );
       const commands: unknown[] = [];
       for (const pendingRow of pending.rows) {
@@ -1027,15 +1083,29 @@ export async function repCommandsController(req: Request, res: Response): Promis
             returning id::text, company_id::text, device_id::text, command, status, execution_id::text, payload, created_at::text, updated_at::text`,
           [pendingRow.id, executionId],
         );
-        if (claimed.rows[0]) commands.push(claimed.rows[0]);
+        if (claimed.rows[0]) {
+          const row = claimed.rows[0] as Record<string, unknown>;
+          commands.push({
+            ...row,
+            command_hmac: signRepCommandRow(token, {
+              id: String(row.id || ''),
+              execution_id: String(row.execution_id || ''),
+              command: String(row.command || ''),
+              device_id: String(row.device_id || deviceId),
+            }),
+          });
+        }
       }
       json(res, 200, { ok: true, success: true, commands });
       return;
     }
+    if (!agentAuth.ok && agentAuth.code === 'DEVICE_INACTIVE') {
+      repAgentAuthDenied(res, agentAuth);
+      return;
+    }
 
-    const auth = requireAdminJwt(req, res);
+    const auth = await requireRepAdminCaller(req, res);
     if (!auth) return;
-    const deviceId = String(req.query.device_id || '').trim();
     const commandId = String(req.query.command_id || '').trim();
     const commandFilter = String(req.query.command || '').trim();
     const latest = String(req.query.latest || '') === 'true';
@@ -1083,7 +1153,7 @@ export async function repCollectController(req: Request, res: Response): Promise
 }
 
 export async function repExchangeController(req: Request, res: Response): Promise<void> {
-  const auth = requireAdminJwt(req, res);
+  const auth = await requireRepAdminCaller(req, res);
   if (!auth) return;
   const deviceId = String(req.body?.device_id || '').trim();
   const op = String(req.body?.op || '').trim();
@@ -1116,7 +1186,7 @@ export async function repExchangeController(req: Request, res: Response): Promis
 }
 
 export async function repPushEmployeeController(req: Request, res: Response): Promise<void> {
-  const auth = requireAdminJwt(req, res);
+  const auth = await requireRepAdminCaller(req, res);
   if (!auth) return;
   const deviceId = String(req.body?.device_id || '').trim();
   const userId = String(req.body?.user_id || '').trim();
@@ -1182,7 +1252,8 @@ export async function repPushEmployeeController(req: Request, res: Response): Pr
 }
 
 export async function repCommandResultController(req: Request, res: Response): Promise<void> {
-  if (!requireRepAuth(req, res)) return;
+  const auth = await requireRepDeviceAuth(req, res);
+  if (!auth) return;
   const commandId = String(req.body?.command_id || '').trim();
   const executionId = String(req.body?.execution_id || '').trim();
   const status = String(req.body?.status || '').trim().toLowerCase();
@@ -1195,11 +1266,14 @@ export async function repCommandResultController(req: Request, res: Response): P
     return;
   }
   const existing = await pool.query(
-    `select status, execution_id::text
-       from public.rep_device_commands
-      where id::text = $1
+    `select c.status, c.execution_id::text
+       from public.rep_device_commands c
+       join public.rep_devices d on d.id = c.device_id
+      where c.id::text = $1
+        and d.id::text = $2
+        and d.company_id::text = $3
       limit 1`,
-    [commandId],
+    [commandId, auth.deviceId, auth.companyId],
   );
   const row = existing.rows[0];
   if (!row) {
@@ -1215,15 +1289,19 @@ export async function repCommandResultController(req: Request, res: Response): P
     return;
   }
   const updated = await pool.query(
-    `update public.rep_device_commands
+    `update public.rep_device_commands c
         set status = $3,
             result = $4::jsonb,
             updated_at = now()
-      where id::text = $1
-        and execution_id::text = $2
-        and status = 'processing'
-      returning id::text`,
-    [commandId, executionId, status, JSON.stringify(req.body?.result ?? null)],
+       from public.rep_devices d
+      where c.id::text = $1
+        and c.execution_id::text = $2
+        and c.status = 'processing'
+        and d.id = c.device_id
+        and d.id::text = $5
+        and d.company_id::text = $6
+      returning c.id::text`,
+    [commandId, executionId, status, JSON.stringify(req.body?.result ?? null), auth.deviceId, auth.companyId],
   );
   if (!updated.rows[0]) {
     json(res, 200, { ok: true, success: true, ignored: true, reason: 'execution_mismatch_or_already_finished' });
@@ -1234,22 +1312,32 @@ export async function repCommandResultController(req: Request, res: Response): P
 
 /** POST /api/rep/promote-pending — consolida rep_punch_logs → time_records (fallback se /data/rpc bloquear). */
 export async function repPromotePendingController(req: Request, res: Response): Promise<void> {
-  const tokenCompanyId = jwtCompanyId(req);
-  if (!hasValidApiKey(req) && !tokenCompanyId) {
+  const tokenCompanyId = await repAdminCompanyId(req);
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const repDeviceId = String(body.p_rep_device_id || '').trim();
+  if (!repDeviceId) {
+    json(res, 400, { ok: false, error: 'p_rep_device_id é obrigatório' });
+    return;
+  }
+
+  const token = authHeaderToken(req);
+  const agentAuth = await verifyRepAgentTokenVps(token, repDeviceId);
+  if (!agentAuth.ok && !tokenCompanyId) {
+    if (agentAuth.code === 'DEVICE_INACTIVE') {
+      repAgentAuthDenied(res, agentAuth);
+      return;
+    }
     json(res, 401, { ok: false, error: 'unauthorized' });
     return;
   }
 
-  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  const companyId = String(body.p_company_id || tokenCompanyId || '').trim();
-  if (!companyId || (tokenCompanyId && companyId !== tokenCompanyId)) {
-    json(res, 403, { ok: false, error: 'company_id inválido' });
+  const companyId = await fetchRepDeviceCompanyId(repDeviceId);
+  if (!companyId) {
+    json(res, 404, { ok: false, error: 'device_not_found' });
     return;
   }
-
-  const repDeviceId = String(body.p_rep_device_id || '').trim();
-  if (!repDeviceId) {
-    json(res, 400, { ok: false, error: 'p_rep_device_id é obrigatório' });
+  if (tokenCompanyId && companyId !== tokenCompanyId) {
+    json(res, 403, { ok: false, error: 'company_id inválido' });
     return;
   }
 
@@ -1264,7 +1352,8 @@ export async function repPromotePendingController(req: Request, res: Response): 
       return;
     }
 
-    const data = await executeRepRpcProxy('rep_promote_pending_rep_punch_logs', body, companyId);
+    const rpcBody = { ...body, p_company_id: companyId, p_rep_device_id: repDeviceId };
+    const data = await executeRepRpcProxy('rep_promote_pending_rep_punch_logs', rpcBody, companyId);
     json(res, 200, { ok: true, data, error: null });
   } catch (error) {
     logger.error({

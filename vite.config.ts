@@ -149,7 +149,7 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: './vitest.setup.ts',
-      include: ['**/*.test.{ts,tsx}'],
+      include: ['**/*.test.{ts,tsx,mjs}'],
     },
 
     build: {

@@ -1,10 +1,11 @@
 import { observabilityConsole } from '../services/observabilityConsole.js';
 /**
- * IDs de comandos REP já executados (persistência em disco).
+ * IDs de comandos REP já executados (persistência em disco + integridade HMAC).
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { STATE_DIR, PROGRAM_DATA_ROOT } from './rep-agent-paths.mjs';
+import { signFileIntegrity, verifyFileIntegrity } from './rep-agent-security.mjs';
 
 function resolveCommandsStatePath() {
   const custom = (process.env.REP_COMMANDS_STATE_FILE || '').trim();
@@ -15,8 +16,20 @@ function resolveCommandsStatePath() {
 const FILE = resolveCommandsStatePath();
 const MAX_IDS = 5000;
 
+function integrityKey() {
+  return (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
+}
+
 export function loadExecutedCommandIds() {
   try {
+    const key = integrityKey();
+    if (key && existsSync(FILE)) {
+      const check = verifyFileIntegrity(FILE, key, { createIfMissing: true });
+      if (!check.ok) {
+        observabilityConsole.error('[REP COMMANDS STATE] integridade inválida:', check.message);
+        return new Set();
+      }
+    }
     if (!existsSync(FILE)) return new Set();
     const raw = readFileSync(FILE, 'utf8');
     const arr = JSON.parse(raw);
@@ -32,6 +45,8 @@ export function saveExecutedCommandIds(set) {
     mkdirSync(path.dirname(FILE), { recursive: true });
     const arr = [...set].slice(-MAX_IDS);
     writeFileSync(FILE, JSON.stringify(arr), 'utf8');
+    const key = integrityKey();
+    if (key) signFileIntegrity(FILE, key);
   } catch (e) {
     observabilityConsole.warn('[REP COMMANDS STATE] falha ao gravar:', e?.message || e);
   }

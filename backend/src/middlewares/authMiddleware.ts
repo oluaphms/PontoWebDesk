@@ -69,7 +69,16 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
       return;
     }
 
-    const revalidateDb = String(process.env.AUTH_REVALIDATE_DB ?? 'true').trim().toLowerCase() !== 'false';
+    const isProduction = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+    let revalidateDb = String(process.env.AUTH_REVALIDATE_DB ?? 'true').trim().toLowerCase() !== 'false';
+    if (isProduction && !revalidateDb) {
+      logger.warn({
+        module: 'auth.middleware',
+        action: 'SECURITY',
+        message: '[SECURITY] AUTH_REVALIDATE_DB forced ON in production',
+      });
+      revalidateDb = true;
+    }
     if (revalidateDb) {
       const caller = await resolveCallerFromDb(decoded);
       if (!caller?.companyId) {

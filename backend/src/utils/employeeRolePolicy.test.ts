@@ -22,4 +22,16 @@ describe('employeeRolePolicy', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.role).toBe('hr');
   });
+
+  it('bloqueia admin_gerente de atribuir admin', () => {
+    const result = validateEmployeeRoleAssignment('admin', 'admin_gerente');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('EMPLOYEE_ROLE_FORBIDDEN');
+  });
+
+  it('bloqueia admin_gerente de atribuir hr', () => {
+    const result = validateEmployeeRoleAssignment('hr', 'admin_gerente');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('EMPLOYEE_ROLE_FORBIDDEN');
+  });
 });

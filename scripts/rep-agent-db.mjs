@@ -6,6 +6,11 @@ import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PROGRAM_DATA_ROOT, DATA_DIR, isPackagedAgent } from './rep-agent-paths.mjs';
+import { signFileIntegrity, verifyFileIntegrity } from './rep-agent-security.mjs';
+
+function queueIntegrityKey() {
+  return (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
+}
 
 function resolveAgentDbPath() {
   const custom = (process.env.REP_AGENT_DB_PATH || '').trim();
@@ -29,6 +34,14 @@ function queueJsonPath() {
 function loadJsonQueue(file) {
   try {
     if (!existsSync(file)) return { punches: {} };
+    const key = queueIntegrityKey();
+    if (key) {
+      const check = verifyFileIntegrity(file, key, { createIfMissing: true });
+      if (!check.ok) {
+        observabilityConsole.error('[REP DB] integridade da fila inválida:', check.message);
+        return { punches: {} };
+      }
+    }
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       const punches = parsed.punches && typeof parsed.punches === 'object' && !Array.isArray(parsed.punches)
@@ -46,7 +59,11 @@ function createJsonQueueDb() {
   const file = queueJsonPath();
   mkdirSync(path.dirname(file), { recursive: true });
   const state = loadJsonQueue(file);
-  const persist = () => writeFileSync(file, JSON.stringify(state, null, 2), 'utf8');
+  const persist = () => {
+    writeFileSync(file, JSON.stringify(state, null, 2), 'utf8');
+    const key = queueIntegrityKey();
+    if (key) signFileIntegrity(file, key);
+  };
 
   const api = {
     pragma() {},

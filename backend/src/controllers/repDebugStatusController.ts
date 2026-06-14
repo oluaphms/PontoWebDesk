@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
 import {
@@ -8,6 +7,8 @@ import {
   countTimeRecordsRepRecent,
   countTimesheetsDailyRecent,
 } from '../services/repPostIngest.service.js';
+import { resolveRepAdminCaller } from '../services/repAdminAuthService.js';
+import { verifyRepAgentTokenVps, fetchRepDeviceCompanyId } from '../services/repAgentAuthService.js';
 
 function json(res: Response, status: number, body: Record<string, unknown>): void {
   res.status(status).json(body);
@@ -18,41 +19,48 @@ function authHeaderToken(req: Request): string {
   return raw.replace(/^Bearer\s+/i, '').trim();
 }
 
-function hasValidApiKey(req: Request): boolean {
-  const apiKey = String(process.env.API_KEY || process.env.REP_API_KEY || '').trim();
-  return Boolean(apiKey && authHeaderToken(req) === apiKey);
-}
-
-function jwtCompanyId(req: Request): string | null {
-  const secret = String(process.env.JWT_SECRET || '').trim();
-  const token = authHeaderToken(req);
-  if (!secret || !token) return null;
-  try {
-    const decoded = jwt.verify(token, secret) as { companyId?: unknown; role?: unknown };
-    const role = String(decoded.role || '').trim().toLowerCase();
-    const companyId = String(decoded.companyId || '').trim();
-    if ((role !== 'admin' && role !== 'hr') || !companyId) return null;
-    return companyId;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * GET /api/rep/debug-status?company_id=
  * Painel temporário de diagnóstico ponta-a-ponta do fluxo REP.
  */
 export async function repDebugStatusController(req: Request, res: Response): Promise<void> {
-  const jwtCompany = jwtCompanyId(req);
-  if (!hasValidApiKey(req) && !jwtCompany) {
-    json(res, 401, { ok: false, error: 'unauthorized' });
+  const adminAuth = await resolveRepAdminCaller(req);
+  const token = authHeaderToken(req);
+  const deviceId = String(req.query.device_id || '').trim();
+
+  let companyId = '';
+  if (adminAuth.ok) {
+    companyId = adminAuth.caller.companyId;
+    if (deviceId) {
+      const deviceCompany = await fetchRepDeviceCompanyId(deviceId);
+      if (!deviceCompany || deviceCompany !== companyId) {
+        json(res, 403, { ok: false, error: 'device_not_found' });
+        return;
+      }
+    }
+  } else if (deviceId) {
+    const agentAuth = await verifyRepAgentTokenVps(token, deviceId);
+    if (!agentAuth.ok) {
+      if (agentAuth.code === 'DEVICE_INACTIVE') {
+        json(res, 403, { ok: false, error: 'device_inactive', code: 'DEVICE_INACTIVE' });
+        return;
+      }
+      json(res, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
+    companyId = (await fetchRepDeviceCompanyId(deviceId)) || '';
+    if (!companyId) {
+      json(res, 404, { ok: false, error: 'device_not_found' });
+      return;
+    }
+  } else {
+    json(res, adminAuth.failure.status, { ok: false, error: adminAuth.failure.code, code: adminAuth.failure.code });
     return;
   }
 
-  const companyId = String(req.query.company_id || jwtCompany || '').trim();
-  const deviceId = String(req.query.device_id || '').trim();
-  if (!companyId) {
-    json(res, 400, { ok: false, error: 'company_id é obrigatório' });
+  const queryCompany = String(req.query.company_id || '').trim();
+  if (queryCompany && queryCompany !== companyId) {
+    json(res, 403, { ok: false, error: 'company_id inválido' });
     return;
   }
 

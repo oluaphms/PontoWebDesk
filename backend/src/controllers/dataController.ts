@@ -66,6 +66,60 @@ async function resolveUserScopeColumn(table: string): Promise<string | null> {
   return null;
 }
 
+async function userScopedTenantSql(table: string, paramIndex: number): Promise<string | null> {
+  if (await tableHasColumn(table, 'company_id')) {
+    return `company_id::text = ${sqlParamRef(paramIndex, 'text')}`;
+  }
+  if (table === 'login_attempts') {
+    return `identifier IN (SELECT email FROM public.users WHERE company_id::text = ${sqlParamRef(paramIndex, 'text')} AND email IS NOT NULL)`;
+  }
+  if (await tableHasColumn(table, 'user_id')) {
+    return `user_id IN (SELECT id FROM public.users WHERE company_id::text = ${sqlParamRef(paramIndex, 'text')})`;
+  }
+  return null;
+}
+
+async function assertUserScopedInsertTenant(
+  table: string,
+  row: Record<string, unknown>,
+  companyId: string,
+): Promise<string | null> {
+  if (!USER_SCOPED_TABLES.has(table)) return null;
+
+  if (table === 'user_settings' || table === 'user_consents') {
+    const userId = String(row.user_id ?? '').trim();
+    if (!userId) return 'CROSS_TENANT_USER_REFERENCE';
+    const result = await pool.query(
+      `select company_id::text as company_id
+         from public.users
+        where id::text = $1
+        limit 1`,
+      [userId],
+    );
+    if (!result.rows[0] || String(result.rows[0].company_id) !== companyId) {
+      return 'CROSS_TENANT_USER_REFERENCE';
+    }
+    return null;
+  }
+
+  if (table === 'login_attempts') {
+    const identifier = String(row.identifier ?? '').trim();
+    if (!identifier) return null;
+    const result = await pool.query(
+      `select 1
+         from public.users
+        where company_id::text = $1
+          and lower(email) = lower($2)
+        limit 1`,
+      [companyId, identifier],
+    );
+    if ((result.rowCount ?? 0) === 0) return 'CROSS_TENANT_USER_REFERENCE';
+    return null;
+  }
+
+  return null;
+}
+
 function safeIdent(name: string): string | null {
   if (!/^[a-z_][a-z0-9_]*$/i.test(name)) return null;
   return name;
@@ -139,6 +193,15 @@ async function buildWhere(
     if (selfScopeColumn) {
       parts.push(`${selfScopeColumn}::text = ${sqlParamRef(idx, 'text')}`);
       params.push(userId);
+      idx += 1;
+    }
+  }
+
+  if (USER_SCOPED_TABLES.has(table) && companyId) {
+    const tenantClause = await userScopedTenantSql(table, idx);
+    if (tenantClause) {
+      parts.push(tenantClause);
+      params.push(companyId);
       idx += 1;
     }
   }
@@ -221,17 +284,25 @@ function denyTableAccess(
   return false;
 }
 
-export async function publicGlobalSettingsController(_req: AuthedRequest, res: Response): Promise<void> {
+export async function authenticatedGlobalSettingsController(req: AuthedRequest, res: Response): Promise<void> {
+  const companyId = requireCompanyId(req, res);
+  if (!companyId) return;
   try {
     const readable = (await getReadableTableColumns('global_settings')).filter((c) => safeIdent(c));
     const returningSql = readable.length ? readable.join(', ') : '*';
-    const result = await pool.query(`select ${returningSql} from public.global_settings limit 1`);
+    const hasCompany = await tableHasColumn('global_settings', 'company_id');
+    const sql = hasCompany
+      ? `select ${returningSql} from public.global_settings where company_id::text = $1 limit 1`
+      : `select ${returningSql} from public.global_settings limit 1`;
+    const result = await pool.query(sql, hasCompany ? [companyId] : []);
     res.json({ ok: true, success: true, data: result.rows });
   } catch (e) {
     logger.warn({
       module: 'data.controller',
-      action: 'PUBLIC_GLOBAL_SETTINGS_FAILED',
-      message: 'Falha ao ler global_settings pública',
+      action: 'GLOBAL_SETTINGS_FAILED',
+      message: 'Falha ao ler global_settings autenticada',
+      userId: req.auth?.userId ?? req.auth?.sub ?? null,
+      companyId,
       error: e,
     });
     res.json({ ok: true, success: true, data: [] });
@@ -307,6 +378,7 @@ async function dataWriteScopeSql(table: string, paramIndex: number): Promise<str
   if (table === 'users' && (await tableHasColumn(table, 'company_id'))) {
     return `company_id::text = ${sqlParamRef(paramIndex, 'text')}`;
   }
+  if (USER_SCOPED_TABLES.has(table)) return userScopedTenantSql(table, paramIndex);
   return null;
 }
 
@@ -637,6 +709,17 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
     }
     if (table === 'estruturas') {
       row = await prepareEstruturasPayload(row, companyId);
+    }
+    const crossTenantCode = await assertUserScopedInsertTenant(table, row, companyId);
+    if (crossTenantCode) {
+      res.status(403).json({
+        ok: false,
+        success: false,
+        error: 'forbidden',
+        code: crossTenantCode,
+        message: 'Referência de usuário fora do tenant autenticado.',
+      });
+      return;
     }
     await ensureLegacyAuthUserMirrorForEmployeeId(table, row);
     keys = Object.keys(row).filter((k) => safeIdent(k));

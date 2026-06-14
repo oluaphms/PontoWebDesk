@@ -21,8 +21,12 @@ import {
   repImportAfdController,
 } from '../controllers/repImportAfdController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { repAgentVersionController } from '../controllers/repAgentVersionController.js';
 
 const router = Router();
+
+router.get('/agent-version', repAgentVersionController);
+router.post('/devices/:deviceId/credentials', authMiddleware, repDeviceCredentialsController);
 
 router.post('/punches', repPunchesController);
 router.post('/heartbeat', repHeartbeatController);

@@ -1,24 +1,30 @@
 /**
  * Leitura obrigatória de C:\ProgramData\PontoWebDesk\config.json (produção).
- * Mapeia campos JSON → process.env usado pelo fluxo existente do agente.
+ * Segredos via DPAPI (*_dpapi). device_session não é persistido.
  */
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   CONFIG_FILE,
   DATA_DIR,
   STATE_DIR,
+  PROGRAM_DATA_ROOT,
   isPackagedAgent,
 } from './rep-agent-paths.mjs';
 import { logBootstrap } from './rep-agent-logger.mjs';
+import { resolveSecretField } from './rep-agent-secrets.mjs';
+import {
+  validateProgramDataPermissions,
+  verifyAgentLocalFilesIntegrity,
+  signFileIntegrity,
+} from './rep-agent-security.mjs';
 
-const REQUIRED_STRING_FIELDS = ['saas_url', 'api_key', 'device_id', 'company_id', 'device_ip'];
+const REQUIRED_STRING_FIELDS = ['saas_url', 'device_id', 'device_ip'];
 
 function trimStr(v) {
   return String(v ?? '').trim();
 }
 
-/** Remove BOM UTF-8 (PowerShell Set-Content -Encoding UTF8 grava ï»¿ no início). */
 function stripUtf8Bom(raw) {
   const s = String(raw ?? '');
   if (s.charCodeAt(0) === 0xfeff) return s.slice(1);
@@ -40,8 +46,10 @@ function parseConfigJson(raw) {
 }
 
 function applyConfigToProcessEnv(cfg) {
+  const packaged = isPackagedAgent();
   const saasUrl = trimStr(cfg.saas_url);
-  const apiKey = trimStr(cfg.api_key);
+  const apiKey = resolveSecretField(cfg, 'api_key', { packaged });
+  const devicePassword = resolveSecretField(cfg, 'device_password', { packaged });
   const deviceId = trimStr(cfg.device_id);
   const companyId = trimStr(cfg.company_id);
   const deviceIp = trimStr(cfg.device_ip);
@@ -49,8 +57,6 @@ function applyConfigToProcessEnv(cfg) {
   const devicePortDefault = deviceSchemeHint === 'https' ? '443' : '80';
   const devicePort = cfg.device_port != null ? String(cfg.device_port).trim() : devicePortDefault;
   const deviceLogin = trimStr(cfg.device_login) || 'admin';
-  const devicePassword = trimStr(cfg.device_password);
-  const deviceSession = trimStr(cfg.device_session);
   const timezone = trimStr(cfg.timezone) || '-03:00';
   const deviceScheme = trimStr(cfg.device_scheme).toLowerCase();
   const insecureTls = cfg.insecure_tls === true || /^(1|true|yes)$/i.test(trimStr(cfg.insecure_tls));
@@ -59,14 +65,14 @@ function applyConfigToProcessEnv(cfg) {
   process.env.API_KEY = apiKey;
   process.env.REP_API_KEY = apiKey;
   process.env.REP_DEVICE_ID = deviceId;
-  process.env.REP_COMPANY_ID = companyId;
+  if (companyId) process.env.REP_COMPANY_ID = companyId;
   process.env.REP_DEVICE_IP = deviceIp;
   process.env.REP_DEVICE_PORT = devicePort || devicePortDefault;
   process.env.REP_DEVICE_LOGIN = deviceLogin;
   process.env.REP_DEVICE_PASSWORD = devicePassword;
-  if (deviceSession) {
-    process.env.REP_DEVICE_SESSION = deviceSession;
-  }
+  // device_session: nunca carregar do disco — apenas sessão em memória após login.fcgi
+  delete process.env.REP_DEVICE_SESSION;
+
   process.env.REP_DEVICE_TIMEZONE_OFFSET = timezone;
 
   if (deviceScheme === 'http' || deviceScheme === 'https') {
@@ -79,13 +85,15 @@ function applyConfigToProcessEnv(cfg) {
 
   if (insecureTls) {
     process.env.REP_INSECURE_TLS = '1';
+  } else {
+    delete process.env.REP_INSECURE_TLS;
   }
 
   if (cfg.agent_interval_ms != null) {
     process.env.REP_AGENT_INTERVAL_MS = String(cfg.agent_interval_ms);
   }
   if (cfg.heartbeat_interval_ms != null && String(cfg.heartbeat_interval_ms).trim() !== '') {
-    process.env.REP_HEARTBEAT_INTERVAL_MS = String(cfg.heartbeat_interval_ms).trim();
+    process.env.REP_HEARTBEAT_INTERVAL_MS = String(cfg.heartbeat_interval_ms);
   }
   if (cfg.min_send_batch != null && String(cfg.min_send_batch).trim() !== '') {
     process.env.REP_MIN_SEND_BATCH = String(cfg.min_send_batch).trim();
@@ -103,19 +111,17 @@ function applyConfigToProcessEnv(cfg) {
   }
 
   const ingestFrom = trimStr(cfg.ingest_from_date);
-  if (ingestFrom) {
-    process.env.REP_INGEST_FROM_DATE = ingestFrom;
-  }
+  if (ingestFrom) process.env.REP_INGEST_FROM_DATE = ingestFrom;
   const ingestEnd = trimStr(cfg.ingest_end_date);
-  if (ingestEnd) {
-    process.env.REP_INGEST_END_DATE = ingestEnd;
-  }
+  if (ingestEnd) process.env.REP_INGEST_END_DATE = ingestEnd;
   if (cfg.ingest_catch_up_days != null && String(cfg.ingest_catch_up_days).trim() !== '') {
     process.env.REP_INGEST_CATCH_UP_DAYS = String(cfg.ingest_catch_up_days).trim();
   }
 
   process.env.REP_AGENT_SKIP_DOTENV = '1';
   process.env.REP_AGENT_LOOP = process.env.REP_AGENT_LOOP || '1';
+
+  return apiKey;
 }
 
 export function applyProgramDataStoragePaths() {
@@ -130,13 +136,13 @@ export function applyProgramDataStoragePaths() {
 }
 
 /**
- * @returns {{ ok: true, cfg: object } | { ok: false, message: string }}
+ * @returns {{ ok: true, cfg: object, apiKey: string } | { ok: false, message: string }}
  */
 export function loadConfigJsonMandatory() {
   if (!existsSync(CONFIG_FILE)) {
     return {
       ok: false,
-      message: `Arquivo de configuração não encontrado: ${CONFIG_FILE}. Instale o agente ou crie config.json com saas_url, api_key, device_id, company_id, device_ip e demais campos.`,
+      message: `Arquivo de configuração não encontrado: ${CONFIG_FILE}. Instale o agente ou crie config.json com saas_url, device_id, device_ip e segredos DPAPI.`,
     };
   }
 
@@ -144,24 +150,41 @@ export function loadConfigJsonMandatory() {
   try {
     raw = readFileSync(CONFIG_FILE, 'utf8');
   } catch (e) {
-    return {
-      ok: false,
-      message: `Não foi possível ler ${CONFIG_FILE}: ${e?.message || e}`,
-    };
+    return { ok: false, message: `Não foi possível ler ${CONFIG_FILE}: ${e?.message || e}` };
   }
 
   try {
     const cfg = parseConfigJson(raw);
-    applyConfigToProcessEnv(cfg);
+    if (cfg.device_session != null && trimStr(cfg.device_session)) {
+      logBootstrap('WARN', 'config.json contém device_session — ignorado (sessão só em memória). Remova o campo e migre.');
+    }
+    const apiKey = applyConfigToProcessEnv(cfg);
     applyProgramDataStoragePaths();
-    return { ok: true, cfg };
+    return { ok: true, cfg, apiKey };
   } catch (e) {
     return { ok: false, message: e?.message || String(e) };
   }
 }
 
 /**
- * Validação de produção antes do loop principal.
+ * Hardening: ACL ProgramData + integridade de arquivos locais.
+ * @param {string} apiKey
+ */
+export function runProductionSecurityChecks(apiKey) {
+  const acl = validateProgramDataPermissions(PROGRAM_DATA_ROOT);
+  if (!acl.ok) {
+    return acl;
+  }
+  if (isPackagedAgent() || existsSync(CONFIG_FILE)) {
+    const integrity = verifyAgentLocalFilesIntegrity(apiKey, PROGRAM_DATA_ROOT);
+    if (!integrity.ok) {
+      return integrity;
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * @returns {{ ok: true } | { ok: false, message: string }}
  */
 export function validateProductionAgentConfig() {
@@ -173,7 +196,7 @@ export function validateProductionAgentConfig() {
     return { ok: false, message: 'config.json: saas_url é obrigatório (ex.: https://api.seudominio.com.br, sem /api).' };
   }
   if (!apiKey) {
-    return { ok: false, message: 'config.json: api_key é obrigatório.' };
+    return { ok: false, message: 'config.json: api_key (ou api_key_dpapi) é obrigatório.' };
   }
   if (!deviceIp) {
     return { ok: false, message: 'config.json: device_ip é obrigatório (IP do relógio na LAN).' };
@@ -187,6 +210,9 @@ export function validateProductionAgentConfig() {
         message: 'Produção: saas_url não pode apontar para localhost. Use a URL pública da API/SaaS, sem /api.',
       };
     }
+    if (!lower.startsWith('https://')) {
+      return { ok: false, message: 'Produção: saas_url deve usar HTTPS.' };
+    }
   }
 
   return { ok: true };
@@ -195,10 +221,29 @@ export function validateProductionAgentConfig() {
 export function logConfigLoaded() {
   logBootstrap(
     'INFO',
-    `[CONFIG LOADED] ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${trimStr(process.env.REP_DEVICE_IP)}:${trimStr(process.env.REP_DEVICE_PORT)} | device_id=${trimStr(process.env.REP_DEVICE_ID)}`
+    `[CONFIG LOADED] ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${trimStr(process.env.REP_DEVICE_IP)}:${trimStr(process.env.REP_DEVICE_PORT)} | device_id=${trimStr(process.env.REP_DEVICE_ID)}`,
   );
 }
 
 export function exportConfigFieldNamesForInstaller() {
   return REQUIRED_STRING_FIELDS;
+}
+
+/** Assina config.json após gravação externa (instalador/migração). */
+export function refreshConfigIntegrity(apiKey) {
+  if (!existsSync(CONFIG_FILE) || !apiKey) return;
+  signFileIntegrity(CONFIG_FILE, apiKey);
+}
+
+/** Remove device_session do arquivo de config se presente. */
+export function stripDeviceSessionFromConfigFile() {
+  if (!existsSync(CONFIG_FILE)) return;
+  try {
+    const cfg = parseConfigJson(readFileSync(CONFIG_FILE, 'utf8'));
+    if (!('device_session' in cfg)) return;
+    delete cfg.device_session;
+    writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+  } catch {
+    /* melhor esforço */
+  }
 }
