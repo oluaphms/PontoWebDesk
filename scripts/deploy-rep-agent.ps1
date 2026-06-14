@@ -213,7 +213,7 @@ if (Test-Path $stdoutLog) {
 
 Write-Host "`n--- Ultimas linhas do log (procure build=, LOGIN SUCCESS, AFD) ---`n" -ForegroundColor Cyan
 if (Test-Path $log) {
-  Get-Content $log -Tail 45 | Select-String -Pattern 'build=|LOGIN|AFD|ingest|Enviados|ERROR' -CaseSensitive:$false
+  Get-Content $log -Tail 60 | Select-String -Pattern 'build=|LOGIN|AFD|ingest|Enviados|COMMAND POLL|cmd_poll|Config efetiva|enable_commands|ERROR' -CaseSensitive:$false
   Write-Host "`n--- tail completo ---`n"
   Get-Content $log -Tail 25
 } else {

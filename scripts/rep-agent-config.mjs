@@ -101,6 +101,9 @@ function applyConfigToProcessEnv(cfg) {
   if (cfg.command_poll_interval_ms != null && String(cfg.command_poll_interval_ms).trim() !== '') {
     process.env.REP_COMMAND_POLL_MIN_MS = String(cfg.command_poll_interval_ms).trim();
   }
+  if (cfg.command_exec_timeout_ms != null && String(cfg.command_exec_timeout_ms).trim() !== '') {
+    process.env.REP_COMMAND_EXEC_TIMEOUT_MS = String(cfg.command_exec_timeout_ms).trim();
+  }
 
   const commandsExplicit = cfg.enable_commands !== undefined && cfg.enable_commands !== null;
   const commandsOff =
@@ -219,9 +222,12 @@ export function validateProductionAgentConfig() {
 }
 
 export function logConfigLoaded() {
+  const clockScheme = trimStr(process.env.REP_DEVICE_SCHEME) || 'http';
+  const clockPort = trimStr(process.env.REP_DEVICE_PORT) || '80';
+  const cmdPoll = /^(1|true|yes)$/i.test(trimStr(process.env.REP_ENABLE_COMMANDS)) ? 'on' : 'off';
   logBootstrap(
     'INFO',
-    `[CONFIG LOADED] ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${trimStr(process.env.REP_DEVICE_IP)}:${trimStr(process.env.REP_DEVICE_PORT)} | device_id=${trimStr(process.env.REP_DEVICE_ID)}`,
+    `[CONFIG LOADED] ${CONFIG_FILE} | SaaS=${trimStr(process.env.REP_SAAS_URL)} | relógio=${clockScheme}://${trimStr(process.env.REP_DEVICE_IP)}:${clockPort} | device_id=${trimStr(process.env.REP_DEVICE_ID)} | enable_commands=${cmdPoll}`,
   );
 }
 

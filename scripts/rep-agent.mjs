@@ -1009,13 +1009,14 @@ async function loginControlIdViaCurl(url, login, password) {
   if (process.platform !== 'win32') return null;
   if (/^(0|false|no)$/i.test((process.env.REP_LOGIN_USE_CURL || '1').trim())) return null;
   const body = JSON.stringify({ login, password });
+  const connectSec = Math.min(8, Math.max(3, Math.floor(REP_COMMAND_EXEC_TIMEOUT_MS / 4000)));
   const args = [
     '-s',
     ...curlTlsArgs(),
     '--connect-timeout',
-    '10',
+    String(connectSec),
     '--max-time',
-    '15',
+    String(connectSec + 5),
     '-H',
     'Content-Type: application/json',
     '-H',
@@ -1310,11 +1311,12 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
 
 function deviceConnectionBases() {
   const primary = `${scheme}://${ip}:${port}`;
-  const bases = [primary];
-  // Control iD na LAN: porta 80 costuma ser TLS (https:80), não HTTP puro; 443 pode estar fechada.
+  // Control iD na LAN: porta 80 costuma responder primeiro (https:80 ou http:80); 443 pode estar fechada.
   if (scheme === 'https' && String(port) === '443') {
-    bases.push(`https://${ip}:80`, `http://${ip}:80`);
-  } else if (scheme === 'http' && String(port) === '80') {
+    return [...new Set([`https://${ip}:80`, `http://${ip}:80`, primary])];
+  }
+  const bases = [primary];
+  if (scheme === 'http' && String(port) === '80') {
     bases.push(`https://${ip}:80`, `https://${ip}:443`);
   } else if (scheme === 'https' && String(port) === '80') {
     bases.push(`http://${ip}:80`, `https://${ip}:443`);
