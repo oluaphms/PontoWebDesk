@@ -19,40 +19,37 @@ export const INSECURE_ACL_IDENTITIES = [
   'Everyone',
 ];
 
-const PS_CHECK_ACL = `
-param([string]$Target)
-$bad = @('BUILTIN\\Users','Users','Authenticated Users','Todos','Everyone')
-$acl = Get-Acl -LiteralPath $Target
-$issues = @()
-foreach ($ace in $acl.Access) {
-  $id = $ace.IdentityReference.Value
-  foreach ($b in $bad) {
-    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Modify) -ne 0) {
-      $issues += "$id|$($ace.FileSystemRights)"
-    }
-    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) {
-      $issues += "$id|$($ace.FileSystemRights)"
-    }
-    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne 0) {
-      $issues += "$id|$($ace.FileSystemRights)"
-    }
-  }
-}
-if ($issues.Count -gt 0) { $issues -join ';' } else { 'OK' }
-`;
-
 function isWindows() {
   return process.platform === 'win32';
 }
 
-function runAclCheck(target) {
-  const encoded = Buffer.from(PS_CHECK_ACL, 'utf16le').toString('base64');
+function runPowerShell(command) {
   const out = execFileSync(
     'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded, '-Target', target],
-    { encoding: 'utf8', windowsHide: true, timeout: 20_000 },
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
+    { encoding: 'utf8', windowsHide: true, timeout: 20_000, maxBuffer: 256 * 1024 },
   );
   return String(out || '').trim();
+}
+
+function runAclCheck(target) {
+  const safeTarget = String(target || '').replace(/'/g, "''");
+  const cmd = [
+    `$Target = '${safeTarget}'`,
+    "$bad = @('BUILTIN\\Users','Users','Authenticated Users','Todos','Everyone')",
+    '$acl = Get-Acl -LiteralPath $Target',
+    '$issues = @()',
+    'foreach ($ace in $acl.Access) {',
+    '  $id = $ace.IdentityReference.Value',
+    '  foreach ($b in $bad) {',
+    '    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Modify) -ne 0) { $issues += "$id|$($ace.FileSystemRights)" }',
+    '    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) { $issues += "$id|$($ace.FileSystemRights)" }',
+    '    if ($id -eq $b -and ($ace.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne 0) { $issues += "$id|$($ace.FileSystemRights)" }',
+    '  }',
+    '}',
+    "if ($issues.Count -gt 0) { $issues -join ';' } else { 'OK' }",
+  ].join('; ');
+  return runPowerShell(cmd);
 }
 
 /**

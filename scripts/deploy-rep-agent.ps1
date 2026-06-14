@@ -190,6 +190,13 @@ Start-Sleep -Seconds 20
 
 try {
   $svc = Get-Service PontoWebDeskAgent -ErrorAction Stop
+  if ($svc.Status -eq 'Paused') {
+    Write-Host 'Servico Paused - executando resume...' -ForegroundColor Yellow
+    Resume-Service PontoWebDeskAgent -ErrorAction SilentlyContinue
+    if (Test-Path $nssm) { Invoke-NssmQuiet -NssmArgs @('continue', $svc) | Out-Null }
+    Start-Sleep -Seconds 5
+    $svc = Get-Service PontoWebDeskAgent
+  }
   Write-Host "Servico: $($svc.Status)" -ForegroundColor $(if ($svc.Status -eq 'Running') { 'Green' } else { 'Yellow' })
 } catch {
   Write-Host "Servico PontoWebDeskAgent nao encontrado no SCM." -ForegroundColor Yellow
