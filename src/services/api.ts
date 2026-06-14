@@ -1,5 +1,6 @@
 import { normalizeApiBase as normalizeApiBaseFromEnv } from '../config/env';
 import { clearToken, getToken, isCookieSessionToken, setToken } from './authToken';
+import { getCsrfToken } from './csrfToken';
 import { logger } from '../shared/logger/logger';
 
 type UnauthorizedHandler = () => void;
@@ -78,8 +79,10 @@ export class ApiError extends Error {
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const token = getToken();
+  const csrf = getCsrfToken();
   return {
     ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+    ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
     ...(extra || {}),
   };
 }

@@ -17,6 +17,7 @@ import {
 import { hasAdminAccess, resolveAccessProfile } from '../utils/accessProfile.js';
 import { logger } from '../logger/logger.js';
 import { logAuthDenied, logAuthEvent } from '../services/authAuditService.js';
+import { sendClientSafeError } from '../utils/clientSafeError.js';
 import {
   normalizeAssignableEmployeeRole,
   validateEmployeeRoleAssignment,
@@ -868,21 +869,13 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
           originalError: dbError,
         },
       });
-      res.status(400).json({
-        ok: false,
-        success: false,
-        error: dbError.message || constraintMessage,
-        code: dbError.code || 'EMPLOYEE_UPDATE_REJECTED',
-        message: dbError.message || constraintMessage,
+      sendClientSafeError(res, 400, dbError.code || 'EMPLOYEE_UPDATE_REJECTED', dbError.message || constraintMessage, {
         detail: dbError.detail,
-        stack: dbError.stack,
         details: {
           employeeId: id,
           dbCode,
           payloadKeys: Object.keys(body).sort(),
           patchFields: fields,
-          sql: updateSql || null,
-          originalError: dbError,
         },
       });
       return;
@@ -910,22 +903,14 @@ export async function updateEmployeeController(req: AuthedRequest, res: Response
         originalError: dbError,
       },
     });
-    res.status(500).json({
-      ok: false,
-      success: false,
-      error: message,
-      code: dbError.code || code,
-      message,
+    sendClientSafeError(res, 500, dbError.code || code, message, {
       detail: dbError.detail,
-      stack: dbError.stack,
       details: {
         employeeId: id,
         reason: code,
         dbCode: dbCode || undefined,
-        sql: updateSql || null,
         payloadKeys: Object.keys(body).sort(),
         patchFields: fields,
-        originalError: dbError,
       },
     });
   } finally {

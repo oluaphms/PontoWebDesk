@@ -4,6 +4,7 @@ import { authUserId } from '../utils/authContext.js';
 import { logAuthEvent } from '../services/authAuditService.js';
 import { revokeToken } from '../services/tokenRevocationService.js';
 import { clearAuthCookie } from '../security/authCookies.js';
+import { clearCsrfCookie } from '../security/csrfCookies.js';
 import { resolveAccessProfile } from '../utils/accessProfile.js';
 
 export async function authLogoutController(req: AuthedRequest, res: Response): Promise<void> {
@@ -25,5 +26,6 @@ export async function authLogoutController(req: AuthedRequest, res: Response): P
   }
 
   clearAuthCookie(res);
+  clearCsrfCookie(res);
   res.json({ ok: true });
 }

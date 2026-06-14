@@ -4,10 +4,17 @@ import apiRouter from './routes/apiRouter.js';
 import { buildCorsAllowList, resolveCorsOrigin } from './corsConfig.js';
 import { logger } from './logger/logger.js';
 import { requestContextMiddleware } from './middleware/requestContext.js';
+import { securityHeadersMiddleware } from './middlewares/securityHeaders.js';
+import { webSecurityMiddleware } from './middlewares/webSecurity.js';
 
 export const app = express();
 
+app.disable('x-powered-by');
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
+
 const corsAllowList = buildCorsAllowList();
+
+app.use(securityHeadersMiddleware);
 
 app.use(
   cors({
@@ -27,9 +34,18 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Correlation-Id', 'x-correlation-id'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'X-Correlation-Id',
+      'x-correlation-id',
+      'X-CSRF-Token',
+      'x-csrf-token',
+    ],
   }),
 );
+
+app.use(webSecurityMiddleware);
 
 if (process.env.NODE_ENV !== 'test') {
   logger.info({

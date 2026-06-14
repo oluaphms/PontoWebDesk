@@ -1,3 +1,5 @@
+import { clearCsrfToken } from './csrfToken';
+
 const COOKIE_SESSION_TOKEN = '__http_only_cookie_session__';
 const AUTH_TOKEN_STORAGE_KEY = 'pwd_auth_token';
 const LEGACY_AUTH_TOKEN_STORAGE_KEYS = ['token'] as const;
@@ -38,6 +40,7 @@ export function setToken(token: string | null): void {
     bearerTokenCache = null;
     cookieSessionActive = false;
     clearLegacyStoredTokens();
+    clearCsrfToken();
     return;
   }
 

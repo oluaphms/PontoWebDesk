@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
 import { authenticateLogin } from '../services/authLoginService.js';
 import { setAuthCookie } from '../security/authCookies.js';
+import { generateCsrfToken, setCsrfCookie } from '../security/csrfCookies.js';
+import { isProduction } from '../security/env.js';
 import { logger } from '../logger/logger.js';
 import { logAuthEvent } from '../services/authAuditService.js';
 import { resolveAccessProfile } from '../utils/accessProfile.js';
@@ -23,16 +25,23 @@ export async function loginController(req: Request, res: Response): Promise<void
     }
 
     setAuthCookie(res, result.token);
+    const csrfToken = generateCsrfToken();
+    setCsrfCookie(res, csrfToken);
     void logAuthEvent(result.user.id, result.user.company_id, 'LOGIN', {
       role: result.user.role,
       accessProfile: resolveAccessProfile(result.user.role),
       email: result.user.email,
     });
+
+    const returnTokenInBody =
+      !isProduction() || /^(1|true|yes)$/i.test(String(process.env.AUTH_RETURN_TOKEN_IN_BODY || '').trim());
+
     res.json({
       ok: true,
       success: true,
-      token: result.token,
       user: result.user,
+      csrfToken,
+      ...(returnTokenInBody ? { token: result.token } : {}),
     });
   } catch (e) {
     logger.error({

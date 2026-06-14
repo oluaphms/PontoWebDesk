@@ -6,6 +6,7 @@ const DEFAULT_ORIGINS = [
   'https://pontowebdesk.vercel.app',
   'https://pontowebdesk.com.br',
   'https://www.pontowebdesk.com.br',
+  'https://api.phmsdev.com.br',
   'http://localhost:3010',
   'http://localhost:5173',
 ];

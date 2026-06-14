@@ -54,7 +54,7 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
   }
 
   try {
-    const decoded = jwt.verify(token, secret) as JwtPayload;
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as JwtPayload;
 
     if (decoded.jti && (await isTokenRevoked(decoded.jti))) {
       logger.warn({

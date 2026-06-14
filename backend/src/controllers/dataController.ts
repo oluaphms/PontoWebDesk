@@ -3,6 +3,7 @@ import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import { authUserId, isAdminOrHr, normalizeRole, requireCompanyId } from '../utils/authContext.js';
 import { logAuthDenied } from '../services/authAuditService.js';
+import { sendClientSafeError } from '../utils/clientSafeError.js';
 import {
   ALLOWED_TABLES,
   USER_SCOPED_TABLES,
@@ -801,25 +802,20 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
       },
     });
     const isConflict = dbError.code === '23505';
-    res.status(isConflict ? 409 : 500).json({
-      ok: false,
-      success: false,
-      error: dbError.message,
-      code: isConflict ? 'DATA_UNIQUE_CONFLICT' : dbError.code || 'DATA_INSERT_FAILED',
-      message: dbError.message,
-      detail: dbError.detail,
-      stack: dbError.stack,
-      details: {
-        table,
-        reason: 'DATA_INSERT_FAILED',
-        sql,
-        payloadKeys: sortedKeys(raw),
-        sanitizedKeys: sortedKeys(writeRaw),
-        scopedKeys: sortedKeys(scoped),
-        filteredKeys: keys,
-        originalError: dbError,
+    sendClientSafeError(
+      res,
+      isConflict ? 409 : 500,
+      isConflict ? 'DATA_UNIQUE_CONFLICT' : 'DATA_INSERT_FAILED',
+      dbError.message,
+      {
+        detail: dbError.detail,
+        details: {
+          table,
+          reason: 'DATA_INSERT_FAILED',
+          payloadKeys: sortedKeys(raw),
+        },
       },
-    });
+    );
   }
 }
 
@@ -950,26 +946,21 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
       },
     });
     const isConflict = dbError.code === '23505';
-    res.status(isConflict ? 409 : 500).json({
-      ok: false,
-      success: false,
-      error: dbError.message,
-      code: isConflict ? 'DATA_UNIQUE_CONFLICT' : dbError.code || 'DATA_UPDATE_FAILED',
-      message: dbError.message,
-      detail: dbError.detail,
-      stack: dbError.stack,
-      details: {
-        table,
-        id,
-        reason: 'DATA_UPDATE_FAILED',
-        sql,
-        payloadKeys: sortedKeys(raw),
-        sanitizedKeys: sortedKeys(writeRaw),
-        scopedKeys: sortedKeys(scoped),
-        filteredKeys: keys,
-        originalError: dbError,
+    sendClientSafeError(
+      res,
+      isConflict ? 409 : 500,
+      isConflict ? 'DATA_UNIQUE_CONFLICT' : 'DATA_UPDATE_FAILED',
+      dbError.message,
+      {
+        detail: dbError.detail,
+        details: {
+          table,
+          id,
+          reason: 'DATA_UPDATE_FAILED',
+          payloadKeys: sortedKeys(raw),
+        },
       },
-    });
+    );
   }
 }
 

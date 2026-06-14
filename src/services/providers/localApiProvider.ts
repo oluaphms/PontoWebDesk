@@ -1,6 +1,7 @@
 import type { IDataProvider, ProviderLoginParams, ProviderPunchPayload } from '../dataProvider';
 import { ApiError, apiPost, buildApiUrl, getApiBaseUrl } from '../api';
 import { getToken, isCookieSessionToken, setToken } from '../authToken';
+import { setCsrfToken } from '../csrfToken';
 import { fetchEmployees } from '../employeesApi.service';
 
 export const localApiProvider: IDataProvider = {
@@ -12,7 +13,9 @@ export const localApiProvider: IDataProvider = {
         throw new Error(String(data?.message || data?.error || data?.code || 'Falha no login'));
       }
       const token = String(data?.token || '').trim();
+      const csrfToken = String(data?.csrfToken || '').trim();
       setToken(token || '__http_only_cookie_session__');
+      if (csrfToken) setCsrfToken(csrfToken);
       return data;
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;

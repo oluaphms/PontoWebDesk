@@ -372,8 +372,12 @@ const AdminLancamentoEventos: React.FC = () => {
     w.document.write(`
       <!DOCTYPE html><html><head><title>Lançamento de Eventos - ${tipo}</title>
       <style>body{font-family:sans-serif;padding:16px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #333;padding:6px;text-align:left;} th{background:#eee;}</style>
-      </head><body>${printContent.innerHTML}</body></html>`);
+      </head><body></body></html>`);
     w.document.close();
+    const body = w.document.body;
+    if (body) {
+      body.appendChild(printContent.cloneNode(true));
+    }
     w.print();
     w.close();
   };

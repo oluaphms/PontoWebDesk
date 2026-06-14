@@ -2,15 +2,19 @@ import type { Request, Response } from 'express';
 
 export const AUTH_COOKIE_NAME = 'pwd_session';
 
-function isProduction(): boolean {
+export function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
-function sameSite(): 'lax' | 'strict' | 'none' {
+export function authCookieSameSite(): 'lax' | 'strict' | 'none' {
   const defaultSameSite = isProduction() ? 'none' : 'lax';
   const raw = String(process.env.AUTH_COOKIE_SAMESITE || defaultSameSite).trim().toLowerCase();
   if (raw === 'strict' || raw === 'none') return raw;
   return 'lax';
+}
+
+function sameSite(): 'lax' | 'strict' | 'none' {
+  return authCookieSameSite();
 }
 
 export function authCookieMaxAgeMs(): number {
