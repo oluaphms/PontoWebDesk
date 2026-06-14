@@ -77,13 +77,44 @@ export class ApiError extends Error {
   }
 }
 
+function isInvalidSessionBearer(value: string | undefined): boolean {
+  const auth = String(value || '').trim();
+  if (!auth) return false;
+  const token = auth.replace(/^Bearer\s+/i, '').trim();
+  return isCookieSessionToken(token);
+}
+
+function sanitizeExtraHeaders(extra?: Record<string, string>): Record<string, string> {
+  if (!extra) return {};
+  const next = { ...extra };
+  if (isInvalidSessionBearer(next.Authorization) || isInvalidSessionBearer(next.authorization)) {
+    delete next.Authorization;
+    delete next.authorization;
+  }
+  return next;
+}
+
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const token = getToken();
   const csrf = getCsrfToken();
   return {
     ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
     ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    ...(extra || {}),
+    ...sanitizeExtraHeaders(extra),
+  };
+}
+
+/** Headers para fetch manual (REP sync-status, etc.) com cookie HttpOnly + CSRF. */
+export function buildSessionAuthHeaders(
+  accessToken?: string | null,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const token = String(accessToken ?? getToken() ?? '').trim();
+  const csrf = getCsrfToken();
+  return {
+    ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+    ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+    ...sanitizeExtraHeaders(extra),
   };
 }
 
@@ -248,7 +279,7 @@ export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): P
     headers: {
       ...authHeaders(),
       'x-correlation-id': requestCorrelationId,
-      ...(init?.headers as Record<string, string> | undefined),
+      ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
     },
   });
   return parseResponse<T>(res, { method: 'GET', path, url });
@@ -265,7 +296,7 @@ export async function apiPost<T = ApiResult>(path: string, body: unknown, init?:
       'Content-Type': 'application/json',
       ...authHeaders(),
       'x-correlation-id': requestCorrelationId,
-      ...(init?.headers as Record<string, string> | undefined),
+      ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
     },
     body: JSON.stringify(body),
   });
@@ -283,7 +314,7 @@ export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?
       'Content-Type': 'application/json',
       ...authHeaders(),
       'x-correlation-id': requestCorrelationId,
-      ...(init?.headers as Record<string, string> | undefined),
+      ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
     },
     body: JSON.stringify(body),
   });
@@ -300,7 +331,7 @@ export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit)
     headers: {
       ...authHeaders(),
       'x-correlation-id': requestCorrelationId,
-      ...(init?.headers as Record<string, string> | undefined),
+      ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
     },
   });
   return parseResponse<T>(res, { method: 'DELETE', path, url });

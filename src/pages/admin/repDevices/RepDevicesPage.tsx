@@ -128,7 +128,7 @@ import { buttonStyles } from '../../../components/ui/buttonStyles';
 import { cx } from '../../../styles/cx';
 import { repUiClasses } from '../../../styles/repUiClasses';
 import { repPageUi } from '../../../styles/repDevicesPageUi';
-import { buildApiUrl } from '../../../services/api';
+import { buildApiUrl, buildSessionAuthHeaders } from '../../../services/api';
 import { getToken } from '../../../services/authToken';
 import { fetchEmployees } from '../../../services/employeesApi.service';
 
@@ -283,9 +283,8 @@ const AdminRepDevices: React.FC = () => {
         deviceIds.map(async (id) => {
           const res = await fetch(buildApiUrl(`/rep/devices/${encodeURIComponent(id)}/sync-status`), {
             method: 'GET',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
+            credentials: 'include',
+            headers: buildSessionAuthHeaders(accessToken),
           });
           if (!res.ok) return [id, undefined] as const;
           const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
@@ -311,9 +310,8 @@ const AdminRepDevices: React.FC = () => {
       }
       const res = await fetch(buildApiUrl(`/rep/devices/${encodeURIComponent(deviceId)}/force-sync`), {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        credentials: 'include',
+        headers: buildSessionAuthHeaders(accessToken),
       });
       const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || body.success === false) {

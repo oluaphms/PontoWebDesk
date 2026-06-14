@@ -97,4 +97,22 @@ describe('resolveRepAdminCaller', () => {
       expect(result.caller.userId).toBe('user-1');
     }
   });
+
+  it('ignora marcador de cookie no Bearer e usa JWT do cookie pwd_session', async () => {
+    const token = jwt.sign(
+      { sub: 'user-1', companyId: 'company-a', role: 'admin' },
+      process.env.JWT_SECRET!,
+    );
+    resolveCallerFromDb.mockResolvedValue({ userId: 'user-1', companyId: 'company-a', role: 'admin' });
+
+    const result = await resolveRepAdminCaller({
+      headers: {
+        authorization: 'Bearer __http_only_cookie_session__',
+        cookie: `pwd_session=${token}`,
+      },
+    } as Request);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.caller.userId).toBe('user-1');
+  });
 });

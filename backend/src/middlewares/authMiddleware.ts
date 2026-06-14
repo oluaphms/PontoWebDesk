@@ -4,6 +4,7 @@ import { isTokenRevoked } from '../services/tokenRevocationService.js';
 import { resolveCallerFromDb } from '../services/callerContextService.js';
 import { updateRequestContext } from '../logger/logger.context.js';
 import { getAuthCookie } from '../security/authCookies.js';
+import { resolveAuthToken } from '../security/sessionToken.js';
 import { logger } from '../logger/logger.js';
 
 export type JwtPayload = {
@@ -31,7 +32,7 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
   const header = req.headers.authorization;
   const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : null;
   const cookieToken = getAuthCookie(req);
-  const token = bearerToken || cookieToken;
+  const token = resolveAuthToken(bearerToken, cookieToken);
   if (!token) {
     logger.warn({
       module: 'auth.middleware',

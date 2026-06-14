@@ -1,6 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import type { DeviceSyncStatusSnapshot } from '../pages/admin/repDevices/types';
-import { buildApiUrl } from './api';
+import { buildApiUrl, buildSessionAuthHeaders } from './api';
 
 export const REP_SYNC_STATUS_TIMEOUT_MS = 5000;
 export const REP_SYNC_STATUS_CACHE_MS = 30_000;
@@ -33,7 +33,7 @@ export async function fetchRepDeviceSyncStatus(
   const signal = options?.signal ?? controller.signal;
 
   const authHeaders: HeadersInit = {
-    Authorization: `Bearer ${accessToken}`,
+    ...buildSessionAuthHeaders(accessToken),
     Accept: 'application/json',
   };
 
@@ -41,10 +41,10 @@ export async function fetchRepDeviceSyncStatus(
     const flatUrl = buildApiUrl(`/rep/sync-status?device_id=${encodeURIComponent(deviceId)}&lite=1`);
     const nestedUrl = buildApiUrl(`/rep/devices/${encodeURIComponent(deviceId)}/sync-status`);
 
-    let res = await fetch(flatUrl, { method: 'GET', headers: authHeaders, signal });
+    let res = await fetch(flatUrl, { method: 'GET', headers: authHeaders, credentials: 'include', signal });
 
     if (res.status === 404 || res.status >= 500) {
-      res = await fetch(nestedUrl, { method: 'GET', headers: authHeaders, signal });
+      res = await fetch(nestedUrl, { method: 'GET', headers: authHeaders, credentials: 'include', signal });
     }
 
     const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;

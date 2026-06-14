@@ -4,6 +4,7 @@ import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
 import type { JwtPayload } from '../middlewares/authMiddleware.js';
 import { getAuthCookie } from '../security/authCookies.js';
+import { resolveAuthToken } from '../security/sessionToken.js';
 import { isAdminOrHr } from '../utils/authContext.js';
 import { resolveCallerFromDb } from './callerContextService.js';
 
@@ -28,7 +29,7 @@ export type RepAdminAuthFailure = {
 function extractAdminToken(req: Request): string {
   const raw = String(req.headers.authorization || '').trim();
   const bearer = raw.replace(/^Bearer\s+/i, '').trim();
-  return bearer || getAuthCookie(req) || '';
+  return resolveAuthToken(bearer, getAuthCookie(req)) || '';
 }
 
 /** Revalida JWT admin/hr REP no banco — equivalente ao authMiddleware para rotas REP. */
