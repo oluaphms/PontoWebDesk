@@ -4,6 +4,7 @@
 
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
 import { buildApiUrl, buildSessionAuthHeaders } from '../../src/services/api';
+import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
 import { pollRepCommandResult, REP_EXCHANGE_POLL_MAX_MS } from '../../src/services/repDeviceCommands.service';
 
 function repAuthInit(accessToken: string, method: 'GET' | 'POST'): RequestInit {
@@ -303,6 +304,13 @@ export async function repExchangeViaApi(
     180_000
   );
   const data = await readJsonOrText(res);
+  observabilityConsole.info('[REP-FLOW] exchange POST response', {
+    device_id: deviceId,
+    op,
+    http_status: res.status,
+    command_id: data.command_id ?? null,
+    ok: data.ok,
+  });
   if (!res.ok) {
     return { ok: false, error: normalizeApiError(data, res.status) };
   }

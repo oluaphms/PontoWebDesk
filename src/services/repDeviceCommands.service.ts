@@ -3,6 +3,7 @@
  */
 
 import { apiGet, apiPost } from './api';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 export type RepDeviceCommandRow = {
   id: string;
@@ -110,9 +111,20 @@ export async function pollRepCommandResult(
   const intervalMs = options?.intervalMs ?? REP_TEST_POLL_INTERVAL_MS;
   const maxMs = options?.maxMs ?? REP_EXCHANGE_POLL_MAX_MS;
   const deadline = Date.now() + maxMs;
+  let lastLoggedStatus: string | null = null;
 
   while (Date.now() < deadline) {
     const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, { commandId });
+    const status = row?.status ?? null;
+    if (status !== lastLoggedStatus) {
+      lastLoggedStatus = status;
+      observabilityConsole.info('[REP-FLOW] poll command status', {
+        device_id: deviceId,
+        command_id: commandId,
+        status,
+        execution_id: row?.execution_id ?? null,
+      });
+    }
     if (row?.status === 'done') {
       return { ok: true, status: 'done', command: row };
     }
@@ -126,6 +138,12 @@ export async function pollRepCommandResult(
     await sleep(intervalMs);
   }
 
+  observabilityConsole.warn('[REP-FLOW] poll command timeout', {
+    device_id: deviceId,
+    command_id: commandId,
+    max_ms: maxMs,
+    last_status: lastLoggedStatus,
+  });
   return { ok: false, status: 'timeout', message: 'AGENT_COMMAND_TIMEOUT', command: null };
 }
 

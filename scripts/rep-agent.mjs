@@ -2069,7 +2069,18 @@ async function postRepCommandResult(commandId, executionId, status, result) {
     throw new Error(`command-result HTTP ${res.status}`);
   }
   if (res.data?.ignored) {
+    observabilityConsole.warn('[REP-FLOW] command-result ignored by server', {
+      command_id: commandId,
+      execution_id: executionId,
+      detail: res.data,
+    });
     syncLog('[REP COMMANDS] servidor ignorou resultado', { detail: res.data });
+  } else {
+    observabilityConsole.info('[REP-FLOW] command-result accepted', {
+      command_id: commandId,
+      execution_id: executionId,
+      status,
+    });
   }
 }
 
@@ -2384,6 +2395,7 @@ async function executeExchangeCommand(cmd) {
   }
 
   if (name === 'pull_clock') {
+    observabilityConsole.info('[REP-FLOW] pull_clock → get_system_date_time.fcgi');
     const { data, text } = await postControlIdFcgi(
       base,
       `/get_system_date_time.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
@@ -2554,10 +2566,15 @@ async function executeRepCommand(cmd) {
   if (!id || !['test_connection', 'collect_punches', 'push_clock', 'pull_clock', 'pull_info', 'pull_users', 'push_employee'].includes(name)) return;
   if (executedCommandsPersistent.has(id)) {
     syncLog('[REP COMMANDS] já executado — ignorado', { detail: { command_id: id } });
+    observabilityConsole.warn('[REP-FLOW] command skipped (already in executed set)', {
+      command_id: id,
+      command: name,
+    });
     return;
   }
   if (!executionId) {
     syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
+    observabilityConsole.warn('[REP-FLOW] command skipped (no execution_id)', { command_id: id, command: name });
     return;
   }
   if (cmdStatus === 'done' || cmdStatus === 'error' || cmdStatus === 'cancelled') {
@@ -2566,6 +2583,11 @@ async function executeRepCommand(cmd) {
 
   const hmacCheck = verifyRepCommandHmac(apiKey, cmd);
   if (!hmacCheck.ok) {
+    observabilityConsole.warn('[REP-FLOW] command HMAC rejected', {
+      command_id: id,
+      command: name,
+      reason: hmacCheck.message,
+    });
     syncLog('[REP COMMANDS] HMAC inválido — ignorado', { detail: { command_id: id, reason: hmacCheck.message } });
     try {
       await postRepCommandResult(id, executionId, 'error', {
@@ -2594,6 +2616,11 @@ async function executeRepCommand(cmd) {
   });
   syncLog('[REP COMMANDS] executando', {
     detail: { command_id: id, command: name, execution_id: executionId },
+  });
+  observabilityConsole.info('[REP-FLOW] command executing', {
+    command_id: id,
+    command: name,
+    execution_id: executionId,
   });
 
   let resultPayload;
@@ -2670,6 +2697,14 @@ async function executeRepCommand(cmd) {
         execution_id: executionId,
         success: finalStatus === 'done',
       },
+    });
+    observabilityConsole.info('[REP-FLOW] command finished', {
+      command_id: id,
+      command: name,
+      execution_id: executionId,
+      final_status: finalStatus,
+      success: finalStatus === 'done',
+      message: resultPayload?.message ?? null,
     });
     const recordsSaved = Number(resultPayload?.sent_ok ?? resultPayload?.ok ?? 0);
     const recordsReceived = Number(resultPayload?.parsed ?? resultPayload?.total ?? 0);
@@ -2755,6 +2790,10 @@ async function pollAndExecuteRepCommands() {
         commands: commands.length,
         attempt,
         degraded: data.degraded === true,
+      });
+      observabilityConsole.info('[REP-FLOW] agent poll received commands', {
+        count: commands.length,
+        ids: commands.map((c) => ({ id: c?.id, command: c?.command, execution_id: c?.execution_id })),
       });
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();

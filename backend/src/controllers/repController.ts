@@ -1090,6 +1090,18 @@ export async function repCommandsController(req: Request, res: Response): Promis
         );
         if (claimed.rows[0]) {
           const row = claimed.rows[0] as Record<string, unknown>;
+          logger.info({
+            module: 'rep.commands',
+            action: 'REP_FLOW_AGENT_CLAIM',
+            message: '[REP-FLOW] agent claimed command',
+            companyId,
+            meta: {
+              command_id: row.id,
+              device_id: row.device_id,
+              command: row.command,
+              execution_id: row.execution_id,
+            },
+          });
           commands.push({
             ...row,
             command_hmac: signRepCommandRow(token, {
@@ -1190,6 +1202,13 @@ export async function repExchangeController(req: Request, res: Response): Promis
       op,
     },
   };
+  logger.info({
+    module: 'rep.commands',
+    action: 'REP_FLOW_EXCHANGE_ENQUEUE',
+    message: '[REP-FLOW] exchange → enqueue command',
+    companyId: auth.companyId,
+    meta: { device_id: deviceId, op },
+  });
   await repCommandsController(req, res);
 }
 
@@ -1317,6 +1336,13 @@ export async function repCommandResultController(req: Request, res: Response): P
     return;
   }
   if (String(row.execution_id || '') !== executionId) {
+    logger.warn({
+      module: 'rep.commands',
+      action: 'REP_FLOW_RESULT_STALE',
+      message: '[REP-FLOW] command-result ignored (stale execution_id)',
+      companyId,
+      meta: { command_id: commandId, execution_id: executionId, current: row.execution_id },
+    });
     json(res, 200, { ok: true, success: true, ignored: true, reason: 'stale_execution_id' });
     return;
   }
@@ -1336,9 +1362,23 @@ export async function repCommandResultController(req: Request, res: Response): P
     [commandId, executionId, status, JSON.stringify(req.body?.result ?? null), deviceId, companyId],
   );
   if (!updated.rows[0]) {
+    logger.warn({
+      module: 'rep.commands',
+      action: 'REP_FLOW_RESULT_MISMATCH',
+      message: '[REP-FLOW] command-result ignored (execution mismatch)',
+      companyId,
+      meta: { command_id: commandId, execution_id: executionId, status },
+    });
     json(res, 200, { ok: true, success: true, ignored: true, reason: 'execution_mismatch_or_already_finished' });
     return;
   }
+  logger.info({
+    module: 'rep.commands',
+    action: 'REP_FLOW_RESULT_SAVED',
+    message: '[REP-FLOW] command-result saved',
+    companyId,
+    meta: { command_id: commandId, execution_id: executionId, status },
+  });
   json(res, 200, { ok: true, success: true });
 }
 
