@@ -106,16 +106,17 @@ export async function pollRepCommandResult(
   deviceId: string,
   commandId: string,
   accessToken: string,
-  options?: { intervalMs?: number; maxMs?: number },
+  options?: { intervalMs?: number; maxMs?: number; onProgress?: (status: RepCommandPollStatus) => void },
 ): Promise<RepCommandPollOutcome> {
   const intervalMs = options?.intervalMs ?? REP_TEST_POLL_INTERVAL_MS;
   const maxMs = options?.maxMs ?? REP_EXCHANGE_POLL_MAX_MS;
   const deadline = Date.now() + maxMs;
   let lastLoggedStatus: string | null = null;
+  let lastProgressAt = Date.now();
 
   while (Date.now() < deadline) {
     const row = await fetchLatestRepDeviceCommand(deviceId, accessToken, { commandId });
-    const status = row?.status ?? null;
+    const status = (row?.status as RepCommandPollStatus) ?? null;
     if (status !== lastLoggedStatus) {
       lastLoggedStatus = status;
       observabilityConsole.info('[REP-FLOW] poll command status', {
@@ -124,6 +125,10 @@ export async function pollRepCommandResult(
         status,
         execution_id: row?.execution_id ?? null,
       });
+    }
+    if (Date.now() - lastProgressAt >= 15_000) {
+      lastProgressAt = Date.now();
+      options?.onProgress?.(status);
     }
     if (row?.status === 'done') {
       return { ok: true, status: 'done', command: row };

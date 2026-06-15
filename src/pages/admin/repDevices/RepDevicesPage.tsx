@@ -2150,7 +2150,15 @@ const AdminRepDevices: React.FC = () => {
       };
       if (startMsg[op]) appendSrLog(startMsg[op]!);
       const clock = op === 'push_clock' ? buildLocalClockForRep(mode671) : undefined;
-      const r = await repExchangeViaApi(d.id, op, accessToken, clock);
+      const r = await repExchangeViaApi(d.id, op, accessToken, clock, {
+        onPollProgress: (status) => {
+          const hint =
+            status === 'processing'
+              ? 'Agente executando no relógio…'
+              : 'Comando enfileirado — aguardando o agente na empresa…';
+          appendSrLog(hint);
+        },
+      });
       if (!r.ok) {
         const rawErr = toUiString(r.error ?? r.message, 'Operação não concluída.');
         const errLine = formatRepAgentCommandError(rawErr, d, syncStatusByDeviceId[d.id]);

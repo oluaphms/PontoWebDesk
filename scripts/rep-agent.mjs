@@ -2040,12 +2040,12 @@ async function runLocalDeviceConnectionTestWithTimeout() {
 }
 
 async function postRepCommandResult(commandId, executionId, status, result) {
-  if (!executionId) return;
+  if (!executionId) return { accepted: false, reason: 'no_execution_id' };
   if (currentExecutionId && currentExecutionId !== executionId) {
     syncLog('[REP COMMANDS] resultado ignorado (execution_id obsoleto)', {
       detail: { command_id: commandId },
     });
-    return;
+    return { accepted: false, reason: 'stale_local_execution_id' };
   }
   const res = await fetchJsonWithTimeout(
     `${saas}/api/rep/command-result`,
@@ -2075,13 +2075,14 @@ async function postRepCommandResult(commandId, executionId, status, result) {
       detail: res.data,
     });
     syncLog('[REP COMMANDS] servidor ignorou resultado', { detail: res.data });
-  } else {
-    observabilityConsole.info('[REP-FLOW] command-result accepted', {
-      command_id: commandId,
-      execution_id: executionId,
-      status,
-    });
+    return { accepted: false, reason: String(res.data?.reason || 'ignored') };
   }
+  observabilityConsole.info('[REP-FLOW] command-result accepted', {
+    command_id: commandId,
+    execution_id: executionId,
+    status,
+  });
+  return { accepted: true };
 }
 
 function applyDateRangePolicy(startYmd, endYmd, { bypassNsr = true } = {}) {
@@ -2340,7 +2341,15 @@ function localClockPayload(payloadClock) {
   return clock;
 }
 
-async function controlIdSessionForCommand() {
+function clearClockSessionCache(reason = '') {
+  clockSessionMemory = null;
+  if (reason && REP_DEBUG) {
+    observabilityConsole.log('[REP SESSION] cache limpo', reason);
+  }
+}
+
+async function controlIdSessionForCommand({ refresh = false } = {}) {
+  if (refresh) clearClockSessionCache('refresh solicitado');
   if (clockSessionMemory) return clockSessionMemory;
   const session = await loginControlIdAcrossBases();
   if (!session) {
@@ -2379,11 +2388,11 @@ async function executeExchangeCommand(cmd) {
   const name = String(cmd.command || '').trim();
   const payload = commandPayload(cmd);
   const base = agentClockBaseUrl();
-  const session = await controlIdSessionForCommand();
   const mode671 = repAfdPortaria671 || /^(1|true|yes)$/i.test((process.env.REP_AFD_PORTARIA_671 || '').trim());
   const modeParam = mode671 ? '&mode=671' : '';
 
   if (name === 'push_clock') {
+    const session = await controlIdSessionForCommand();
     const clock = localClockPayload(payload.clock);
     const { text, data } = await postControlIdFcgi(
       base,
@@ -2391,20 +2400,44 @@ async function executeExchangeCommand(cmd) {
       clock,
     );
     const success = controlIdOk(text);
+    if (success) {
+      // set_system_date_time costuma invalidar a sessão — força novo login no próximo comando.
+      clearClockSessionCache('após push_clock');
+    }
     return { success, ok: success, message: success ? 'Data e hora enviadas ao relógio.' : afdHttpSnippet(text), data };
   }
 
   if (name === 'pull_clock') {
     observabilityConsole.info('[REP-FLOW] pull_clock → get_system_date_time.fcgi');
-    const { data, text } = await postControlIdFcgi(
-      base,
-      `/get_system_date_time.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
-      {},
-    );
+    const readClock = async (refreshSession) => {
+      const sid = await controlIdSessionForCommand({ refresh: refreshSession });
+      return postControlIdFcgi(
+        base,
+        `/get_system_date_time.fcgi?session=${encodeURIComponent(sid)}${modeParam}`,
+        {},
+      );
+    };
+    let { data, text } = await readClock(true);
+    let ok = controlIdOk(text);
+    if (!ok) {
+      observabilityConsole.warn('[REP-FLOW] pull_clock falhou — nova sessão e retry');
+      clearClockSessionCache('pull_clock retry');
+      ({ data, text } = await readClock(true));
+      ok = controlIdOk(text);
+    }
+    if (!ok) {
+      return {
+        success: false,
+        ok: false,
+        message: `Falha ao ler data/hora do relógio: ${afdHttpSnippet(text)}`,
+        data: data ?? text,
+      };
+    }
     return { success: true, ok: true, message: 'Data e hora lidas do relógio.', data: data ?? text };
   }
 
   if (name === 'pull_info') {
+    const session = await controlIdSessionForCommand({ refresh: true });
     const { data, text } = await postControlIdFcgi(
       base,
       `/get_info.fcgi?session=${encodeURIComponent(session)}${modeParam}`,
@@ -2414,6 +2447,7 @@ async function executeExchangeCommand(cmd) {
   }
 
   if (name === 'pull_users') {
+    const session = await controlIdSessionForCommand({ refresh: true });
     const { buildControlIdLoadUsersPayload, parseControlIdBooleanFieldError } = await import(
       '../modules/rep-integration/controlIdLoadUsers.mjs'
     );
@@ -2687,8 +2721,16 @@ async function executeRepCommand(cmd) {
 
   try {
     if (currentExecutionId === executionId) {
-      await postRepCommandResult(id, executionId, finalStatus, resultPayload);
-      rememberExecutedCommand(id, executedCommandsPersistent);
+      const postRes = await postRepCommandResult(id, executionId, finalStatus, resultPayload);
+      if (postRes?.accepted) {
+        rememberExecutedCommand(id, executedCommandsPersistent);
+      } else if (postRes?.reason) {
+        observabilityConsole.warn('[REP-FLOW] comando não marcado como executado (resultado não persistido)', {
+          command_id: id,
+          command: name,
+          reason: postRes.reason,
+        });
+      }
     }
     syncLog('[REP COMMANDS] concluído', {
       detail: {

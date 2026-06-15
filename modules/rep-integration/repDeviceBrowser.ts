@@ -5,7 +5,7 @@
 import type { PunchFromDevice, RepDeviceClockSet, RepExchangeOp, RepUserFromDevice } from './types';
 import { buildApiUrl, buildSessionAuthHeaders } from '../../src/services/api';
 import { observabilityConsole } from '../../src/shared/logger/observabilityConsole';
-import { pollRepCommandResult, REP_EXCHANGE_POLL_MAX_MS } from '../../src/services/repDeviceCommands.service';
+import { pollRepCommandResult, REP_EXCHANGE_POLL_MAX_MS, type RepCommandPollStatus } from '../../src/services/repDeviceCommands.service';
 
 function repAuthInit(accessToken: string, method: 'GET' | 'POST'): RequestInit {
   return {
@@ -286,7 +286,8 @@ export async function repExchangeViaApi(
   deviceId: string,
   op: RepExchangeOp,
   accessToken: string,
-  clock?: RepDeviceClockSet
+  clock?: RepDeviceClockSet,
+  options?: { onPollProgress?: (status: RepCommandPollStatus) => void },
 ): Promise<{
   ok: boolean;
   message?: string;
@@ -321,6 +322,7 @@ export async function repExchangeViaApi(
   if (typeof data.command_id === 'string' && data.command_id) {
     const polled = await pollRepCommandResult(deviceId, data.command_id, accessToken, {
       maxMs: REP_EXCHANGE_POLL_MAX_MS,
+      onProgress: options?.onPollProgress,
     });
     if (!polled.ok) {
       return {
