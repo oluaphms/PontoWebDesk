@@ -32,7 +32,7 @@ Update-CfgField 'device_port' 443
 # Certificado self-signed na LAN — necessario para curl/Node aceitarem TLS no relogio.
 Update-CfgField 'insecure_tls' $true
 Update-CfgField 'enable_commands' $true
-Update-CfgField 'command_exec_timeout_ms' 30000
+Update-CfgField 'command_exec_timeout_ms' 60000
 if (-not $cfg.command_poll_interval_ms) {
   Update-CfgField 'command_poll_interval_ms' 5000
 }
@@ -56,8 +56,8 @@ if (Test-Path $refresh) {
 }
 
 if (Test-Path $nssm) {
-  & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=30000`nREP_INSECURE_TLS=1" | Out-Null
-  Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=30000, REP_INSECURE_TLS=1' -ForegroundColor Green
+  & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=60000`nREP_INSECURE_TLS=1" | Out-Null
+  Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=60000, REP_INSECURE_TLS=1' -ForegroundColor Green
 }
 
 Write-Host "`nProximo passo (obrigatorio):" -ForegroundColor Cyan

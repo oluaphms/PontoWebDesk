@@ -14,7 +14,7 @@
   "agent_interval_ms": 60000,
   "heartbeat_interval_ms": 60000,
   "command_poll_interval_ms": 5000,
-  "command_exec_timeout_ms": 30000,
+  "command_exec_timeout_ms": 60000,
   "min_send_batch": 1,
   "enable_commands": true,
   "ingest_catch_up_days": 7,

@@ -51,8 +51,8 @@ function Enable-RepAgentCommands {
   }
 
   if (Test-Path $nssm) {
-    & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1" | Out-Null
-    Write-Host 'NSSM: REP_ENABLE_COMMANDS=1' -ForegroundColor Green
+    & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=60000`nREP_INSECURE_TLS=1" | Out-Null
+    Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=60000, REP_INSECURE_TLS=1' -ForegroundColor Green
   }
 }
 

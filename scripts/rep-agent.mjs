@@ -69,6 +69,7 @@ import { promises as fs } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -1023,34 +1024,59 @@ function curlTlsArgs() {
 }
 
 /**
- * Fallback Windows: curl com body via stdin (evita senha em argv).
+ * Windows: curl --data-binary @- com execFile+input não envia o corpo (login.fcgi trava/timeout).
+ * Grava JSON em ficheiro temporário e usa --data-binary @path (apagado no finally).
+ */
+async function execCurlPostJson(url, bodyUtf8, curlArgsPrefix, { timeoutMs, maxBuffer = 256 * 1024 } = {}) {
+  const tmpDir = await fs.mkdtemp(path.join(tmpdir(), 'rep-curl-'));
+  const bodyFile = path.join(tmpDir, 'body.json');
+  try {
+    await fs.writeFile(bodyFile, bodyUtf8, { encoding: 'utf8', mode: 0o600 });
+    const { stdout } = await execFileAsync(
+      'curl.exe',
+      [...curlArgsPrefix, '--data-binary', `@${bodyFile}`, url],
+      {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        windowsHide: true,
+        maxBuffer,
+      },
+    );
+    return stdout;
+  } finally {
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignora */
+    }
+  }
+}
+
+/**
+ * Fallback Windows: curl com body em ficheiro temp (evita senha em argv e stdin quebrado).
  */
 async function loginControlIdViaCurl(url, login, password) {
   if (process.platform !== 'win32') return null;
   if (/^(0|false|no)$/i.test((process.env.REP_LOGIN_USE_CURL || '1').trim())) return null;
   const body = JSON.stringify({ login, password });
-  const connectSec = Math.min(8, Math.max(3, Math.floor(REP_COMMAND_EXEC_TIMEOUT_MS / 4000)));
-  const args = [
+  const connectSec = Math.min(12, Math.max(5, Math.floor(REP_COMMAND_EXEC_TIMEOUT_MS / 5000)));
+  // Control iD idClass: primeiro login.fcgi na sessão fria pode levar ~25s.
+  const maxSec = Math.min(45, Math.max(30, Math.floor(REP_COMMAND_EXEC_TIMEOUT_MS / 2)));
+  const curlPrefix = [
     '-s',
     ...curlTlsArgs(),
     '--connect-timeout',
     String(connectSec),
     '--max-time',
-    String(connectSec + 5),
+    String(maxSec),
     '-H',
     'Content-Type: application/json',
     '-H',
     'Connection: close',
-    '--data-binary',
-    '@-',
-    url,
   ];
   try {
-    const { stdout } = await execFileAsync('curl.exe', args, {
-      encoding: 'utf8',
-      input: body,
-      timeout: 18_000,
-      windowsHide: true,
+    const stdout = await execCurlPostJson(url, body, curlPrefix, {
+      timeoutMs: Math.min((maxSec + 8) * 1000, REP_COMMAND_EXEC_TIMEOUT_MS - 500),
       maxBuffer: 256 * 1024,
     });
     const data = parseJsonSafe(stdout);
@@ -1085,34 +1111,25 @@ function repDeviceUseCurlEnv() {
 async function clockPostJsonViaCurl(urlString, payload, { maxTimeSec = 25 } = {}) {
   if (!repDeviceUseCurlEnv()) return null;
   const body = JSON.stringify(payload ?? {});
+  const curlPrefix = [
+    '-s',
+    ...curlTlsArgs(),
+    '--connect-timeout',
+    '10',
+    '--max-time',
+    String(maxTimeSec),
+    '-w',
+    `${CURL_HTTP_CODE_MARKER}%{http_code}`,
+    '-H',
+    'Content-Type: application/json',
+    '-H',
+    'Connection: close',
+  ];
   try {
-    const { stdout } = await execFileAsync(
-      'curl.exe',
-      [
-        '-s',
-        ...curlTlsArgs(),
-        '--connect-timeout',
-        '10',
-        '--max-time',
-        String(maxTimeSec),
-        '-w',
-        `${CURL_HTTP_CODE_MARKER}%{http_code}`,
-        '-H',
-        'Content-Type: application/json',
-        '-H',
-        'Connection: close',
-        '--data-binary',
-        '@-',
-        urlString,
-      ],
-      {
-        encoding: 'utf8',
-        input: body,
-        timeout: (maxTimeSec + 8) * 1000,
-        windowsHide: true,
-        maxBuffer: 512 * 1024,
-      },
-    );
+    const stdout = await execCurlPostJson(urlString, body, curlPrefix, {
+      timeoutMs: (maxTimeSec + 8) * 1000,
+      maxBuffer: 512 * 1024,
+    });
     const markerIdx = stdout.lastIndexOf(CURL_HTTP_CODE_MARKER);
     if (markerIdx >= 0) {
       const text = stdout.slice(0, markerIdx);
@@ -1145,7 +1162,13 @@ async function loginControlId(base) {
     observabilityConsole.log('[REP LOGIN] Windows — curl primeiro (evita timeout Node 20s)');
     const sidCurl = await loginControlIdViaCurl(url, login, password);
     if (sidCurl) return sidCurl;
-    observabilityConsole.log('[REP LOGIN] curl falhou — tentando https Node');
+    if (!/^(1|true|yes)$/i.test((process.env.REP_LOGIN_NODE_FALLBACK || '').trim())) {
+      observabilityConsole.log(
+        '[REP LOGIN] curl falhou — Node omitido (defina REP_LOGIN_NODE_FALLBACK=1 para tentar https Node).',
+      );
+      return null;
+    }
+    observabilityConsole.log('[REP LOGIN] curl falhou — tentando https Node (REP_LOGIN_NODE_FALLBACK=1)');
   }
 
   try {
@@ -1209,26 +1232,23 @@ async function fetchAfdWithSessionViaCurl(base, session, { lastNsr = 0, use671 =
   const url = `${base}/get_afd.fcgi?session=${sid}${q671}`;
   const payload = lastNsr > 0 ? { initial_nsr: lastNsr } : {};
   const body = JSON.stringify(payload);
+  const curlPrefix = [
+    '-s',
+    ...curlTlsArgs(),
+    '--connect-timeout',
+    '10',
+    '--max-time',
+    '120',
+    '-H',
+    'Content-Type: application/json',
+    '-H',
+    'Connection: close',
+  ];
   try {
-    const { stdout } = await execFileAsync(
-      'curl.exe',
-      [
-        '-s',
-        ...curlTlsArgs(),
-        '--connect-timeout',
-        '10',
-        '--max-time',
-        '120',
-        '-H',
-        'Content-Type: application/json',
-        '-H',
-        'Connection: close',
-        '--data-binary',
-        '@-',
-        url,
-      ],
-      { encoding: 'utf8', input: body, timeout: 125_000, windowsHide: true, maxBuffer: REP_AFD_MAX_BYTES }
-    );
+    const stdout = await execCurlPostJson(url, body, curlPrefix, {
+      timeoutMs: 125_000,
+      maxBuffer: REP_AFD_MAX_BYTES,
+    });
     const text = extractAfdFileText(stdout);
     if (isPlausibleAfdText(text)) {
       observabilityConsole.log('[REP AFD] download via curl OK', use671 ? '(mode=671)' : '');
@@ -1333,9 +1353,9 @@ function deviceConnectionBases() {
   const primary = `${scheme}://${ip}:${port}`;
   const bases = [primary];
   // Fallbacks só após falha na porta configurada.
-  // Control iD na LAN: :80 costuma ser HTTP puro — não usar https://IP:80 (gera EPROTO/wrong version).
+  // Control iD idClass na LAN: porta 80 costuma ser HTTPS (TLS), não HTTP puro.
   if (scheme === 'https' && String(port) === '443') {
-    bases.push(`http://${ip}:80`);
+    bases.push(`https://${ip}:80`, `http://${ip}:80`);
   } else if (scheme === 'http' && String(port) === '80') {
     bases.push(`https://${ip}:443`, `http://${ip}:443`);
   } else if (scheme === 'https' && String(port) === '80') {
@@ -1948,9 +1968,12 @@ async function runLocalDeviceConnectionTest() {
           response_time_ms: ms,
         };
       }
+      const authMsg = lastRepLoginDiagnostic
+        ? `Não foi possível autenticar no relógio: ${lastRepLoginDiagnostic}`
+        : 'Não foi possível autenticar no relógio. Verifique usuário, senha (device_password_dpapi) e IP/porta.';
       return {
         success: false,
-        message: 'Não foi possível autenticar no relógio. Verifique usuário e senha.',
+        message: authMsg,
         response_time_ms: ms,
       };
     }
@@ -2583,10 +2606,11 @@ async function executeRepCommand(cmd) {
         testResult = await runLocalDeviceConnectionTestWithTimeout();
       } catch (e) {
         const isTimeout = (e?.message || String(e)) === 'timeout';
+        const diag = lastRepLoginDiagnostic ? ` Último erro: ${lastRepLoginDiagnostic}.` : '';
         testResult = {
           success: false,
           message: isTimeout
-            ? `Timeout ao conectar ao relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).`
+            ? `Timeout ao conectar ao relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).${diag} Verifique ${scheme}://${ip}:${port}, insecure_tls e senha no config.json.`
             : e?.message || String(e),
           response_time_ms: REP_COMMAND_EXEC_TIMEOUT_MS,
         };
@@ -2615,10 +2639,11 @@ async function executeRepCommand(cmd) {
         ]);
       } catch (e) {
         const isTimeout = (e?.message || String(e)) === 'timeout';
+        const diag = lastRepLoginDiagnostic ? ` Último erro: ${lastRepLoginDiagnostic}.` : '';
         exchangeResult = {
           success: false,
           message: isTimeout
-            ? `Timeout ao executar ${name} no relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).`
+            ? `Timeout ao executar ${name} no relógio (limite de ${Math.round(REP_COMMAND_EXEC_TIMEOUT_MS / 1000)}s).${diag}`
             : e?.message || String(e),
         };
       }
