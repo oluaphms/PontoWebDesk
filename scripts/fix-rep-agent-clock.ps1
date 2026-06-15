@@ -45,6 +45,16 @@ if ($changed) {
   Write-Host 'config.json ja estava correto.' -ForegroundColor Yellow
 }
 
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$refresh = Join-Path $repoRoot 'scripts\rep-agent-refresh-integrity.mjs'
+if (Test-Path $refresh) {
+  & node $refresh $configPath
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host 'AVISO: re-assinatura falhou — agente nao iniciara sem integridade OK' -ForegroundColor Red
+    exit 1
+  }
+}
+
 if (Test-Path $nssm) {
   & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1`nREP_COMMAND_EXEC_TIMEOUT_MS=30000`nREP_INSECURE_TLS=1" | Out-Null
   Write-Host 'NSSM: REP_ENABLE_COMMANDS=1, REP_COMMAND_EXEC_TIMEOUT_MS=30000, REP_INSECURE_TLS=1' -ForegroundColor Green

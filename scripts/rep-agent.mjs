@@ -1332,11 +1332,12 @@ async function tryAfdControlIdSessionDownload(base, { lastNsr = 0 } = {}) {
 function deviceConnectionBases() {
   const primary = `${scheme}://${ip}:${port}`;
   const bases = [primary];
-  // Fallbacks só após falha na porta configurada (ex.: outros firmwares Control iD usam :80).
+  // Fallbacks só após falha na porta configurada.
+  // Control iD na LAN: :80 costuma ser HTTP puro — não usar https://IP:80 (gera EPROTO/wrong version).
   if (scheme === 'https' && String(port) === '443') {
-    bases.push(`https://${ip}:80`, `http://${ip}:80`);
+    bases.push(`http://${ip}:80`);
   } else if (scheme === 'http' && String(port) === '80') {
-    bases.push(`https://${ip}:80`, `https://${ip}:443`);
+    bases.push(`https://${ip}:443`, `http://${ip}:443`);
   } else if (scheme === 'https' && String(port) === '80') {
     bases.push(`http://${ip}:80`, `https://${ip}:443`);
   }

@@ -15,6 +15,18 @@ $stdoutLog = 'C:\ProgramData\PontoWebDesk\logs\nssm-stdout.log'
 $configPath = 'C:\ProgramData\PontoWebDesk\config.json'
 $svc = 'PontoWebDeskAgent'
 
+function Refresh-RepAgentConfigIntegrity {
+  $refresh = Join-Path $repoRoot 'scripts\rep-agent-refresh-integrity.mjs'
+  if (-not (Test-Path $refresh)) { return }
+  if (-not (Test-Path $configPath)) { return }
+  & node $refresh $configPath 2>&1 | ForEach-Object { Write-Host $_ }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host 'AVISO: falha ao re-assinar config.json — rode: node scripts\rep-agent-refresh-integrity.mjs' -ForegroundColor Yellow
+  } else {
+    Write-Host 'config.json re-assinado (integridade HMAC)' -ForegroundColor Green
+  }
+}
+
 function Enable-RepAgentCommands {
   if (Test-Path $configPath) {
     $enc = New-Object System.Text.UTF8Encoding $false
@@ -151,6 +163,7 @@ Rename-Item -Path $tmpTarget -NewName (Split-Path -Leaf $target) -Force
 
 Write-Host 'Ativando poll de comandos (test_connection no painel)...'
 Enable-RepAgentCommands
+Refresh-RepAgentConfigIntegrity
 
 $migrateScript = Join-Path $repoRoot 'scripts\migrate-rep-agent-secrets-dpapi.ps1'
 if (Test-Path $migrateScript) {

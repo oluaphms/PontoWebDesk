@@ -85,6 +85,11 @@ if ($changed) {
   [System.IO.File]::WriteAllText($configPath, $json, $enc)
   Write-Ok "enable_commands=true"
 }
+$refresh = Join-Path $repoRoot 'scripts\rep-agent-refresh-integrity.mjs'
+if (Test-Path $refresh) {
+  & node $refresh $configPath | Out-Host
+  if ($LASTEXITCODE -eq 0) { Write-Ok "config.json re-assinado" }
+}
 if (Test-Path $nssm) {
   & $nssm set $svc AppEnvironmentExtra "REP_ENABLE_COMMANDS=1" | Out-Null
   Write-Ok "NSSM REP_ENABLE_COMMANDS=1"
