@@ -16,6 +16,14 @@ function resolveCommandsStatePath() {
 const FILE = resolveCommandsStatePath();
 const MAX_IDS = 5000;
 
+/** Chave idempotente por instância de claim (evita bloquear reenfileiramento com novo execution_id). */
+export function commandExecutionKey(commandId, executionId) {
+  const id = String(commandId || '').trim();
+  const exec = String(executionId || '').trim();
+  if (!id || !exec) return '';
+  return `${id}:${exec}`;
+}
+
 function integrityKey() {
   return (process.env.API_KEY || process.env.REP_API_KEY || '').trim();
 }
@@ -34,7 +42,16 @@ export function loadExecutedCommandIds() {
     const raw = readFileSync(FILE, 'utf8');
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return new Set();
-    return new Set(arr.map((v) => String(v)).filter(Boolean));
+    const normalized = arr
+      .map((v) => String(v).trim())
+      .filter((v) => v.includes(':') && v.length > 36);
+    if (normalized.length !== arr.length) {
+      observabilityConsole.warn(
+        '[REP COMMANDS STATE] entradas legadas (só command_id) ignoradas — use redeploy recente do agente',
+        { dropped: arr.length - normalized.length },
+      );
+    }
+    return new Set(normalized);
   } catch {
     return new Set();
   }

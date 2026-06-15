@@ -102,6 +102,8 @@ import {
 import {
   loadExecutedCommandIds,
   rememberExecutedCommand,
+  commandExecutionKey,
+  saveExecutedCommandIds,
 } from './rep-agent-commands-state.mjs';
 import { agentLog } from './rep-agent-structured-log.mjs';
 import {
@@ -2598,17 +2600,27 @@ async function executeRepCommand(cmd) {
   const cmdStatus = String(cmd.status || '').trim().toLowerCase();
 
   if (!id || !['test_connection', 'collect_punches', 'push_clock', 'pull_clock', 'pull_info', 'pull_users', 'push_employee'].includes(name)) return;
-  if (executedCommandsPersistent.has(id)) {
-    syncLog('[REP COMMANDS] já executado — ignorado', { detail: { command_id: id } });
-    observabilityConsole.warn('[REP-FLOW] command skipped (already in executed set)', {
-      command_id: id,
-      command: name,
-    });
-    return;
-  }
   if (!executionId) {
     syncLog('[REP COMMANDS] sem execution_id — ignorado', { detail: { command_id: id } });
     observabilityConsole.warn('[REP-FLOW] command skipped (no execution_id)', { command_id: id, command: name });
+    return;
+  }
+  const execKey = commandExecutionKey(id, executionId);
+  if (executedCommandsPersistent.has(id) && !executedCommandsPersistent.has(execKey)) {
+    executedCommandsPersistent.delete(id);
+    saveExecutedCommandIds(executedCommandsPersistent);
+    observabilityConsole.warn('[REP-FLOW] removida marcação legada de comando reenfileirado', {
+      command_id: id,
+      execution_id: executionId,
+    });
+  }
+  if (execKey && executedCommandsPersistent.has(execKey)) {
+    syncLog('[REP COMMANDS] já executado — ignorado', { detail: { command_id: id, execution_id: executionId } });
+    observabilityConsole.warn('[REP-FLOW] command skipped (already in executed set)', {
+      command_id: id,
+      execution_id: executionId,
+      command: name,
+    });
     return;
   }
   if (cmdStatus === 'done' || cmdStatus === 'error' || cmdStatus === 'cancelled') {
@@ -2722,8 +2734,8 @@ async function executeRepCommand(cmd) {
   try {
     if (currentExecutionId === executionId) {
       const postRes = await postRepCommandResult(id, executionId, finalStatus, resultPayload);
-      if (postRes?.accepted) {
-        rememberExecutedCommand(id, executedCommandsPersistent);
+      if (postRes?.accepted && execKey) {
+        rememberExecutedCommand(execKey, executedCommandsPersistent);
       } else if (postRes?.reason) {
         observabilityConsole.warn('[REP-FLOW] comando não marcado como executado (resultado não persistido)', {
           command_id: id,
@@ -2839,7 +2851,14 @@ async function pollAndExecuteRepCommands() {
       });
       for (const cmd of commands) {
         const cmdId = String(cmd?.id || '').trim();
-        if (!cmdId || repCommandsInFlight.has(cmdId) || executedCommandsPersistent.has(cmdId)) continue;
+        const cmdExecId = String(cmd?.execution_id || '').trim();
+        const cmdExecKey = commandExecutionKey(cmdId, cmdExecId);
+        if (!cmdId || repCommandsInFlight.has(cmdId)) continue;
+        if (cmdExecKey && executedCommandsPersistent.has(cmdExecKey)) continue;
+        if (executedCommandsPersistent.has(cmdId) && cmdExecId) {
+          executedCommandsPersistent.delete(cmdId);
+          saveExecutedCommandIds(executedCommandsPersistent);
+        }
         repCommandsInFlight.add(cmdId);
         void executeRepCommand(cmd)
           .catch((cmdErr) => {
