@@ -28,6 +28,7 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
     (reason: string) => {
       if (loginNavigationIssuedRef.current) return;
       loginNavigationIssuedRef.current = true;
+      observabilityConsole.info('[AUTH-FLOW] REDIRECT LOGIN', { reason, to: '/login', from: location.pathname });
       if (import.meta.env?.DEV) {
         observabilityConsole.info('[AUTH REDIRECT]', { reason, to: '/login' });
       }

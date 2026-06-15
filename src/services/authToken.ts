@@ -1,4 +1,5 @@
 import { clearCsrfToken } from './csrfToken';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 const COOKIE_SESSION_TOKEN = '__http_only_cookie_session__';
 const AUTH_TOKEN_STORAGE_KEY = 'pwd_auth_token';
@@ -47,15 +48,18 @@ export function setToken(token: string | null): void {
   if (isCookieMarker(next)) {
     cookieSessionActive = true;
     clearLegacyStoredTokens();
+    observabilityConsole.info('[AUTH-FLOW] TOKEN SAVED', { mode: 'cookie' });
     return;
   }
 
   bearerTokenCache = next;
   cookieSessionActive = true;
   clearLegacyStoredTokens();
+  observabilityConsole.info('[AUTH-FLOW] TOKEN SAVED', { mode: 'bearer' });
 }
 
 export function clearToken(): void {
+  observabilityConsole.info('[AUTH-FLOW] TOKEN REMOVED', { source: 'authToken.clearToken' });
   setToken(null);
 }
 

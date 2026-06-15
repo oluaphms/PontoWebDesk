@@ -272,7 +272,7 @@ const translations: Record<Language, Record<string, string>> = {
     'punch.typeIntervalExit': 'Intervalo (saída)',
     'punch.typeIntervalReturn': 'Intervalo (retorno)',
     // Dashboard funcionário
-    'dashboard.employeeTitle': 'Dashboard',
+    'dashboard.employeeTitle': 'Página Inicial',
     'dashboard.employeeSubtitle': 'Visão geral do seu ponto e solicitações',
     'dashboard.myScheduleCta': 'Horário, escala e jornada',
     'menu.myWorkSchedule': 'Horário e escala',
@@ -648,7 +648,7 @@ const translations: Record<Language, Record<string, string>> = {
     'punch.typeBreak': 'Break',
     'punch.typeIntervalExit': 'Break (out)',
     'punch.typeIntervalReturn': 'Break (return)',
-    'dashboard.employeeTitle': 'Dashboard',
+    'dashboard.employeeTitle': 'Home',
     'dashboard.employeeSubtitle': 'Overview of your time and requests',
     'dashboard.myScheduleCta': 'Schedule & work hours',
     'menu.myWorkSchedule': 'Schedule & hours',

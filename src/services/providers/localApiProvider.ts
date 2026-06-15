@@ -16,6 +16,10 @@ export const localApiProvider: IDataProvider = {
       const csrfToken = String(data?.csrfToken || '').trim();
       setToken(token || '__http_only_cookie_session__');
       if (csrfToken) setCsrfToken(csrfToken);
+      console.info('[AUTH-FLOW] TOKEN SAVED', {
+        mode: token ? 'bearer' : 'cookie',
+        userId: (data.user as Record<string, unknown> | undefined)?.id ?? null,
+      });
       return data;
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;

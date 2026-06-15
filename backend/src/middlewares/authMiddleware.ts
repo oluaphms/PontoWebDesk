@@ -5,6 +5,10 @@ import { resolveCallerFromDb } from '../services/callerContextService.js';
 import { updateRequestContext } from '../logger/logger.context.js';
 import { getAuthCookie } from '../security/authCookies.js';
 import { resolveAuthToken } from '../security/sessionToken.js';
+import { resolveCallerFromDb } from '../services/callerContextService.js';
+import { updateRequestContext } from '../logger/logger.context.js';
+import { getAuthCookie } from '../security/authCookies.js';
+import { resolveAuthToken } from '../security/sessionToken.js';
 import { logger } from '../logger/logger.js';
 
 export type JwtPayload = {
@@ -26,6 +30,10 @@ function authError(res: Response, status: number, error: string, code = error): 
     error,
     code,
   });
+}
+
+function normCompanyId(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
 }
 
 export async function authMiddleware(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -86,22 +94,31 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
         logger.warn({
           module: 'auth.middleware',
           action: 'AUTH_USER_NOT_FOUND',
-          message: 'Token válido, mas usuário não foi localizado no banco',
+          message: '[AUTH-FLOW] USER_NOT_FOUND — resolveCallerFromDb retornou null',
           userId: decoded.userId ?? decoded.sub ?? null,
           companyId: decoded.companyId ?? null,
-          meta: { method: req.method, path: req.originalUrl },
+          meta: { method: req.method, path: req.originalUrl, jwtCompanyId: decoded.companyId ?? null },
         });
         authError(res, 401, 'user_not_found', 'AUTH_USER_NOT_FOUND');
         return;
       }
-      if (caller.companyId !== String(decoded.companyId || '').trim()) {
+      const jwtCompanyId = normCompanyId(decoded.companyId);
+      const dbCompanyId = normCompanyId(caller.companyId);
+      if (dbCompanyId !== jwtCompanyId) {
         logger.warn({
           module: 'auth.middleware',
           action: 'AUTH_TENANT_CHANGED',
-          message: 'Empresa do token diverge da empresa atual do usuário',
+          message: '[AUTH-FLOW] TENANT_CHANGED — empresa do JWT diverge do banco',
           userId: caller.userId,
           companyId: caller.companyId,
-          meta: { tokenCompanyId: decoded.companyId ?? null, method: req.method, path: req.originalUrl },
+          meta: {
+            tokenCompanyId: decoded.companyId ?? null,
+            dbCompanyId: caller.companyId,
+            jwtCompanyIdNorm: jwtCompanyId,
+            dbCompanyIdNorm: dbCompanyId,
+            method: req.method,
+            path: req.originalUrl,
+          },
         });
         authError(res, 401, 'tenant_changed', 'AUTH_TENANT_CHANGED');
         return;

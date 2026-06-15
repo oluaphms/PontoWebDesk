@@ -2,6 +2,7 @@ import { normalizeApiBase as normalizeApiBaseFromEnv } from '../config/env';
 import { clearToken, getToken, isCookieSessionToken, setToken } from './authToken';
 import { getCsrfToken } from './csrfToken';
 import { logger } from '../shared/logger/logger';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 type UnauthorizedHandler = () => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
@@ -216,8 +217,20 @@ async function parseResponse<T>(
   const ok = typeof resLike.ok === 'boolean' ? resLike.ok : status >= 200 && status < 300;
   if (!ok) {
     if (status === 401 && shouldClearSessionOnUnauthorized(body)) {
+      const code = authFailureCode(body);
+      observabilityConsole.info('[AUTH-FLOW] API 401', {
+        path: normalizeApiPath(context.path),
+        code,
+        triggersLogout: true,
+      });
       clearToken();
+      observabilityConsole.info('[AUTH-FLOW] TOKEN REMOVED', { source: 'api.parseResponse', code });
       unauthorizedHandler?.();
+    } else if (status === 403) {
+      observabilityConsole.info('[AUTH-FLOW] API 403', {
+        path: normalizeApiPath(context.path),
+        code: authFailureCode(body),
+      });
     }
     const errMsg = extractApiErrorMessage(body, status);
     const errorContext = {

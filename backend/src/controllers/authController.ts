@@ -43,6 +43,13 @@ export async function loginController(req: Request, res: Response): Promise<void
       csrfToken,
       ...(returnTokenInBody ? { token: result.token } : {}),
     });
+    logger.info({
+      module: 'auth.login',
+      action: 'AUTH_LOGIN_SUCCESS',
+      message: '[AUTH-FLOW] LOGIN SUCCESS',
+      userId: result.user.id,
+      companyId: result.user.company_id,
+    });
   } catch (e) {
     logger.error({
       module: 'auth.login',

@@ -53,4 +53,27 @@ describe('authMiddleware production hardening', () => {
     expect(next).toHaveBeenCalledTimes(1);
     expect(req.auth?.companyId).toBe('company-a');
   });
+
+  it('aceita companyId com diferença apenas de caixa entre JWT e banco', async () => {
+    const companyUuid = '550e8400-e29b-41d4-a716-446655440000';
+    resolveCallerFromDb.mockResolvedValue({
+      userId: 'user-1',
+      companyId: companyUuid.toUpperCase(),
+      role: 'admin',
+    });
+    const token = jwt.sign(
+      { sub: 'user-1', companyId: companyUuid.toLowerCase(), role: 'admin' },
+      process.env.JWT_SECRET!,
+    );
+    const req = {
+      headers: { authorization: `Bearer ${token}` },
+      method: 'GET',
+      originalUrl: '/api/auth/me',
+    } as AuthedRequest;
+    const next = vi.fn();
+
+    await authMiddleware(req, {} as Response, next as NextFunction);
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
 });
