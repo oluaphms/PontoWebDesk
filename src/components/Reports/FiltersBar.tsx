@@ -111,25 +111,25 @@ export const FiltersBar: React.FC<FiltersBarProps> = ({
       case 'dateRange':
         const [start, end] = filter.value || ['', ''];
         return (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-0">
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
               {filter.icon || <Calendar className="w-3 h-3" />}
               {filter.label}
             </label>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 min-[480px]:grid-cols-[1fr_auto_1fr] gap-2 items-center">
               <input
                 type="date"
                 value={start}
                 onChange={(e) => filter.onChange([e.target.value, end])}
-                className={`${baseClass} flex-1`}
+                className={baseClass}
                 disabled={loading}
               />
-              <span className="text-slate-400">→</span>
+              <span className="hidden min-[480px]:block text-slate-400 text-center">→</span>
               <input
                 type="date"
                 value={end}
                 onChange={(e) => filter.onChange([start, e.target.value])}
-                className={`${baseClass} flex-1`}
+                className={baseClass}
                 disabled={loading}
               />
             </div>
@@ -185,15 +185,18 @@ export const FiltersBar: React.FC<FiltersBarProps> = ({
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
       {/* Header com filtros principais */}
       <div className="p-4">
-        <div className="flex flex-wrap items-end gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
           {filters.slice(0, 4).map((filter) => (
-            <div key={filter.id} className="flex-1 min-w-[200px]">
+            <div
+              key={filter.id}
+              className={`min-w-0 ${filter.type === 'dateRange' ? 'sm:col-span-2' : ''}`}
+            >
               {renderFilter(filter)}
             </div>
           ))}
 
           {/* Botões de ação */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-4 xl:justify-end">
             {hasActiveFilters && onClear && (
               <Button
                 variant="ghost"

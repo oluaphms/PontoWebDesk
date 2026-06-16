@@ -24,6 +24,8 @@ import {
   type RowAction,
 } from '../../../components/Reports';
 import { buildEmployeeNameMap, nameFromMap, reportCompanyLabel } from './reportEmployeeLookup';
+import { buildEmployeeRecordIdMap } from './reportTimesheetMonth';
+import { fetchEmployees } from '../../../services/employeesApi.service';
 import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
 
 interface InconsistencyRow {
@@ -54,12 +56,34 @@ const severityMap: Record<string, 'Leve' | 'Média' | 'Crítica'> = {
   invalid_sequence: 'Média',
 };
 
+function isActiveCollaborator(row: { status?: string; invisivel?: boolean }): boolean {
+  if (row.invisivel === true) return false;
+  const status = String(row.status ?? 'active').toLowerCase();
+  return status !== 'inactive' && status !== 'inativo' && status !== 'dismissed' && status !== 'demitido';
+}
+
 const ReportInconsistencies: React.FC = () => {
   const { user, loading } = useCurrentUser();
   const { employees: companyEmployees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [rows, setRows] = useState<InconsistencyRow[]>([]);
-  const [employees, setEmployees] = useState<Map<string, string>>(new Map());
+  const [recordIdMap, setRecordIdMap] = useState<Map<string, string[]>>(new Map());
   const [loadingData, setLoadingData] = useState(false);
+
+  const activeEmployees = useMemo(
+    () => companyEmployees.filter(isActiveCollaborator),
+    [companyEmployees],
+  );
+
+  const validRecordIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const list of recordIdMap.values()) {
+      for (const id of list) ids.add(id);
+    }
+    for (const emp of activeEmployees) {
+      if (emp.id) ids.add(emp.id);
+    }
+    return ids;
+  }, [recordIdMap, activeEmployees]);
 
   // Filtros
   const [periodStart, setPeriodStart] = useState(() => {
@@ -94,33 +118,51 @@ const ReportInconsistencies: React.FC = () => {
               500
             )) as any[];
 
-            const empMap = await buildEmployeeNameMap(cid, companyEmployees);
+            const apiEmployees = (await fetchEmployees(cid)).filter(isActiveCollaborator);
+            const users = (await db.select(
+              'users',
+              [{ column: 'company_id', operator: 'eq', value: cid }],
+              { columns: 'id,email', limit: 1000 },
+            ).catch(() => [])) as { id?: string; email?: string }[];
 
-            const rowsWithNames = (incRows ?? []).map((r: any) => ({
-              ...r,
-              employee_name: nameFromMap(empMap, r.employee_id),
-              severity: severityMap[r.type] || 'Média',
-            }));
+            const idMap = buildEmployeeRecordIdMap(apiEmployees, users ?? []);
+            const empMap = await buildEmployeeNameMap(cid, apiEmployees);
 
-            return { empMap, rowsWithNames };
+            const rowsWithNames = (incRows ?? [])
+              .filter((r: any) => {
+                const eid = String(r.employee_id ?? '').trim();
+                return eid && [...idMap.values()].some((ids) => ids.includes(eid));
+              })
+              .map((r: any) => ({
+                ...r,
+                employee_name: nameFromMap(empMap, r.employee_id),
+                severity: severityMap[r.type] || 'Média',
+              }));
+
+            return { idMap, rowsWithNames };
           },
           TTL.NORMAL,
         );
 
         if (isCancelled()) return;
-        setEmployees(mapped.empMap);
+        setRecordIdMap(mapped.idMap);
         setRows(mapped.rowsWithNames);
       } finally {
         if (!isCancelled()) setLoadingData(false);
       }
     },
-    [user?.companyId, periodStart, periodEnd, companyEmployees],
+    [user?.companyId, periodStart, periodEnd],
   );
 
   // Dados filtrados
   const filteredRows = useMemo(() => {
+    const filterRecordIds = filterEmployee
+      ? new Set(recordIdMap.get(filterEmployee) ?? [filterEmployee])
+      : null;
+
     return rows.filter((r) => {
-      if (filterEmployee && r.employee_id !== filterEmployee) return false;
+      if (!validRecordIds.has(r.employee_id)) return false;
+      if (filterRecordIds && !filterRecordIds.has(r.employee_id)) return false;
       if (filterType && r.type !== filterType) return false;
       if (filterSeverity && r.severity !== filterSeverity) return false;
       if (filterResolved === 'open' && r.resolved) return false;
@@ -128,7 +170,7 @@ const ReportInconsistencies: React.FC = () => {
       if (r.date < periodStart || r.date > periodEnd) return false;
       return true;
     });
-  }, [rows, filterEmployee, filterType, filterSeverity, filterResolved, periodStart, periodEnd]);
+  }, [rows, filterEmployee, filterType, filterSeverity, filterResolved, periodStart, periodEnd, recordIdMap, validRecordIds]);
 
   // KPIs
   const kpis: KPIData[] = useMemo(() => {
@@ -189,9 +231,9 @@ const ReportInconsistencies: React.FC = () => {
       value: filterEmployee,
       onChange: setFilterEmployee,
       placeholder: 'Todos',
-      options: Array.from(employees.entries()).map(([id, name]) => ({
-        value: id,
-        label: name,
+      options: activeEmployees.map((e) => ({
+        value: e.id,
+        label: e.nome,
       })),
     },
     {
@@ -226,7 +268,7 @@ const ReportInconsistencies: React.FC = () => {
       value: filterResolved === 'open',
       onChange: (checked: boolean) => setFilterResolved(checked ? 'open' : 'all'),
     },
-  ], [employees, filterEmployee, filterType, filterSeverity, filterResolved, periodStart, periodEnd]);
+  ], [activeEmployees, filterEmployee, filterType, filterSeverity, filterResolved, periodStart, periodEnd]);
 
   // Colunas da tabela
   const columns: Column<InconsistencyRow>[] = useMemo(() => [

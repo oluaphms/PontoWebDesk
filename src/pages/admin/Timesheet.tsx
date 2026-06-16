@@ -11,6 +11,7 @@ import { LoadingState, Button } from '../../../components/UI';
 import { ChevronDown, ChevronRight, FileDown, FileSpreadsheet, Lock, Plus, RefreshCw, Unlock, Upload } from 'lucide-react';
 import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
+import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
 import { SkeletonFiltro, TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
 import {
   buildDayMirrorSummary,
@@ -214,6 +215,26 @@ function recordWithGeocodeSnapshot(record: TimeRecord, snapshot: GeocodeSnapshot
   };
 }
 
+function formatPunchPhotoLabel(record: TimeRecord): string {
+  const iso = record.created_at || (record as { timestamp?: string }).timestamp;
+  if (!iso) return 'Ver foto';
+  try {
+    return new Date(String(iso)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return 'Ver foto';
+  }
+}
+
+function PunchPhotoInGeoDetails({ record }: { record: TimeRecord }) {
+  const photoUrl = resolvePunchPhotoUrl(record);
+  if (!photoUrl) return null;
+  return (
+    <div className="mt-1">
+      <AdminPunchPhotoViewer photoUrl={photoUrl} label={formatPunchPhotoLabel(record)} />
+    </div>
+  );
+}
+
 function GeoDetailsToggle({
   record,
   notApplicable,
@@ -286,6 +307,7 @@ function GeoDetailsToggle({
                 <div key={line}>{line}</div>
               ))}
             </div>
+            <PunchPhotoInGeoDetails record={record} />
           </div>
         </div>
       );
@@ -294,6 +316,7 @@ function GeoDetailsToggle({
       <div className="text-[10px] text-slate-500 dark:text-slate-400">
         <span className="font-semibold">GPS:</span>{' '}
         {notApplicable ? 'não se aplica (Relógio REP)' : '—'}
+        <PunchPhotoInGeoDetails record={record} />
       </div>
     );
   }
@@ -311,6 +334,7 @@ function GeoDetailsToggle({
             ))}
           </div>
         )}
+        <PunchPhotoInGeoDetails record={record} />
       </div>
       {geoQuality && (
         <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">

@@ -10,6 +10,7 @@ import { assertPlanLimit, PlanLimitError, PLAN_LIMIT_CODE } from '../../services
 import { getSecureCorsHeaders, requireTrustedOrigin } from './security.js';
 import { noCache } from './cache.js';
 import { verifyRepAgentToken } from './repAgentAuth.js';
+import { computeRepPunchHash } from './repPunchHash.js';
 import { syncEspelhoAfterRepPromote } from '../../modules/rep-integration/repTimesheetMirror.js';
 
 /** Corpo mínimo POST /api/rep/punch (sem depender de módulos REP externos). */
@@ -718,14 +719,6 @@ export async function handleRepPunchRpcLite(request: Request): Promise<Response>
       nsrNumber = Math.trunc(n);
     }
 
-    let url: string;
-    let serviceKey: string;
-    try {
-      ({ url, serviceKey } = getSupabaseConfig());
-    } catch {
-      repLog('error', 'missing_supabase_env', {});
-      return jsonResponse(headersJson, 500, { error: 'ENV_MISSING_SUPABASE' });
-    }
     repLog('info', 'supabase_env_resolved', {
       using: getSupabaseUrlSource(),
       has_service_role_key: !!serviceKey,

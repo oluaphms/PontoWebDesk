@@ -5,6 +5,7 @@ import { DoorOpen, FileCheck, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { apiDelete, ApiError } from '../../services/api';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 
@@ -781,6 +782,38 @@ const AdminJustificativas: React.FC = () => {
     }
   };
 
+  const handleExcluirSelecionado = async () => {
+    if (!selectedRow || user?.role !== 'admin') return;
+    if (selectedRow.sistema) {
+      setMessage({ type: 'error', text: 'Justificativas do sistema não podem ser excluídas.' });
+      return;
+    }
+    if (
+      !confirm(
+        `Excluir permanentemente "${selectedRow.descricao}"? Esta ação não pode ser desfeita e pode falhar se a justificativa estiver em uso.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiDelete(`/admin/justificativas/${encodeURIComponent(selectedRow.id)}`);
+      setSelectedId(null);
+      setEditingId(null);
+      setAuditRows([]);
+      setMessage({ type: 'success', text: 'Justificativa excluída.' });
+      await load();
+    } catch (e) {
+      let text = errorText(e, 'Erro ao excluir justificativa.');
+      if (e instanceof ApiError && e.status === 404) {
+        text +=
+          ' Verifique na VPS: git pull, migration 20260616220000_justificativas_allow_admin_delete.sql e pm2 restart pontoweb-api.';
+      }
+      setMessage({ type: 'error', text });
+    }
+  };
+
+  const canExcluir = user?.role === 'admin';
+
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
@@ -809,6 +842,17 @@ const AdminJustificativas: React.FC = () => {
       >
         <Trash2 className="h-4 w-4 shrink-0" /> {selectedRow?.ativa === false ? 'Reativar' : 'Inativar'}
       </button>
+      {canExcluir && (
+        <button
+          type="button"
+          onClick={handleExcluirSelecionado}
+          disabled={!selectedId || selectedRow?.sistema === true}
+          className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:pointer-events-none disabled:opacity-45 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+          title={selectedRow?.sistema ? 'Justificativas do sistema não podem ser excluídas' : 'Excluir permanentemente'}
+        >
+          <Trash2 className="h-4 w-4 shrink-0" /> Excluir
+        </button>
+      )}
       <button
         type="button"
         onClick={handleFechar}

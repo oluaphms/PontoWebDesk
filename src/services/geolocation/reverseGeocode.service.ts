@@ -30,7 +30,7 @@ import { geoPipelineDiag, opLog } from '../../utils/operationalLogger';
 
 function logReverseGeocodeApiFailure(apiError: unknown, lat: number, lng: number, extra?: Record<string, unknown>): void {
   const msg = apiError instanceof Error ? apiError.message : String(apiError);
-  const softHttp = /reverse_geocode_http_(408|502|503|504)/.test(msg);
+  const softHttp = /reverse_geocode_http_(408|500|502|503|504)/.test(msg);
   if (softHttp) {
     geoPipelineDiag('GEO REVERSE API UNAVAILABLE', { lat, lng, message: msg, ...extra });
     return;

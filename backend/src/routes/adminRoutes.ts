@@ -1,12 +1,13 @@
 import { observabilityConsole } from '../logger/observabilityConsole.js';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
-import { requireAdminOrHr } from '../middlewares/requireRole.js';
+import { requireAdminOrHr, requireAdminOnly } from '../middlewares/requireRole.js';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
 import type { Response } from 'express';
 import { requireCompanyId } from '../utils/authContext.js';
 import { adminSetPasswordController } from '../controllers/adminSetPasswordController.js';
+import { deleteJustificativaController } from '../controllers/justificativasController.js';
 import {
   getGlobalSettingsController,
   upsertGlobalSettingsController,
@@ -33,6 +34,8 @@ router.post('/set-password', rateLimit({
     return String(body.email ?? body.Email ?? '');
   },
 }), adminSetPasswordController);
+
+router.delete('/justificativas/:id', requireAdminOnly, deleteJustificativaController);
 
 router.get('/health-scope', async (req: AuthedRequest, res: Response) => {
   const companyId = requireCompanyId(req, res);

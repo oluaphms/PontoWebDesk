@@ -10,7 +10,6 @@ import { buscarColaboradores, buscarDepartamentos } from '../../../services/api'
 import { fetchEmployees } from '../../services/employeesApi.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
-import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
 import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
 
 const MAX_PONTO_DIARIO_RANGE_DAYS = 31;
@@ -53,7 +52,6 @@ type PontoRow = {
   employee: EmployeeRow;
   entradas: (string | null)[];
   saidas: (string | null)[];
-  photoRecords: any[];
   meta: DayMeta;
   workedHours: string;
 };
@@ -266,7 +264,6 @@ const AdminPontoDiario: React.FC = () => {
         employee: emp,
         entradas,
         saidas,
-        photoRecords: recs.filter((r: any) => resolvePunchPhotoUrl(r)),
         meta: getMetaForDay(emp.id, dayYmd),
         workedHours: workedLabel,
       };
@@ -347,7 +344,6 @@ const AdminPontoDiario: React.FC = () => {
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 2</th>
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 3</th>
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 3</th>
-            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Fotos</th>
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Comp</th>
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ref</th>
             <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ajuste</th>
@@ -373,21 +369,6 @@ const AdminPontoDiario: React.FC = () => {
                 <td className="px-3 py-1.5 tabular-nums">{row.saidas[1] ? timeStr(row.saidas[1]) : '—'}</td>
                 <td className="px-3 py-1.5 tabular-nums">{row.entradas[2] ? timeStr(row.entradas[2]) : '—'}</td>
                 <td className="px-3 py-1.5 tabular-nums">{row.saidas[2] ? timeStr(row.saidas[2]) : '—'}</td>
-                <td className="px-3 py-1.5">
-                  {row.photoRecords.length ? (
-                    <div className="flex flex-wrap gap-1">
-                      {row.photoRecords.map((record: any) => (
-                        <AdminPunchPhotoViewer
-                          key={String(record.id ?? `${record.created_at}-${record.type}`)}
-                          photoUrl={resolvePunchPhotoUrl(record)}
-                          label={timeStr(record.created_at)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </td>
                 <td className="px-3 py-1.5 text-center">
                   <input
                     type="checkbox"

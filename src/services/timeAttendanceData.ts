@@ -1,4 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
+import { isDataApiWritesDisabled, isDataApiWritesDisabledError } from './api';
 /**
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
@@ -1778,6 +1779,7 @@ export function isTrendWorsening(trend: AuditTrendRow[]): boolean {
 
 async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAttendanceAuditSummary): Promise<void> {
   if (!isSupabaseConfigured() || !companyId.trim()) return;
+  if (isDataApiWritesDisabled()) return;
   if (!isDefaultCivilMonthRange(summary.period_start, summary.period_end)) return;
 
   const snapshotDate = civilDateTodayLocal();
@@ -1818,6 +1820,18 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
     );
     auditSnapshotFailures.delete(failureKey);
   } catch (e) {
+    if (isDataApiWritesDisabledError(e)) {
+      auditSnapshotFailures.set(failureKey, {
+        attempts: 1,
+        nextRetryAt: Number.MAX_SAFE_INTEGER,
+        disabled: true,
+      });
+      observabilityConsole.info('[TIME ATTENDANCE AUDIT SNAPSHOT] server writes disabled — snapshot skipped', {
+        companyId,
+        snapshotDate,
+      });
+      return;
+    }
     const attempts = (failure?.attempts ?? 0) + 1;
     const disabled = attempts >= AUDIT_SNAPSHOT_MAX_RETRIES;
     const delay = Math.min(

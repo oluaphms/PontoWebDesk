@@ -6,6 +6,24 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 type UnauthorizedHandler = () => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
+/** Definido após o primeiro 403 `data_api_writes_disabled` da API genérica `/data`. */
+let dataApiWritesDisabledFlag = false;
+
+export function isDataApiWritesDisabled(): boolean {
+  return dataApiWritesDisabledFlag;
+}
+
+export function isDataApiWritesDisabledResponse(status: number, body: unknown): boolean {
+  return status === 403 && authFailureCode(body) === 'data_api_writes_disabled';
+}
+
+export function isDataApiWritesDisabledError(error: unknown): boolean {
+  return error instanceof ApiError && isDataApiWritesDisabledResponse(error.status, error.body);
+}
+
+function markDataApiWritesDisabled(): void {
+  dataApiWritesDisabledFlag = true;
+}
 
 /** Registra callback global para 401 (logout automático). */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
@@ -233,6 +251,10 @@ async function parseResponse<T>(
       });
     }
     const errMsg = extractApiErrorMessage(body, status);
+    const writesDisabled = isDataApiWritesDisabledResponse(status, body);
+    if (writesDisabled) {
+      markDataApiWritesDisabled();
+    }
     const errorContext = {
       method: context.method,
       path: context.path,
@@ -245,6 +267,8 @@ async function parseResponse<T>(
     const consoleMessage = `API ERROR ${context.method} ${context.path} ${status}: ${errMsg}`;
     if (status === 401 && normalizeApiPath(context.path) === '/auth/me') {
       console.warn(consoleMessage, errorContext);
+    } else if (writesDisabled) {
+      observabilityConsole.info('[API] DATA_API_WRITES_DISABLED (expected)', errorContext);
     } else {
       console.error(consoleMessage, errorContext);
       if (context.method === 'PATCH' || context.method === 'PUT') {
@@ -258,20 +282,35 @@ async function parseResponse<T>(
         });
       }
     }
-    logger.error({
-      module: 'frontend.api',
-      action: 'API_REQUEST_FAILED',
-      message: errMsg,
-      correlationId: currentCorrelationId || undefined,
-      meta: {
-        method: context.method,
-        path: context.path,
-        url: context.url,
-        status,
-        response: body,
-        payloadKeys: payloadKeys(context.requestBody),
-      },
-    });
+    if (writesDisabled) {
+      logger.warn({
+        module: 'frontend.api',
+        action: 'DATA_API_WRITES_DISABLED',
+        message: errMsg,
+        correlationId: currentCorrelationId || undefined,
+        meta: {
+          method: context.method,
+          path: context.path,
+          url: context.url,
+          status,
+        },
+      });
+    } else {
+      logger.error({
+        module: 'frontend.api',
+        action: 'API_REQUEST_FAILED',
+        message: errMsg,
+        correlationId: currentCorrelationId || undefined,
+        meta: {
+          method: context.method,
+          path: context.path,
+          url: context.url,
+          status,
+          response: body,
+          payloadKeys: payloadKeys(context.requestBody),
+        },
+      });
+    }
     throw new ApiError(errMsg, status, body, {
       method: context.method,
       path: context.path,
