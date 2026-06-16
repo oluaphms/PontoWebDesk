@@ -6,7 +6,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
-import { buscarColaboradores } from '../../../services/api';
+import { buscarColaboradores, buscarDepartamentos } from '../../../services/api';
 import { fetchEmployees } from '../../services/employeesApi.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
@@ -26,10 +26,27 @@ type EmployeeRow = {
   nome: string;
   cargo?: string;
   department_id?: string;
-  schedule_id?: string;
+  shift_id?: string;
   /** IDs em time_records (colaborador + usuário vinculado, como no Espelho). */
   record_user_ids: string[];
 };
+
+type FilterOption = { id: string; name: string };
+
+function formatWorkShiftLabel(s: {
+  number?: string;
+  description?: string;
+  name?: string;
+  start_time?: string;
+  end_time?: string;
+}): string {
+  const num = (s.number && String(s.number).trim()) || '';
+  const title = String(s.description || s.name || '').trim() || 'Horário';
+  const st = s.start_time != null ? String(s.start_time).slice(0, 5) : '';
+  const en = s.end_time != null ? String(s.end_time).slice(0, 5) : '';
+  const range = st && en ? `${st}–${en}` : '';
+  return [num ? `#${num}` : '', title, range].filter(Boolean).join(' · ');
+}
 
 type PontoRow = {
   dayYmd: string;
@@ -62,6 +79,8 @@ const AdminPontoDiario: React.FC = () => {
   const readOnly = location.pathname === '/admin/ponto-diario-leitura';
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [departments, setDepartments] = useState<FilterOption[]>([]);
+  const [workShifts, setWorkShifts] = useState<FilterOption[]>([]);
   const [records, setRecords] = useState<any[]>([]);
   const [diasMeta, setDiasMeta] = useState<Record<string, { id?: string; meta: DayMeta }>>({});
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
@@ -97,22 +116,40 @@ const AdminPontoDiario: React.FC = () => {
     const loadEmployees = async () => {
       setLoadingData(true);
       try {
-        const [colaboradores, apiEmployees, metasRows] = await Promise.all([
+        const [colaboradores, apiEmployees, metasRows, departmentsRows, shiftRows] = await Promise.all([
           buscarColaboradores(user.companyId),
           fetchEmployees(user.companyId),
           db.select('cartao_ponto_dia', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+          buscarDepartamentos(user.companyId),
+          db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
         const cargoById = new Map(apiEmployees.map((e) => [e.id, e.cargo ?? '']));
-        const scheduleById = new Map(apiEmployees.map((e) => [e.id, e.schedule_id ?? '']));
+        const shiftById = new Map(
+          apiEmployees.map((e) => [e.id, e.shift_id ?? e.work_shift_id ?? '']),
+        );
         setEmployees(
           colaboradores.map((e) => ({
             id: e.id,
             nome: e.nome,
             cargo: cargoById.get(e.id) ?? '',
             department_id: e.department_id ?? undefined,
-            schedule_id: scheduleById.get(e.id) || undefined,
+            shift_id: shiftById.get(e.id) || undefined,
             record_user_ids: e.record_user_ids?.length ? e.record_user_ids : [e.id],
           })),
+        );
+        setDepartments(
+          (departmentsRows ?? [])
+            .map((d) => ({ id: d.id, name: d.name || 'Departamento' }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+        );
+        setWorkShifts(
+          (shiftRows ?? [])
+            .filter((s: any) => s.ativo !== false)
+            .map((s: any) => ({
+              id: String(s.id),
+              name: formatWorkShiftLabel(s),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
         );
         const metaMap: Record<string, { id?: string; meta: DayMeta }> = {};
         (metasRows ?? []).forEach((row: any) => {
@@ -170,7 +207,7 @@ const AdminPontoDiario: React.FC = () => {
     return employees.filter((e) => {
       if (filterDept && e.department_id !== filterDept) return false;
       if (filterCargo && (e.cargo || '').toLowerCase() !== filterCargo.toLowerCase()) return false;
-      if (filterHorarioId && e.schedule_id !== filterHorarioId) return false;
+      if (filterHorarioId && e.shift_id !== filterHorarioId) return false;
       if (filterTipo !== 'all' && (user?.role === 'admin' || user?.role === 'hr')) {
         // role não está em employees; filtro de tipo pode ser implementado depois
       }
@@ -490,9 +527,9 @@ const AdminPontoDiario: React.FC = () => {
               className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[160px]"
             >
               <option value="">Todos</option>
-              {[...new Set(employees.map((e) => e.department_id).filter(Boolean))].map((id) => (
-                <option key={id} value={id as string}>
-                  {id}
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
                 </option>
               ))}
             </select>
@@ -519,9 +556,9 @@ const AdminPontoDiario: React.FC = () => {
               className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[140px]"
             >
               <option value="">Todos</option>
-              {[...new Set(employees.map((e) => e.schedule_id).filter(Boolean))].map((id) => (
-                <option key={id} value={id as string}>
-                  {id}
+              {workShifts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
             </select>
