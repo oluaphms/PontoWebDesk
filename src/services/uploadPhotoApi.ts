@@ -2,8 +2,7 @@
  * Upload de fotos via API VPS (PostgreSQL + disco em UPLOAD_DIR).
  * Endpoint: POST {VITE_API_URL}/uploads/photo
  */
-import { buildApiUrl } from './api';
-import { getToken, isCookieSessionToken } from './authToken';
+import { buildApiUrl, buildSessionAuthHeaders } from './api';
 import { readFileHead } from '../shared/upload/fileValidation';
 import { detectImageMime } from '../shared/upload/magicBytes';
 import { inferImageExtensionFromMime, normalizeImageMimeType } from '../shared/upload/normalizeMime';
@@ -38,7 +37,6 @@ export async function uploadPhotoViaApi(
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const kind = input.kind ?? ('file' in input && input.file.name.includes('avatar') ? 'avatar' : 'punch');
   const policy = uploadProfile(kind);
-  const token = getToken();
 
   let contentBase64: string;
   let filename: string;
@@ -123,7 +121,7 @@ export async function uploadPhotoViaApi(
       method: 'POST',
       credentials: 'include',
       headers: {
-        ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+        ...buildSessionAuthHeaders(),
         'Content-Type': 'application/json',
       },
       body: payload,
