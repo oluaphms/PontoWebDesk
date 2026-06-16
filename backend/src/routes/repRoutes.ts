@@ -23,6 +23,11 @@ import {
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { repAgentVersionController } from '../controllers/repAgentVersionController.js';
 import { repDeviceCredentialsController } from '../controllers/repDeviceCredentialsController.js';
+import {
+  createRepDeviceController,
+  deleteRepDeviceController,
+  patchRepDeviceController,
+} from '../controllers/repDeviceWriteController.js';
 import { repApiRateLimit } from '../middlewares/apiRateLimitPresets.js';
 
 const router = Router();
@@ -30,6 +35,9 @@ const router = Router();
 router.use(repApiRateLimit);
 
 router.get('/agent-version', repAgentVersionController);
+router.post('/devices', authMiddleware, createRepDeviceController);
+router.patch('/devices/:deviceId', authMiddleware, patchRepDeviceController);
+router.delete('/devices/:deviceId', authMiddleware, deleteRepDeviceController);
 router.post('/devices/:deviceId/credentials', authMiddleware, repDeviceCredentialsController);
 
 router.post('/punches', repPunchesController);

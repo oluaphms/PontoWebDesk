@@ -1,5 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import { db, getSupabaseClient } from '../../services/supabaseClient';
+import { getSupabaseClient } from '../../services/supabaseClient';
+import { deleteRepDeviceApi, patchRepDevice } from './repDeviceWrite.service';
 
 export type RepDeviceAuditAction = 'DELETE' | 'DEACTIVATE';
 
@@ -136,10 +137,9 @@ export async function deactivateRepDevice(
   const row = await assertDeviceInCompany(deviceId, options?.companyId);
   const performedBy = options?.performedBy ?? (await getAuthUserId());
 
-  await db.update('rep_devices', deviceId, {
+  await patchRepDevice(deviceId, {
     ativo: false,
     status: 'inativo',
-    updated_at: new Date().toISOString(),
   });
 
   await writeRepDeviceAuditLog({
@@ -164,7 +164,7 @@ async function hardDeleteRepDevice(
   const row = await assertDeviceInCompany(deviceId, options?.companyId);
   const performedBy = options?.performedBy ?? (await getAuthUserId());
 
-  await db.delete('rep_devices', deviceId);
+  await deleteRepDeviceApi(deviceId);
 
   await writeRepDeviceAuditLog({
     companyId: row.company_id,

@@ -50,6 +50,7 @@ import type { RepExchangeOp, RepUserFromDevice } from '../../../../modules/rep-i
 import { upsertTimeClockDeviceMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { stripRepSecretsFromConfigExtra, isRepPasswordConfigured } from '../../../utils/repDeviceConfigExtra';
 import { saveRepDevicePassword } from '../../../services/repDeviceCredentials.service';
+import { createRepDevice, patchRepDevice, setRepDeviceStatus } from '../../../services/repDeviceWrite.service';
 import type { RepDeviceRowForMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { invalidateCompanyListCaches } from '../../../services/queryCache';
 import { invalidateRepPendingQueries } from '../../../lib/reactQueryInvalidation';
@@ -720,10 +721,7 @@ const AdminRepDevices: React.FC = () => {
             appendSrLog(`Status / conexão: ${okText}`);
             appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
           }
-          await db.update('rep_devices', id, {
-            status: 'ativo',
-            updated_at: new Date().toISOString(),
-          });
+          await setRepDeviceStatus(id, 'ativo');
           await loadDevices();
         } else {
           const device = devices.find((d) => d.id === id) ?? null;
@@ -792,10 +790,7 @@ const AdminRepDevices: React.FC = () => {
     try {
       const r = await testRepDeviceConnection(supabase, id);
       if (r.ok) {
-        await db.update('rep_devices', id, {
-          status: 'ativo',
-          updated_at: new Date().toISOString(),
-        });
+        await setRepDeviceStatus(id, 'ativo');
         await loadDevices();
       }
       const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Não foi possível conectar ao dispositivo.');
@@ -1245,10 +1240,7 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog(`Erro: ${(e as Error).message}`);
       setMessage({ type: 'error', text: (e as Error).message });
       try {
-        await db.update('rep_devices', d.id, {
-          status: 'erro',
-          updated_at: new Date().toISOString(),
-        });
+        await setRepDeviceStatus(d.id, 'erro');
       } catch (error) {
         void error;
       }
@@ -2264,10 +2256,7 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog(r.ok ? `Status / conexão: ${msg}` : `Falha: ${msg}`);
       if (r.ok) {
         appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
-        await db.update('rep_devices', d.id, {
-          status: 'ativo',
-          updated_at: new Date().toISOString(),
-        });
+        await setRepDeviceStatus(d.id, 'ativo');
         await loadDevices();
       }
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
@@ -2470,7 +2459,7 @@ const AdminRepDevices: React.FC = () => {
         const passwordConfigured =
           isRepPasswordConfigured({ config_extra: configExtraBaseline }) || Boolean(passwordToSave);
         const config_extra = buildSafeConfigExtra(configExtraBaseline, passwordConfigured);
-        await db.update('rep_devices', editingId, {
+        await patchRepDevice(editingId, {
           nome_dispositivo: form.nome_dispositivo.trim(),
           provider_type: providerSlug,
           identifier_type: form.identifier_type,
@@ -2481,7 +2470,6 @@ const AdminRepDevices: React.FC = () => {
           tipo_conexao: form.tipo_conexao,
           ativo: form.ativo,
           config_extra,
-          updated_at: new Date().toISOString(),
         });
         if (passwordToSave) {
           const cred = await saveRepDevicePassword({
@@ -2524,8 +2512,7 @@ const AdminRepDevices: React.FC = () => {
         }
         setMessage({ type: 'success', text: 'Dispositivo atualizado.' });
       } else {
-        const inserted = (await db.insert('rep_devices', {
-          company_id: user.companyId,
+        const inserted = (await createRepDevice({
           nome_dispositivo: form.nome_dispositivo.trim(),
           provider_type: providerSlug,
           identifier_type: form.identifier_type,
