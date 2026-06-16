@@ -62,6 +62,7 @@ export async function uploadPunchPhotoWithRetry(
   }
 
   const apiUpload = await uploadPhotoViaApi({ dataUrl, kind: 'punch' });
+  observabilityConsole.info('[SELFIE-FLOW] upload iniciado', { userId, ok: apiUpload.ok });
   if (apiUpload.ok) {
     return { publicUrl: apiUpload.url, error: null, transientFailure: false };
   }

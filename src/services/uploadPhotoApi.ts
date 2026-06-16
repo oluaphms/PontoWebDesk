@@ -158,5 +158,7 @@ export async function uploadPhotoViaApi(
     });
     return { ok: false, error: data.error || `Falha no upload (${res.status})` };
   }
+  observabilityConsole.info('[SELFIE-FLOW] upload concluído', { kind, url: data.url });
+  observabilityConsole.info('[SELFIE-FLOW] url gerada', { kind, hasUrl: Boolean(data.url) });
   return { ok: true, url: data.url };
 }

@@ -40,30 +40,42 @@ export async function refreshUploadPhotoUrlController(req: AuthedRequest, res: R
   }
 
   try {
+    const pathNeedle = `/api/uploads/files/${parsed.userId}/${parsed.fileName}`;
     const result = await pool.query(
       `select 1
-         from time_records
-        where company_id = $1
+         from time_records tr
+        where tr.company_id::text = $1
+          and tr.user_id::text = $2
           and (
-            photo_url = $2
-            or raw_data->>'photo_url' = $2
+            tr.photo_url = $3
+            or tr.photo_url like $4
+            or tr.raw_data->>'photo_url' = $3
+            or tr.raw_data->>'photo_url' like $4
+            or tr.metadata->>'photo_url' = $3
+            or tr.metadata->>'photo_url' like $4
           )
         limit 1`,
-      [companyId, photoUrl],
+      [companyId, parsed.userId, photoUrl, `%${pathNeedle}%`],
     );
     if (result.rowCount === 0) {
-      res.status(404).json({ ok: false, error: 'photo_not_found' });
-      return;
+      const employeeInTenant = await pool.query(
+        `select 1 from users u where u.company_id::text = $1 and u.id::text = $2 limit 1`,
+        [companyId, parsed.userId],
+      );
+      if (employeeInTenant.rowCount === 0) {
+        res.status(404).json({ ok: false, error: 'photo_not_found' });
+        return;
+      }
     }
 
     const url = buildSignedPhotoUrl(req, parsed.userId, parsed.fileName);
     logger.info({
       module: 'upload.access',
-      action: 'ADMIN_PHOTO_URL_REFRESHED',
-      message: 'URL assinada de foto renovada para visualizacao administrativa',
+      action: 'SELFIE_FLOW_ADMIN_REFRESH',
+      message: '[SELFIE-FLOW] selfie enviada ao frontend (URL assinada renovada)',
       companyId,
       userId: req.auth?.userId ?? req.auth?.sub ?? null,
-      meta: { photoOwnerId: parsed.userId },
+      meta: { photoOwnerId: parsed.userId, fileName: parsed.fileName },
     });
     res.json({ ok: true, url });
   } catch (error) {

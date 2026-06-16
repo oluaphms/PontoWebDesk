@@ -67,6 +67,47 @@ function statusFromLastPunchType(type: unknown): string {
   return 'unknown';
 }
 
+/** Grava photo_url na coluna dedicada (RPC canônica só persiste em metadata). */
+async function enrichTimeRecordPhoto(
+  client: PoolClient,
+  recordId: string | null,
+  photoUrl: string | null,
+): Promise<void> {
+  const id = String(recordId || '').trim();
+  const url = String(photoUrl || '').trim();
+  if (!id || !url) return;
+
+  const cols = await getTimeRecordColumns();
+  const sets: string[] = [];
+  const values: unknown[] = [id];
+  let idx = 2;
+
+  if (cols.hasPhotoUrl) {
+    sets.push(`photo_url = $${idx++}`);
+    values.push(url);
+  }
+  if (cols.hasMetadata) {
+    sets.push(`metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('photo_url', $${idx++}::text)`);
+    values.push(url);
+  }
+  if (cols.hasRawData) {
+    sets.push(`raw_data = COALESCE(raw_data, '{}'::jsonb) || jsonb_build_object('photo_url', $${idx++}::text)`);
+    values.push(url);
+  }
+  if (!sets.length) return;
+
+  await client.query(
+    `UPDATE public.time_records SET ${sets.join(', ')} WHERE id::text = $1::text`,
+    values,
+  );
+  logger.info({
+    module: 'punch.service',
+    action: 'SELFIE_FLOW_PHOTO_PERSISTED',
+    message: '[SELFIE-FLOW] url salva no banco (coluna photo_url / metadata)',
+    meta: { timeRecordId: id, hasPhotoColumn: cols.hasPhotoUrl },
+  });
+}
+
 async function logLatestPunchBeforeInsert(
   client: PoolClient,
   input: { userId: string; companyId: string; timestamp: string; type: string },
@@ -430,7 +471,23 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
   }
   const photoUrl = 'url' in photoCheck ? photoCheck.url || null : null;
   if (photoUrl && !isSignedInternalUploadPhotoUrl(photoUrl)) {
+    logger.warn({
+      module: 'punch.service',
+      action: 'SELFIE_FLOW_PHOTO_REJECTED',
+      message: '[SELFIE-FLOW] URL de selfie rejeitada (assinatura inválida ou expirada)',
+      userId,
+      companyId,
+    });
     return { success: false, punch_hash: punchHash };
+  }
+  if (photoUrl) {
+    logger.info({
+      module: 'punch.service',
+      action: 'SELFIE_FLOW_PHOTO_ACCEPTED',
+      message: '[SELFIE-FLOW] URL de selfie aceita para registro',
+      userId,
+      companyId,
+    });
   }
 
   const cols = await getPunchColumns();
@@ -504,6 +561,21 @@ export async function insertPunchSafe(punch: PunchInput): Promise<{ success: boo
         punch,
       });
       mirrorRecordId = fallbackInsert.id;
+    }
+    if (mirrorRecordId && photoUrl) {
+      try {
+        await enrichTimeRecordPhoto(client, mirrorRecordId, photoUrl);
+      } catch (error) {
+        logger.warn({
+          module: 'punch.service',
+          action: 'SELFIE_FLOW_PHOTO_PERSIST_FAILED',
+          message: '[SELFIE-FLOW] falha ao gravar photo_url na coluna (metadata já contém URL)',
+          userId,
+          companyId,
+          error,
+          meta: { timeRecordId: mirrorRecordId },
+        });
+      }
     }
     logger.info({
       module: 'punch.service',

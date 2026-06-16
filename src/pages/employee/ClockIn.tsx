@@ -648,6 +648,9 @@ const EmployeeClockIn: React.FC = () => {
       if (import.meta.env?.DEV && typeof console !== 'undefined') {
         observabilityConsole.info('[ClockIn] registerPunchSecure', punchPayload);
       }
+      if (photoUrl) {
+        observabilityConsole.info('[SELFIE-FLOW] foto capturada', { hasPhoto: true, userId: user.id });
+      }
 
       const evidenceForQueue = {
         photoUrl: photoUrl || null,

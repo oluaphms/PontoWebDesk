@@ -120,10 +120,10 @@ export async function uploadPhotoController(req: AuthedRequest, res: Response): 
     const url = buildSignedPhotoUrl(req, userId, fileName);
     logger.info({
       module: 'upload.controller',
-      action: 'UPLOAD_COMPLETED',
-      message: 'Upload persistido com sucesso',
+      action: 'SELFIE_FLOW_UPLOAD_COMPLETE',
+      message: '[SELFIE-FLOW] upload concluído no servidor',
       userId: String(userId),
-      meta: { path: `${userId}/${fileName}` },
+      meta: { path: `${userId}/${fileName}`, kind },
     });
     res.json({ ok: true, url, path: `${userId}/${fileName}`, mime: detected });
   } catch (e) {
