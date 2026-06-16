@@ -5,10 +5,6 @@ import { resolveCallerFromDb } from '../services/callerContextService.js';
 import { updateRequestContext } from '../logger/logger.context.js';
 import { getAuthCookie } from '../security/authCookies.js';
 import { resolveAuthToken } from '../security/sessionToken.js';
-import { resolveCallerFromDb } from '../services/callerContextService.js';
-import { updateRequestContext } from '../logger/logger.context.js';
-import { getAuthCookie } from '../security/authCookies.js';
-import { resolveAuthToken } from '../security/sessionToken.js';
 import { logger } from '../logger/logger.js';
 
 export type JwtPayload = {
@@ -130,12 +126,13 @@ export async function authMiddleware(req: AuthedRequest, res: Response, next: Ne
         companyId: caller.companyId,
         role: caller.role,
       };
-      updateRequestContext({ userId: caller.userId, companyId: caller.companyId });
+      updateRequestContext({ userId: caller.userId, companyId: caller.companyId, role: caller.role });
     } else {
       req.auth = decoded;
       updateRequestContext({
         userId: decoded.userId ?? decoded.sub ?? null,
         companyId: decoded.companyId ?? null,
+        role: decoded.role ?? null,
       });
     }
 

@@ -84,8 +84,13 @@ const WRITE_REQUIRES_ADMIN_HR = new Set([
 ]);
 
 export function isGenericDataApiWritesEnabled(): boolean {
-  const raw = String(process.env.DATA_API_WRITES_ENABLED ?? 'true').trim().toLowerCase();
-  return raw !== 'false' && raw !== '0';
+  const explicit = String(process.env.DATA_API_WRITES_ENABLED ?? '').trim();
+  if (explicit) {
+    const raw = explicit.toLowerCase();
+    return raw !== 'false' && raw !== '0';
+  }
+  const isProduction = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  return !isProduction;
 }
 
 export function isTableReadable(table: string, role: string | undefined): boolean {

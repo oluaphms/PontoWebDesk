@@ -10,8 +10,11 @@ import {
 } from '../controllers/dataController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { dataApiWriteGate } from '../middlewares/dataApiGate.js';
+import { dataApiRateLimit } from '../middlewares/apiRateLimitPresets.js';
 
 const router = Router();
+
+router.use(dataApiRateLimit);
 
 router.get('/global_settings', authMiddleware, authenticatedGlobalSettingsController);
 router.use(authMiddleware);

@@ -256,6 +256,8 @@ async function repairLoginPasswordHash(user: AuthLoginRow, passwordHash: string)
   }
 }
 
+const AUTH_INVALID_CREDENTIALS = 'Credenciais inválidas';
+
 export async function authenticateLogin(
   body: Record<string, unknown>,
 ): Promise<AuthLoginSuccess | AuthLoginFailure> {
@@ -273,22 +275,22 @@ export async function authenticateLogin(
 
   const user = await resolveLoginUser(identifier);
   if (!user) {
-    return { status: 401, error: 'Usuário não encontrado' };
+    return { status: 401, error: AUTH_INVALID_CREDENTIALS };
   }
   if (!user.company_id) {
-    return { status: 401, error: 'Usuário sem empresa vinculada' };
+    return { status: 401, error: AUTH_INVALID_CREDENTIALS };
   }
   if (user.status && user.status !== 'active') {
-    return { status: 401, error: 'Usuário inativo' };
+    return { status: 401, error: AUTH_INVALID_CREDENTIALS };
   }
 
   if (!user.password_hash) {
-    return { status: 401, error: 'Usuário sem senha cadastrada' };
+    return { status: 401, error: AUTH_INVALID_CREDENTIALS };
   }
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) {
-    return { status: 401, error: 'Senha inválida' };
+    return { status: 401, error: AUTH_INVALID_CREDENTIALS };
   }
 
   const signOptions: SignOptions = {

@@ -5,6 +5,7 @@ export type RequestContext = {
   correlationId: string;
   userId?: string | null;
   companyId?: string | null;
+  role?: string | null;
 };
 
 export type LogEntryInput = {

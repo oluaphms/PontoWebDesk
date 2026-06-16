@@ -253,18 +253,24 @@ export function getLocalRepDeviceDisplayState(
   return connection === 'online' || connection === 'unstable' ? 'connected_via_agent' : 'awaiting_agent';
 }
 
+/** Mensagem de bloqueio de teste direto (nuvem → IP LAN). */
+export function isLanDirectAccessBlockedMessage(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  return (
+    lower.includes('rede interna da empresa') ||
+    lower.includes('rede interna') && lower.includes('agente') ||
+    lower.includes('teste direto') && lower.includes('internet')
+  );
+}
+
 /** Mensagem curta para toast / alerta (sem jargão técnico). */
 export function buildLocalRepAgentUserMessage(agentOnline = false): string {
   if (agentOnline) {
     return [
-      'Este relógio está na rede interna da empresa.',
+      'Comunicação via agente ativa.',
       '',
-      '🟢 Online via agente = o programa na empresa está rodando e enviou heartbeat ao servidor.',
-      'Isso não garante que um comando (teste, coleta ou cadastro) já foi executado — cada ação é enfileirada e o agente busca na fila a cada ~30s.',
-      '',
-      'Use «Testar conexão (via agente)» no modal «Enviar e consultar no relógio».',
-      'Para batidas: «Coletar agora» (intervalo de datas; se o relógio não tem batidas no período, retorna 0).',
-      'Para cadastro: «Enviar um» colaborador no mesmo modal.',
+      '🟢 O programa na empresa está online e enviando heartbeat ao servidor.',
+      'Use as ações do modal «Enviar e consultar no relógio» (teste, data/hora, usuários, coleta).',
     ].join('\n');
   }
   return [
@@ -304,13 +310,22 @@ export function buildLocalRepAgentGuidance(
 
 /** Erro de API genérico para o usuário (sem stack nem HTTP cru). */
 export function sanitizeRepConnectionErrorForUi(
-  device: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao' | 'last_seen_at'> | null,
+  device: Pick<RepDeviceRow, 'nome_dispositivo' | 'ip' | 'tipo_conexao' | 'last_seen_at' | 'ultima_sincronizacao'> | null,
   err: unknown,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
 ): string {
-  if (device && shouldBlockCloudRepConnectionTest(device)) {
-    return buildLocalRepAgentUserMessage(isAgentRecentlySeen(device.last_seen_at));
-  }
   const raw = err instanceof Error ? err.message : String(err || '');
+  if (device && shouldBlockCloudRepConnectionTest(device)) {
+    const agentOnline = isRepAgentOnlineForDevice(device, syncSnapshot);
+    if (agentOnline) {
+      if (isLanDirectAccessBlockedMessage(raw)) {
+        return 'Operação indisponível por teste direto na internet. Use o modal «Enviar e consultar no relógio» (via agente).';
+      }
+      if (raw.length > 180) return 'Não foi possível concluir a operação. Tente novamente.';
+      return raw || 'Não foi possível concluir a operação.';
+    }
+    return buildLocalRepAgentUserMessage(false);
+  }
   const lower = raw.toLowerCase();
   if (
     lower.includes('failed to fetch') ||
@@ -329,14 +344,21 @@ export function sanitizeRepConnectionErrorForUi(
 }
 
 export function enrichRepConnectionTestMessage(
-  device: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'tipo_conexao' | 'last_seen_at'>,
+  device: Pick<RepDeviceRow, 'id' | 'ip' | 'porta' | 'nome_dispositivo' | 'tipo_conexao' | 'last_seen_at' | 'ultima_sincronizacao'>,
   ok: boolean,
   baseMessage: string,
+  syncSnapshot?: { last_heartbeat_at?: string | null; last_seen_at?: string | null },
 ): string {
   if (ok || !isLocalAgentRepDevice(device)) return baseMessage;
   const lower = baseMessage.toLowerCase();
+  if (isRepAgentOnlineForDevice(device, syncSnapshot)) {
+    if (isLanDirectAccessBlockedMessage(baseMessage)) {
+      return 'Conectado via agente — teste direto pela internet não se aplica a este relógio.';
+    }
+    return baseMessage;
+  }
   if (lower.includes('agente') && lower.includes('192.168')) return baseMessage;
-  if (isAgentRecentlySeen(device.last_seen_at)) return baseMessage;
+  if (isAgentRecentlySeen(resolveRepAgentLastSeenForUi(device, syncSnapshot))) return baseMessage;
   return `${baseMessage}\n\n${buildLocalRepAgentGuidance(device, false)}`;
 }
 

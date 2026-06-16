@@ -23,8 +23,11 @@ import {
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { repAgentVersionController } from '../controllers/repAgentVersionController.js';
 import { repDeviceCredentialsController } from '../controllers/repDeviceCredentialsController.js';
+import { repApiRateLimit } from '../middlewares/apiRateLimitPresets.js';
 
 const router = Router();
+
+router.use(repApiRateLimit);
 
 router.get('/agent-version', repAgentVersionController);
 router.post('/devices/:deviceId/credentials', authMiddleware, repDeviceCredentialsController);

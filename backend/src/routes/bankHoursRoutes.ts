@@ -9,9 +9,11 @@ import {
   requestCompensationController,
   requestOvertimeController,
 } from '../controllers/bankHoursController.js';
+import { bankHoursApiRateLimit } from '../middlewares/apiRateLimitPresets.js';
 
 const router = Router();
 
+router.use(bankHoursApiRateLimit);
 router.use(authMiddleware);
 
 router.get('/summary', listLedgerSummaryController);

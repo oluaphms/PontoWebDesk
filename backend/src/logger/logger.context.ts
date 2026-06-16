@@ -16,4 +16,5 @@ export function updateRequestContext(next: Partial<RequestContext>): void {
   if (!current) return;
   if (typeof next.userId !== 'undefined') current.userId = next.userId;
   if (typeof next.companyId !== 'undefined') current.companyId = next.companyId;
+  if (typeof next.role !== 'undefined') current.role = next.role;
 }

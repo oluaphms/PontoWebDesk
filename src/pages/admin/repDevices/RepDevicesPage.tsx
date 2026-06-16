@@ -326,7 +326,7 @@ const AdminRepDevices: React.FC = () => {
       const device = devices.find((x) => x.id === deviceId);
       setMessage({
         type: 'error',
-        text: sanitizeRepConnectionErrorForUi(device ?? null, e),
+        text: sanitizeRepConnectionErrorForUi(device ?? null, e, device ? syncStatusByDeviceId[device.id] : undefined),
       });
     } finally {
       setForcingSyncId(null);
@@ -751,7 +751,7 @@ const AdminRepDevices: React.FC = () => {
         }
       } catch (e) {
         const device = devices.find((d) => d.id === id) ?? null;
-        const uiText = sanitizeRepConnectionErrorForUi(device, e);
+        const uiText = sanitizeRepConnectionErrorForUi(device, e, syncStatusByDeviceId[id]);
         setMessage({
           type: 'error',
           text: uiText,
@@ -799,7 +799,9 @@ const AdminRepDevices: React.FC = () => {
         await loadDevices();
       }
       const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Não foi possível conectar ao dispositivo.');
-      const text = device ? enrichRepConnectionTestMessage(device, r.ok, base) : base;
+      const text = device
+        ? enrichRepConnectionTestMessage(device, r.ok, base, syncStatusByDeviceId[id])
+        : base;
       setMessage({
         type: r.ok ? 'success' : 'error',
         text,
@@ -812,7 +814,7 @@ const AdminRepDevices: React.FC = () => {
         void handleTestViaAgent(id);
         return;
       }
-      setMessage({ type: 'error', text: sanitizeRepConnectionErrorForUi(device, e) });
+      setMessage({ type: 'error', text: sanitizeRepConnectionErrorForUi(device, e, syncStatusByDeviceId[id]) });
     } finally {
       setTestingId(null);
     }
@@ -2258,7 +2260,7 @@ const AdminRepDevices: React.FC = () => {
     try {
       const r = await testRepDeviceConnection(supabase, d.id);
       const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Falha no teste.');
-      const msg = enrichRepConnectionTestMessage(d, r.ok, base);
+      const msg = enrichRepConnectionTestMessage(d, r.ok, base, syncStatusByDeviceId[d.id]);
       appendSrLog(r.ok ? `Status / conexão: ${msg}` : `Falha: ${msg}`);
       if (r.ok) {
         appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
@@ -2271,7 +2273,7 @@ const AdminRepDevices: React.FC = () => {
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
       if (!r.ok && isLocalAgentRepDevice(d)) scrollToRepCommunication();
     } catch (e) {
-      const uiText = sanitizeRepConnectionErrorForUi(d, e);
+      const uiText = sanitizeRepConnectionErrorForUi(d, e, syncStatusByDeviceId[d.id]);
       appendSrLog(`Erro: ${uiText}`, 'error');
       setMessage({ type: 'error', text: uiText });
     } finally {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
+import { logger } from '../logger/logger.js';
 
 function secureCompare(a: string, b: string): boolean {
   const aa = Buffer.from(String(a || ''));
@@ -15,10 +16,17 @@ function bridgeToken(): string {
   ).trim();
 }
 
+function isBridgeLegacyEnabled(): boolean {
+  const raw = String(process.env.REP_BRIDGE_LEGACY_ENABLED ?? '').trim().toLowerCase();
+  if (raw === 'false' || raw === '0') return false;
+  if (raw === 'true' || raw === '1') return true;
+  return Boolean(bridgeToken());
+}
+
 export type RepAgentAuthCode = 'DEVICE_INACTIVE' | 'unauthorized';
 
 export type RepAgentAuthResult =
-  | { ok: true; method: 'device_key' | 'device_api_key' | 'bridge' }
+  | { ok: true; method: 'device_key' | 'device_api_key_hash' | 'device_api_key' | 'bridge' }
   | { ok: false; code: RepAgentAuthCode };
 
 async function validateDeviceKeyHash(deviceId: string, token: string): Promise<boolean> {
@@ -27,6 +35,28 @@ async function validateDeviceKeyHash(deviceId: string, token: string): Promise<b
   try {
     const r = await pool.query(
       `select valid from public.validate_device_key($1::text, $2::text) limit 1`,
+      [id, token],
+    );
+    return r.rows[0]?.valid === true;
+  } catch {
+    return false;
+  }
+}
+
+async function validateRepDeviceApiKeyHash(deviceId: string, token: string): Promise<boolean> {
+  const id = String(deviceId || '').trim();
+  if (!id || !token.trim()) return false;
+  const hasHash = await tableHasColumn('rep_devices', 'api_key_hash');
+  if (!hasHash) return false;
+  try {
+    const r = await pool.query(
+      `select exists(
+         select 1
+           from public.rep_devices
+          where id::text = $1
+            and api_key_hash is not null
+            and api_key_hash = crypt($2::text, api_key_hash)
+       ) as valid`,
       [id, token],
     );
     return r.rows[0]?.valid === true;
@@ -126,7 +156,10 @@ export async function fetchRepDeviceCompanyId(deviceId: string): Promise<string 
   return companyId || null;
 }
 
-/** Aceita device_key (hash), api_key por dispositivo ou bridge global (legado, exige device_id ativo). */
+/**
+ * Aceita device_key (hash em device_keys), api_key_hash, api_key legado em texto
+ * ou bridge global (legado, opt-out via REP_BRIDGE_LEGACY_ENABLED=false).
+ */
 export async function verifyRepAgentTokenVps(
   token: string,
   deviceId?: string | null,
@@ -139,6 +172,9 @@ export async function verifyRepAgentTokenVps(
     if (await validateDeviceKeyHash(id, trimmed)) {
       return { ok: true, method: 'device_key' };
     }
+    if (await validateRepDeviceApiKeyHash(id, trimmed)) {
+      return { ok: true, method: 'device_api_key_hash' };
+    }
     const r = await pool.query(
       `select api_key::text from public.rep_devices where id::text = $1 limit 1`,
       [id],
@@ -149,12 +185,20 @@ export async function verifyRepAgentTokenVps(
     }
   }
 
-  const bridge = bridgeToken();
-  if (bridge && secureCompare(trimmed, bridge)) {
-    if (!id) return { ok: false, code: 'unauthorized' };
-    const operational = await isRepDeviceOperational(id);
-    if (!operational) return { ok: false, code: 'DEVICE_INACTIVE' };
-    return { ok: true, method: 'bridge' };
+  if (isBridgeLegacyEnabled()) {
+    const bridge = bridgeToken();
+    if (bridge && secureCompare(trimmed, bridge)) {
+      if (!id) return { ok: false, code: 'unauthorized' };
+      const operational = await isRepDeviceOperational(id);
+      if (!operational) return { ok: false, code: 'DEVICE_INACTIVE' };
+      logger.warn({
+        module: 'rep.agent.auth',
+        action: 'REP_BRIDGE_LEGACY_USED',
+        message: '[SECURITY] Autenticação REP via bridge token legado — migre para device_key',
+        meta: { deviceId: id },
+      });
+      return { ok: true, method: 'bridge' };
+    }
   }
 
   return { ok: false, code: 'unauthorized' };

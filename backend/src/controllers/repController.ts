@@ -15,6 +15,7 @@ import {
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
 import { resolveRepAdminCaller } from '../services/repAdminAuthService.js';
 import { verifyRepAgentTokenVps, fetchRepDeviceCompanyId, type RepAgentAuthResult } from '../services/repAgentAuthService.js';
+import { setRepAgentTenantContext } from '../db/tenantRls.js';
 import { signRepCommandRow } from '../services/repCommandHmacService.js';
 import { isPrivateOrLocalIPv4 } from '../utils/repNetwork.js';
 
@@ -114,6 +115,7 @@ async function requireRepDeviceAuth(req: Request, res: Response): Promise<RepDev
     json(res, 404, { ok: false, success: false, error: 'device_not_found' });
     return null;
   }
+  setRepAgentTenantContext(companyId, deviceId);
   return { deviceId, companyId };
 }
 
@@ -136,6 +138,7 @@ async function requireRepDeviceAuthFromPunches(req: Request, res: Response): Pro
     json(res, 404, { ok: false, success: false, error: 'device_not_found' });
     return null;
   }
+  setRepAgentTenantContext(companyId, deviceId);
   return { deviceId, companyId };
 }
 
@@ -804,7 +807,7 @@ export async function repStatusController(req: Request, res: Response): Promise<
 
   const result = await pool.query(
     `select id::text, company_id::text, nome_dispositivo, tipo_conexao, ip, porta, fabricante, modelo,
-            provider_type, identifier_type, config_extra, status, ultima_sincronizacao, ativo
+            provider_type, identifier_type, config_extra, status, ultima_sincronizacao, ativo, last_seen_at
        from public.rep_devices
       where id::text = $1 and company_id::text = $2
       limit 1`,
@@ -822,8 +825,27 @@ export async function repStatusController(req: Request, res: Response): Promise<
 
   const ip = String(device.ip || '').trim();
   if (ip && isPrivateOrLocalIPv4(ip)) {
+    const lastSeenRaw = device.last_seen_at ?? device.ultima_sincronizacao;
+    const lastSeenMs =
+      lastSeenRaw instanceof Date
+        ? lastSeenRaw.getTime()
+        : lastSeenRaw
+          ? Date.parse(String(lastSeenRaw))
+          : NaN;
+    const agentOnline = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < 180_000;
+    if (agentOnline) {
+      json(res, 200, {
+        ok: true,
+        connection_mode: 'agent',
+        message: 'Conectado via agente (IP interno — teste direto pela internet não se aplica).',
+        httpStatus: 0,
+        body: null,
+      });
+      return;
+    }
     json(res, 200, {
       ok: false,
+      connection_mode: 'direct_blocked',
       message:
         'Este relógio está na rede interna da empresa. Use o agente PontoWebDesk no computador da empresa ' +
         '(teste via agente ou «Sincronizar agora»). O teste direto pela internet não é possível.',

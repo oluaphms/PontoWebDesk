@@ -4,8 +4,11 @@ import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { uploadPhotoController } from '../controllers/uploadController.js';
 import { serveUploadFileController } from '../controllers/uploadServeController.js';
 import { refreshUploadPhotoUrlController } from '../controllers/uploadAccessController.js';
+import { uploadApiRateLimit } from '../middlewares/apiRateLimitPresets.js';
 
 const router = Router();
+
+router.use(uploadApiRateLimit);
 
 /** JSON até ~7 MB (foto 5 MB em base64). */
 const jsonUpload = express.json({ limit: '7mb' });

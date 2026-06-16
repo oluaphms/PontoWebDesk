@@ -20,6 +20,7 @@ describe('repAgentAuthService bridge hardening', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.REP_BRIDGE_TOKEN;
+    delete process.env.REP_BRIDGE_LEGACY_ENABLED;
     delete process.env.API_KEY;
     tableHasColumn.mockImplementation(async (_table: string, column: string) => {
       if (column === 'ativo') return true;
@@ -60,6 +61,15 @@ describe('repAgentAuthService bridge hardening', () => {
     const result = await verifyRepAgentTokenVps('bridge-secret', 'device-1');
 
     expect(result).toEqual({ ok: true, method: 'bridge' });
+  });
+
+  it('recusa bridge token quando REP_BRIDGE_LEGACY_ENABLED=false', async () => {
+    process.env.REP_BRIDGE_TOKEN = 'bridge-secret';
+    process.env.REP_BRIDGE_LEGACY_ENABLED = 'false';
+
+    const result = await verifyRepAgentTokenVps('bridge-secret', 'device-1');
+
+    expect(result).toEqual({ ok: false, code: 'unauthorized' });
   });
 
   it('isRepDeviceOperational retorna false sem company_id', async () => {

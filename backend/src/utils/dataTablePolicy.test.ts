@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_TABLES, applyTenantToRow, isTableReadable, isTableWritable, tableHasTenantScope } from './dataTablePolicy.js';
+import { ALLOWED_TABLES, applyTenantToRow, isGenericDataApiWritesEnabled, isTableReadable, isTableWritable, tableHasTenantScope } from './dataTablePolicy.js';
 
 describe('dataTablePolicy multi-tenant hardening', () => {
+  it('desabilita writes genéricos em produção por default', () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    const prevWrites = process.env.DATA_API_WRITES_ENABLED;
+    delete process.env.DATA_API_WRITES_ENABLED;
+    process.env.NODE_ENV = 'production';
+    expect(isGenericDataApiWritesEnabled()).toBe(false);
+    process.env.DATA_API_WRITES_ENABLED = 'true';
+    expect(isGenericDataApiWritesEnabled()).toBe(true);
+    process.env.NODE_ENV = prevNodeEnv;
+    process.env.DATA_API_WRITES_ENABLED = prevWrites;
+  });
+
+  it('mantém writes genéricos habilitados em desenvolvimento por default', () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    const prevWrites = process.env.DATA_API_WRITES_ENABLED;
+    delete process.env.DATA_API_WRITES_ENABLED;
+    process.env.NODE_ENV = 'development';
+    expect(isGenericDataApiWritesEnabled()).toBe(true);
+    process.env.NODE_ENV = prevNodeEnv;
+    process.env.DATA_API_WRITES_ENABLED = prevWrites;
+  });
+
   it('treats global_settings as tenant-scoped and readable by authenticated users', () => {
     expect(isTableReadable('global_settings', 'employee')).toBe(true);
     expect(isTableWritable('global_settings', 'employee')).toBe(false);
