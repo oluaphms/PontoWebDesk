@@ -23,6 +23,7 @@ import {
   type Column,
   type RowAction,
 } from '../../../components/Reports';
+import { buildEmployeeNameMap, nameFromMap, reportCompanyLabel } from './reportEmployeeLookup';
 import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
 
 interface InconsistencyRow {
@@ -55,7 +56,7 @@ const severityMap: Record<string, 'Leve' | 'Média' | 'Crítica'> = {
 
 const ReportInconsistencies: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const { employees: companyEmployees } = useCompanyEmployees(user?.companyId);
+  const { employees: companyEmployees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [rows, setRows] = useState<InconsistencyRow[]>([]);
   const [employees, setEmployees] = useState<Map<string, string>>(new Map());
   const [loadingData, setLoadingData] = useState(false);
@@ -84,17 +85,20 @@ const ReportInconsistencies: React.FC = () => {
           cacheKey,
           async () => {
             const incRows = (await db.select('time_inconsistencies',
-              [{ column: 'company_id', operator: 'eq', value: cid }],
+              [
+                { column: 'company_id', operator: 'eq', value: cid },
+                { column: 'date', operator: 'gte', value: periodStart },
+                { column: 'date', operator: 'lte', value: periodEnd },
+              ],
               { column: 'date', ascending: false },
               500
             )) as any[];
 
-            const empMap = new Map<string, string>();
-            companyEmployees.forEach((u) => empMap.set(u.id, u.nome));
+            const empMap = await buildEmployeeNameMap(cid, companyEmployees);
 
             const rowsWithNames = (incRows ?? []).map((r: any) => ({
               ...r,
-              employee_name: empMap.get(r.employee_id) || r.employee_id?.slice(0, 8) || '—',
+              employee_name: nameFromMap(empMap, r.employee_id),
               severity: severityMap[r.type] || 'Média',
             }));
 
@@ -147,7 +151,7 @@ const ReportInconsistencies: React.FC = () => {
         value: open,
         color: 'warning',
         icon: 'clock',
-        trend: `${((open / total) * 100).toFixed(0)}% do total`,
+        trend: total > 0 ? `${((open / total) * 100).toFixed(0)}% do total` : '0% do total',
       },
       {
         id: 'critical',
@@ -326,7 +330,7 @@ const ReportInconsistencies: React.FC = () => {
 
   const handleResolve = useCallback(async (row: InconsistencyRow) => {
     try {
-      await db.update('time_inconsistencies', { resolved: true }, [{ column: 'id', operator: 'eq', value: row.id }]);
+      await db.update('time_inconsistencies', row.id, { resolved: true });
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, resolved: true } : r)));
     } catch (e) {
       observabilityConsole.error('Erro ao resolver:', e);
@@ -341,15 +345,60 @@ const ReportInconsistencies: React.FC = () => {
   }, []);
 
   const handleExportPDF = useCallback(() => {
-    // Implementar exportação
-    observabilityConsole.log('Exportar PDF');
-  }, []);
+    const report = {
+      header: {
+        title: 'Relatório de Inconsistências',
+        company: reportCompanyLabel(user),
+        period: `${periodStart} — ${periodEnd}`,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalInconsistencies: filteredRows.length,
+        affectedEmployees: new Set(filteredRows.map((r) => r.employee_id)).size,
+        criticalIssues: filteredRows.filter((r) => r.severity === 'Crítica').length,
+        mediumIssues: filteredRows.filter((r) => r.severity === 'Média').length,
+        lightIssues: filteredRows.filter((r) => r.severity === 'Leve').length,
+      },
+      rows: filteredRows.map((r) => ({
+        employee: r.employee_name,
+        date: new Date(r.date).toLocaleDateString('pt-BR'),
+        problem: typeLabels[r.type] || r.type,
+        severity: r.severity,
+        details: r.description || '—',
+      })),
+    };
+    void exportReportToPDF(report, 'inconsistency').catch((e) => observabilityConsole.error('Falha ao exportar PDF', e));
+  }, [filteredRows, periodEnd, periodStart, user]);
 
   const handleExportExcel = useCallback(() => {
-    observabilityConsole.log('Exportar Excel');
-  }, []);
+    const report = {
+      header: {
+        title: 'Relatório de Inconsistências',
+        company: reportCompanyLabel(user),
+        period: `${periodStart} — ${periodEnd}`,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalInconsistencies: filteredRows.length,
+        affectedEmployees: new Set(filteredRows.map((r) => r.employee_id)).size,
+        criticalIssues: filteredRows.filter((r) => r.severity === 'Crítica').length,
+        mediumIssues: filteredRows.filter((r) => r.severity === 'Média').length,
+        lightIssues: filteredRows.filter((r) => r.severity === 'Leve').length,
+      },
+      rows: filteredRows.map((r) => ({
+        employee: r.employee_name,
+        date: new Date(r.date).toLocaleDateString('pt-BR'),
+        problem: typeLabels[r.type] || r.type,
+        severity: r.severity,
+        details: r.description || '—',
+      })),
+    };
+    void exportReportToExcel(report, 'inconsistency').catch((e) => observabilityConsole.error('Falha ao exportar Excel', e));
+  }, [filteredRows, periodEnd, periodStart, user]);
 
-  if (loading) return <LoadingState message="Carregando..." />;
+  if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
   return (

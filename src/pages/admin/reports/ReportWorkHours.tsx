@@ -20,7 +20,7 @@ interface Row {
 
 const ReportWorkHours: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const { employees } = useCompanyEmployees(user?.companyId);
+  const { employees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [month, setMonth] = useState(() => {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
@@ -40,7 +40,7 @@ const ReportWorkHours: React.FC = () => {
           cacheKey,
           async () => {
             const out: Row[] = [];
-            for (const emp of employees.slice(0, 100)) {
+            for (const emp of employees) {
               try {
                 const days = await processEmployeeMonth(emp.id, cid, y, m);
                 const totalHours = days.reduce((s, d) => s + d.daily.total_worked_minutes / 60, 0);
@@ -68,7 +68,7 @@ const ReportWorkHours: React.FC = () => {
     [user?.companyId, month, employees],
   );
 
-  if (loading) return <LoadingState message="Carregando..." />;
+  if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
   return (

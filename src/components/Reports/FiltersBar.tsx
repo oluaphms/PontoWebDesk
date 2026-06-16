@@ -13,7 +13,7 @@ export interface FilterOption {
 
 export interface FilterConfig {
   id: string;
-  type: 'date' | 'select' | 'dateRange' | 'checkbox';
+  type: 'date' | 'month' | 'text' | 'select' | 'dateRange' | 'checkbox';
   label: string;
   icon?: React.ReactNode;
   options?: FilterOption[];
@@ -67,6 +67,41 @@ export const FiltersBar: React.FC<FiltersBarProps> = ({
               type="date"
               value={filter.value || ''}
               onChange={(e) => filter.onChange(e.target.value)}
+              className={baseClass}
+              disabled={loading}
+            />
+          </div>
+        );
+
+      case 'month':
+        return (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              {filter.icon || <Calendar className="w-3 h-3" />}
+              {filter.label}
+            </label>
+            <input
+              type="month"
+              value={filter.value || ''}
+              onChange={(e) => filter.onChange(e.target.value)}
+              className={baseClass}
+              disabled={loading}
+            />
+          </div>
+        );
+
+      case 'text':
+        return (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              {filter.icon || <Filter className="w-3 h-3" />}
+              {filter.label}
+            </label>
+            <input
+              type="text"
+              value={filter.value || ''}
+              onChange={(e) => filter.onChange(e.target.value)}
+              placeholder={filter.placeholder}
               className={baseClass}
               disabled={loading}
             />

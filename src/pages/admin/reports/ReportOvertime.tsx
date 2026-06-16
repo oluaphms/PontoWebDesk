@@ -14,6 +14,9 @@ import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
 import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
+import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
+import { fetchEmployees } from '../../../services/employeesApi.service';
+import { reportCompanyLabel } from './reportEmployeeLookup';
 import {
   KPICards,
   FiltersBar,
@@ -51,7 +54,7 @@ interface OvertimeRow {
 
 const ReportOvertime: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const { employees } = useCompanyEmployees(user?.companyId);
+  const { employees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [departments, setDepartments] = useState<Map<string, string>>(new Map());
   const [rows, setRows] = useState<OvertimeRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -90,6 +93,11 @@ const ReportOvertime: React.FC = () => {
       const cacheKey = adminReportCacheKey(cid, 'overtime', month);
 
       try {
+        const [apiEmployees] = await Promise.all([fetchEmployees(cid)]);
+        const deptByEmployeeId = new Map(
+          apiEmployees.map((e) => [e.id, e.department_id ?? '']),
+        );
+
         const result = await queryCache.getOrFetch(
           cacheKey,
           async () => {
@@ -124,7 +132,7 @@ const ReportOvertime: React.FC = () => {
                 out.push({
                   employeeId: emp.id,
                   employeeName: emp.nome,
-                  departmentId: emp.department_id || '',
+                  departmentId: deptByEmployeeId.get(emp.id) || '',
                   overtime50,
                   overtime100,
                   total: overtime50 + overtime100,
@@ -196,7 +204,7 @@ const ReportOvertime: React.FC = () => {
         label: 'Colaboradores com HE',
         value: employeesWithOvertime,
         color: 'success',
-        subtitle: `${((employeesWithOvertime / filteredRows.length) * 100).toFixed(0)}% do total`,
+        subtitle: `${filteredRows.length > 0 ? ((employeesWithOvertime / filteredRows.length) * 100).toFixed(0) : '0'}% do total`,
       },
       {
         id: 'days',
@@ -211,7 +219,7 @@ const ReportOvertime: React.FC = () => {
   const filterConfig: FilterConfig[] = useMemo(() => [
     {
       id: 'month',
-      type: 'date',
+      type: 'month',
       label: 'Mês',
       value: month,
       onChange: setMonth,
@@ -345,14 +353,64 @@ const ReportOvertime: React.FC = () => {
   };
 
   const handleExportPDF = () => {
-    observabilityConsole.log('Exportar PDF');
+    const report = {
+      header: {
+        title: 'Relatório de Horas Extras',
+        company: reportCompanyLabel(user),
+        period: month,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalExtraHours: filteredRows.reduce((s, r) => s + r.total, 0).toFixed(2),
+        daysWithOvertime: filteredRows.reduce((s, r) => s + r.overtimeDays, 0),
+        hours50Percent: filteredRows.reduce((s, r) => s + r.overtime50, 0).toFixed(2),
+        hours100Percent: filteredRows.reduce((s, r) => s + r.overtime100, 0).toFixed(2),
+        bankHours: '0:00',
+      },
+      rows: filteredRows.flatMap((r) =>
+        r.daily.map((d) => ({
+          employee: r.employeeName,
+          date: d.date,
+          normalHours: '—',
+          extraHours: d.total.toFixed(2),
+          type: d.isHolidayOrOff ? '100%' : '50%',
+        })),
+      ),
+    };
+    void exportReportToPDF(report, 'overtime').catch((err) => observabilityConsole.error('Falha ao exportar PDF', err));
   };
 
   const handleExportExcel = () => {
-    observabilityConsole.log('Exportar Excel');
+    const report = {
+      header: {
+        title: 'Relatório de Horas Extras',
+        company: reportCompanyLabel(user),
+        period: month,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        totalExtraHours: filteredRows.reduce((s, r) => s + r.total, 0).toFixed(2),
+        daysWithOvertime: filteredRows.reduce((s, r) => s + r.overtimeDays, 0),
+        hours50Percent: filteredRows.reduce((s, r) => s + r.overtime50, 0).toFixed(2),
+        hours100Percent: filteredRows.reduce((s, r) => s + r.overtime100, 0).toFixed(2),
+        bankHours: '0:00',
+      },
+      rows: filteredRows.flatMap((r) =>
+        r.daily.map((d) => ({
+          employee: r.employeeName,
+          date: d.date,
+          normalHours: '—',
+          extraHours: d.total.toFixed(2),
+          type: d.isHolidayOrOff ? '100%' : '50%',
+        })),
+      ),
+    };
+    void exportReportToExcel(report, 'overtime').catch((err) => observabilityConsole.error('Falha ao exportar Excel', err));
   };
 
-  if (loading) return <LoadingState message="Carregando..." />;
+  if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
   return (

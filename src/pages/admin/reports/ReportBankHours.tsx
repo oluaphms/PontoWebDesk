@@ -13,7 +13,8 @@ import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
 import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
-import { exportReportToExcel, exportReportToPDF } from '../../../utils/reportExport';
+import { computeBankWalletMinutes, type BankHoursLedgerRow } from '../../../engine/bankHoursLedger';
+import { buildEmployeeNameMap, nameFromMap, reportCompanyLabel } from './reportEmployeeLookup';
 import {
   KPICards,
   FiltersBar,
@@ -22,6 +23,7 @@ import {
   type FilterConfig,
   type Column,
 } from '../../../components/Reports';
+import { exportReportToExcel, exportReportToPDF } from '../../../utils/reportExport';
 
 interface BankRow {
   employee_id: string;
@@ -40,7 +42,7 @@ function toHoursAndMinutesLabel(minutes: number): string {
 
 const ReportBankHours: React.FC = () => {
   const { user, loading } = useCurrentUser();
-  const { employees } = useCompanyEmployees(user?.companyId);
+  const { employees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [rows, setRows] = useState<BankRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -66,38 +68,44 @@ const ReportBankHours: React.FC = () => {
               5000,
             )) as any[];
 
-            const empMap = new Map<string, string>();
-            employees.forEach((u) => empMap.set(u.id, u.nome));
-
-            // Agrupar por funcionário (último saldo)
-            const byEmployee = new Map<string, { balance: number; last_date: string; last_movement?: 'credit' | 'debit' }>();
+            const empMap = await buildEmployeeNameMap(cid, employees);
+            const today = new Date().toISOString().slice(0, 10);
+            const byEmployee = new Map<string, BankHoursLedgerRow[]>();
 
             (ledgerRows ?? []).forEach((r: any) => {
               const employeeId = String(r.employee_id ?? '');
               if (!employeeId) return;
-              if (!byEmployee.has(employeeId)) {
-                byEmployee.set(employeeId, { balance: 0, last_date: '', last_movement: undefined });
-              }
-              const current = byEmployee.get(employeeId)!;
-              const type = String(r.type ?? '').toUpperCase();
-              const minutes = Math.max(0, Number(r.minutes ?? 0));
-              const used = Math.max(0, Number(r.used_minutes ?? 0));
-              if (type === 'CREDIT') current.balance += Math.max(0, minutes - used);
-              if (type === 'DEBIT') current.balance -= minutes;
-              if (!current.last_date || String(r.date ?? '') > current.last_date) {
-                current.last_date = String(r.date ?? '');
-                current.last_movement = type === 'DEBIT' ? 'debit' : 'credit';
-              }
+              if (!byEmployee.has(employeeId)) byEmployee.set(employeeId, []);
+              byEmployee.get(employeeId)!.push({
+                id: String(r.id),
+                employee_id: employeeId,
+                company_id: String(r.company_id ?? cid),
+                date: String(r.date ?? '').slice(0, 10),
+                minutes: Number(r.minutes ?? 0),
+                type: String(r.type ?? '').toUpperCase() === 'DEBIT' ? 'DEBIT' : 'CREDIT',
+                source: r.source ?? 'MANUAL',
+                expires_at: r.expires_at ?? null,
+                used_minutes: Number(r.used_minutes ?? 0),
+                meta: r.meta ?? {},
+                created_at: String(r.created_at ?? ''),
+              });
             });
 
             const out: BankRow[] = [];
-            byEmployee.forEach((v, eid) => {
+            byEmployee.forEach((empRows, eid) => {
+              const balance = computeBankWalletMinutes(empRows, today);
+              const sorted = [...empRows].sort((a, b) => {
+                const da = a.date || a.created_at;
+                const db = b.date || b.created_at;
+                return db.localeCompare(da);
+              });
+              const latest = sorted[0];
               out.push({
                 employee_id: eid,
-                employee_name: empMap.get(eid) || eid?.slice(0, 8) || '—',
-                balance: v.balance,
-                last_date: v.last_date,
-                last_movement: v.last_movement,
+                employee_name: nameFromMap(empMap, eid),
+                balance,
+                last_date: latest?.date ?? '',
+                last_movement: latest?.type === 'DEBIT' ? 'debit' : 'credit',
               });
             });
 
@@ -190,12 +198,11 @@ const ReportBankHours: React.FC = () => {
   const filterConfig: FilterConfig[] = useMemo(() => [
     {
       id: 'search',
-      type: 'select',
+      type: 'text',
       label: 'Buscar Funcionário',
       value: searchEmployee,
       onChange: setSearchEmployee,
-      placeholder: 'Todos',
-      options: rows.map((r) => ({ value: r.employee_name, label: r.employee_name })),
+      placeholder: 'Nome do colaborador',
     },
     {
       id: 'balance',
@@ -222,7 +229,7 @@ const ReportBankHours: React.FC = () => {
         { value: '20', label: '≥ 20 horas' },
       ],
     },
-  ], [rows, searchEmployee, filterBalance, filterMinHours]);
+  ], [searchEmployee, filterBalance, filterMinHours]);
 
   // Colunas
   const columns: Column<BankRow>[] = useMemo(() => [
@@ -285,7 +292,7 @@ const ReportBankHours: React.FC = () => {
     const report = {
       header: {
         title: 'Relatório de Banco de Horas',
-        company: user?.company?.name ?? user?.companyName ?? 'Empresa',
+        company: reportCompanyLabel(user),
         period: 'Saldo atual',
         filters: {},
         generatedAt: new Date().toLocaleString('pt-BR'),
@@ -312,7 +319,7 @@ const ReportBankHours: React.FC = () => {
     const report = {
       header: {
         title: 'Relatório de Banco de Horas',
-        company: user?.company?.name ?? user?.companyName ?? 'Empresa',
+        company: reportCompanyLabel(user),
         period: 'Saldo atual',
         filters: {},
         generatedAt: new Date().toLocaleString('pt-BR'),
@@ -335,7 +342,7 @@ const ReportBankHours: React.FC = () => {
     });
   };
 
-  if (loading) return <LoadingState message="Carregando..." />;
+  if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
   return (

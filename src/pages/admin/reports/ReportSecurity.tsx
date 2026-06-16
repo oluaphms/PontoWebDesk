@@ -23,6 +23,8 @@ import {
   type Column,
   type RowAction,
 } from '../../../components/Reports';
+import { buildEmployeeNameMap, nameFromMap, reportCompanyLabel } from './reportEmployeeLookup';
+import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
 
 interface SecurityRecord {
   id: string;
@@ -64,7 +66,7 @@ const getRiskLevel = (score: number | null) => {
 
 export default function ReportSecurity() {
   const { user, loading } = useCurrentUser();
-  const { employees: companyEmployees } = useCompanyEmployees(user?.companyId);
+  const { employees: companyEmployees, loadingEmployees } = useCompanyEmployees(user?.companyId);
   const [records, setRecords] = useState<SecurityRecord[]>([]);
   const [employees, setEmployees] = useState<Map<string, string>>(new Map());
   const [loadingData, setLoadingData] = useState(false);
@@ -96,8 +98,7 @@ export default function ReportSecurity() {
               5000
             )) as any[];
 
-            const empMap = new Map<string, string>();
-            companyEmployees.forEach((u) => empMap.set(u.id, u.nome));
+            const empMap = await buildEmployeeNameMap(cid, companyEmployees);
 
             let list = (recs ?? []).filter((r: any) => {
               const d = (r.created_at || r.timestamp || '').toString().slice(0, 10);
@@ -111,7 +112,7 @@ export default function ReportSecurity() {
             const mappedRecords: SecurityRecord[] = list.map((r: any) => ({
               id: r.id,
               user_id: r.user_id,
-              employee_name: empMap.get(r.user_id) || r.user_id?.slice(0, 8) || '—',
+              employee_name: nameFromMap(empMap, r.user_id),
               timestamp: r.timestamp || r.created_at,
               type: r.type,
               fraud_score: r.fraud_score ? Number(r.fraud_score) : null,
@@ -174,7 +175,7 @@ export default function ReportSecurity() {
         value: highRisk,
         color: 'danger',
         icon: 'alert',
-        trend: `${((highRisk / total) * 100).toFixed(0)}% do total`,
+        trend: total > 0 ? `${((highRisk / total) * 100).toFixed(0)}% do total` : '0% do total',
       },
       {
         id: 'medium',
@@ -182,7 +183,7 @@ export default function ReportSecurity() {
         value: mediumRisk,
         color: 'warning',
         icon: 'alert',
-        trend: `${((mediumRisk / total) * 100).toFixed(0)}% do total`,
+        trend: total > 0 ? `${((mediumRisk / total) * 100).toFixed(0)}% do total` : '0% do total',
       },
       {
         id: 'affected',
@@ -393,14 +394,62 @@ export default function ReportSecurity() {
   };
 
   const handleExportPDF = () => {
-    observabilityConsole.log('Exportar PDF');
+    const report = {
+      header: {
+        title: 'Relatório de Segurança (Antifraude)',
+        company: reportCompanyLabel(user),
+        period: `${periodStart} — ${periodEnd}`,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        suspiciousEvents: filteredRecords.length,
+        affectedEmployees: new Set(filteredRecords.map((r) => r.user_id)).size,
+        highRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'high').length,
+        mediumRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'medium').length,
+        lowRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'low').length,
+        topRiskEmployees: [],
+      },
+      rows: filteredRecords.map((r) => ({
+        employee: r.employee_name,
+        date: new Date(r.timestamp).toLocaleDateString('pt-BR'),
+        eventType: r.fraud_flags[0] ? (FLAG_LABELS[r.fraud_flags[0]] || r.fraud_flags[0]) : r.type,
+        riskLevel: RISK_LEVELS[getRiskLevel(r.fraud_score)].label,
+        details: `Score ${r.fraud_score ?? 0}`,
+      })),
+    };
+    void exportReportToPDF(report, 'security').catch((err) => observabilityConsole.error('Falha ao exportar PDF', err));
   };
 
   const handleExportExcel = () => {
-    observabilityConsole.log('Exportar Excel');
+    const report = {
+      header: {
+        title: 'Relatório de Segurança (Antifraude)',
+        company: reportCompanyLabel(user),
+        period: `${periodStart} — ${periodEnd}`,
+        filters: {},
+        generatedAt: new Date().toLocaleString('pt-BR'),
+      },
+      summary: {
+        suspiciousEvents: filteredRecords.length,
+        affectedEmployees: new Set(filteredRecords.map((r) => r.user_id)).size,
+        highRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'high').length,
+        mediumRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'medium').length,
+        lowRiskEvents: filteredRecords.filter((r) => getRiskLevel(r.fraud_score) === 'low').length,
+        topRiskEmployees: [],
+      },
+      rows: filteredRecords.map((r) => ({
+        employee: r.employee_name,
+        date: new Date(r.timestamp).toLocaleDateString('pt-BR'),
+        eventType: r.fraud_flags[0] ? (FLAG_LABELS[r.fraud_flags[0]] || r.fraud_flags[0]) : r.type,
+        riskLevel: RISK_LEVELS[getRiskLevel(r.fraud_score)].label,
+        details: `Score ${r.fraud_score ?? 0}`,
+      })),
+    };
+    void exportReportToExcel(report, 'security').catch((err) => observabilityConsole.error('Falha ao exportar Excel', err));
   };
 
-  if (loading) return <LoadingState message="Carregando..." />;
+  if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
 
   return (
