@@ -6,6 +6,8 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
+import { buscarColaboradores } from '../../../services/api';
+import { fetchEmployees } from '../../services/employeesApi.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
@@ -22,6 +24,8 @@ type EmployeeRow = {
   cargo?: string;
   department_id?: string;
   schedule_id?: string;
+  /** IDs em time_records (colaborador + usuário vinculado, como no Espelho). */
+  record_user_ids: string[];
 };
 
 type PontoRow = {
@@ -80,8 +84,9 @@ const AdminPontoDiario: React.FC = () => {
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const dateFilter = thirtyDaysAgo.toISOString().slice(0, 10);
 
-        const [usersRows, recsRows, metasRows] = await Promise.all([
-          db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+        const [colaboradores, apiEmployees, recsRows, metasRows] = await Promise.all([
+          buscarColaboradores(user.companyId),
+          fetchEmployees(user.companyId),
           listTimeRecords(
             [
               { column: 'company_id', operator: 'eq', value: user.companyId },
@@ -92,13 +97,16 @@ const AdminPontoDiario: React.FC = () => {
           ) as Promise<any[]>,
           db.select('cartao_ponto_dia', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
+        const cargoById = new Map(apiEmployees.map((e) => [e.id, e.cargo ?? '']));
+        const scheduleById = new Map(apiEmployees.map((e) => [e.id, e.schedule_id ?? '']));
         setEmployees(
-          (usersRows ?? []).map((u: any) => ({
-            id: u.id,
-            nome: u.nome || u.email || '',
-            cargo: u.cargo || '',
-            department_id: u.department_id,
-            schedule_id: u.schedule_id,
+          colaboradores.map((e) => ({
+            id: e.id,
+            nome: e.nome,
+            cargo: cargoById.get(e.id) ?? '',
+            department_id: e.department_id ?? undefined,
+            schedule_id: scheduleById.get(e.id) || undefined,
+            record_user_ids: e.record_user_ids?.length ? e.record_user_ids : [e.id],
           })),
         );
         setRecords(recsRows ?? []);
@@ -166,9 +174,10 @@ const AdminPontoDiario: React.FC = () => {
       byUser.set(r.user_id, arr);
     });
     filteredEmployees.forEach((emp) => {
-      const recs = (byUser.get(emp.id) || []).sort((a, b) =>
-        (a.created_at || '').localeCompare(b.created_at || ''),
-      );
+      const matchIds = emp.record_user_ids?.length ? emp.record_user_ids : [emp.id];
+      const recs = matchIds
+        .flatMap((uid) => byUser.get(uid) || [])
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
       const entradas: (string | null)[] = [null, null, null];
       const saidas: (string | null)[] = [null, null, null];
       const entradasRecs = recs.filter((r: any) => r.type === 'entrada');
