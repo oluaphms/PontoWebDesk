@@ -3,8 +3,9 @@ import { Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, Clock } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
-import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
-import { processEmployeeMonth } from '../../../engine/timeEngine';
+import { isSupabaseConfigured } from '../../../services/supabaseClient';
+import { fetchEmployees } from '../../../services/employeesApi.service';
+import { buildWorkHoursMonthReport, loadTimesheetMonthContext } from './reportTimesheetMonth';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
@@ -27,10 +28,11 @@ const ReportWorkHours: React.FC = () => {
   });
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [dataNotice, setDataNotice] = useState<string | null>(null);
 
   useAbortableAsyncEffect(
     async (isCancelled) => {
-      if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
+      if (!user?.companyId || !isSupabaseConfigured()) return;
       const cid = user.companyId;
       const [y, m] = month.split('-').map(Number);
       setLoadingData(true);
@@ -39,33 +41,27 @@ const ReportWorkHours: React.FC = () => {
         const result = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const out: Row[] = [];
-            for (const emp of employees) {
-              try {
-                const days = await processEmployeeMonth(emp.id, cid, y, m);
-                const totalHours = days.reduce((s, d) => s + d.daily.total_worked_minutes / 60, 0);
-                const expectedHours = days.reduce((s, d) => s + d.daily.expected_minutes / 60, 0);
-                out.push({
-                  employeeId: emp.id,
-                  employeeName: emp.nome,
-                  totalHours,
-                  expectedHours,
-                  balance: totalHours - expectedHours,
-                });
-              } catch {
-                out.push({ employeeId: emp.id, employeeName: emp.nome, totalHours: 0, expectedHours: 0, balance: 0 });
-              }
-            }
-            return out;
+            const apiEmployees = await fetchEmployees(cid);
+            const { sheetByRecordId, recordIdMap } = await loadTimesheetMonthContext(cid, y, m, apiEmployees);
+            const hasSheetData = sheetByRecordId.size > 0;
+            const out = buildWorkHoursMonthReport(apiEmployees, recordIdMap, sheetByRecordId);
+            return { rows: out, hasSheetData };
           },
           TTL.STATIC,
         );
-        if (!isCancelled()) setRows(result);
+        if (!isCancelled()) {
+          setRows(result.rows);
+          setDataNotice(
+            result.hasSheetData
+              ? null
+              : 'Nenhum dia calculado no motor para este mês. Abra o Espelho de Ponto para recalcular a jornada.',
+          );
+        }
       } finally {
         if (!isCancelled()) setLoadingData(false);
       }
     },
-    [user?.companyId, month, employees],
+    [user?.companyId, month],
   );
 
   if (loading || loadingEmployees) return <LoadingState message="Carregando..." />;
@@ -90,6 +86,11 @@ const ReportWorkHours: React.FC = () => {
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="ml-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800" />
         </label>
       </div>
+      {dataNotice && (
+        <p className="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
+          {dataNotice}
+        </p>
+      )}
       {loadingData ? (
         <LoadingState message="Calculando jornada..." />
       ) : (

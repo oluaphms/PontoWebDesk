@@ -9,14 +9,14 @@ import { ArrowLeft, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import PageHeader from '../../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../../services/supabaseClient';
-import { processEmployeeMonth } from '../../../engine/timeEngine';
+import { fetchEmployees } from '../../../services/employeesApi.service';
+import { reportCompanyLabel } from './reportEmployeeLookup';
+import { buildOvertimeMonthReport, loadTimesheetMonthContext } from './reportTimesheetMonth';
 import { LoadingState } from '../../../../components/UI';
 import { adminReportCacheKey, queryCache, TTL } from '../../../services/queryCache';
 import { useAbortableAsyncEffect } from '../../../hooks/useAbortableAsyncEffect';
 import { useCompanyEmployees } from '../../../hooks/useCompanyEmployees';
 import { exportReportToPDF, exportReportToExcel } from '../../../utils/reportExport';
-import { fetchEmployees } from '../../../services/employeesApi.service';
-import { reportCompanyLabel } from './reportEmployeeLookup';
 import {
   KPICards,
   FiltersBar,
@@ -58,6 +58,7 @@ const ReportOvertime: React.FC = () => {
   const [departments, setDepartments] = useState<Map<string, string>>(new Map());
   const [rows, setRows] = useState<OvertimeRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [dataNotice, setDataNotice] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Filtros
@@ -85,7 +86,7 @@ const ReportOvertime: React.FC = () => {
   // Calcular horas extras
   useAbortableAsyncEffect(
     async (isCancelled) => {
-      if (!user?.companyId || !isSupabaseConfigured() || employees.length === 0) return;
+      if (!user?.companyId || !isSupabaseConfigured()) return;
       const cid = user.companyId;
       const [y, m] = month.split('-').map(Number);
       setLoadingData(true);
@@ -93,68 +94,32 @@ const ReportOvertime: React.FC = () => {
       const cacheKey = adminReportCacheKey(cid, 'overtime', month);
 
       try {
-        const [apiEmployees] = await Promise.all([fetchEmployees(cid)]);
-        const deptByEmployeeId = new Map(
-          apiEmployees.map((e) => [e.id, e.department_id ?? '']),
-        );
+        const apiEmployees = await fetchEmployees(cid);
 
         const result = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const out: OvertimeRow[] = [];
-            for (const emp of employees) {
-              try {
-                const days = await processEmployeeMonth(emp.id, cid, y, m);
-                let overtime50 = 0;
-                let overtime100 = 0;
-                let workDays = 0;
-                let overtimeDays = 0;
-                const daily: DailyOvertimeRow[] = [];
-
-                days.forEach((d) => {
-                  if ((d.daily.total_worked_minutes ?? 0) > 0) workDays += 1;
-                  if (d.overtime) {
-                    const day50 = d.overtime.overtime_50_minutes / 60;
-                    const day100 = d.overtime.overtime_100_minutes / 60;
-                    overtime50 += day50;
-                    overtime100 += day100;
-                    if (day50 > 0 || day100 > 0) overtimeDays += 1;
-                    daily.push({
-                      date: d.date,
-                      overtime50: day50,
-                      overtime100: day100,
-                      total: day50 + day100,
-                      isHolidayOrOff: !!d.overtime.is_holiday_or_off,
-                    });
-                  }
-                });
-
-                out.push({
-                  employeeId: emp.id,
-                  employeeName: emp.nome,
-                  departmentId: deptByEmployeeId.get(emp.id) || '',
-                  overtime50,
-                  overtime100,
-                  total: overtime50 + overtime100,
-                  workDays,
-                  overtimeDays,
-                  daily: daily.sort((a, b) => a.date.localeCompare(b.date)),
-                });
-              } catch {
-                // Ignora erros individuais
-              }
-            }
-            return out;
+            const { sheetByRecordId, recordIdMap } = await loadTimesheetMonthContext(cid, y, m, apiEmployees);
+            const hasSheetData = sheetByRecordId.size > 0;
+            const out = buildOvertimeMonthReport(apiEmployees, recordIdMap, sheetByRecordId);
+            return { rows: out, hasSheetData };
           },
           TTL.STATIC,
         );
 
-        if (!isCancelled()) setRows(result);
+        if (!isCancelled()) {
+          setRows(result.rows);
+          setDataNotice(
+            result.hasSheetData
+              ? null
+              : 'Nenhum dia calculado no motor para este mês. Abra o Espelho de Ponto para recalcular a jornada.',
+          );
+        }
       } finally {
         if (!isCancelled()) setLoadingData(false);
       }
     },
-    [user?.companyId, month, employees],
+    [user?.companyId, month],
   );
 
   // Dados filtrados
@@ -427,6 +392,12 @@ const ReportOvertime: React.FC = () => {
         subtitle="Visão consolidada e detalhada (50% / 100%) por colaborador"
         icon={<TrendingUp className="w-5 h-5" />}
       />
+
+      {dataNotice && (
+        <p className="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
+          {dataNotice}
+        </p>
+      )}
 
       {/* KPIs */}
       <KPICards kpis={kpis} columns={5} />
