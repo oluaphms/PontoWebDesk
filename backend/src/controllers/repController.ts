@@ -989,11 +989,59 @@ export async function repForceSyncController(req: Request, res: Response): Promi
     return;
   }
 
+  if (action === 'set_status') {
+    const deviceStatus = String(req.body?.status || '').trim();
+    if (!REP_DEVICE_STATUS_VALUES.has(deviceStatus)) {
+      json(res, 400, { ok: false, success: false, error: 'invalid_status' });
+      return;
+    }
+    const updated = await pool.query(
+      `update public.rep_devices
+          set status = $1, updated_at = now()
+        where id::text = $2 and company_id::text = $3
+        returning id::text`,
+      [deviceStatus, deviceId, auth.companyId],
+    );
+    if (!updated.rows[0]) {
+      json(res, 404, { ok: false, success: false, error: 'device_not_found' });
+      return;
+    }
+    json(res, 200, { ok: true, success: true, status: deviceStatus });
+    return;
+  }
+
   json(res, 200, {
     ok: true,
     success: true,
     message: 'Sincronização será executada pelo agente no próximo ciclo.',
   });
+}
+
+const REP_DEVICE_STATUS_VALUES = new Set(['ativo', 'inativo', 'erro', 'sincronizando']);
+
+async function updateRepDeviceStatusAfterTestConnection(
+  commandName: string,
+  commandStatus: string,
+  result: unknown,
+  deviceId: string,
+  companyId: string,
+): Promise<void> {
+  if (commandName !== 'test_connection') return;
+  const resultObj = result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+  const success =
+    commandStatus === 'done' &&
+    resultObj.success !== false &&
+    String(resultObj.success ?? '').toLowerCase() !== 'false';
+  const deviceStatus = success ? 'ativo' : 'erro';
+  await pool.query(
+    `update public.rep_devices
+        set status = $1,
+            updated_at = now()
+            ${success ? ", status_runtime = 'online', last_seen_at = now()" : ''}
+      where id::text = $2
+        and company_id::text = $3`,
+    [deviceStatus, deviceId, companyId],
+  );
 }
 
 export async function repCommandsController(req: Request, res: Response): Promise<void> {
@@ -1339,7 +1387,7 @@ export async function repCommandResultController(req: Request, res: Response): P
   }
 
   const existing = await pool.query(
-    `select c.status, c.execution_id::text
+    `select c.status, c.execution_id::text, c.command
        from public.rep_device_commands c
        join public.rep_devices d on d.id = c.device_id
       where c.id::text = $1
@@ -1348,7 +1396,7 @@ export async function repCommandResultController(req: Request, res: Response): P
       limit 1`,
     [commandId, deviceId, companyId],
   );
-  const row = existing.rows[0];
+  const row = existing.rows[0] as { status?: string; execution_id?: string; command?: string } | undefined;
   if (!row) {
     json(res, 404, { ok: false, success: false, error: 'command_not_found' });
     return;
@@ -1401,6 +1449,24 @@ export async function repCommandResultController(req: Request, res: Response): P
     companyId,
     meta: { command_id: commandId, execution_id: executionId, status },
   });
+  try {
+    await updateRepDeviceStatusAfterTestConnection(
+      String(row.command || '').trim(),
+      status,
+      req.body?.result,
+      deviceId,
+      companyId,
+    );
+  } catch (error) {
+    logger.warn({
+      module: 'rep.commands',
+      action: 'REP_DEVICE_STATUS_UPDATE_FAILED',
+      message: 'Falha ao atualizar status do dispositivo após test_connection',
+      companyId,
+      error,
+      meta: { device_id: deviceId, command_id: commandId, status },
+    });
+  }
   json(res, 200, { ok: true, success: true });
 }
 

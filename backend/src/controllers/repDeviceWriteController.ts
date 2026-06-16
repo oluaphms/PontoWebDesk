@@ -4,6 +4,13 @@ import { pool } from '../db/index.js';
 import { requireCompanyId } from '../utils/authContext.js';
 import { isAdminRH } from '../utils/accessProfile.js';
 import { logger } from '../logger/logger.js';
+import { sqlParamRef, tenantScopeSqlForTable } from '../utils/dataRowSchema.js';
+
+async function repDeviceTenantClause(companyParamIndex: number): Promise<string> {
+  const clause = await tenantScopeSqlForTable('rep_devices', companyParamIndex);
+  if (!clause) return `company_id::text = ${sqlParamRef(companyParamIndex, 'text')}`;
+  return clause;
+}
 
 const REP_STATUS_VALUES = new Set(['ativo', 'inativo', 'erro', 'sincronizando']);
 const REP_TIPO_CONEXAO = new Set(['rede', 'arquivo', 'api']);
@@ -123,10 +130,11 @@ export async function patchRepDeviceController(req: AuthedRequest, res: Response
   const params: unknown[] = [...values, deviceId, companyId];
 
   try {
+    const tenantClause = await repDeviceTenantClause(paramIdx + 1);
     const sql = `UPDATE public.rep_devices
                     SET ${sets.join(', ')}
                   WHERE id::text = $${paramIdx}
-                    AND company_id::text = $${paramIdx + 1}
+                    AND ${tenantClause}
               RETURNING id::text AS id, status, ativo, updated_at`;
     const result = await pool.query(sql, params);
     if (!result.rows[0]) {
@@ -256,9 +264,10 @@ export async function deleteRepDeviceController(req: AuthedRequest, res: Respons
   }
 
   try {
+    const tenantClause = await repDeviceTenantClause(2);
     const result = await pool.query(
       `DELETE FROM public.rep_devices
-        WHERE id::text = $1 AND company_id::text = $2
+        WHERE id::text = $1 AND ${tenantClause}
         RETURNING id::text AS id`,
       [deviceId, companyId],
     );

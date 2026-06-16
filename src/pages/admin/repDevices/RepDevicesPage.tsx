@@ -50,7 +50,7 @@ import type { RepExchangeOp, RepUserFromDevice } from '../../../../modules/rep-i
 import { upsertTimeClockDeviceMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { stripRepSecretsFromConfigExtra, isRepPasswordConfigured } from '../../../utils/repDeviceConfigExtra';
 import { saveRepDevicePassword } from '../../../services/repDeviceCredentials.service';
-import { createRepDevice, patchRepDevice, setRepDeviceStatus } from '../../../services/repDeviceWrite.service';
+import { createRepDevice, patchRepDevice, trySetRepDeviceStatus } from '../../../services/repDeviceWrite.service';
 import type { RepDeviceRowForMirror } from '../../../../modules/timeclock/utils/timeclockDeviceMirror';
 import { invalidateCompanyListCaches } from '../../../services/queryCache';
 import { invalidateRepPendingQueries } from '../../../lib/reactQueryInvalidation';
@@ -674,6 +674,7 @@ const AdminRepDevices: React.FC = () => {
       setTestingId(id);
       setAgentTestPhase((prev) => ({ ...prev, [id]: 'running' }));
       const t0 = performance.now();
+      let connectionTestOk = false;
       try {
         const accessToken = getToken();
         if (!accessToken) {
@@ -710,6 +711,7 @@ const AdminRepDevices: React.FC = () => {
         lastAgentTestRef.current[id] = { ...outcome, cachedAt: Date.now() };
 
         if (outcome.ok) {
+          connectionTestOk = true;
           const ms =
             outcome.responseTimeMs != null ? ` (${Math.round(outcome.responseTimeMs)}ms)` : '';
           const okText = `Conectado via agente${ms}`;
@@ -721,7 +723,6 @@ const AdminRepDevices: React.FC = () => {
             appendSrLog(`Status / conexão: ${okText}`);
             appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
           }
-          await setRepDeviceStatus(id, 'ativo');
           await loadDevices();
         } else {
           const device = devices.find((d) => d.id === id) ?? null;
@@ -749,6 +750,10 @@ const AdminRepDevices: React.FC = () => {
         }
       } catch (e) {
         const device = devices.find((d) => d.id === id) ?? null;
+        if (connectionTestOk) {
+          observabilityConsole.warn('[REP TEST] pós-teste ignorado', e);
+          return;
+        }
         const uiText = sanitizeRepConnectionErrorForUi(device, e, syncStatusByDeviceId[id]);
         setMessage({
           type: 'error',
@@ -790,8 +795,8 @@ const AdminRepDevices: React.FC = () => {
     try {
       const r = await testRepDeviceConnection(supabase, id);
       if (r.ok) {
-        await setRepDeviceStatus(id, 'ativo');
-        await loadDevices();
+        const statusSave = await trySetRepDeviceStatus(id, 'ativo');
+        if (statusSave.ok) await loadDevices();
       }
       const base = toUiString(r.message, r.ok ? 'Conexão OK' : 'Não foi possível conectar ao dispositivo.');
       const text = device
@@ -1240,7 +1245,7 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog(`Erro: ${(e as Error).message}`);
       setMessage({ type: 'error', text: (e as Error).message });
       try {
-        await setRepDeviceStatus(d.id, 'erro');
+        await trySetRepDeviceStatus(d.id, 'erro');
       } catch (error) {
         void error;
       }
@@ -2256,7 +2261,6 @@ const AdminRepDevices: React.FC = () => {
       appendSrLog(r.ok ? `Status / conexão: ${msg}` : `Falha: ${msg}`);
       if (r.ok) {
         appendSrLog('[REP AGENT CONNECTED] Teste de conexão concluído com sucesso.');
-        await setRepDeviceStatus(d.id, 'ativo');
         await loadDevices();
       }
       setMessage({ type: r.ok ? 'success' : 'error', text: msg });
