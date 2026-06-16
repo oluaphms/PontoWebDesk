@@ -11,6 +11,9 @@ import { fetchEmployees } from '../../services/employeesApi.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
+import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
+
+const MAX_PONTO_DIARIO_RANGE_DAYS = 31;
 
 type DayMeta = {
   comp: boolean;
@@ -29,6 +32,7 @@ type EmployeeRow = {
 };
 
 type PontoRow = {
+  dayYmd: string;
   employee: EmployeeRow;
   entradas: (string | null)[];
   saidas: (string | null)[];
@@ -61,6 +65,7 @@ const AdminPontoDiario: React.FC = () => {
   const [records, setRecords] = useState<any[]>([]);
   const [diasMeta, setDiasMeta] = useState<Record<string, { id?: string; meta: DayMeta }>>({});
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dataFim, setDataFim] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterDept, setFilterDept] = useState('');
   const [filterCargo, setFilterCargo] = useState('');
   const [filterTipo, setFilterTipo] = useState<'all' | 'employee' | 'admin' | 'hr' | 'supervisor'>('all');
@@ -71,30 +76,30 @@ const AdminPontoDiario: React.FC = () => {
 
   const [diasDirty, setDiasDirty] = useState<Record<string, DayMeta>>({});
 
+  const periodValid = Boolean(data && dataFim && data <= dataFim);
+
+  const daysInRange = useMemo(() => {
+    if (!periodValid) return [];
+    const days = enumerateLocalCalendarDays(data, dataFim);
+    return days.length <= MAX_PONTO_DIARIO_RANGE_DAYS ? days : [];
+  }, [data, dataFim, periodValid]);
+
+  const rangeTooWide = useMemo(() => {
+    if (!periodValid) return false;
+    return enumerateLocalCalendarDays(data, dataFim).length > MAX_PONTO_DIARIO_RANGE_DAYS;
+  }, [data, dataFim, periodValid]);
+
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured()) {
       setLoadingData(false);
       return;
     }
-    const load = async () => {
+    const loadEmployees = async () => {
       setLoadingData(true);
       try {
-        // Calcular data de 30 dias atrás
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const dateFilter = thirtyDaysAgo.toISOString().slice(0, 10);
-
-        const [colaboradores, apiEmployees, recsRows, metasRows] = await Promise.all([
+        const [colaboradores, apiEmployees, metasRows] = await Promise.all([
           buscarColaboradores(user.companyId),
           fetchEmployees(user.companyId),
-          listTimeRecords(
-            [
-              { column: 'company_id', operator: 'eq', value: user.companyId },
-              { column: 'created_at', operator: 'gte', value: dateFilter },
-            ],
-            { column: 'created_at', ascending: true },
-            500,
-          ) as Promise<any[]>,
           db.select('cartao_ponto_dia', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
         ]);
         const cargoById = new Map(apiEmployees.map((e) => [e.id, e.cargo ?? '']));
@@ -109,7 +114,6 @@ const AdminPontoDiario: React.FC = () => {
             record_user_ids: e.record_user_ids?.length ? e.record_user_ids : [e.id],
           })),
         );
-        setRecords(recsRows ?? []);
         const metaMap: Record<string, { id?: string; meta: DayMeta }> = {};
         (metasRows ?? []).forEach((row: any) => {
           const d = row.data?.slice?.(0, 10) ?? row.data;
@@ -127,13 +131,40 @@ const AdminPontoDiario: React.FC = () => {
         setDiasDirty({});
       } catch (e) {
         observabilityConsole.error(e);
-        setMessage({ type: 'error', text: 'Erro ao carregar dados de Ponto Diário.' });
+        setMessage({ type: 'error', text: 'Erro ao carregar colaboradores do Ponto Diário.' });
       } finally {
         setLoadingData(false);
       }
     };
-    load();
+    void loadEmployees();
   }, [user?.companyId]);
+
+  useEffect(() => {
+    if (!user?.companyId || !isSupabaseConfigured() || !periodValid) {
+      return;
+    }
+    const loadRecords = async () => {
+      setLoadingData(true);
+      try {
+        const recsRows = await listTimeRecords(
+          [
+            { column: 'company_id', operator: 'eq', value: user.companyId },
+            { column: 'created_at', operator: 'gte', value: data },
+            { column: 'created_at', operator: 'lte', value: `${dataFim}T23:59:59.999` },
+          ],
+          { column: 'created_at', ascending: true },
+          2000,
+        );
+        setRecords(recsRows ?? []);
+      } catch (e) {
+        observabilityConsole.error(e);
+        setMessage({ type: 'error', text: 'Erro ao carregar batidas do período.' });
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    void loadRecords();
+  }, [user?.companyId, data, dataFim, periodValid]);
 
   const filteredEmployees = useMemo(() => {
     return employees.filter((e) => {
@@ -147,33 +178,31 @@ const AdminPontoDiario: React.FC = () => {
     });
   }, [employees, filterDept, filterCargo, filterHorarioId, filterTipo, user?.role]);
 
-  const getMetaForDay = (empId: string): DayMeta => {
-    const key = `${empId}_${data}`;
+  const getMetaForDay = (empId: string, dayYmd: string): DayMeta => {
+    const key = `${empId}_${dayYmd}`;
     if (diasDirty[key]) return diasDirty[key];
     const stored = diasMeta[key];
     if (stored) return stored.meta;
     return { comp: false, ref: '', ajuste: '' };
   };
 
-  const setMetaForDay = (empId: string, patch: Partial<DayMeta>) => {
-    const key = `${empId}_${data}`;
-    const prev = getMetaForDay(empId);
+  const setMetaForDay = (empId: string, dayYmd: string, patch: Partial<DayMeta>) => {
+    const key = `${empId}_${dayYmd}`;
+    const prev = getMetaForDay(empId, dayYmd);
     const next = { ...prev, ...patch };
     setDiasDirty((m) => ({ ...m, [key]: next }));
   };
 
-  const rows: PontoRow[] = useMemo(() => {
-    if (!data) return [];
-    const rows: PontoRow[] = [];
+  const buildRowsForDay = (dayYmd: string): PontoRow[] => {
     const byUser = new Map<string, any[]>();
     records.forEach((r: any) => {
       const d = (r.created_at || '').slice(0, 10);
-      if (d !== data) return;
+      if (d !== dayYmd) return;
       const arr = byUser.get(r.user_id) || [];
       arr.push(r);
       byUser.set(r.user_id, arr);
     });
-    filteredEmployees.forEach((emp) => {
+    return filteredEmployees.map((emp) => {
       const matchIds = emp.record_user_ids?.length ? emp.record_user_ids : [emp.id];
       const recs = matchIds
         .flatMap((uid) => byUser.get(uid) || [])
@@ -195,17 +224,17 @@ const AdminPontoDiario: React.FC = () => {
         const m = Math.round(mins % 60);
         workedLabel = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
       }
-      rows.push({
+      return {
+        dayYmd,
         employee: emp,
         entradas,
         saidas,
         photoRecords: recs.filter((r: any) => resolvePunchPhotoUrl(r)),
-        meta: getMetaForDay(emp.id),
+        meta: getMetaForDay(emp.id, dayYmd),
         workedHours: workedLabel,
-      });
+      };
     });
-    return rows;
-  }, [filteredEmployees, records, data, diasMeta, diasDirty]);
+  };
 
   const handleSaveMeta = async () => {
     if (readOnly || !user?.companyId || !isSupabaseConfigured()) return;
@@ -218,7 +247,9 @@ const AdminPontoDiario: React.FC = () => {
     setMessage(null);
     try {
       for (const key of keys) {
-        const [userId] = key.split('_');
+        const underscoreIdx = key.lastIndexOf('_');
+        const userId = underscoreIdx > 0 ? key.slice(0, underscoreIdx) : key.split('_')[0];
+        const dayYmd = underscoreIdx > 0 ? key.slice(underscoreIdx + 1) : data;
         const meta = diasDirty[key];
         const existing = diasMeta[key];
         const payload = {
@@ -233,7 +264,7 @@ const AdminPontoDiario: React.FC = () => {
             id: crypto.randomUUID(),
             user_id: userId,
             company_id: user.companyId,
-            data,
+            data: dayYmd,
             ...payload,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -250,10 +281,126 @@ const AdminPontoDiario: React.FC = () => {
   };
 
   const changeDay = (delta: number) => {
-    const d = new Date(data || new Date().toISOString().slice(0, 10));
-    d.setDate(d.getDate() + delta);
-    setData(d.toISOString().slice(0, 10));
+    const singleDay = data === dataFim;
+    const start = new Date(`${data || new Date().toISOString().slice(0, 10)}T12:00:00`);
+    start.setDate(start.getDate() + delta);
+    const nextStart = start.toISOString().slice(0, 10);
+    setData(nextStart);
+    if (singleDay) {
+      setDataFim(nextStart);
+    } else if (nextStart > dataFim) {
+      setDataFim(nextStart);
+    }
   };
+
+  const renderDayTable = (dayYmd: string, dayRows: PontoRow[]) => (
+    <div key={dayYmd} className={daysInRange.length > 1 ? 'border-b border-slate-200 dark:border-slate-700 last:border-b-0' : ''}>
+      {daysInRange.length > 1 && (
+        <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800/80 text-sm font-semibold text-slate-700 dark:text-slate-200 sticky top-0">
+          {formatDateBr(dayYmd)}
+        </div>
+      )}
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Funcionário</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 1</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 1</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 2</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 2</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 3</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 3</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Fotos</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Comp</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ref</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ajuste</th>
+            <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Normais (aprox.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dayRows.map((row) => {
+            const meta = row.meta;
+            const key = `${row.employee.id}_${dayYmd}`;
+            const isDirty = diasDirty[key] != null;
+            return (
+              <tr
+                key={`${dayYmd}_${row.employee.id}`}
+                className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+              >
+                <td className="px-3 py-1.5 text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                  {row.employee.nome}
+                </td>
+                <td className="px-3 py-1.5 tabular-nums">{row.entradas[0] ? timeStr(row.entradas[0]) : '—'}</td>
+                <td className="px-3 py-1.5 tabular-nums">{row.saidas[0] ? timeStr(row.saidas[0]) : '—'}</td>
+                <td className="px-3 py-1.5 tabular-nums">{row.entradas[1] ? timeStr(row.entradas[1]) : '—'}</td>
+                <td className="px-3 py-1.5 tabular-nums">{row.saidas[1] ? timeStr(row.saidas[1]) : '—'}</td>
+                <td className="px-3 py-1.5 tabular-nums">{row.entradas[2] ? timeStr(row.entradas[2]) : '—'}</td>
+                <td className="px-3 py-1.5 tabular-nums">{row.saidas[2] ? timeStr(row.saidas[2]) : '—'}</td>
+                <td className="px-3 py-1.5">
+                  {row.photoRecords.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {row.photoRecords.map((record: any) => (
+                        <AdminPunchPhotoViewer
+                          key={String(record.id ?? `${record.created_at}-${record.type}`)}
+                          photoUrl={resolvePunchPhotoUrl(record)}
+                          label={timeStr(record.created_at)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={meta.comp}
+                    disabled={readOnly}
+                    onChange={(e) => !readOnly && setMetaForDay(row.employee.id, dayYmd, { comp: e.target.checked })}
+                    className="rounded border-slate-300"
+                    title="Compensado"
+                  />
+                </td>
+                <td className="px-3 py-1.5">
+                  <input
+                    type="text"
+                    value={meta.ref}
+                    readOnly={readOnly}
+                    onChange={(e) => !readOnly && setMetaForDay(row.employee.id, dayYmd, { ref: e.target.value })}
+                    className={`w-20 px-2 py-0.5 rounded border text-xs ${
+                      readOnly ? 'bg-slate-50 dark:bg-slate-800/50 cursor-default' : ''
+                    } ${
+                      !readOnly && isDirty
+                        ? 'border-red-500 bg-red-50/50 dark:bg-red-900/10'
+                        : 'border-slate-200 dark:border-slate-700'
+                    }`}
+                    placeholder="Ref"
+                  />
+                </td>
+                <td className="px-3 py-1.5">
+                  <input
+                    type="text"
+                    value={meta.ajuste}
+                    readOnly={readOnly}
+                    onChange={(e) => !readOnly && setMetaForDay(row.employee.id, dayYmd, { ajuste: e.target.value })}
+                    className={`w-20 px-2 py-0.5 rounded border text-xs tabular-nums ${
+                      readOnly ? 'bg-slate-50 dark:bg-slate-800/50 cursor-default' : ''
+                    } ${
+                      !readOnly && isDirty
+                        ? 'border-red-500 bg-red-50/50 dark:bg-red-900/10'
+                        : 'border-slate-200 dark:border-slate-700'
+                    }`}
+                    placeholder="+/-"
+                  />
+                </td>
+                <td className="px-3 py-1.5 tabular-nums text-slate-700 dark:text-slate-300">{row.workedHours}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
   if (loading) return <LoadingState message="Carregando..." />;
   if (!user) return <Navigate to="/" replace />;
@@ -287,7 +434,7 @@ const AdminPontoDiario: React.FC = () => {
         <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
           <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-              Data
+              Data inicial
             </label>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
@@ -300,7 +447,12 @@ const AdminPontoDiario: React.FC = () => {
               <input
                 type="date"
                 value={data}
-                onChange={(e) => setData(e.target.value)}
+                max={dataFim}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setData(next);
+                  if (next > dataFim) setDataFim(next);
+                }}
                 className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white flex-1 sm:flex-none"
               />
               <button
@@ -311,6 +463,22 @@ const AdminPontoDiario: React.FC = () => {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+          <div className="w-full sm:w-auto">
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+              Data final
+            </label>
+            <input
+              type="date"
+              value={dataFim}
+              min={data}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDataFim(next);
+                if (next < data) setData(next);
+              }}
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full sm:min-w-[160px]"
+            />
           </div>
           <div className="w-full sm:w-auto">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
@@ -383,130 +551,18 @@ const AdminPontoDiario: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-x-auto">
           {loadingData ? (
             <div className="p-12 text-center text-slate-500">Carregando...</div>
-          ) : rows.length === 0 ? (
+          ) : !periodValid ? (
+            <div className="p-12 text-center text-slate-500">Informe um período válido (data inicial ≤ data final).</div>
+          ) : rangeTooWide ? (
             <div className="p-12 text-center text-slate-500">
-              Nenhum funcionário encontrado para {formatDateBr(data)} com os filtros atuais.
+              Período máximo de {MAX_PONTO_DIARIO_RANGE_DAYS} dias. Reduza o intervalo entre as datas.
+            </div>
+          ) : filteredEmployees.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">
+              Nenhum colaborador encontrado com os filtros atuais.
             </div>
           ) : (
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Funcionário</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 1</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 1</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 2</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 2</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ent. 3</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Saí. 3</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Fotos</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Comp</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ref</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Ajuste</th>
-                  <th className="px-3 py-2 text-left font-bold text-slate-500 dark:text-slate-400">Normais (aprox.)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const meta = row.meta;
-                  const key = `${row.employee.id}_${data}`;
-                  const isDirty = diasDirty[key] != null;
-                  return (
-                    <tr
-                      key={row.employee.id}
-                      className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
-                    >
-                      <td className="px-3 py-1.5 text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        {row.employee.nome}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.entradas[0] ? timeStr(row.entradas[0]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.saidas[0] ? timeStr(row.saidas[0]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.entradas[1] ? timeStr(row.entradas[1]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.saidas[1] ? timeStr(row.saidas[1]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.entradas[2] ? timeStr(row.entradas[2]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {row.saidas[2] ? timeStr(row.saidas[2]) : '—'}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {row.photoRecords.length ? (
-                          <div className="flex flex-wrap gap-1">
-                            {row.photoRecords.map((record: any) => (
-                              <AdminPunchPhotoViewer
-                                key={String(record.id ?? `${record.created_at}-${record.type}`)}
-                                photoUrl={resolvePunchPhotoUrl(record)}
-                                label={timeStr(record.created_at)}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-center">
-                        <input
-                          type="checkbox"
-                          checked={meta.comp}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            !readOnly && setMetaForDay(row.employee.id, { comp: e.target.checked })
-                          }
-                          className="rounded border-slate-300"
-                          title="Compensado"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <input
-                          type="text"
-                          value={meta.ref}
-                          readOnly={readOnly}
-                          onChange={(e) =>
-                            !readOnly && setMetaForDay(row.employee.id, { ref: e.target.value })
-                          }
-                          className={`w-20 px-2 py-0.5 rounded border text-xs ${
-                            readOnly ? 'bg-slate-50 dark:bg-slate-800/50 cursor-default' : ''
-                          } ${
-                            !readOnly && isDirty
-                              ? 'border-red-500 bg-red-50/50 dark:bg-red-900/10'
-                              : 'border-slate-200 dark:border-slate-700'
-                          }`}
-                          placeholder="Ref"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <input
-                          type="text"
-                          value={meta.ajuste}
-                          readOnly={readOnly}
-                          onChange={(e) =>
-                            !readOnly && setMetaForDay(row.employee.id, { ajuste: e.target.value })
-                          }
-                          className={`w-20 px-2 py-0.5 rounded border text-xs tabular-nums ${
-                            readOnly ? 'bg-slate-50 dark:bg-slate-800/50 cursor-default' : ''
-                          } ${
-                            !readOnly && isDirty
-                              ? 'border-red-500 bg-red-50/50 dark:bg-red-900/10'
-                              : 'border-slate-200 dark:border-slate-700'
-                          }`}
-                          placeholder="+/-"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 tabular-nums text-slate-700 dark:text-slate-300">
-                        {row.workedHours}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            daysInRange.map((dayYmd) => renderDayTable(dayYmd, buildRowsForDay(dayYmd)))
           )}
         </div>
       </div>
