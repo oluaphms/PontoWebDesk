@@ -64,6 +64,11 @@ const getRiskLevel = (score: number | null) => {
   return 'low';
 };
 
+function toCoord(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export default function ReportSecurity() {
   const { user, loading } = useCurrentUser();
   const { employees: companyEmployees, loadingEmployees } = useCompanyEmployees(user?.companyId);
@@ -117,8 +122,8 @@ export default function ReportSecurity() {
               type: r.type,
               fraud_score: r.fraud_score ? Number(r.fraud_score) : null,
               fraud_flags: Array.isArray(r.fraud_flags) ? r.fraud_flags : [],
-              latitude: r.latitude,
-              longitude: r.longitude,
+              latitude: toCoord(r.latitude),
+              longitude: toCoord(r.longitude),
               device_id: r.device_id || r.source_device,
               is_manual: r.is_manual || r.manual_reason,
             }));
@@ -350,11 +355,13 @@ export default function ReportSecurity() {
       align: 'left',
       width: '150px',
       render: (_, row) => {
-        if (!row.latitude || !row.longitude) return '—';
+        const lat = toCoord(row.latitude);
+        const lon = toCoord(row.longitude);
+        if (lat == null || lon == null) return '—';
         return (
           <div className="flex items-center gap-1 text-xs text-slate-600">
             <MapPin className="w-3 h-3" />
-            {row.latitude.toFixed(4)}, {row.longitude.toFixed(4)}
+            {lat.toFixed(4)}, {lon.toFixed(4)}
           </div>
         );
       },
