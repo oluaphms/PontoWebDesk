@@ -543,6 +543,9 @@ export function enrichPipelineRowForOperationalDay(
   }
 
   const lastTs = presence.lastPunch;
+  const lastRecord = sortedToday[0] ?? null;
+  const geoSourceRecord =
+    sortedToday.find((r) => readGeoSnapshot(r) != null) ?? lastRecord;
   return {
     ...row,
     status,
@@ -562,6 +565,9 @@ export function enrichPipelineRowForOperationalDay(
     geoLocationExpired,
     geoConfidenceLevel,
     mapRenderTimestamp: nowMs,
+    displayAddress: readRecordDisplayAddress(geoSourceRecord),
+    punchOriginLabel: geoSourceRecord ? resolvePunchOrigin(geoSourceRecord).label : row.punchOriginLabel,
+    classificationReason: presence.classificationReason,
   };
 }
 
@@ -594,6 +600,9 @@ export type MonitoringPipelineEmployeeRow = {
   geoGpsAgeMs?: number | null;
   /** Localização válida expirou para exibição no mapa (alinhado ao resolver único). */
   geoLocationExpired?: boolean;
+  displayAddress?: string;
+  punchOriginLabel?: string;
+  classificationReason?: string;
 };
 
 export function buildMonitoringPipelineRow(
@@ -891,6 +900,9 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
     userName: row.userName,
     status: row.statusLabel,
     lastRecordAt: row.lastRecordAt,
+    lastRecordType: row.lastRecordType,
+    punchOriginLabel: row.punchOriginLabel,
+    displayAddress: row.displayAddress,
     lat: row.lat,
     lng: row.lng,
     leafletMarkerKey: row.mapMarkerKey ?? `${row.userId}|${row.mapRenderTimestamp}`,
@@ -903,7 +915,14 @@ export function buildMapEmployeeFromPipelineRow(row: MonitoringPipelineEmployeeR
 
 export function inferOperationalPresenceForDay(
   recordsForUser: OperationalPunchRecord[],
-): { status: 'working' | 'break' | 'lunch' | 'off_duty'; lastPunch?: string; lastType?: string; pairCount: number } {
+): {
+  status: 'working' | 'break' | 'lunch' | 'off_duty';
+  lastPunch?: string;
+  lastType?: string;
+  pairCount: number;
+  offDutyReason?: 'no_punch_today' | 'journey_closed' | 'other';
+  classificationReason: string;
+} {
   const valid = [...recordsForUser].filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r)).ok);
   const sorted = valid.sort((a, b) => recordPunchInstantMs(a) - recordPunchInstantMs(b));
   const last = sorted[sorted.length - 1];
@@ -919,11 +938,76 @@ export function inferOperationalPresenceForDay(
   const lastType = last ? type(last.type) : null;
   const lastTs = last ? recordPunchInstantIso(last) : null;
 
-  if (sorted.length === 0) return { status: 'off_duty', pairCount: 0 };
-  if (lastType === 'entrada' || lastType === 'intervalo_volta') {
-    return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
+  if (sorted.length === 0) {
+    return {
+      status: 'off_duty',
+      pairCount: 0,
+      offDutyReason: 'no_punch_today',
+      classificationReason: 'sem_batida_no_dia_operacional',
+    };
   }
-  if (lastType === 'pausa') return { status: 'break', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
-  if (lastType === 'intervalo_saida') return { status: 'lunch', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
-  return { status: 'off_duty', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
+  if (lastType === 'entrada' || lastType === 'intervalo_volta') {
+    return {
+      status: 'working',
+      lastPunch: lastTs ?? undefined,
+      lastType: last?.type,
+      pairCount,
+      classificationReason: `ultima_batida_${lastType}`,
+    };
+  }
+  if (lastType === 'pausa') {
+    return {
+      status: 'break',
+      lastPunch: lastTs ?? undefined,
+      lastType: last?.type,
+      pairCount,
+      classificationReason: 'ultima_batida_pausa',
+    };
+  }
+  if (lastType === 'intervalo_saida') {
+    return {
+      status: 'lunch',
+      lastPunch: lastTs ?? undefined,
+      lastType: last?.type,
+      pairCount,
+      classificationReason: 'ultima_batida_intervalo_saida',
+    };
+  }
+  if (lastType === 'saida') {
+    return {
+      status: 'off_duty',
+      lastPunch: lastTs ?? undefined,
+      lastType: last?.type,
+      pairCount,
+      offDutyReason: 'journey_closed',
+      classificationReason: 'ultima_batida_saida_jornada_encerrada',
+    };
+  }
+  return {
+    status: 'off_duty',
+    lastPunch: lastTs ?? undefined,
+    lastType: last?.type,
+    pairCount,
+    offDutyReason: 'other',
+    classificationReason: `ultima_batida_${lastType ?? 'desconhecida'}`,
+  };
+}
+
+export function readRecordDisplayAddress(record: OperationalPunchRecord | null | undefined): string | null {
+  if (!record) return null;
+  const raw = record.raw_data as Record<string, unknown> | null | undefined;
+  const geo = raw?.geo_snapshot as Record<string, unknown> | undefined;
+  const candidates = [
+    geo?.formatted_address,
+    geo?.formatted,
+    geo?.address,
+    raw?.formatted_address,
+    raw?.address,
+    (record as { address?: string }).address,
+  ];
+  for (const c of candidates) {
+    const s = String(c ?? '').trim();
+    if (s) return s;
+  }
+  return null;
 }

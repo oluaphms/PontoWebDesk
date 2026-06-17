@@ -23,7 +23,33 @@ export function isDataApiWritesDisabledError(error: unknown): boolean {
 
 function markDataApiWritesDisabled(): void {
   dataApiWritesDisabledFlag = true;
+  try {
+    sessionStorage.setItem('pontowebdesk:data_api_writes_disabled', '1');
+  } catch {
+    /* ignore */
+  }
 }
+
+function readPersistedWritesDisabled(): boolean {
+  try {
+    return sessionStorage.getItem('pontowebdesk:data_api_writes_disabled') === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Escritas genéricas POST/PATCH em `/api/data` (ex.: snapshots opcionais). */
+export function isGenericDataApiWriteAllowed(): boolean {
+  if (dataApiWritesDisabledFlag || readPersistedWritesDisabled()) return false;
+  const envFlag = String(import.meta.env.VITE_DATA_API_WRITES_ENABLED ?? '').trim().toLowerCase();
+  if (envFlag === 'true') return true;
+  if (envFlag === 'false') return false;
+  // VPS remota: DATA_API_WRITES_ENABLED=false por padrão no backend.
+  return /localhost|127\.0\.0\.1/i.test(API_BASE);
+}
+
+// Restaura flag da sessão após primeiro 403 data_api_writes_disabled.
+dataApiWritesDisabledFlag = readPersistedWritesDisabled();
 
 /** Registra callback global para 401 (logout automático). */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
@@ -286,7 +312,7 @@ async function parseResponse<T>(
       }
     }
     if (writesDisabled) {
-      logger.warn({
+      logger.info({
         module: 'frontend.api',
         action: 'DATA_API_WRITES_DISABLED',
         message: errMsg,

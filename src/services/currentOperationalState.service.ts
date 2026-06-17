@@ -197,6 +197,8 @@ export interface EmployeePresenceFromState {
   lastPunch?: string;
   lastType?: string;
   pairCount: number;
+  offDutyReason?: 'no_punch_today' | 'journey_closed' | 'other';
+  classificationReason?: string;
 }
 
 export function operationalStatusToPresenceStatus(st: EmployeeOperationalStatus): PresenceStatus {

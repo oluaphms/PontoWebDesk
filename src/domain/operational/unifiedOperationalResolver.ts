@@ -44,6 +44,8 @@ export type UnifiedOperationalResolverInput = {
   nowMs: number;
   /** IDs alternativos por colaborador (ex.: user.id vinculado por e-mail). */
   rosterIdAliases?: Map<string, string[]>;
+  /** user_id da batida → id do colaborador no roster. */
+  recordUserToRosterId?: Map<string, string>;
 };
 
 export type UnifiedOperationalResolverResult = {
@@ -227,7 +229,19 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         operationalDayMode: true,
       });
       const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
-      const last = getLastOperationalPunchForRoster(todayOperationalRecords, u.id, rosterIdAliases, nowMs);
+      const memberTodayRecords = filterRecordsForRosterMember(
+        todayOperationalRecords,
+        u.id,
+        rosterIdAliases,
+        recordUserToRosterId,
+      );
+      const last = getLastOperationalPunchForRoster(
+        todayOperationalRecords,
+        u.id,
+        rosterIdAliases,
+        nowMs,
+        recordUserToRosterId,
+      );
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -240,7 +254,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         log: false,
       });
       const merged = applyResolvedGeo(base, resolved, nowMs, live);
-      return enrichPipelineRowForOperationalDay(merged, todayOperationalRecords, matchIds(u.id), nowMs);
+      return enrichPipelineRowForOperationalDay(merged, memberTodayRecords, matchIds(u.id), nowMs);
     });
   }
 
@@ -252,7 +266,8 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         rosterIdAliases,
         recordUserToRosterId,
       );
-      const { status, lastPunch, lastType, pairCount } = inferOperationalPresenceForDay(recs);
+      const { status, lastPunch, lastType, pairCount, offDutyReason, classificationReason } =
+        inferOperationalPresenceForDay(recs);
       return {
         user_id: u.id,
         nome: u.nome || u.email || u.id.slice(0, 8),
@@ -261,6 +276,8 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         lastPunch,
         lastType,
         pairCount,
+        offDutyReason,
+        classificationReason,
       };
     })
     .sort((a, b) => a.nome.localeCompare(b.nome));
@@ -270,6 +287,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
     usingCos: usingOperationalStateTable,
     cosByEmployee,
     pipelineRows,
+    todayYmd,
   });
 
   auditRealtimeGeoConsistency({

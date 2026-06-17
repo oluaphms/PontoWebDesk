@@ -1,25 +1,16 @@
 import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 /**
- * Monitoramento: presença e mapa consomem `current_operational_state` (fonte única).
- * Fallback para derivação local só se a tabela ainda não tiver linhas na empresa.
- * Realtime: postgres_changes em current_operational_state (+ time_records como rede de segurança).
+ * Monitoramento: presença e mapa via OperationalStateService (batidas do dia + COS + live).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { Navigate } from 'react-router-dom';
-import { db } from '../../services/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
-import {
-  fetchMonitoringTimeRecordsBundle,
-  monitoringDailyRecordsCacheKey,
-} from '../../services/monitoring/monitoringData.service';
+import { monitoringDailyRecordsCacheKey } from '../../services/monitoring/monitoringData.service';
 import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
-import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
 import { queryCache } from '../../services/queryCache';
-import {
-  commitMonitoringGeoRegistryFromFetch,
-} from '../../services/monitoring/realtimeMonitoringGeoRegistry';
+import { commitMonitoringGeoRegistryFromFetch } from '../../services/monitoring/realtimeMonitoringGeoRegistry';
 import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import { operationalStatusColor } from '../../types/employeeOperationalStatus';
@@ -28,17 +19,16 @@ import {
   buildMapEmployeeFromPipelineRow,
   getCompanyTodayYmd,
   type MonitoringPipelineEmployeeRow,
-  type OperationalPunchRecord,
 } from '../../services/monitoring/monitoringGeoHardLock.service';
-import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany, type EmployeePresenceFromState } from '../../services/currentOperationalState.service';
-import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../services/liveEmployeeLocation.service';
-import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
-import { formatOperationalTimeHmFromIso, operationalClockMs } from '../../utils/operationalDateHardLock';
-import { fetchEmployees, type ApiEmployee } from '../../services/employeesApi.service';
+import { currentOperationalStateCacheKey, type EmployeePresenceFromState } from '../../services/currentOperationalState.service';
+import { formatOperationalTimeHmFromIso } from '../../utils/operationalDateHardLock';
 import {
-  buildMonitoringRosterWithFallback,
-  buildRecordUserToRosterIdMap,
-} from '../../services/monitoring/monitoringRoster.service';
+  loadMonitoringOperationalSnapshot,
+  formatActiveDuration,
+  offDutyDisplayLabel,
+  type MonitoringDiagnosticInfo,
+  type MonitoringTimelineEvent,
+} from '../../services/monitoring/operationalState.service';
 import {
   MapPin,
   Clock,
@@ -49,9 +39,9 @@ import {
   AlertCircle,
   Zap,
   Calendar,
+  Activity,
+  Stethoscope,
 } from 'lucide-react';
-
-type UserRow = { id: string; nome: string; email?: string };
 
 type TabId = 'hoje' | 'mapa';
 
@@ -60,10 +50,13 @@ const AdminMonitoring: React.FC = () => {
   const [tab, setTab] = useState<TabId>('hoje');
   const [loadingData, setLoadingData] = useState(true);
   const [pipelineRows, setPipelineRows] = useState<MonitoringPipelineEmployeeRow[]>([]);
-  const [todayUsers, setTodayUsers] = useState<UserRow[]>([]);
   const [usingOperationalStateTable, setUsingOperationalStateTable] = useState(false);
   const [todayYmd, setTodayYmd] = useState(() => getCompanyTodayYmd());
   const [presenceList, setPresenceList] = useState<EmployeePresenceFromState[]>([]);
+  const [timeline, setTimeline] = useState<MonitoringTimelineEvent[]>([]);
+  const [diagnostic, setDiagnostic] = useState<MonitoringDiagnosticInfo | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
   const refreshGenerationRef = useRef(0);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -71,92 +64,19 @@ const AdminMonitoring: React.FC = () => {
     const gen = ++refreshGenerationRef.current;
     if (!opts?.silent) setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
-    const nowMs = operationalClockMs();
     try {
-      const usersRows = (await db.select(
-        'users',
-        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-        { columns: 'id,email,nome,role,status', limit: 500 },
-      )) as Array<{ id?: string; email?: string | null; nome?: string; role?: string; status?: string }>;
-
-      let employeesRows: ApiEmployee[] = [];
-      try {
-        employeesRows = await fetchEmployees(user.companyId);
-      } catch (employeeErr) {
-        observabilityConsole.warn('[Monitoring] fetchEmployees falhou — fallback users', employeeErr);
-      }
-      if (employeesRows.length === 0) {
-        try {
-          const dbEmployees = (await db.select(
-            'employees',
-            [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-            { columns: 'id,nome,email,role,status,invisivel', limit: 500 },
-          )) as ApiEmployee[];
-          if (dbEmployees.length > 0) employeesRows = dbEmployees;
-        } catch (dbEmployeeErr) {
-          observabilityConsole.warn('[Monitoring] fallback employees via db.select falhou', dbEmployeeErr);
-        }
-      }
-
-      const { roster: users, aliases: rosterIdAliases } = buildMonitoringRosterWithFallback(
-        employeesRows,
-        usersRows ?? [],
-      );
-      const recordUserToRosterId = buildRecordUserToRosterIdMap(users, rosterIdAliases, employeesRows, usersRows ?? []);
-
-      const [cos, liveRaw] = await Promise.all([
-        fetchCurrentOperationalStateByCompany(user.companyId),
-        fetchLiveLocationsForCompany(user.companyId),
-      ]);
-      queryCache.set(currentOperationalStateCacheKey(user.companyId), cos, 15_000);
-
-      const liveRows = flagStaleLiveLocations(liveRaw, nowMs);
-      trackGeoSnapshotChecksumDrift(user.companyId, cos, liveRows);
-      const liveByEmployee = new Map(liveRows.map((r) => [r.employee_id, r]));
-
-      const timeRecords = await fetchMonitoringTimeRecordsBundle(user.companyId);
-
-      const unified = resolveUnifiedOperationalState({
-        companyId: user.companyId,
-        users,
-        cosRows: cos,
-        timeRecords,
-        liveByEmployee,
-        todayYmd: getCompanyTodayYmd(),
-        nowMs,
-        rosterIdAliases,
-        recordUserToRosterId,
-      });
-
+      const snapshot = await loadMonitoringOperationalSnapshot(user.companyId);
       if (gen !== refreshGenerationRef.current) return;
-      commitMonitoringGeoRegistryFromFetch(user.companyId, cos);
-      setUsingOperationalStateTable(unified.usingOperationalStateTable);
-      setTodayUsers(users);
-      setPipelineRows(unified.pipelineRows);
-      setPresenceList(unified.presenceList);
 
-      const withGps = unified.pipelineRows.filter((r) => r.lat != null && r.lng != null && !r.geoLocationExpired);
-      const todayCount = timeRecords.filter(
-        (r) => recordUserToRosterId.has(String(r.user_id ?? '')) || users.some((u) => rosterIdAliases.get(u.id)?.includes(String(r.user_id))),
-      ).length;
-      observabilityConsole.info('[MONITORAMENTO]', {
-        colaboradores_roster: users.length,
-        registros_bundle: timeRecords.length,
-        registros_mapeados_roster: todayCount,
-        com_gps_pipeline: withGps.length,
-        usando_cos: unified.usingOperationalStateTable,
-        dia_operacional: getCompanyTodayYmd(),
-        mapa_user_ids: Array.from(recordUserToRosterId.entries()).slice(0, 12),
-      });
-      observabilityConsole.info(
-        '[MONITORAMENTO_STATUS]',
-        unified.presenceList.map((e) => ({
-          nome: e.nome,
-          status: e.status,
-          lastPunch: e.lastPunch,
-          lastType: e.lastType,
-        })),
-      );
+      trackGeoSnapshotChecksumDrift(user.companyId, snapshot.cosRows, snapshot.liveRows);
+      commitMonitoringGeoRegistryFromFetch(user.companyId, snapshot.cosRows);
+
+      setUsingOperationalStateTable(snapshot.diagnostic.usingCos);
+      setPipelineRows(snapshot.pipelineRows);
+      setPresenceList(snapshot.presenceList);
+      setTimeline(snapshot.timeline);
+      setDiagnostic(snapshot.diagnostic);
+      setNowMs(snapshot.nowMs);
     } catch (e) {
       observabilityConsole.error(e);
     } finally {
@@ -197,9 +117,6 @@ const AdminMonitoring: React.FC = () => {
     if (!user?.companyId) return;
     const run = () => {
       if (isPollingSuppressedByVisibility()) return;
-      clearGeocodeCache();
-      queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
-      queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
       queryCache.invalidate(monitoringDailyRecordsCacheKey(user.companyId));
       queryCache.invalidate(`time_records:monitoring:daily:created:${user.companyId}:${getCompanyTodayYmd()}`);
       queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
@@ -208,6 +125,11 @@ const AdminMonitoring: React.FC = () => {
     const t = window.setInterval(run, 60_000);
     return () => window.clearInterval(t);
   }, [user?.companyId, refresh]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (tab !== 'mapa') return;
@@ -226,12 +148,7 @@ const AdminMonitoring: React.FC = () => {
 
   const formatTime = (s: string | undefined) => {
     if (!s) return '—';
-    const hm = formatOperationalTimeHmFromIso(s);
-    if (!hm) {
-      observabilityConsole.info('[TIME DISPLAY BUG]', { reason: 'invalid_time_only', raw: s });
-      return '—';
-    }
-    return hm;
+    return formatOperationalTimeHmFromIso(s) ?? '—';
   };
 
   if (loading) return <LoadingState message="Carregando..." />;
@@ -267,20 +184,34 @@ const AdminMonitoring: React.FC = () => {
           title="Monitoramento"
           subtitle={
             usingOperationalStateTable
-              ? 'Fonte única: tabela current_operational_state (atualizada na batida e em alterações de ponto).'
-              : 'Carregando fallback local até existir snapshot operacional na base.'
+              ? 'Fonte única: batidas do dia + current_operational_state + live location.'
+              : 'Presença derivada das batidas do dia operacional (mesma base da Dashboard).'
           }
           icon={<Users size={24} />}
         />
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loadingData}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium disabled:opacity-50 shrink-0"
-        >
-          <RefreshCw className={`w-5 h-5 ${loadingData ? 'animate-spin' : ''}`} /> Atualizar
-        </button>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowDiagnostic((v) => !v)}
+            className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm font-medium"
+          >
+            <Stethoscope className="w-4 h-4" />
+            Diagnóstico
+          </button>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={loadingData}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium disabled:opacity-50"
+          >
+            <RefreshCw className={`w-5 h-5 ${loadingData ? 'animate-spin' : ''}`} /> Atualizar
+          </button>
+        </div>
       </div>
+
+      {showDiagnostic && diagnostic && (
+        <DiagnosticPanel diagnostic={diagnostic} mapPins={mapEmployees.filter((e) => e.lat != null && e.lng != null).length} />
+      )}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Visões de monitoramento">
         {tabBtn('hoje', 'Hoje', <Calendar className="w-4 h-4" />)}
@@ -304,18 +235,19 @@ const AdminMonitoring: React.FC = () => {
                 <StatCard icon={<LogOut className="text-slate-600" size={20} />} label="Fora da jornada" value={offDuty.length} />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <PresenceSection title="Trabalhando agora" items={working} formatTime={formatTime} statusLabel="Entrada" />
-                <PresenceSection title="Em pausa" items={onBreak} formatTime={formatTime} statusLabel="Pausa" />
-                <PresenceSection title="Em intervalo" items={onLunch} formatTime={formatTime} statusLabel="Intervalo" />
-                <PresenceSection title="Fora da jornada" items={offDuty} formatTime={formatTime} statusLabel="Última batida" />
+                <PresenceSection title="Trabalhando agora" items={working} variant="working" formatTime={formatTime} nowMs={nowMs} />
+                <PresenceSection title="Em pausa" items={onBreak} variant="break" formatTime={formatTime} nowMs={nowMs} />
+                <PresenceSection title="Em intervalo" items={onLunch} variant="lunch" formatTime={formatTime} nowMs={nowMs} />
+                <PresenceSection title="Fora da jornada" items={offDuty} variant="off_duty" formatTime={formatTime} nowMs={nowMs} />
               </div>
+              <ActivityTimeline events={timeline} />
             </div>
           )}
 
           {tab === 'mapa' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Mapa e lista abaixo refletem o snapshot centralizado (status, GEO aceitável, online/offline).
+                Marcadores para colaboradores com GPS válido na última batida do dia.
               </p>
               <div className="space-y-2">
                 <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
@@ -340,43 +272,20 @@ const AdminMonitoring: React.FC = () => {
                     {emp.lastRecordAt && (
                       <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                         <Clock className="w-4 h-4 shrink-0" />
-                        <span>Último registro válido: {emp.lastRecordAt}</span>
+                        <span>Último registro: {emp.lastRecordAt}</span>
                       </div>
                     )}
-                    {emp.lastRecordType && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Tipo: {emp.lastRecordType}</p>
+                    {emp.punchOriginLabel && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Origem: {emp.punchOriginLabel}</p>
                     )}
-                    {emp.geoPrecisionBadge && (
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                        {emp.geoPrecisionBadge === 'preciso' && 'GPS preciso'}
-                        {emp.geoPrecisionBadge === 'aproximado' && 'Localização aproximada'}
-                        {emp.geoPrecisionBadge === 'stale' && 'GPS stale'}
-                        {emp.geoPrecisionBadge === 'sem_sinal' && 'Sem sinal confiável'}
-                        {emp.geoPrecisionBadge === 'bloqueado' && 'GPS bloqueado'}
-                      </p>
-                    )}
-                    {(emp.provider || emp.geoSourceLabel) && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {emp.geoSourceLabel && <>Origem: {emp.geoSourceLabel}</>}
-                        {emp.provider && (
-                          <>
-                            {emp.geoSourceLabel ? ' · ' : ''}
-                            Provedor: {emp.provider}
-                          </>
-                        )}
-                      </p>
-                    )}
-                    {emp.capturedAt && emp.positionAgeMs != null && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Captura GPS: idade {Math.round(emp.positionAgeMs / 1000)} s
-                      </p>
+                    {emp.displayAddress && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{emp.displayAddress}</p>
                     )}
                     {emp.lat != null && emp.lng != null && (
                       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <MapPin className="w-4 h-4 shrink-0" />
                         <span>
                           Lat {Number(emp.lat).toFixed(4)}, Lng {Number(emp.lng).toFixed(4)}
-                          {emp.accuracy != null && Number.isFinite(emp.accuracy) && ` · ±${Math.round(emp.accuracy)} m`}
                         </span>
                       </div>
                     )}
@@ -406,34 +315,137 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
   );
 }
 
+type PresenceVariant = 'working' | 'break' | 'lunch' | 'off_duty';
+
 function PresenceSection({
   title,
   items,
+  variant,
   formatTime,
-  statusLabel,
+  nowMs,
 }: {
   title: string;
   items: EmployeePresenceFromState[];
+  variant: PresenceVariant;
   formatTime: (s: string | undefined) => string;
-  statusLabel: string;
+  nowMs: number;
 }) {
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <h3 className="px-4 py-3 font-semibold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/50">
         {title} ({items.length})
       </h3>
-      <ul className="divide-y divide-slate-200 dark:divide-slate-700 max-h-72 overflow-y-auto">
+      <ul className="divide-y divide-slate-200 dark:divide-slate-700 max-h-80 overflow-y-auto">
         {items.length === 0 ? (
           <li className="px-4 py-6 text-center text-slate-500 dark:text-slate-400 text-sm">Nenhum</li>
         ) : (
           items.map((e) => (
-            <li key={e.user_id} className="px-4 py-2 flex justify-between items-center">
-              <span className="font-medium text-slate-900 dark:text-white truncate">{e.nome}</span>
-              {statusLabel !== '—' && <span className="text-sm text-slate-500 dark:text-slate-400">{formatTime(e.lastPunch)}</span>}
+            <li key={e.user_id} className="px-4 py-3 space-y-1">
+              <p className="font-medium text-slate-900 dark:text-white truncate">{e.nome}</p>
+              {variant === 'working' && (
+                <>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {e.lastType === 'intervalo_volta' ? 'Volta do intervalo' : 'Entrada'}: {formatTime(e.lastPunch)}
+                  </p>
+                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                    Tempo ativo: {formatActiveDuration(e.lastPunch, nowMs)}
+                  </p>
+                </>
+              )}
+              {variant === 'break' && (
+                <>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Início da pausa: {formatTime(e.lastPunch)}</p>
+                  <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                    Tempo em pausa: {formatActiveDuration(e.lastPunch, nowMs)}
+                  </p>
+                </>
+              )}
+              {variant === 'lunch' && (
+                <>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Início do intervalo: {formatTime(e.lastPunch)}</p>
+                  <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                    Tempo em intervalo: {formatActiveDuration(e.lastPunch, nowMs)}
+                  </p>
+                </>
+              )}
+              {variant === 'off_duty' && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">{offDutyDisplayLabel(e)}</p>
+              )}
             </li>
           ))
         )}
       </ul>
+    </div>
+  );
+}
+
+function ActivityTimeline({ events }: { events: MonitoringTimelineEvent[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <h3 className="px-4 py-3 font-semibold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
+        <Activity className="w-4 h-4 text-indigo-500" />
+        Atividades recentes
+      </h3>
+      <ul className="divide-y divide-slate-200 dark:divide-slate-700 max-h-96 overflow-y-auto">
+        {events.length === 0 ? (
+          <li className="px-4 py-6 text-center text-slate-500 dark:text-slate-400 text-sm">Nenhuma atividade hoje</li>
+        ) : (
+          events.map((ev) => (
+            <li key={ev.id} className="px-4 py-3 flex items-start gap-4">
+              <span className="text-sm font-mono font-semibold text-indigo-600 dark:text-indigo-400 w-12 shrink-0">{ev.atLabel}</span>
+              <div className="min-w-0">
+                <p className="font-medium text-slate-900 dark:text-white truncate">{ev.employeeName}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{ev.punchTypeLabel}</p>
+              </div>
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function DiagnosticPanel({ diagnostic, mapPins }: { diagnostic: MonitoringDiagnosticInfo; mapPins: number }) {
+  return (
+    <div className="rounded-xl border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-950/30 p-4 text-sm space-y-2">
+      <p className="font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
+        <Stethoscope className="w-4 h-4" />
+        Modo diagnóstico
+      </p>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-slate-700 dark:text-slate-300">
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Fonte dos dados</dt>
+          <dd className="font-medium">{diagnostic.dataSource}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Última atualização</dt>
+          <dd className="font-medium">{diagnostic.lastRefreshLabel}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Registros carregados</dt>
+          <dd className="font-medium">{diagnostic.recordsLoaded}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Colaboradores processados</dt>
+          <dd className="font-medium">{diagnostic.employeesProcessed}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Marcadores renderizáveis</dt>
+          <dd className="font-medium">{diagnostic.markersRenderable} (enviados ao mapa: {mapPins})</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Status calculados</dt>
+          <dd className="font-medium">{diagnostic.statusCalculated}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">COS (linhas)</dt>
+          <dd className="font-medium">{diagnostic.cosRows}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">Dia operacional</dt>
+          <dd className="font-medium">{diagnostic.todayYmd}</dd>
+        </div>
+      </dl>
     </div>
   );
 }

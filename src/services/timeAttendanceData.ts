@@ -1,5 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import { isDataApiWritesDisabled, isDataApiWritesDisabledError } from './api';
+import { isDataApiWritesDisabled, isDataApiWritesDisabledError, isGenericDataApiWriteAllowed } from './api';
 /**
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
@@ -1741,6 +1741,15 @@ const AUDIT_SNAPSHOT_MAX_RETRIES = 5;
 const AUDIT_SNAPSHOT_BACKOFF_BASE_MS = 1000;
 const AUDIT_SNAPSHOT_BACKOFF_MAX_MS = 16_000;
 const auditSnapshotFailures = new Map<string, { attempts: number; nextRetryAt: number; disabled: boolean }>();
+/** Evita requisições repetidas quando a API retorna 403 para snapshots de auditoria. */
+const auditSnapshotApiForbiddenCompanies = new Set<string>();
+
+function isAuditSnapshotAccessForbidden(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    return Number((error as { status?: number }).status) === 403;
+  }
+  return false;
+}
 
 export function computeAuditQualityScore(pick: {
   inconsistent_count: number;
@@ -1779,7 +1788,7 @@ export function isTrendWorsening(trend: AuditTrendRow[]): boolean {
 
 async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAttendanceAuditSummary): Promise<void> {
   if (!isSupabaseConfigured() || !companyId.trim()) return;
-  if (isDataApiWritesDisabled()) return;
+  if (!isGenericDataApiWriteAllowed() || isDataApiWritesDisabled()) return;
   if (!isDefaultCivilMonthRange(summary.period_start, summary.period_end)) return;
 
   const snapshotDate = civilDateTodayLocal();
@@ -1788,6 +1797,7 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
   const now = Date.now();
   if (failure?.disabled) return;
   if (failure && failure.nextRetryAt > now) return;
+  if (auditSnapshotApiForbiddenCompanies.has(companyId)) return;
 
   try {
     const existing = await db.select(
@@ -1820,7 +1830,15 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
     );
     auditSnapshotFailures.delete(failureKey);
   } catch (e) {
+    if (isAuditSnapshotAccessForbidden(e)) {
+      auditSnapshotApiForbiddenCompanies.add(companyId);
+      observabilityConsole.info('[TIME ATTENDANCE AUDIT SNAPSHOT] access forbidden — disabled for session', {
+        companyId,
+      });
+      return;
+    }
     if (isDataApiWritesDisabledError(e)) {
+      auditSnapshotApiForbiddenCompanies.add(companyId);
       auditSnapshotFailures.set(failureKey, {
         attempts: 1,
         nextRetryAt: Number.MAX_SAFE_INTEGER,
@@ -1857,6 +1875,7 @@ async function upsertAuditSnapshotIfNeeded(companyId: string, summary: TimeAtten
  */
 export async function getAuditTrend(companyId: string): Promise<AuditTrendRow[]> {
   if (!isSupabaseConfigured() || !String(companyId || '').trim()) return [];
+  if (auditSnapshotApiForbiddenCompanies.has(companyId)) return [];
   try {
     const rows = await db.select(
       'time_attendance_audit_snapshots',
@@ -1878,6 +1897,10 @@ export async function getAuditTrend(companyId: string): Promise<AuditTrendRow[]>
     }
     return mapped;
   } catch (e) {
+    if (isAuditSnapshotAccessForbidden(e)) {
+      auditSnapshotApiForbiddenCompanies.add(companyId);
+      return [];
+    }
     observabilityConsole.warn('[TIME ATTENDANCE AUDIT TREND]', e);
     return [];
   }

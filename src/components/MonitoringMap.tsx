@@ -19,6 +19,9 @@ export interface MonitoringEmployee {
   userName: string;
   status: string;
   lastRecordAt?: string;
+  lastRecordType?: string;
+  punchOriginLabel?: string;
+  displayAddress?: string;
   lat?: number;
   lng?: number;
   leafletMarkerKey?: string;
@@ -51,6 +54,17 @@ interface MonitoringMapProps {
 
 const DEFAULT_CENTER: L.LatLngTuple = [-15.7942, -47.8822];
 const DEFAULT_ZOOM = 4;
+
+function punchTypeDisplay(raw: string | undefined): string {
+  if (!raw) return '';
+  const t = raw.toLowerCase().trim();
+  if (t === 'entrada') return 'Entrada';
+  if (t === 'saida') return 'Saída';
+  if (t === 'pausa') return 'Pausa';
+  if (t === 'intervalo' || t === 'intervalo_saida') return 'Intervalo';
+  if (t === 'intervalo_volta') return 'Volta do intervalo';
+  return raw;
+}
 
 function pinSnapshot(e: MonitoringEmployee): string {
   return JSON.stringify({
@@ -243,11 +257,19 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       const detailHtml = emp.geoDetailLine
         ? `<br/><span style="font-size:10px;color:${subTextColor};">${escapeHtml(emp.geoDetailLine)}</span>`
         : '';
+      const punchLabel = punchTypeDisplay(emp.lastRecordType);
+      const originHtml = emp.punchOriginLabel
+        ? `<br/><span style="font-size:11px;color:${subTextColor};">${escapeHtml(emp.punchOriginLabel)}</span>`
+        : '';
+      const addressHtml = emp.displayAddress
+        ? `<br/><span style="font-size:11px;color:${subTextColor};">${escapeHtml(emp.displayAddress)}</span>`
+        : '';
       newMarker.bindPopup(
-        `<div style="min-width:180px;font-family:system-ui;padding:6px;">
+        `<div style="min-width:200px;font-family:system-ui;padding:6px;">
           <strong style="color:${textColor};font-size:13px;">${escapeHtml(emp.userName)}</strong><br/>
-          <span style="font-size:11px;color:${color};font-weight:600;">${escapeHtml(emp.status)}</span>
+          ${punchLabel ? `<span style="font-size:12px;color:${color};font-weight:600;">${escapeHtml(punchLabel)}</span>` : `<span style="font-size:11px;color:${color};font-weight:600;">${escapeHtml(emp.status)}</span>`}
           ${emp.lastRecordAt ? `<br/><span style="font-size:11px;color:${subTextColor};">${escapeHtml(emp.lastRecordAt)}</span>` : ''}
+          ${originHtml}${addressHtml}
           ${badgeHtml}${detailHtml}
         </div>`,
         { autoPan: false },
