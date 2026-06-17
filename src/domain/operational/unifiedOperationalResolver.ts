@@ -27,7 +27,7 @@ import {
 } from '../../services/geolocation/monitoringGeoSourceResolver';
 import { assertOperationalStateConsistency } from './assertOperationalStateConsistency';
 import { auditRealtimeGeoConsistency } from './auditRealtimeGeoConsistency';
-import { getLastOperationalPunchForRoster, rosterIdSet } from '../../services/monitoring/monitoringRoster.service';
+import { getLastOperationalPunchForRoster, liveRowForRoster, rosterIdSet } from '../../services/monitoring/monitoringRoster.service';
 
 export type UnifiedOperationalResolverInput = {
   companyId: string;
@@ -185,7 +185,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
     pipelineRows = users.map((u) => {
       const cos = cosForRoster(u.id, cosByEmployee, rosterIdAliases);
       const base = cos ? operationalStateRowToMonitoringPipelineRow(cos, u, nowMs) : emptyMonitoringPipelineRowForUser(u, nowMs);
-      const live = liveByEmployee.get(u.id) ?? null;
+      const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
       const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
@@ -203,7 +203,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
   } else {
     pipelineRows = users.map((u) => {
       const base = buildMonitoringPipelineRow(u, timeRecords, nowMs, matchIds(u.id));
-      const live = liveByEmployee.get(u.id) ?? null;
+      const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
       const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({

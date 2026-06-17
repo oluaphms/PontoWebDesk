@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMonitoringRoster, isActiveMonitoringEmployee } from './monitoringRoster.service';
+import { buildMonitoringRoster, buildMonitoringRosterWithFallback, isActiveMonitoringEmployee } from './monitoringRoster.service';
 
 describe('monitoringRoster', () => {
   it('usa apenas colaboradores ativos visíveis', () => {
@@ -37,5 +37,17 @@ describe('monitoringRoster', () => {
         company_id: 'c1',
       }),
     ).toBe(false);
+  });
+
+  it('fallback para users quando API de colaboradores vem vazia', () => {
+    const { roster } = buildMonitoringRosterWithFallback(
+      [],
+      [
+        { id: 'u1', nome: 'Ana', email: 'ana@x.com', role: 'employee', status: 'active' },
+        { id: 'u-admin', nome: 'Admin', email: 'admin@x.com', role: 'admin', status: 'active' },
+      ],
+    );
+    expect(roster).toHaveLength(1);
+    expect(roster[0]?.id).toBe('u1');
   });
 });

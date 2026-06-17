@@ -32,7 +32,7 @@ import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../serv
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
 import { formatOperationalTimeHmFromIso, operationalClockMs } from '../../utils/operationalDateHardLock';
 import { fetchEmployees } from '../../services/employeesApi.service';
-import { buildMonitoringRoster } from '../../services/monitoring/monitoringRoster.service';
+import { buildMonitoringRosterWithFallback } from '../../services/monitoring/monitoringRoster.service';
 import {
   MapPin,
   Clock,
@@ -67,16 +67,21 @@ const AdminMonitoring: React.FC = () => {
     setTodayYmd(getCompanyTodayYmd());
     const nowMs = operationalClockMs();
     try {
-      const [employeesRows, usersRows] = await Promise.all([
-        fetchEmployees(user.companyId),
-        db.select(
-          'users',
-          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-          { columns: 'id,email', limit: 500 },
-        ) as Promise<Array<{ id?: string; email?: string | null }>>,
-      ]);
-      const { roster: users, aliases: rosterIdAliases } = buildMonitoringRoster(
-        employeesRows ?? [],
+      const usersRows = (await db.select(
+        'users',
+        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+        { columns: 'id,email,nome,role,status', limit: 500 },
+      )) as Array<{ id?: string; email?: string | null; nome?: string; role?: string; status?: string }>;
+
+      let employeesRows: Awaited<ReturnType<typeof fetchEmployees>> = [];
+      try {
+        employeesRows = await fetchEmployees(user.companyId);
+      } catch (employeeErr) {
+        observabilityConsole.warn('[Monitoring] fetchEmployees falhou — fallback users', employeeErr);
+      }
+
+      const { roster: users, aliases: rosterIdAliases } = buildMonitoringRosterWithFallback(
+        employeesRows,
         usersRows ?? [],
       );
 
