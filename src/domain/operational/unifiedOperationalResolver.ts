@@ -27,7 +27,12 @@ import {
 } from '../../services/geolocation/monitoringGeoSourceResolver';
 import { assertOperationalStateConsistency } from './assertOperationalStateConsistency';
 import { auditRealtimeGeoConsistency } from './auditRealtimeGeoConsistency';
-import { getLastOperationalPunchForRoster, liveRowForRoster, rosterIdSet } from '../../services/monitoring/monitoringRoster.service';
+import {
+  filterRecordsForRosterMember,
+  getLastOperationalPunchForRoster,
+  liveRowForRoster,
+  rosterIdSet,
+} from '../../services/monitoring/monitoringRoster.service';
 
 export type UnifiedOperationalResolverInput = {
   companyId: string;
@@ -174,7 +179,8 @@ function cosForRoster(
  * Todas as telas de monitoramento / cards devem usar este resultado para data civil, status e GEO coerentes.
  */
 export function resolveUnifiedOperationalState(input: UnifiedOperationalResolverInput): UnifiedOperationalResolverResult {
-  const { users, cosRows, timeRecords, liveByEmployee, todayYmd, nowMs, companyId, rosterIdAliases } = input;
+  const { users, cosRows, timeRecords, liveByEmployee, todayYmd, nowMs, companyId, rosterIdAliases, recordUserToRosterId } =
+    input;
   const usingOperationalStateTable = cosRows.length > 0;
   const cosByEmployee = new Map(cosRows.map((r) => [r.employee_id, r]));
   const matchIds = (rosterId: string) => Array.from(rosterIdSet(rosterId, rosterIdAliases));
@@ -187,7 +193,19 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
       const cos = cosForRoster(u.id, cosByEmployee, rosterIdAliases);
       const base = cos ? operationalStateRowToMonitoringPipelineRow(cos, u, nowMs) : emptyMonitoringPipelineRowForUser(u, nowMs);
       const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
-      const last = getLastOperationalPunchForRoster(todayOperationalRecords, u.id, rosterIdAliases, nowMs);
+      const memberTodayRecords = filterRecordsForRosterMember(
+        todayOperationalRecords,
+        u.id,
+        rosterIdAliases,
+        recordUserToRosterId,
+      );
+      const last = getLastOperationalPunchForRoster(
+        todayOperationalRecords,
+        u.id,
+        rosterIdAliases,
+        nowMs,
+        recordUserToRosterId,
+      );
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -200,7 +218,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         log: false,
       });
       const merged = applyResolvedGeo(base, resolved, nowMs, live);
-      return enrichPipelineRowForOperationalDay(merged, todayOperationalRecords, matchIds(u.id), nowMs);
+      return enrichPipelineRowForOperationalDay(merged, memberTodayRecords, matchIds(u.id), nowMs);
     });
   } else {
     pipelineRows = users.map((u) => {
@@ -228,7 +246,12 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
 
   const presenceList: EmployeePresenceFromState[] = users
     .map((u) => {
-      const recs = todayOperationalRecords.filter((r) => rosterIdSet(u.id, rosterIdAliases).has(r.user_id));
+      const recs = filterRecordsForRosterMember(
+        todayOperationalRecords,
+        u.id,
+        rosterIdAliases,
+        recordUserToRosterId,
+      );
       const { status, lastPunch, lastType, pairCount } = inferOperationalPresenceForDay(recs);
       return {
         user_id: u.id,

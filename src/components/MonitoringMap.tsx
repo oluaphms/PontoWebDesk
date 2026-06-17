@@ -401,6 +401,7 @@ function escapeHtml(s: string): string {
 
 const MonitoringMap = memo(MonitoringMapInner, (a, b) => {
   if (a.height !== b.height || a.className !== b.className) return false;
+  if (a.operationalSnapshotMode !== b.operationalSnapshotMode) return false;
   if (a.employees.length !== b.employees.length) return false;
   for (let i = 0; i < a.employees.length; i++) {
     if (pinSnapshot(a.employees[i]!) !== pinSnapshot(b.employees[i]!)) return false;

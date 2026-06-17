@@ -34,8 +34,11 @@ import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany,
 import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../services/liveEmployeeLocation.service';
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
 import { formatOperationalTimeHmFromIso, operationalClockMs } from '../../utils/operationalDateHardLock';
-import { fetchEmployees } from '../../services/employeesApi.service';
-import { buildMonitoringRosterWithFallback } from '../../services/monitoring/monitoringRoster.service';
+import { fetchEmployees, type ApiEmployee } from '../../services/employeesApi.service';
+import {
+  buildMonitoringRosterWithFallback,
+  buildRecordUserToRosterIdMap,
+} from '../../services/monitoring/monitoringRoster.service';
 import {
   MapPin,
   Clock,
@@ -63,10 +66,10 @@ const AdminMonitoring: React.FC = () => {
   const [presenceList, setPresenceList] = useState<EmployeePresenceFromState[]>([]);
   const refreshGenerationRef = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     if (!user?.companyId) return;
     const gen = ++refreshGenerationRef.current;
-    setLoadingData(true);
+    if (!opts?.silent) setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
     const nowMs = operationalClockMs();
     try {
@@ -76,17 +79,30 @@ const AdminMonitoring: React.FC = () => {
         { columns: 'id,email,nome,role,status', limit: 500 },
       )) as Array<{ id?: string; email?: string | null; nome?: string; role?: string; status?: string }>;
 
-      let employeesRows: Awaited<ReturnType<typeof fetchEmployees>> = [];
+      let employeesRows: ApiEmployee[] = [];
       try {
         employeesRows = await fetchEmployees(user.companyId);
       } catch (employeeErr) {
         observabilityConsole.warn('[Monitoring] fetchEmployees falhou — fallback users', employeeErr);
+      }
+      if (employeesRows.length === 0) {
+        try {
+          const dbEmployees = (await db.select(
+            'employees',
+            [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+            { columns: 'id,nome,email,role,status,invisivel', limit: 500 },
+          )) as ApiEmployee[];
+          if (dbEmployees.length > 0) employeesRows = dbEmployees;
+        } catch (dbEmployeeErr) {
+          observabilityConsole.warn('[Monitoring] fallback employees via db.select falhou', dbEmployeeErr);
+        }
       }
 
       const { roster: users, aliases: rosterIdAliases } = buildMonitoringRosterWithFallback(
         employeesRows,
         usersRows ?? [],
       );
+      const recordUserToRosterId = buildRecordUserToRosterIdMap(users, rosterIdAliases, employeesRows, usersRows ?? []);
 
       const [cos, liveRaw] = await Promise.all([
         fetchCurrentOperationalStateByCompany(user.companyId),
@@ -109,6 +125,7 @@ const AdminMonitoring: React.FC = () => {
         todayYmd: getCompanyTodayYmd(),
         nowMs,
         rosterIdAliases,
+        recordUserToRosterId,
       });
 
       if (gen !== refreshGenerationRef.current) return;
@@ -119,12 +136,17 @@ const AdminMonitoring: React.FC = () => {
       setPresenceList(unified.presenceList);
 
       const withGps = unified.pipelineRows.filter((r) => r.lat != null && r.lng != null && !r.geoLocationExpired);
+      const todayCount = timeRecords.filter(
+        (r) => recordUserToRosterId.has(String(r.user_id ?? '')) || users.some((u) => rosterIdAliases.get(u.id)?.includes(String(r.user_id))),
+      ).length;
       observabilityConsole.info('[MONITORAMENTO]', {
         colaboradores_roster: users.length,
         registros_bundle: timeRecords.length,
+        registros_mapeados_roster: todayCount,
         com_gps_pipeline: withGps.length,
         usando_cos: unified.usingOperationalStateTable,
         dia_operacional: getCompanyTodayYmd(),
+        mapa_user_ids: Array.from(recordUserToRosterId.entries()).slice(0, 12),
       });
       observabilityConsole.info(
         '[MONITORAMENTO_STATUS]',
@@ -181,9 +203,9 @@ const AdminMonitoring: React.FC = () => {
       queryCache.invalidate(monitoringDailyRecordsCacheKey(user.companyId));
       queryCache.invalidate(`time_records:monitoring:daily:created:${user.companyId}:${getCompanyTodayYmd()}`);
       queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
-      void refresh();
+      void refresh({ silent: true });
     };
-    const t = window.setInterval(run, 12_000);
+    const t = window.setInterval(run, 60_000);
     return () => window.clearInterval(t);
   }, [user?.companyId, refresh]);
 
@@ -273,7 +295,7 @@ const AdminMonitoring: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-200">
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Dia operacional: <strong>{todayYmd}</strong>
-                {usingOperationalStateTable ? ' — presença derivada do mesmo snapshot que o mapa.' : ' — presença por batidas do dia (modo legado).'}
+                {' — presença e mapa derivados das batidas do dia (mesma base da Dashboard).'}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon={<LogIn className="text-green-600" size={20} />} label="Trabalhando agora" value={working.length} />

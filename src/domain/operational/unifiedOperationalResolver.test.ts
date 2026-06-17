@@ -28,7 +28,7 @@ describe('resolveUnifiedOperationalState', () => {
     const records: OperationalPunchRecord[] = [
       {
         id: 'r1',
-        user_id: 'u1',
+        user_id: 'emp-linked',
         type: 'entrada',
         timestamp: punchIso,
         created_at: punchIso,
@@ -36,6 +36,7 @@ describe('resolveUnifiedOperationalState', () => {
         longitude: -37.0949,
       },
     ];
+    const recordUserToRosterId = new Map([['emp-linked', 'u1']]);
     const r = resolveUnifiedOperationalState({
       companyId: 'c1',
       users,
@@ -44,6 +45,7 @@ describe('resolveUnifiedOperationalState', () => {
       liveByEmployee: new Map(),
       todayYmd: '2026-06-17',
       nowMs,
+      recordUserToRosterId,
     });
     expect(r.presenceList[0]?.status).toBe('working');
     expect(r.pipelineRows[0]?.lat).toBeCloseTo(-10.9348, 4);

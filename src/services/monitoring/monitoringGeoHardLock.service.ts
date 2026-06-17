@@ -490,12 +490,11 @@ export type BuildMonitoringPipelineRowOptions = {
 /** Reaplica status e GEO do dia operacional após resolver realtime (fallback do mapa admin). */
 export function enrichPipelineRowForOperationalDay(
   row: MonitoringPipelineEmployeeRow,
-  todayRecords: OperationalPunchRecord[],
-  matchUserIds: string[],
+  recordsForMember: OperationalPunchRecord[],
+  _matchUserIds?: string[],
   nowMs: number = operationalClockMs(),
 ): MonitoringPipelineEmployeeRow {
-  const idSet = new Set(matchUserIds);
-  const userToday = todayRecords.filter((r) => idSet.has(r.user_id));
+  const userToday = recordsForMember;
   const presence = inferOperationalPresenceForDay(userToday);
   const status = presenceStatusToOperationalStatus(presence);
   const sortedToday = userToday
@@ -908,16 +907,12 @@ export function inferOperationalPresenceForDay(
   const valid = [...recordsForUser].filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r)).ok);
   const sorted = valid.sort((a, b) => recordPunchInstantMs(a) - recordPunchInstantMs(b));
   const last = sorted[sorted.length - 1];
-  const type = (t: string) =>
-    (t || '')
-      .toLowerCase()
-      .replace('saída', 'saida')
-      .replace('saida', 'saida');
+  const type = (raw: string | null | undefined) => normalizePunchType(raw);
   let entradas = 0;
   let saidas = 0;
   for (const r of sorted) {
     const t = type(r.type);
-    if (t === 'entrada') entradas++;
+    if (t === 'entrada' || t === 'intervalo_volta') entradas++;
     if (t === 'saida') saidas++;
   }
   const pairCount = Math.min(entradas, saidas);
@@ -925,8 +920,10 @@ export function inferOperationalPresenceForDay(
   const lastTs = last ? recordPunchInstantIso(last) : null;
 
   if (sorted.length === 0) return { status: 'off_duty', pairCount: 0 };
-  if (lastType === 'entrada') return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
-  if (lastType === 'pausa') return { status: 'break', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
-  if (lastType === 'intervalo_saida') return { status: 'lunch', lastPunch: lastTs ?? undefined, lastType: last.type, pairCount };
+  if (lastType === 'entrada' || lastType === 'intervalo_volta') {
+    return { status: 'working', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
+  }
+  if (lastType === 'pausa') return { status: 'break', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
+  if (lastType === 'intervalo_saida') return { status: 'lunch', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
   return { status: 'off_duty', lastPunch: lastTs ?? undefined, lastType: last?.type, pairCount };
 }

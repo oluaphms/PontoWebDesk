@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildMonitoringRoster, buildMonitoringRosterWithFallback, isActiveMonitoringEmployee } from './monitoringRoster.service';
+import {
+  buildMonitoringRoster,
+  buildMonitoringRosterWithFallback,
+  buildRecordUserToRosterIdMap,
+  filterRecordsForRosterMember,
+  isActiveMonitoringEmployee,
+} from './monitoringRoster.service';
 
 describe('monitoringRoster', () => {
   it('usa apenas colaboradores ativos visíveis', () => {
@@ -49,5 +55,23 @@ describe('monitoringRoster', () => {
     );
     expect(roster).toHaveLength(1);
     expect(roster[0]?.id).toBe('u1');
+  });
+
+  it('mapeia batida gravada em employees.id para colaborador do roster (users)', () => {
+    const roster = [{ id: 'u1', nome: 'Ana', email: 'ana@x.com' }];
+    const aliases = new Map([['u1', ['u1']]]);
+    const employees = [
+      { id: 'emp-ana', nome: 'Ana', email: 'ana@x.com', role: 'employee', status: 'active', company_id: 'c1' },
+    ];
+    const users = [{ id: 'u1', nome: 'Ana', email: 'ana@x.com', role: 'employee', status: 'active' }];
+    const map = buildRecordUserToRosterIdMap(roster, aliases, employees, users);
+    expect(map.get('emp-ana')).toBe('u1');
+    const matched = filterRecordsForRosterMember(
+      [{ id: 'r1', user_id: 'emp-ana', type: 'entrada', created_at: '2026-06-17T10:00:00.000Z', timestamp: '2026-06-17T10:00:00.000Z' }],
+      'u1',
+      aliases,
+      map,
+    );
+    expect(matched).toHaveLength(1);
   });
 });

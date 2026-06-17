@@ -1,8 +1,8 @@
 import type { ApiEmployee } from '../employeesApi.service';
-import { recordPunchInstantMs } from '../../utils/punchOrigin';
+import { recordPunchInstantIso, recordPunchInstantMs } from '../../utils/punchOrigin';
 import { isAdminOrHrRole, normalizeUserRole } from '../../utils/userRole';
 import type { OperationalPunchRecord } from './monitoringGeoHardLock.service';
-import { getLastOperationalPunchForUser } from './monitoringGeoHardLock.service';
+import { validateOperationalTimestamp } from './monitoringGeoHardLock.service';
 
 export type MonitoringRosterUser = { id: string; nome: string; email?: string };
 
@@ -145,12 +145,67 @@ export function getLastOperationalPunchForRoster(
   rosterId: string,
   aliases?: Map<string, string[]>,
   nowMs?: number,
+  recordUserToRosterId?: Map<string, string>,
 ): OperationalPunchRecord | null {
-  let best: OperationalPunchRecord | null = null;
-  for (const id of rosterIdSet(rosterId, aliases)) {
-    const last = getLastOperationalPunchForUser(records, id, nowMs);
-    if (!last) continue;
-    if (!best || recordPunchInstantMs(last) > recordPunchInstantMs(best)) best = last;
+  const scoped = filterRecordsForRosterMember(records, rosterId, aliases, recordUserToRosterId);
+  if (scoped.length === 0) return null;
+  const valid = scoped.filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r), nowMs).ok);
+  if (valid.length === 0) return null;
+  valid.sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
+  return valid[0] ?? null;
+}
+
+/**
+ * Mapeia qualquer `user_id` gravado em `time_records` → id do colaborador no roster.
+ * Cobre batidas em `employees.id` quando o roster veio só de `users` (fallback).
+ */
+export function buildRecordUserToRosterIdMap(
+  roster: MonitoringRosterUser[],
+  aliases: Map<string, string[]>,
+  employees: ApiEmployee[],
+  users: MonitoringUserLinkRow[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const member of roster) {
+    for (const altId of rosterIdSet(member.id, aliases)) {
+      out.set(altId, member.id);
+    }
   }
-  return best;
+  const userIdByEmail = userIdByEmailFromRows(users);
+  const rosterByEmail = new Map(
+    roster.map((m) => [normalizeEmail(m.email), m.id] as const).filter(([email]) => Boolean(email)),
+  );
+  for (const employee of employees) {
+    if (!isActiveMonitoringEmployee(employee)) continue;
+    const rosterId =
+      roster.find((m) => m.id === employee.id)?.id ??
+      rosterByEmail.get(normalizeEmail(employee.email)) ??
+      employee.id;
+    for (const id of recordIdsForEmployee(employee, userIdByEmail)) {
+      out.set(id, rosterId);
+    }
+  }
+  for (const user of users) {
+    if (!isActiveMonitoringUser(user)) continue;
+    const id = String(user.id ?? '').trim();
+    if (!id) continue;
+    const rosterId = roster.find((m) => m.id === id)?.id ?? rosterByEmail.get(normalizeEmail(user.email)) ?? id;
+    out.set(id, rosterId);
+  }
+  return out;
+}
+
+export function filterRecordsForRosterMember(
+  records: OperationalPunchRecord[],
+  rosterId: string,
+  aliases?: Map<string, string[]>,
+  recordUserToRosterId?: Map<string, string>,
+): OperationalPunchRecord[] {
+  const idSet = rosterIdSet(rosterId, aliases);
+  return records.filter((r) => {
+    const uid = String(r.user_id ?? '').trim();
+    if (!uid) return false;
+    if (idSet.has(uid)) return true;
+    return recordUserToRosterId?.get(uid) === rosterId;
+  });
 }
