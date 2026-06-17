@@ -13,6 +13,7 @@ import {
   GLOBAL_SETTINGS_COLUMNS_CORE,
 } from './egressSelectColumns';
 import { ApiError, apiGet, apiPost } from './api';
+import { getToken } from './authToken';
 import { isApiConfigured } from '../config/env';
 import { queryCache, TTL } from './queryCache';
 import { isCloudEnabled } from './cloudService';
@@ -106,7 +107,8 @@ async function fetchSettingsViaAdminApi(companyId: string): Promise<GlobalSettin
   );
   if (!res?.data) return null;
   const row = res.data;
-  if (row.company_id != null && String(row.company_id).trim() !== companyId) return null;
+  const cid = String(companyId || '').trim();
+  if (cid && row.company_id != null && String(row.company_id).trim() !== cid) return null;
   return mapRow(row);
 }
 
@@ -184,14 +186,17 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
     return localFallback();
   }
   if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
+  if (isApiConfigured() && !getToken()) {
+    return DEFAULT_SETTINGS;
+  }
   return cloudSafe(
     () =>
       queryCache.getOrFetch(`global_settings:${companyId || 'session'}`, async () => {
         try {
           let mapped: GlobalSettings | null = null;
-          if (isApiConfigured() && companyId) {
+          if (isApiConfigured()) {
             try {
-              mapped = await fetchSettingsViaAdminApi(companyId);
+              mapped = await fetchSettingsViaAdminApi(String(companyId || '').trim());
             } catch (adminErr) {
               observabilityConsole.warn('[settingsService] admin global-settings GET:', adminErr);
             }

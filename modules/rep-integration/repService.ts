@@ -519,7 +519,9 @@ export async function promotePendingRepPunchLogs(
   error = rpcRes.error;
 
   const promoteRpcNeedsHttpFallback = (msg: string): boolean =>
-    /rpc_not_allowed|not_found|data_api_writes_disabled|rpc_failed|unauthorized|missing_token/i.test(msg);
+    /rpc_not_allowed|not_found|data_api_writes_disabled|Escritas na API genérica|rpc_failed|unauthorized|missing_token/i.test(
+      msg,
+    );
 
   const postPromotePendingHttp = async (
     path: string,

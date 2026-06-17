@@ -2,6 +2,8 @@ import { createContext, useSyncExternalStore, type ReactNode } from 'react';
 import { readCachedSessionUser } from './AuthSessionProvider';
 import { DEFAULT_SETTINGS, getSettings } from '../services/settingsService';
 import { isCloudEnabled } from '../services/cloudService';
+import { isApiConfigured } from '../config/env';
+import { getToken } from '../services/authToken';
 import type { GlobalSettings } from '../types/settings';
 
 export interface SettingsContextValue {
@@ -28,6 +30,11 @@ async function loadSettings() {
   listeners.forEach((l) => l());
   try {
     const sessionUser = readCachedSessionUser();
+    if (isApiConfigured() && !getToken() && !sessionUser) {
+      currentState = { settings: DEFAULT_SETTINGS, loading: false };
+      listeners.forEach((l) => l());
+      return;
+    }
     const companyId = sessionUser?.companyId || sessionUser?.tenantId || '';
     const data = await getSettings(companyId || undefined);
     currentState = { settings: data ?? DEFAULT_SETTINGS, loading: false };

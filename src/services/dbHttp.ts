@@ -2,7 +2,7 @@
  * Camada db → API HTTP (VPS). Substitui PostgREST/Supabase no frontend.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './api';
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError, isDataApiWritesDisabled } from './api';
 import { getToken } from './authToken';
 import { uploadPhotoViaApi } from './uploadPhotoApi';
 
@@ -161,6 +161,37 @@ export const db = {
   ): Promise<{ data: T | null; error: { message: string; code?: string; details?: unknown } | null }> => {
     if (fn.startsWith('rep_')) {
       console.log('[REP RPC]', fn, args ?? {});
+    }
+    if (fn === 'rep_promote_pending_rep_punch_logs') {
+      try {
+        const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null; code?: string; details?: unknown }>(
+          '/rep/promote-pending',
+          args ?? {},
+        );
+        if (res.error) {
+          return { data: null, error: { message: String(res.error), code: res.code, details: res.details } };
+        }
+        return { data: (res.data as T) ?? null, error: null };
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : 'rpc_failed';
+        return {
+          data: null,
+          error: {
+            message: msg,
+            code:
+              e instanceof ApiError
+                ? String((e.body as Record<string, unknown> | null)?.code ?? '') || undefined
+                : undefined,
+            details: e instanceof ApiError ? (e.body as Record<string, unknown> | null)?.details : undefined,
+          },
+        };
+      }
+    }
+    if (isDataApiWritesDisabled() && fn.startsWith('rep_')) {
+      return {
+        data: null,
+        error: { message: 'data_api_writes_disabled', code: 'data_api_writes_disabled' },
+      };
     }
     try {
       const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null; code?: string; details?: unknown }>(

@@ -265,8 +265,12 @@ async function parseResponse<T>(
       correlationId: currentCorrelationId || undefined,
     };
     const consoleMessage = `API ERROR ${context.method} ${context.path} ${status}: ${errMsg}`;
+    const missingToken =
+      status === 401 && authFailureCode(body) === 'missing_token';
     if (status === 401 && normalizeApiPath(context.path) === '/auth/me') {
       console.warn(consoleMessage, errorContext);
+    } else if (missingToken && context.method === 'GET') {
+      observabilityConsole.info('[API] GET sem sessão (ignorado)', errorContext);
     } else if (writesDisabled) {
       observabilityConsole.info('[API] DATA_API_WRITES_DISABLED (expected)', errorContext);
     } else {

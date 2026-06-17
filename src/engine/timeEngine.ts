@@ -377,7 +377,12 @@ export async function getCompanyRules(companyId: string): Promise<CompanyRules> 
 
   let globalSettings: any = null;
   try {
-    const rows = (await db.select('global_settings', [], undefined, 1)) as any[];
+    const rows = (await db.select(
+      'global_settings',
+      [{ column: 'company_id', operator: 'eq', value: companyId }],
+      undefined,
+      1,
+    )) as any[];
     globalSettings = rows?.[0] ?? null;
   } catch (err) {
     if (import.meta.env?.DEV) {
