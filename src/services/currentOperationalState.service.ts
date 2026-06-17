@@ -20,6 +20,7 @@ import {
 import { calculateGeoConfidence, type GeoConfidenceLevel } from './geolocation/geoConfidence.service';
 import { normalizeOperationalDate, operationalNowUtcIso } from '../utils/operationalDateHardLock';
 import { operationalClockMs } from '../utils/operationalClock';
+import { rosterIdSet } from './monitoring/monitoringRoster.service';
 
 export type CurrentOperationalStateRow = {
   company_id: string;
@@ -210,10 +211,18 @@ export function buildPresenceListFromOperationalState(
   users: { id: string; nome?: string; email?: string }[],
   rowsByEmployee: Map<string, CurrentOperationalStateRow>,
   todayYmd: string,
+  rosterIdAliases?: Map<string, string[]>,
 ): EmployeePresenceFromState[] {
   const result: EmployeePresenceFromState[] = [];
   for (const u of users) {
-    const row = rowsByEmployee.get(u.id);
+    let row: CurrentOperationalStateRow | undefined;
+    for (const id of rosterIdSet(u.id, rosterIdAliases)) {
+      const candidate = rowsByEmployee.get(id);
+      if (candidate) {
+        row = candidate;
+        break;
+      }
+    }
     if (!row?.last_punch_at) {
       result.push({
         user_id: u.id,

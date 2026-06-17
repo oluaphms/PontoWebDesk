@@ -1,13 +1,12 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import React, { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { isDegradedMobileRuntime } from '../performance/mobileCpuBudget';
 import { OperationalMapStateCoordinator } from './maps/operationalMapStateCoordinator';
 import { getOperationalFeatureFlag } from '../config/operationalFeatureFlags';
 
-const LEAFLET_CSS_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-
-const TILE_LAYER_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const TILE_LAYER = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const VISUAL_UPDATE_DEBOUNCE_MS = isDegradedMobileRuntime() ? 16 : 80;
 const MIN_FRAME_MS = 1000 / 60;
@@ -29,14 +28,6 @@ export interface MonitoringEmployee {
   geoDetailLine?: string;
   geoConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'INVALID';
 }
-
-const loadLeafletCSS = () => {
-  if (document.querySelector(`link[href="${LEAFLET_CSS_URL}"]`)) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = LEAFLET_CSS_URL;
-  document.head.appendChild(link);
-};
 
 const statusColors: Record<string, string> = {
   Trabalhando: '#10b981',
@@ -89,10 +80,6 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
   const [debouncedEmployees, setDebouncedEmployees] = useState<MonitoringEmployee[]>(employees);
 
   useEffect(() => {
-    loadLeafletCSS();
-  }, []);
-
-  useEffect(() => {
     const t = window.setTimeout(() => {
       setDebouncedEmployees(employees);
     }, VISUAL_UPDATE_DEBOUNCE_MS);
@@ -132,7 +119,10 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         dragging: true,
         scrollWheelZoom: true,
       });
-      L.tileLayer(TILE_LAYER_LIGHT, { maxZoom: 19 }).addTo(map);
+      L.tileLayer(TILE_LAYER, {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors',
+      }).addTo(map);
       map.addControl(L.control.zoom({ position: 'topright' }));
       mapInstanceRef.current = map;
     }
@@ -156,7 +146,9 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
     }
 
     for (const emp of withLocation) {
-      if ((emp.lat != null || emp.lng != null) && !emp.markerVersionKey) {
+      const markerVersionKey =
+        emp.markerVersionKey ?? emp.leafletMarkerKey ?? `${emp.userId}:${emp.lastRecordAt ?? 'na'}`;
+      if ((emp.lat != null || emp.lng != null) && !markerVersionKey) {
         observabilityConsole.error('[MAP DIRECT GEO ACCESS DETECTED]', { employee_id: emp.userId });
         continue;
       }
@@ -204,11 +196,11 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       }
       const canRender = stateCoordinatorRef.current.commitSnapshot({
         employeeId: emp.userId,
-        markerVersionKey: emp.markerVersionKey ?? `${emp.userId}:${emp.lastRecordAt ?? 'na'}`,
+        markerVersionKey,
         capturedAtMs: Number.isFinite(capturedAtMs) ? capturedAtMs : Date.now(),
       });
       if (!canRender) {
-        observabilityConsole.info('[MAP VERSION CONFLICT]', { employee_id: emp.userId, marker_version: emp.markerVersionKey ?? null });
+        observabilityConsole.info('[MAP VERSION CONFLICT]', { employee_id: emp.userId, marker_version: markerVersionKey });
         continue;
       }
 
@@ -360,7 +352,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
   return (
     <div
       className={`relative rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-100 dark:bg-slate-900 ${className}`}
-      style={{ height, contentVisibility: 'auto', contain: 'layout paint style' as React.CSSProperties['contain'] }}
+      style={{ height }}
     >
       <div ref={mapRef} className="w-full h-full" />
       {!hasAnyMarker && (

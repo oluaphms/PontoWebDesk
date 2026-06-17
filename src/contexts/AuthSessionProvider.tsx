@@ -17,7 +17,7 @@ import React, {
 } from 'react';
 import type { User } from '../../types';
 import { fetchAuthMeSessionCheck } from '../services/authMe.service';
-import { clearToken } from '../services/authToken';
+import { clearToken, getToken } from '../services/authToken';
 import { setUnauthorizedHandler } from '../services/api';
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from '../app/appShellBootstrap';
@@ -25,6 +25,7 @@ import {
   readInitialSessionUser,
   readUserFromProfileStore,
   setSessionUserCache,
+  getSessionUserCache,
   clearStoredSessionUser,
   isAuthLogoutGuardActive,
 } from './authSessionInternals';
@@ -100,6 +101,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return;
       }
       authFlowLog('AUTH CHECK TRANSIENT', { reason: result.reason ?? 'unknown' });
+      if (getSessionUserCache() && getToken()) {
+        setLoading(false);
+        return;
+      }
       setLoading(false);
     } catch (error) {
       if (generation !== refreshGenerationRef.current) return;

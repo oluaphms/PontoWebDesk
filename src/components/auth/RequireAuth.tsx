@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '../../../types';
 import { LoadingState } from '../../../components/UI';
 import { useAuth } from '../../hooks/useAuth';
+import { getToken } from '../../services/authToken';
 
 export type RequireAuthProps = {
   /** @deprecated Perfil vem de `useAuth()` — mantido para compatibilidade. */
@@ -53,6 +54,7 @@ const RequireAuth: React.FC<RequireAuthProps> = ({ appUser: appUserProp, childre
   useEffect(() => {
     if (!tokenChecked || loading) return;
     if (!appUser) {
+      if (getToken()) return;
       redirectToLogin('no_session_user');
     }
   }, [appUser, tokenChecked, loading, redirectToLogin]);

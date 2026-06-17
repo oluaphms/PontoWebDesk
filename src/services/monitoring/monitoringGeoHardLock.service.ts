@@ -443,9 +443,13 @@ export function buildMonitoringPipelineRow(
   user: { id: string; nome?: string; email?: string },
   records: OperationalPunchRecord[],
   nowMs: number = operationalClockMs(),
+  matchUserIds?: string[],
 ): MonitoringPipelineEmployeeRow {
-  const userRaw = records.filter((r) => r.user_id === user.id);
-  const sortedValid = listOperationalPunchesForUserSorted(records, user.id);
+  const ids = new Set(matchUserIds?.length ? matchUserIds : [user.id]);
+  const userRaw = records.filter((r) => ids.has(r.user_id));
+  const sortedValid = userRaw
+    .filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r)).ok)
+    .sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
   const last = sortedValid[0] ?? null;
 
   for (const r of userRaw) {

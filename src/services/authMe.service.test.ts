@@ -17,5 +17,7 @@ describe('shouldInvalidateAuthSession', () => {
   it('não invalida em 401 sem código reconhecido (transiente/proxy)', () => {
     expect(shouldInvalidateAuthSession(401, '')).toBe(false);
     expect(shouldInvalidateAuthSession(401, 'UNKNOWN')).toBe(false);
+    expect(shouldInvalidateAuthSession(401, 'AUTH_MISSING_TOKEN')).toBe(false);
+    expect(shouldInvalidateAuthSession(401, 'missing_token')).toBe(false);
   });
 });

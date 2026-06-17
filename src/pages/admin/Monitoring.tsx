@@ -31,6 +31,8 @@ import { currentOperationalStateCacheKey, fetchCurrentOperationalStateByCompany,
 import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from '../../services/liveEmployeeLocation.service';
 import { resolveUnifiedOperationalState } from '../../domain/operational/unifiedOperationalResolver';
 import { formatOperationalTimeHmFromIso, operationalClockMs } from '../../utils/operationalDateHardLock';
+import { fetchEmployees } from '../../services/employeesApi.service';
+import { buildMonitoringRoster } from '../../services/monitoring/monitoringRoster.service';
 import {
   MapPin,
   Clock,
@@ -42,7 +44,6 @@ import {
   Zap,
   Calendar,
 } from 'lucide-react';
-import { SYSTEM_CONFIG } from '../../config/system';
 
 type UserRow = { id: string; nome: string; email?: string };
 
@@ -61,26 +62,23 @@ const AdminMonitoring: React.FC = () => {
 
   const refresh = useCallback(async () => {
     if (!user?.companyId) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
-      setUsingOperationalStateTable(false);
-      setTodayUsers([]);
-      setPipelineRows([]);
-      setPresenceList([]);
-      setLoadingData(false);
-      return;
-    }
     const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
     const nowMs = operationalClockMs();
     try {
-      const usersRows = (await db.select(
-        'users',
-        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-        { column: 'nome', ascending: true },
-        500,
-      )) as UserRow[];
-      const users = usersRows ?? [];
+      const [employeesRows, usersRows] = await Promise.all([
+        fetchEmployees(user.companyId),
+        db.select(
+          'users',
+          [{ column: 'company_id', operator: 'eq', value: user.companyId }],
+          { columns: 'id,email', limit: 500 },
+        ) as Promise<Array<{ id?: string; email?: string | null }>>,
+      ]);
+      const { roster: users, aliases: rosterIdAliases } = buildMonitoringRoster(
+        employeesRows ?? [],
+        usersRows ?? [],
+      );
 
       const [cos, liveRaw] = await Promise.all([
         fetchCurrentOperationalStateByCompany(user.companyId),
@@ -107,6 +105,7 @@ const AdminMonitoring: React.FC = () => {
         liveByEmployee,
         todayYmd: getCompanyTodayYmd(),
         nowMs,
+        rosterIdAliases,
       });
 
       if (gen !== refreshGenerationRef.current) return;
@@ -152,7 +151,6 @@ const AdminMonitoring: React.FC = () => {
   }, [refresh]);
 
   useEffect(() => {
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     if (!user?.companyId) return;
     const run = () => {
       if (isPollingSuppressedByVisibility()) return;
@@ -165,6 +163,14 @@ const AdminMonitoring: React.FC = () => {
     const t = window.setInterval(run, 12_000);
     return () => window.clearInterval(t);
   }, [user?.companyId, refresh]);
+
+  useEffect(() => {
+    if (tab !== 'mapa') return;
+    const t = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('smartponto:force-monitoring-refresh'));
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [tab]);
 
   const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);
 

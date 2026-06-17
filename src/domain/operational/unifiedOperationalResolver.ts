@@ -27,6 +27,7 @@ import {
 } from '../../services/geolocation/monitoringGeoSourceResolver';
 import { assertOperationalStateConsistency } from './assertOperationalStateConsistency';
 import { auditRealtimeGeoConsistency } from './auditRealtimeGeoConsistency';
+import { getLastOperationalPunchForRoster, rosterIdSet } from '../../services/monitoring/monitoringRoster.service';
 
 export type UnifiedOperationalResolverInput = {
   companyId: string;
@@ -36,6 +37,8 @@ export type UnifiedOperationalResolverInput = {
   liveByEmployee: Map<string, LiveEmployeeLocationRow>;
   todayYmd: string;
   nowMs: number;
+  /** IDs alternativos por colaborador (ex.: user.id vinculado por e-mail). */
+  rosterIdAliases?: Map<string, string[]>;
 };
 
 export type UnifiedOperationalResolverResult = {
@@ -155,22 +158,35 @@ function applyResolvedGeo(
   };
 }
 
+function cosForRoster(
+  rosterId: string,
+  cosByEmployee: Map<string, CurrentOperationalStateRow>,
+  rosterIdAliases?: Map<string, string[]>,
+): CurrentOperationalStateRow | undefined {
+  for (const id of rosterIdSet(rosterId, rosterIdAliases)) {
+    const row = cosByEmployee.get(id);
+    if (row) return row;
+  }
+  return undefined;
+}
+
 /**
  * Todas as telas de monitoramento / cards devem usar este resultado para data civil, status e GEO coerentes.
  */
 export function resolveUnifiedOperationalState(input: UnifiedOperationalResolverInput): UnifiedOperationalResolverResult {
-  const { users, cosRows, timeRecords, liveByEmployee, todayYmd, nowMs, companyId } = input;
+  const { users, cosRows, timeRecords, liveByEmployee, todayYmd, nowMs, companyId, rosterIdAliases } = input;
   const usingOperationalStateTable = cosRows.length > 0;
   const cosByEmployee = new Map(cosRows.map((r) => [r.employee_id, r]));
+  const matchIds = (rosterId: string) => Array.from(rosterIdSet(rosterId, rosterIdAliases));
 
   let pipelineRows: MonitoringPipelineEmployeeRow[];
 
   if (usingOperationalStateTable) {
     pipelineRows = users.map((u) => {
-      const cos = cosByEmployee.get(u.id);
+      const cos = cosForRoster(u.id, cosByEmployee, rosterIdAliases);
       const base = cos ? operationalStateRowToMonitoringPipelineRow(cos, u, nowMs) : emptyMonitoringPipelineRowForUser(u, nowMs);
       const live = liveByEmployee.get(u.id) ?? null;
-      const last = getLastOperationalPunchForUser(timeRecords, u.id);
+      const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -186,9 +202,9 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
     });
   } else {
     pipelineRows = users.map((u) => {
-      const base = buildMonitoringPipelineRow(u, timeRecords, nowMs);
+      const base = buildMonitoringPipelineRow(u, timeRecords, nowMs, matchIds(u.id));
       const live = liveByEmployee.get(u.id) ?? null;
-      const last = getLastOperationalPunchForUser(timeRecords, u.id);
+      const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -206,12 +222,12 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
 
   let presenceList: EmployeePresenceFromState[];
   if (usingOperationalStateTable) {
-    presenceList = buildPresenceListFromOperationalState(users, cosByEmployee, todayYmd);
+    presenceList = buildPresenceListFromOperationalState(users, cosByEmployee, todayYmd, rosterIdAliases);
   } else {
     const todayOperationalRecords = filterRecordsForOperationalDay(timeRecords, todayYmd);
     presenceList = users
       .map((u) => {
-        const recs = todayOperationalRecords.filter((r) => r.user_id === u.id);
+        const recs = todayOperationalRecords.filter((r) => rosterIdSet(u.id, rosterIdAliases).has(r.user_id));
         const { status, lastPunch, lastType, pairCount } = inferOperationalPresenceForDay(recs);
         return {
           user_id: u.id,

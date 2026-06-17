@@ -160,19 +160,18 @@ function authFailureCode(body: unknown): string {
 
 function shouldClearSessionOnUnauthorized(body: unknown): boolean {
   const code = authFailureCode(body);
+  // missing_token = requisição sem credencial; não equivale a sessão revogada (evita logout pós-login).
   return (
     code === 'AUTH_INVALID_TOKEN' ||
     code === 'AUTH_TOKEN_EXPIRED' ||
     code === 'AUTH_TOKEN_REVOKED' ||
     code === 'AUTH_USER_NOT_FOUND' ||
     code === 'AUTH_TENANT_CHANGED' ||
-    code === 'AUTH_MISSING_TOKEN' ||
     code === 'invalid_token' ||
     code === 'token_expired' ||
     code === 'token_revoked' ||
     code === 'user_not_found' ||
-    code === 'tenant_changed' ||
-    code === 'missing_token'
+    code === 'tenant_changed'
   );
 }
 

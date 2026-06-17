@@ -66,13 +66,11 @@ export function shouldInvalidateAuthSession(status: number | undefined, authCode
       authCode === 'AUTH_TOKEN_REVOKED' ||
       authCode === 'AUTH_USER_NOT_FOUND' ||
       authCode === 'AUTH_TENANT_CHANGED' ||
-      authCode === 'AUTH_MISSING_TOKEN' ||
       authCode === 'invalid_token' ||
       authCode === 'token_expired' ||
       authCode === 'token_revoked' ||
       authCode === 'user_not_found' ||
-      authCode === 'tenant_changed' ||
-      authCode === 'missing_token'
+      authCode === 'tenant_changed'
     );
   }
   if (status === 404) {

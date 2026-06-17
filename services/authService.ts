@@ -1787,10 +1787,20 @@ class AuthService {
         return me;
       }
       try {
-        clearCurrentUserFromAllStorages();
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('current_user_changed'));
+        const cached = readCurrentUserFromProfileStore();
+        if (cached && getToken()) {
+          return JSON.parse(cached) as User;
+        }
       } catch {
         // ignora
+      }
+      if (!getToken()) {
+        try {
+          clearCurrentUserFromAllStorages();
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('current_user_changed'));
+        } catch {
+          // ignora
+        }
       }
       return null;
     }
