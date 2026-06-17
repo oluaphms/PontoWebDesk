@@ -176,6 +176,18 @@ export function logMonitoringInvestigation(snapshot: MonitoringOperationalSnapsh
   });
 }
 
+const SNAPSHOT_LOAD_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`monitoring_snapshot_timeout:${label}`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export async function loadMonitoringOperationalSnapshot(companyId: string): Promise<MonitoringOperationalSnapshot> {
   const todayYmd = getCompanyTodayYmd();
   const nowMs = operationalClockMs();
@@ -209,11 +221,24 @@ export async function loadMonitoringOperationalSnapshot(companyId: string): Prom
   const { roster, aliases: rosterIdAliases } = buildMonitoringRosterWithFallback(employeesRows, usersRows ?? []);
   const recordUserToRosterId = buildRecordUserToRosterIdMap(roster, rosterIdAliases, employeesRows, usersRows ?? []);
 
-  const [cosRows, liveRaw, timeRecords] = await Promise.all([
-    fetchCurrentOperationalStateByCompany(companyId),
-    fetchLiveLocationsForCompany(companyId),
-    fetchMonitoringTimeRecordsBundle(companyId),
-  ]);
+  const [cosRows, liveRaw, timeRecords] = await withTimeout(
+    Promise.all([
+      fetchCurrentOperationalStateByCompany(companyId).catch((e) => {
+        observabilityConsole.warn('[MONITORAMENTO] COS indisponível — continua com batidas', e);
+        return [] as CurrentOperationalStateRow[];
+      }),
+      fetchLiveLocationsForCompany(companyId).catch((e) => {
+        observabilityConsole.warn('[MONITORAMENTO] live location indisponível', e);
+        return [] as LiveEmployeeLocationRow[];
+      }),
+      fetchMonitoringTimeRecordsBundle(companyId).catch((e) => {
+        observabilityConsole.warn('[MONITORAMENTO] batidas indisponíveis', e);
+        return [] as OperationalPunchRecord[];
+      }),
+    ]),
+    SNAPSHOT_LOAD_TIMEOUT_MS,
+    'parallel_fetch',
+  );
   queryCache.set(currentOperationalStateCacheKey(companyId), cosRows, 15_000);
 
   const liveRows = flagStaleLiveLocations(liveRaw, nowMs);

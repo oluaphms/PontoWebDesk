@@ -11,7 +11,6 @@ import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
 import { queryCache } from '../../services/queryCache';
 import { commitMonitoringGeoRegistryFromFetch } from '../../services/monitoring/realtimeMonitoringGeoRegistry';
-import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 import { operationalStatusColor } from '../../types/employeeOperationalStatus';
 import { LoadingState } from '../../../components/UI';
@@ -57,18 +56,25 @@ const AdminMonitoring: React.FC = () => {
   const [diagnostic, setDiagnostic] = useState<MonitoringDiagnosticInfo | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showDiagnostic, setShowDiagnostic] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
+  const hasLoadedOnceRef = useRef(false);
+  const refreshInFlightRef = useRef(0);
+  const forceRefreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!user?.companyId) return;
+    if (!user?.companyId) {
+      if (!hasLoadedOnceRef.current) setLoadingData(false);
+      return;
+    }
     const gen = ++refreshGenerationRef.current;
+    refreshInFlightRef.current += 1;
     if (!opts?.silent) setLoadingData(true);
     setTodayYmd(getCompanyTodayYmd());
     try {
       const snapshot = await loadMonitoringOperationalSnapshot(user.companyId);
       if (gen !== refreshGenerationRef.current) return;
 
-      trackGeoSnapshotChecksumDrift(user.companyId, snapshot.cosRows, snapshot.liveRows);
       commitMonitoringGeoRegistryFromFetch(user.companyId, snapshot.cosRows);
 
       setUsingOperationalStateTable(snapshot.diagnostic.usingCos);
@@ -77,41 +83,55 @@ const AdminMonitoring: React.FC = () => {
       setTimeline(snapshot.timeline);
       setDiagnostic(snapshot.diagnostic);
       setNowMs(snapshot.nowMs);
+      setLoadError(null);
+      hasLoadedOnceRef.current = true;
     } catch (e) {
-      observabilityConsole.error(e);
+      observabilityConsole.error('[MONITORAMENTO] falha ao carregar snapshot', e);
+      const msg = e instanceof Error ? e.message : 'Falha ao carregar monitoramento';
+      setLoadError(msg);
+      hasLoadedOnceRef.current = true;
     } finally {
-      if (gen === refreshGenerationRef.current) {
+      refreshInFlightRef.current = Math.max(0, refreshInFlightRef.current - 1);
+      if (gen === refreshGenerationRef.current && refreshInFlightRef.current === 0) {
         setLoadingData(false);
       }
     }
   }, [user?.companyId]);
+
+  const scheduleBackgroundRefresh = useCallback(() => {
+    if (forceRefreshDebounceRef.current) clearTimeout(forceRefreshDebounceRef.current);
+    forceRefreshDebounceRef.current = setTimeout(() => {
+      forceRefreshDebounceRef.current = null;
+      void refresh({ silent: true });
+    }, 400);
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    const onForce = () => void refresh();
+    const onForce = () => scheduleBackgroundRefresh();
     window.addEventListener('smartponto:force-monitoring-refresh', onForce);
     return () => window.removeEventListener('smartponto:force-monitoring-refresh', onForce);
-  }, [refresh]);
+  }, [scheduleBackgroundRefresh]);
 
   useEffect(() => {
-    const onOnline = () => void refresh();
+    const onOnline = () => scheduleBackgroundRefresh();
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
-  }, [refresh]);
+  }, [scheduleBackgroundRefresh]);
 
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'visible') {
         observabilityConsole.info('[MAP FOREGROUND RESYNC]', { scope: 'admin_monitoring' });
-        void refresh();
+        scheduleBackgroundRefresh();
       }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [refresh]);
+  }, [scheduleBackgroundRefresh]);
 
   useEffect(() => {
     if (!user?.companyId) return;
@@ -133,11 +153,15 @@ const AdminMonitoring: React.FC = () => {
 
   useEffect(() => {
     if (tab !== 'mapa') return;
-    const t = window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('smartponto:force-monitoring-refresh'));
-    }, 80);
+    const t = window.setTimeout(() => scheduleBackgroundRefresh(), 120);
     return () => window.clearTimeout(t);
-  }, [tab]);
+  }, [tab, scheduleBackgroundRefresh]);
+
+  useEffect(() => {
+    return () => {
+      if (forceRefreshDebounceRef.current) clearTimeout(forceRefreshDebounceRef.current);
+    };
+  }, []);
 
   const mapEmployees = useMemo(() => pipelineRows.map((r) => buildMapEmployeeFromPipelineRow(r)), [pipelineRows]);
 
@@ -213,12 +237,21 @@ const AdminMonitoring: React.FC = () => {
         <DiagnosticPanel diagnostic={diagnostic} mapPins={mapEmployees.filter((e) => e.lat != null && e.lng != null).length} />
       )}
 
+      {loadError && (
+        <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          Não foi possível atualizar todos os dados ({loadError}). Exibindo última carga disponível.
+          <button type="button" className="ml-2 underline font-medium" onClick={() => void refresh()}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Visões de monitoramento">
         {tabBtn('hoje', 'Hoje', <Calendar className="w-4 h-4" />)}
         {tabBtn('mapa', 'Mapa', <MapPin className="w-4 h-4" />)}
       </div>
 
-      {loadingData ? (
+      {loadingData && !hasLoadedOnceRef.current ? (
         <LoadingState message="Carregando..." />
       ) : (
         <>

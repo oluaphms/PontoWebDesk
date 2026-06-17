@@ -3,7 +3,7 @@
  * sem alterar dashboard.service.ts.
  */
 
-import { db } from '../../../services/supabaseClient';
+import { db } from '../supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { queryCache, TTL } from '../queryCache';
 import { buildOperationalDayRange, getOperationalTodayYmd } from '../../utils/operationalDateHardLock';
