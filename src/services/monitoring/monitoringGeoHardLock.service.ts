@@ -408,6 +408,164 @@ export function evaluateRealtimeGeoForMonitoring(
   return { useForMap: false, reason: 'no_acceptable_geo', logPayload: payload };
 }
 
+/**
+ * GEO do dia operacional: aceita coordenadas válidas do dia sem limite de idade realtime.
+ * Coordenadas negativas (ex.: Brasil) não são descartadas.
+ */
+export function evaluateOperationalDayGeoForMonitoring(
+  sortedOperationalNewestFirst: OperationalPunchRecord[],
+  employeeId: string,
+  nowMs: number = operationalClockMs(),
+): RealtimeGeoDecision {
+  for (const r of sortedOperationalNewestFirst) {
+    const geo = readGeoSnapshot(r);
+    if (!geo) continue;
+
+    const capV = validateOperationalTimestamp(geo.capturedAt, nowMs);
+    const capturedMs = capV.ok ? capV.instantMs : recordPunchInstantMs(r);
+    const ageMs = nowMs - capturedMs;
+
+    const acc = geo.accuracy;
+    if (acc != null && Number.isFinite(acc) && acc > GEO_ACCURACY_BLOCK_MARKER_M) {
+      continue;
+    }
+
+    const coordIssues = validateCoordinateOrder(geo.lat, geo.lng);
+    if (coordIssues.includes('invalid_range')) {
+      continue;
+    }
+
+    let precisionBadge: GeoPrecisionBadge = 'preciso';
+    if (acc == null || !Number.isFinite(acc)) {
+      precisionBadge = 'aproximado';
+    } else if (acc > GEO_ACCURACY_APPROXIMATE_M) {
+      precisionBadge = 'aproximado';
+    }
+
+    const geoSourceLabel = monitoringGeoSourceLabel(r, geo.storageSource);
+    const mapMarkerKey = `${r.id}:${geo.capturedAt}:${geo.lat.toFixed(5)}:${geo.lng.toFixed(5)}:${acc ?? 'na'}`;
+
+    observabilityConsole.info('[MONITORAMENTO_MAP] operational_day_geo_accepted', {
+      employee_id: employeeId,
+      source_record_id: r.id,
+      lat: geo.lat,
+      lng: geo.lng,
+      age_ms: ageMs,
+    });
+
+    return {
+      useForMap: true,
+      lat: geo.lat,
+      lng: geo.lng,
+      accuracy: acc,
+      capturedAt: geo.capturedAt,
+      provider: geo.provider,
+      sourceRecordId: r.id,
+      precisionBadge,
+      geoSourceLabel,
+      mapMarkerKey,
+      ageMs,
+    };
+  }
+
+  return { useForMap: false, reason: 'no_acceptable_geo', logPayload: { employee_id: employeeId } };
+}
+
+function presenceStatusToOperationalStatus(
+  presence: ReturnType<typeof inferOperationalPresenceForDay>,
+): EmployeeOperationalStatus {
+  if (presence.status === 'working') return EmployeeOperationalStatus.WORKING;
+  if (presence.status === 'break') return EmployeeOperationalStatus.BREAK;
+  if (presence.status === 'lunch') return EmployeeOperationalStatus.LUNCH;
+  if (presence.pairCount === 0 && !presence.lastPunch) return EmployeeOperationalStatus.NO_SHIFT;
+  return EmployeeOperationalStatus.OFF_DUTY;
+}
+
+export type BuildMonitoringPipelineRowOptions = {
+  todayYmd?: string;
+  /** Status e GEO do dia civil (sem expirar por idade realtime). */
+  operationalDayMode?: boolean;
+};
+
+/** Reaplica status e GEO do dia operacional após resolver realtime (fallback do mapa admin). */
+export function enrichPipelineRowForOperationalDay(
+  row: MonitoringPipelineEmployeeRow,
+  todayRecords: OperationalPunchRecord[],
+  matchUserIds: string[],
+  nowMs: number = operationalClockMs(),
+): MonitoringPipelineEmployeeRow {
+  const idSet = new Set(matchUserIds);
+  const userToday = todayRecords.filter((r) => idSet.has(r.user_id));
+  const presence = inferOperationalPresenceForDay(userToday);
+  const status = presenceStatusToOperationalStatus(presence);
+  const sortedToday = userToday
+    .filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r)).ok)
+    .sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
+
+  let lat = row.lat;
+  let lng = row.lng;
+  let accuracy = row.accuracy;
+  let capturedAt = row.capturedAt;
+  let sourceRecordId = row.sourceRecordId;
+  let geoPrecisionBadge = row.geoPrecisionBadge;
+  let geoSourceLabel = row.geoSourceLabel;
+  let provider = row.provider;
+  let positionAgeMs = row.positionAgeMs;
+  let mapMarkerKey = row.mapMarkerKey;
+  let geoLocationExpired = row.geoLocationExpired;
+  let geoConfidenceLevel = row.geoConfidenceLevel;
+
+  if (lat == null || lng == null || geoLocationExpired) {
+    const geoDecision = evaluateOperationalDayGeoForMonitoring(sortedToday, row.userId, nowMs);
+    if (geoDecision.useForMap) {
+      lat = geoDecision.lat;
+      lng = geoDecision.lng;
+      accuracy = geoDecision.accuracy;
+      capturedAt = geoDecision.capturedAt;
+      sourceRecordId = geoDecision.sourceRecordId;
+      geoPrecisionBadge = geoDecision.precisionBadge;
+      geoSourceLabel = geoDecision.geoSourceLabel;
+      provider = geoDecision.provider;
+      positionAgeMs = geoDecision.ageMs;
+      mapMarkerKey = geoDecision.mapMarkerKey;
+      geoLocationExpired = false;
+    }
+  }
+
+  if (lat != null && lng != null) {
+    geoConfidenceLevel = calculateGeoConfidence(
+      {
+        accuracyMeters: accuracy ?? null,
+        ageMs: positionAgeMs ?? null,
+        provider: provider ?? null,
+      },
+      { log: false },
+    );
+  }
+
+  const lastTs = presence.lastPunch;
+  return {
+    ...row,
+    status,
+    statusLabel: operationalStatusLabel(status),
+    lastRecordAt: lastTs ? formatOperationalLocalDisplay(lastTs, { employeeId: row.userId }) ?? lastTs : row.lastRecordAt,
+    lastRecordType: presence.lastType ?? row.lastRecordType,
+    lat,
+    lng,
+    accuracy,
+    capturedAt,
+    sourceRecordId,
+    geoPrecisionBadge,
+    geoSourceLabel,
+    provider,
+    positionAgeMs,
+    mapMarkerKey,
+    geoLocationExpired,
+    geoConfidenceLevel,
+    mapRenderTimestamp: nowMs,
+  };
+}
+
 export type MonitoringPipelineEmployeeRow = {
   userId: string;
   userName: string;
@@ -444,10 +602,15 @@ export function buildMonitoringPipelineRow(
   records: OperationalPunchRecord[],
   nowMs: number = operationalClockMs(),
   matchUserIds?: string[],
+  options?: BuildMonitoringPipelineRowOptions,
 ): MonitoringPipelineEmployeeRow {
   const ids = new Set(matchUserIds?.length ? matchUserIds : [user.id]);
   const userRaw = records.filter((r) => ids.has(r.user_id));
-  const sortedValid = userRaw
+  const dayScopedRaw =
+    options?.operationalDayMode && options.todayYmd
+      ? filterRecordsForOperationalDay(userRaw, options.todayYmd)
+      : userRaw;
+  const sortedValid = dayScopedRaw
     .filter((r) => validateOperationalTimestamp(recordPunchInstantIso(r)).ok)
     .sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
   const last = sortedValid[0] ?? null;
@@ -473,14 +636,20 @@ export function buildMonitoringPipelineRow(
   const ageMs =
     last && lastInstantMs > 0 ? nowMs - lastInstantMs : MONITORING_OFFLINE_AFTER_LAST_PUNCH_MS + 1;
 
-  const status = computeRealtimeOperationalStatusFromTypeAndAge(
-    last?.type,
-    ageMs,
-    sortedValid.length === 0,
-    userRaw.length > 0,
-  );
+  const status =
+    options?.operationalDayMode && options.todayYmd
+      ? presenceStatusToOperationalStatus(inferOperationalPresenceForDay(dayScopedRaw))
+      : computeRealtimeOperationalStatusFromTypeAndAge(
+          last?.type,
+          ageMs,
+          sortedValid.length === 0,
+          userRaw.length > 0,
+        );
 
-  const geoDecision = evaluateRealtimeGeoForMonitoring(sortedValid, user.id, nowMs);
+  const geoDecision =
+    options?.operationalDayMode && options.todayYmd
+      ? evaluateOperationalDayGeoForMonitoring(sortedValid, user.id, nowMs)
+      : evaluateRealtimeGeoForMonitoring(sortedValid, user.id, nowMs);
   let lat: number | undefined;
   let lng: number | undefined;
   let accuracy: number | null | undefined;

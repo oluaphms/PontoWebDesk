@@ -45,6 +45,8 @@ interface MonitoringMapProps {
   employees: MonitoringEmployee[];
   className?: string;
   height?: string;
+  /** Mapa admin: exibe última posição do dia sem expirar por idade realtime. */
+  operationalSnapshotMode?: boolean;
 }
 
 const DEFAULT_CENTER: L.LatLngTuple = [-15.7942, -47.8822];
@@ -68,6 +70,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
   employees,
   className = '',
   height = '420px',
+  operationalSnapshotMode = false,
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -171,7 +174,11 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       }
 
       const capturedAtMs = emp.lastRecordAt ? Date.parse(emp.lastRecordAt) : Number.NaN;
-      if (Number.isFinite(capturedAtMs) && Date.now() - capturedAtMs > MAX_MARKER_AGE_MS) {
+      if (
+        !operationalSnapshotMode &&
+        Number.isFinite(capturedAtMs) &&
+        Date.now() - capturedAtMs > MAX_MARKER_AGE_MS
+      ) {
         observabilityConsole.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, age_ms: Date.now() - capturedAtMs });
         if (existing) {
           existing.remove();
@@ -181,6 +188,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
         continue;
       }
       const isSnapshotStale =
+        !operationalSnapshotMode &&
         getOperationalFeatureFlag('mapStaleBlock') &&
         Number.isFinite(capturedAtMs) &&
         stateCoordinatorRef.current.shouldHideAsStale(emp.userId, Date.now());
@@ -248,14 +256,14 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       markersByUserRef.current.set(emp.userId, newMarker);
       lastPinSnapRef.current.set(emp.userId, snap);
       const renderLatencyMs = Date.now() - (Number.isFinite(capturedAtMs) ? capturedAtMs : Date.now());
-      if (renderLatencyMs > MAX_RENDER_LATENCY_MS) {
+      if (!operationalSnapshotMode && renderLatencyMs > MAX_RENDER_LATENCY_MS) {
         observabilityConsole.info('[MAP RENDER LATENCY BLOCKED]', { employee_id: emp.userId, render_latency_ms: renderLatencyMs });
         newMarker.remove();
         markersByUserRef.current.delete(emp.userId);
         lastPinSnapRef.current.delete(emp.userId);
         continue;
       }
-      if (renderLatencyMs > MAX_REALTIME_DRIFT_MS) {
+      if (!operationalSnapshotMode && renderLatencyMs > MAX_REALTIME_DRIFT_MS) {
         observabilityConsole.info('[MAP MARKER EXPIRED]', { employee_id: emp.userId, reason: 'realtime_drift', drift_ms: renderLatencyMs });
         newMarker.remove();
         markersByUserRef.current.delete(emp.userId);
@@ -276,6 +284,12 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     }
 
+    observabilityConsole.info('[MONITORAMENTO_MAP]', {
+      recebidos: debouncedEmployees.length,
+      com_gps: withLocation.length,
+      pins_renderizados: markersByUserRef.current.size,
+      modo: operationalSnapshotMode ? 'operational_snapshot' : 'realtime',
+    });
     observabilityConsole.info('[MAP BATCH UPDATE]', { count: withLocation.length });
     observabilityConsole.info('[MAP PERFORMANCE]', { markers: withLocation.length, debounce_ms: VISUAL_UPDATE_DEBOUNCE_MS });
     const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; jsHeapSizeLimit?: number } };
@@ -286,7 +300,7 @@ const MonitoringMapInner: React.FC<MonitoringMapProps> = ({
     }
     window.setTimeout(() => map.invalidateSize(), 100);
     window.setTimeout(() => map.invalidateSize(), 350);
-  }, [withLocation]);
+  }, [withLocation, operationalSnapshotMode]);
 
   useEffect(() => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);

@@ -8,8 +8,11 @@ import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { db } from '../../services/supabaseClient';
-import { listTimeRecords } from '../../../services/timeRecords.service';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import {
+  fetchMonitoringTimeRecordsBundle,
+  monitoringDailyRecordsCacheKey,
+} from '../../services/monitoring/monitoringData.service';
 import PageHeader from '../../components/PageHeader';
 import MonitoringMap from '../../components/MonitoringMap';
 import { clearGeocodeCache } from '../../services/geolocation/reverseGeocode.service';
@@ -95,12 +98,7 @@ const AdminMonitoring: React.FC = () => {
       trackGeoSnapshotChecksumDrift(user.companyId, cos, liveRows);
       const liveByEmployee = new Map(liveRows.map((r) => [r.employee_id, r]));
 
-      const recordLimit = cos.length > 0 ? 500 : 800;
-      const timeRecords = (await listTimeRecords(
-        [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-        { column: 'created_at', ascending: false },
-        recordLimit,
-      )) as OperationalPunchRecord[];
+      const timeRecords = await fetchMonitoringTimeRecordsBundle(user.companyId);
 
       const unified = resolveUnifiedOperationalState({
         companyId: user.companyId,
@@ -119,6 +117,24 @@ const AdminMonitoring: React.FC = () => {
       setTodayUsers(users);
       setPipelineRows(unified.pipelineRows);
       setPresenceList(unified.presenceList);
+
+      const withGps = unified.pipelineRows.filter((r) => r.lat != null && r.lng != null && !r.geoLocationExpired);
+      observabilityConsole.info('[MONITORAMENTO]', {
+        colaboradores_roster: users.length,
+        registros_bundle: timeRecords.length,
+        com_gps_pipeline: withGps.length,
+        usando_cos: unified.usingOperationalStateTable,
+        dia_operacional: getCompanyTodayYmd(),
+      });
+      observabilityConsole.info(
+        '[MONITORAMENTO_STATUS]',
+        unified.presenceList.map((e) => ({
+          nome: e.nome,
+          status: e.status,
+          lastPunch: e.lastPunch,
+          lastType: e.lastType,
+        })),
+      );
     } catch (e) {
       observabilityConsole.error(e);
     } finally {
@@ -162,6 +178,8 @@ const AdminMonitoring: React.FC = () => {
       clearGeocodeCache();
       queryCache.invalidate(`time_records:admin_dash:recent:${user.companyId}`);
       queryCache.invalidate(`time_records:admin_dash:chart:${user.companyId}`);
+      queryCache.invalidate(monitoringDailyRecordsCacheKey(user.companyId));
+      queryCache.invalidate(`time_records:monitoring:daily:created:${user.companyId}:${getCompanyTodayYmd()}`);
       queryCache.invalidate(currentOperationalStateCacheKey(user.companyId));
       void refresh();
     };
@@ -282,7 +300,7 @@ const AdminMonitoring: React.FC = () => {
                   <MapPin className="w-5 h-5 text-indigo-500" />
                   Mapa em tempo real
                 </h2>
-                <MonitoringMap employees={mapEmployees} height="420px" className="w-full" />
+                <MonitoringMap employees={mapEmployees} height="420px" className="w-full" operationalSnapshotMode />
               </div>
               <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 pt-2">Lista por status</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

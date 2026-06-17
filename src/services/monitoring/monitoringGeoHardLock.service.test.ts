@@ -3,6 +3,8 @@ import {
   FUTURE_PUNCH_TOLERANCE_MS,
   __resetFutureBlockDedupForTests,
   companyOperationalDayBoundsUtc,
+  evaluateOperationalDayGeoForMonitoring,
+  enrichPipelineRowForOperationalDay,
   filterRecordsForOperationalDay,
   getCompanyTodayYmd,
   getLastOperationalPunchForUser,
@@ -96,6 +98,65 @@ describe('getCompanyTodayYmd', () => {
   it('retorna ISO date', () => {
     const y = getCompanyTodayYmd();
     expect(y).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('evaluateOperationalDayGeoForMonitoring', () => {
+  it('aceita coordenadas negativas (Brasil) mesmo com idade acima do limite realtime', () => {
+    const nowMs = new Date('2026-06-17T15:00:00.000Z').getTime();
+    const punchMs = new Date('2026-06-17T10:57:00.000Z').getTime();
+    const records: OperationalPunchRecord[] = [
+      {
+        id: 'paulo-1',
+        user_id: 'u-paulo',
+        type: 'entrada',
+        timestamp: new Date(punchMs).toISOString(),
+        created_at: new Date(punchMs).toISOString(),
+        latitude: -10.9348,
+        longitude: -37.0949,
+      },
+    ];
+    const decision = evaluateOperationalDayGeoForMonitoring(records, 'u-paulo', nowMs);
+    expect(decision.useForMap).toBe(true);
+    if (decision.useForMap) {
+      expect(decision.lat).toBeCloseTo(-10.9348, 4);
+      expect(decision.lng).toBeCloseTo(-37.0949, 4);
+    }
+  });
+});
+
+describe('enrichPipelineRowForOperationalDay', () => {
+  it('preenche GEO ausente a partir da batida do dia', () => {
+    const nowMs = Date.now();
+    const punchIso = '2026-06-17T10:57:00.000Z';
+    const todayRecords: OperationalPunchRecord[] = [
+      {
+        id: 'r1',
+        user_id: 'emp-1',
+        type: 'entrada',
+        timestamp: punchIso,
+        created_at: punchIso,
+        latitude: -10.9348,
+        longitude: -37.0949,
+      },
+    ];
+    const row = enrichPipelineRowForOperationalDay(
+      {
+        userId: 'emp-1',
+        userName: 'PAULO',
+        status: 'OFF_DUTY' as never,
+        statusLabel: 'Fora da jornada',
+        mapRenderTimestamp: nowMs,
+        geoLocationExpired: true,
+      },
+      todayRecords,
+      ['emp-1'],
+      nowMs,
+    );
+    expect(row.lat).toBeCloseTo(-10.9348, 4);
+    expect(row.lng).toBeCloseTo(-37.0949, 4);
+    expect(row.geoLocationExpired).toBe(false);
+    expect(row.statusLabel).toBe('Trabalhando');
   });
 });
 

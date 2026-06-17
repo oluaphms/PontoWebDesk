@@ -6,6 +6,7 @@ import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import type { LiveEmployeeLocationRow } from '../../services/liveEmployeeLocation.service';
 import {
   buildMonitoringPipelineRow,
+  enrichPipelineRowForOperationalDay,
   filterRecordsForOperationalDay,
   getLastOperationalPunchForUser,
   inferOperationalPresenceForDay,
@@ -15,7 +16,6 @@ import {
   type OperationalPunchRecord,
 } from '../../services/monitoring/monitoringGeoHardLock.service';
 import {
-  buildPresenceListFromOperationalState,
   emptyMonitoringPipelineRowForUser,
   operationalStateRowToMonitoringPipelineRow,
   type CurrentOperationalStateRow,
@@ -178,6 +178,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
   const usingOperationalStateTable = cosRows.length > 0;
   const cosByEmployee = new Map(cosRows.map((r) => [r.employee_id, r]));
   const matchIds = (rosterId: string) => Array.from(rosterIdSet(rosterId, rosterIdAliases));
+  const todayOperationalRecords = filterRecordsForOperationalDay(timeRecords, todayYmd);
 
   let pipelineRows: MonitoringPipelineEmployeeRow[];
 
@@ -186,7 +187,7 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
       const cos = cosForRoster(u.id, cosByEmployee, rosterIdAliases);
       const base = cos ? operationalStateRowToMonitoringPipelineRow(cos, u, nowMs) : emptyMonitoringPipelineRowForUser(u, nowMs);
       const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
-      const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
+      const last = getLastOperationalPunchForRoster(todayOperationalRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -198,13 +199,17 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         previousAccepted: cosPreviousAccepted(cos, nowMs),
         log: false,
       });
-      return applyResolvedGeo(base, resolved, nowMs, live);
+      const merged = applyResolvedGeo(base, resolved, nowMs, live);
+      return enrichPipelineRowForOperationalDay(merged, todayOperationalRecords, matchIds(u.id), nowMs);
     });
   } else {
     pipelineRows = users.map((u) => {
-      const base = buildMonitoringPipelineRow(u, timeRecords, nowMs, matchIds(u.id));
+      const base = buildMonitoringPipelineRow(u, timeRecords, nowMs, matchIds(u.id), {
+        todayYmd,
+        operationalDayMode: true,
+      });
       const live = liveRowForRoster(u.id, liveByEmployee, rosterIdAliases);
-      const last = getLastOperationalPunchForRoster(timeRecords, u.id, rosterIdAliases, nowMs);
+      const last = getLastOperationalPunchForRoster(todayOperationalRecords, u.id, rosterIdAliases, nowMs);
       const record = recordGeoCandidate(last);
       const resolved = resolveRealtimeMonitoringLocation({
         nowMs,
@@ -216,31 +221,26 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
         previousAccepted: null,
         log: false,
       });
-      return applyResolvedGeo(base, resolved, nowMs, live);
+      const merged = applyResolvedGeo(base, resolved, nowMs, live);
+      return enrichPipelineRowForOperationalDay(merged, todayOperationalRecords, matchIds(u.id), nowMs);
     });
   }
 
-  let presenceList: EmployeePresenceFromState[];
-  if (usingOperationalStateTable) {
-    presenceList = buildPresenceListFromOperationalState(users, cosByEmployee, todayYmd, rosterIdAliases);
-  } else {
-    const todayOperationalRecords = filterRecordsForOperationalDay(timeRecords, todayYmd);
-    presenceList = users
-      .map((u) => {
-        const recs = todayOperationalRecords.filter((r) => rosterIdSet(u.id, rosterIdAliases).has(r.user_id));
-        const { status, lastPunch, lastType, pairCount } = inferOperationalPresenceForDay(recs);
-        return {
-          user_id: u.id,
-          nome: u.nome || u.email || u.id.slice(0, 8),
-          email: u.email,
-          status,
-          lastPunch,
-          lastType,
-          pairCount,
-        };
-      })
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-  }
+  const presenceList: EmployeePresenceFromState[] = users
+    .map((u) => {
+      const recs = todayOperationalRecords.filter((r) => rosterIdSet(u.id, rosterIdAliases).has(r.user_id));
+      const { status, lastPunch, lastType, pairCount } = inferOperationalPresenceForDay(recs);
+      return {
+        user_id: u.id,
+        nome: u.nome || u.email || u.id.slice(0, 8),
+        email: u.email,
+        status,
+        lastPunch,
+        lastType,
+        pairCount,
+      };
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome));
 
   assertOperationalStateConsistency({
     companyId,
