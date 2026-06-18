@@ -59,6 +59,25 @@ export type DbRealtimePayload = {
 
 const DEFAULT_SELECT_LIMIT = 200;
 
+/** RPCs operacionais — permitidas mesmo com DATA_API_WRITES_ENABLED=false na VPS. */
+const OPERATIONAL_RPC = new Set([
+  'get_my_company_id',
+  'insert_time_record_for_user',
+  'insert_time_record_for_user_v2',
+  'timesheet_is_closed_for_stamp',
+  'rep_promote_pending_rep_punch_logs',
+  'rep_ingest_punch',
+  'rep_match_user_id_for_rep_punch_row',
+  'rep_ignore_punch_logs',
+]);
+
+/** Escritas operacionais (reconciliação REP, timeline) — backend valida role privilegiada. */
+const OPERATIONAL_WRITE_TABLES = new Set([
+  'rep_punch_logs',
+  'time_attendance_timeline',
+  'time_attendance_incident_reviews',
+]);
+
 type ListResponse = { ok?: boolean; data?: DbRow[]; count?: number; error?: string };
 
 function filtersParam(filters?: Filter[]): string {
@@ -109,7 +128,8 @@ async function fetchList(table: string, query: string): Promise<DbRow[]> {
   return Array.isArray(res.data) ? res.data : [];
 }
 
-function assertDataWriteAllowed(): void {
+function assertDataWriteAllowed(table?: string): void {
+  if (table && OPERATIONAL_WRITE_TABLES.has(table)) return;
   if (isDataApiWritesDisabled()) {
     throw new ApiError('data_api_writes_disabled', 403, { code: 'data_api_writes_disabled' });
   }
@@ -127,7 +147,7 @@ export const db = {
   },
 
   insert: async <T extends DbRow = DbRow>(table: string, data: DbRow): Promise<T> => {
-    assertDataWriteAllowed();
+    assertDataWriteAllowed(table);
     const res = await apiPost<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(`/data/${table}`, data);
     if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'insert_failed', 400, res);
     return res.data as T;
@@ -198,13 +218,7 @@ export const db = {
         };
       }
     }
-    if (isDataApiWritesDisabled() && fn.startsWith('rep_')) {
-      return {
-        data: null,
-        error: { message: 'data_api_writes_disabled', code: 'data_api_writes_disabled' },
-      };
-    }
-    if (isDataApiWritesDisabled()) {
+    if (!OPERATIONAL_RPC.has(fn) && isDataApiWritesDisabled()) {
       return {
         data: null,
         error: { message: 'data_api_writes_disabled', code: 'data_api_writes_disabled' },
@@ -237,7 +251,7 @@ export const db = {
     idOrData: string | DbRow,
     dataOrFilters?: DbRow | Filter[],
   ): Promise<T> => {
-    assertDataWriteAllowed();
+    assertDataWriteAllowed(table);
     if (typeof idOrData === 'string') {
       const res = await apiPatch<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(
         `/data/${table}/${idOrData}`,
@@ -254,7 +268,7 @@ export const db = {
   }) as DbInterface['update'],
 
   delete: (async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
-    assertDataWriteAllowed();
+    assertDataWriteAllowed(table);
     if (typeof idOrFilters === 'string') {
       await apiDelete(`/data/${table}/${idOrFilters}`);
       return;
@@ -476,7 +490,7 @@ function createTableQuery(table: string): {
       }
       return builder;
     },
-    is(column: string, _operator: 'null', value: null) {
+    is(column: string, value: FilterValue) {
       if (value === null) {
         state.filters.push({ column, operator: 'is', value: null });
       }
@@ -539,6 +553,65 @@ function createTableQuery(table: string): {
   return builder;
 }
 
+type UpdateResult = { data: DbRow[] | null; error: { message: string } | null };
+
+function createTableUpdate(table: string, data: DbRow): {
+  eq: (column: string, value: FilterValue) => ReturnType<typeof createTableUpdate>;
+  neq: (column: string, value: FilterValue) => ReturnType<typeof createTableUpdate>;
+  is: (column: string, operator: 'null', value: null) => ReturnType<typeof createTableUpdate>;
+  in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableUpdate>;
+  then: (
+    onfulfilled?: (value: UpdateResult) => unknown,
+    onrejected?: (reason: unknown) => unknown,
+  ) => Promise<unknown>;
+} {
+  const state: { filters: Filter[] } = { filters: [] };
+
+  const runUpdate = async (): Promise<UpdateResult> => {
+    try {
+      const rows = await db.select(table, state.filters, undefined, 2);
+      if (!rows.length) return { data: null, error: { message: 'not_found' } };
+      if (rows.length > 1) return { data: null, error: { message: 'multiple_rows' } };
+      const id = rows[0]?.id;
+      if (!id) return { data: null, error: { message: 'not_found' } };
+      const row = await db.update(table, String(id), data);
+      return { data: [row], error: null };
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'update_failed';
+      return { data: null, error: { message: msg } };
+    }
+  };
+
+  const builder = {
+    eq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'eq', value });
+      return builder;
+    },
+    neq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'neq', value });
+      return builder;
+    },
+    is(column: string, value: FilterValue) {
+      if (value === null) {
+        state.filters.push({ column, operator: 'is', value: null });
+      }
+      return builder;
+    },
+    in(column: string, value: readonly unknown[]) {
+      state.filters.push({ column, operator: 'in', value });
+      return builder;
+    },
+    then(
+      onfulfilled?: (value: UpdateResult) => unknown,
+      onrejected?: (reason: unknown) => unknown,
+    ) {
+      return runUpdate().then(onfulfilled, onrejected);
+    },
+  };
+
+  return builder;
+}
+
 export const supabase = {
   auth,
   storage,
@@ -575,20 +648,7 @@ export const supabase = {
         return { data: null, error: { message: msg } };
       }
     },
-    update: (data: DbRow) => ({
-      eq: async (column: string, value: FilterValue) => {
-        try {
-          const rows = await db.select(table, [{ column, operator: 'eq', value }], undefined, 1);
-          const id = rows[0]?.id;
-          if (!id) return { data: null, error: { message: 'not_found' } };
-          const row = await db.update(table, String(id), data);
-          return { data: [row], error: null };
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : 'update_failed';
-          return { data: null, error: { message: msg } };
-        }
-      },
-    }),
+    update: (data: DbRow) => createTableUpdate(table, data),
     delete: () => ({
       eq: async () => ({ data: null, error: null }),
     }),

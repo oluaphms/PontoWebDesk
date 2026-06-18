@@ -1475,30 +1475,37 @@ export async function repPromotePendingController(req: Request, res: Response): 
   const tokenCompanyId = await repAdminCompanyId(req);
   const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
   const repDeviceId = String(body.p_rep_device_id || '').trim();
-  if (!repDeviceId) {
-    json(res, 400, { ok: false, error: 'p_rep_device_id é obrigatório' });
-    return;
-  }
 
-  const token = authHeaderToken(req);
-  const agentAuth = await verifyRepAgentTokenVps(token, repDeviceId);
-  if (!agentAuth.ok && !tokenCompanyId) {
-    if (agentAuth.code === 'DEVICE_INACTIVE') {
-      repAgentAuthDenied(res, agentAuth);
+  let companyId = '';
+
+  if (!repDeviceId) {
+    if (!tokenCompanyId) {
+      json(res, 401, { ok: false, error: 'unauthorized' });
       return;
     }
-    json(res, 401, { ok: false, error: 'unauthorized' });
-    return;
-  }
+    companyId = tokenCompanyId;
+  } else {
+    const token = authHeaderToken(req);
+    const agentAuth = await verifyRepAgentTokenVps(token, repDeviceId);
+    if (!agentAuth.ok && !tokenCompanyId) {
+      if (agentAuth.code === 'DEVICE_INACTIVE') {
+        repAgentAuthDenied(res, agentAuth);
+        return;
+      }
+      json(res, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
 
-  const companyId = await fetchRepDeviceCompanyId(repDeviceId);
-  if (!companyId) {
-    json(res, 404, { ok: false, error: 'device_not_found' });
-    return;
-  }
-  if (tokenCompanyId && companyId !== tokenCompanyId) {
-    json(res, 403, { ok: false, error: 'company_id inválido' });
-    return;
+    const deviceCompanyId = await fetchRepDeviceCompanyId(repDeviceId);
+    if (!deviceCompanyId) {
+      json(res, 404, { ok: false, error: 'device_not_found' });
+      return;
+    }
+    if (tokenCompanyId && deviceCompanyId !== tokenCompanyId) {
+      json(res, 403, { ok: false, error: 'company_id inválido' });
+      return;
+    }
+    companyId = deviceCompanyId;
   }
 
   try {
@@ -1512,7 +1519,11 @@ export async function repPromotePendingController(req: Request, res: Response): 
       return;
     }
 
-    const rpcBody = { ...body, p_company_id: companyId, p_rep_device_id: repDeviceId };
+    const rpcBody = {
+      ...body,
+      p_company_id: companyId,
+      p_rep_device_id: repDeviceId || null,
+    };
     const data = await executeRepRpcProxy('rep_promote_pending_rep_punch_logs', rpcBody, companyId);
     json(res, 200, { ok: true, data, error: null });
   } catch (error) {
