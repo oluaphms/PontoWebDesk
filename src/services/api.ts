@@ -14,8 +14,20 @@ export function isApiRateLimited(): boolean {
   return Date.now() < apiRateLimitedUntil;
 }
 
-function markApiRateLimited(ms = 90_000): void {
-  apiRateLimitedUntil = Date.now() + ms;
+/** Limpa cooldown cliente (ex.: após refresh manual ou diagnóstico). */
+export function resetApiRateLimitCooldown(): void {
+  apiRateLimitedUntil = 0;
+  try {
+    sessionStorage.removeItem('pontowebdesk:api_rate_limited_until');
+  } catch {
+    /* ignore */
+  }
+}
+
+function markApiRateLimited(ms = 30_000): void {
+  const now = Date.now();
+  if (now < apiRateLimitedUntil) return;
+  apiRateLimitedUntil = now + ms;
   try {
     sessionStorage.setItem('pontowebdesk:api_rate_limited_until', String(apiRateLimitedUntil));
   } catch {
@@ -26,7 +38,9 @@ function markApiRateLimited(ms = 90_000): void {
 function readPersistedRateLimit(): void {
   try {
     const v = Number(sessionStorage.getItem('pontowebdesk:api_rate_limited_until'));
-    if (Number.isFinite(v) && v > Date.now()) apiRateLimitedUntil = v;
+    if (Number.isFinite(v) && v > Date.now()) {
+      apiRateLimitedUntil = Math.min(v, Date.now() + 60_000);
+    }
   } catch {
     /* ignore */
   }
@@ -335,8 +349,8 @@ async function parseResponse<T>(
           ? Number(resLike.headers.get('retry-after'))
           : NaN;
       const cooldownMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
-        ? Math.min(retryAfterHeader * 1000, 180_000)
-        : 90_000;
+        ? Math.min(retryAfterHeader * 1000, 60_000)
+        : 30_000;
       markApiRateLimited(cooldownMs);
     }
     const errorContext = {
@@ -425,20 +439,33 @@ async function parseResponse<T>(
   return body as T;
 }
 
+const inflightGets = new Map<string, Promise<unknown>>();
+
 export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
-  const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
-  const url = buildApiUrl(path);
-  const res = await fetch(url, {
-    ...init,
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      ...authHeaders(),
-      'x-correlation-id': requestCorrelationId,
-      ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
-    },
+  const key = `GET:${normalizeApiPath(path)}`;
+  const existing = inflightGets.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const promise = (async (): Promise<T> => {
+    const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
+    const url = buildApiUrl(path);
+    const res = await fetch(url, {
+      ...init,
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        ...authHeaders(),
+        'x-correlation-id': requestCorrelationId,
+        ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
+      },
+    });
+    return parseResponse<T>(res, { method: 'GET', path, url });
+  })().finally(() => {
+    inflightGets.delete(key);
   });
-  return parseResponse<T>(res, { method: 'GET', path, url });
+
+  inflightGets.set(key, promise);
+  return promise;
 }
 
 export async function apiPost<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {

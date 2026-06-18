@@ -19,6 +19,11 @@ async function countOrZero(table: string, companyId: string): Promise<number> {
   }
 }
 
+const ONBOARDING_CACHE_MS = 60_000;
+const onboardingCache = new Map<string, { at: number; data: TenantOnboardingStatus }>();
+let inflightOnboarding: Promise<TenantOnboardingStatus> | null = null;
+let inflightOnboardingCompanyId = '';
+
 export async function fetchTenantOnboardingStatus(companyId: string): Promise<TenantOnboardingStatus> {
   const cid = String(companyId || '').trim();
   if (!cid) {
@@ -32,34 +37,53 @@ export async function fetchTenantOnboardingStatus(companyId: string): Promise<Te
     };
   }
 
-  const [
-    departments,
-    schedules,
-    workShifts,
-    collaboratorJourneys,
-    employees,
-    companyRules,
-    holidays,
-    feriados,
-  ] = await Promise.all([
-    countOrZero('departments', cid),
-    countOrZero('schedules', cid),
-    countOrZero('work_shifts', cid),
-    countOrZero('colaborador_jornada', cid),
-    countOrZero('employees', cid),
-    countOrZero('company_rules', cid),
-    countOrZero('holidays', cid),
-    countOrZero('feriados', cid),
-  ]);
+  const cached = onboardingCache.get(cid);
+  if (cached && Date.now() - cached.at < ONBOARDING_CACHE_MS) {
+    return cached.data;
+  }
 
-  return {
-    departments,
-    schedules,
-    journeys: Math.max(workShifts, collaboratorJourneys),
-    employees,
-    bankRules: companyRules,
-    holidays: Math.max(holidays, feriados),
-  };
+  if (inflightOnboarding && inflightOnboardingCompanyId === cid) {
+    return inflightOnboarding;
+  }
+
+  inflightOnboardingCompanyId = cid;
+  inflightOnboarding = (async () => {
+    const [
+      departments,
+      schedules,
+      workShifts,
+      collaboratorJourneys,
+      employees,
+      companyRules,
+      holidays,
+      feriados,
+    ] = await Promise.all([
+      countOrZero('departments', cid),
+      countOrZero('schedules', cid),
+      countOrZero('work_shifts', cid),
+      countOrZero('colaborador_jornada', cid),
+      countOrZero('employees', cid),
+      countOrZero('company_rules', cid),
+      countOrZero('holidays', cid),
+      countOrZero('feriados', cid),
+    ]);
+
+    const data: TenantOnboardingStatus = {
+      departments,
+      schedules,
+      journeys: Math.max(workShifts, collaboratorJourneys),
+      employees,
+      bankRules: companyRules,
+      holidays: Math.max(holidays, feriados),
+    };
+    onboardingCache.set(cid, { at: Date.now(), data });
+    return data;
+  })().finally(() => {
+    inflightOnboarding = null;
+    inflightOnboardingCompanyId = '';
+  });
+
+  return inflightOnboarding;
 }
 
 export function hasTenantOnboardingGaps(status: TenantOnboardingStatus | null): boolean {

@@ -27,16 +27,20 @@ export const OperationalHelpInsights: React.FC<OperationalHelpInsightsProps> = (
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void fetchHelpInsights(companyId).then((remote) => {
-      if (cancelled) return;
-      const base = buildHelpInsightsFromContext({ totalEmployees });
-      const merged = [...base];
-      for (const r of remote) {
-        if (!merged.some((m) => m.id === r.id)) merged.push(r);
-      }
-      setInsights(merged.slice(0, 5));
-      setLoading(false);
-    });
+    void fetchHelpInsights(companyId)
+      .then((remote) => {
+        if (cancelled) return;
+        const base = buildHelpInsightsFromContext({ totalEmployees });
+        const merged = [...base];
+        for (const r of remote) {
+          if (!merged.some((m) => m.id === r.id)) merged.push(r);
+        }
+        setInsights(merged.slice(0, 5));
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };

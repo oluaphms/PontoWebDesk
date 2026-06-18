@@ -18,7 +18,7 @@ function repDeviceSubject(req: Request): string {
 /** Leitura/escrita autenticada na API genérica /data. */
 export const dataApiRateLimit = rateLimit({
   keyPrefix: 'api:data',
-  maxRequests: 180,
+  maxRequests: 300,
   windowMs: 60_000,
   key: authSubject,
 });

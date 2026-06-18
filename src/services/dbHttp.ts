@@ -121,7 +121,7 @@ function listQuery(
 
 async function fetchList(table: string, query: string): Promise<DbRow[]> {
   if (isApiRateLimited()) {
-    throw new ApiError('rate_limited_cooldown', 429, { code: 'rate_limited_cooldown' });
+    return [];
   }
   const res = await apiGet<ListResponse>(`/data/${table}${query}`);
   if (res.error) throw new ApiError(res.error, 400, res);
@@ -312,6 +312,7 @@ export const db = {
   },
 
   count: async (table: string, filters?: Filter[]): Promise<number> => {
+    if (isApiRateLimited()) return 0;
     const fp = filtersParam(filters);
     const res = await apiGet<{ count?: number }>(`/data/${table}/count${fp ? `?${fp}` : ''}`);
     return res.count ?? 0;
