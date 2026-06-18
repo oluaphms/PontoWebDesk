@@ -203,8 +203,167 @@ function scheduleExpectedMinute(slot: MirrorGridSlot, schedule: DayScheduleSlots
 
 /**
  * Motor principal do espelho: 1ª batida cronológica → Entrada, 2ª → Saída int., 3ª → Volta int., 4ª → Saída.
- * Cada `record_id` ocupa no máximo uma coluna; `source` não altera a posição.
+ * Com reconciliação por tipo explícito quando há conflito (ex.: saída 07:24 + entrada 22:01 no mesmo dia).
  */
+function slotOfRecord(
+  id: string,
+  slotRecordIds: Partial<Record<MirrorGridSlot, string>>,
+): MirrorGridSlot | null {
+  for (const slot of GRID_SLOTS) {
+    if (slotRecordIds[slot] === id) return slot;
+  }
+  return null;
+}
+
+function nightShiftOperationalSortKey(iso: string, entradaMin: number): number {
+  const min = localMinutesFromIso(iso);
+  return min >= entradaMin ? min : min + 24 * 60;
+}
+
+function sortRecordsForMirrorGrid(
+  records: TimeRecord[],
+  dayDateStr: string,
+  schedule?: DayScheduleSlots | null,
+): TimeRecord[] {
+  if (!schedule || !isNightShiftSchedule(schedule)) {
+    return sortRecordsByTime(records, dayDateStr);
+  }
+  const entradaMin = hhmmToMinutes(schedule.entrada);
+  if (entradaMin == null) return sortRecordsByTime(records, dayDateStr);
+  return [...records].sort((a, b) => {
+    const ka = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(a, dayDateStr), entradaMin);
+    const kb = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(b, dayDateStr), entradaMin);
+    if (ka !== kb) return ka - kb;
+    return (
+      new Date(recordEffectiveMirrorInstant(a, dayDateStr)).getTime() -
+      new Date(recordEffectiveMirrorInstant(b, dayDateStr)).getTime()
+    );
+  });
+}
+
+type MirrorGridState = {
+  entradaInicio: string | null;
+  saidaIntervalo: string | null;
+  voltaIntervalo: string | null;
+  saidaFinal: string | null;
+  slotRecordIds: Partial<Record<MirrorGridSlot, string>>;
+  batidasExtra: TimeRecord[];
+  inconsistencias: TimeRecord[];
+};
+
+function reconcileMirrorGridExplicitTypes(
+  sorted: TimeRecord[],
+  state: MirrorGridState,
+  dayDateStr: string,
+  audit?: MirrorConsolidationAuditEntry[],
+): MirrorGridState {
+  const real = sorted.filter((r) => !isStatusRecord(r));
+  if (real.length < 2) return state;
+
+  const entradaTyped = real.filter((r) => normalizeRecordTypeForMirror(r.type) === 'entrada');
+  const saidaTyped = real.filter((r) => normalizeRecordTypeForMirror(r.type) === 'saida');
+  if (!entradaTyped.length || !saidaTyped.length) return state;
+
+  const times: Record<MirrorGridSlot, string | null> = {
+    entrada: state.entradaInicio,
+    saida_intervalo: state.saidaIntervalo,
+    volta_intervalo: state.voltaIntervalo,
+    saida_final: state.saidaFinal,
+  };
+  const slotRecordIds: Partial<Record<MirrorGridSlot, string>> = { ...state.slotRecordIds };
+
+  const assignToSlot = (r: TimeRecord, target: MirrorGridSlot, from: MirrorGridSlot | null) => {
+    const hhmm = extractTime(recordEffectiveMirrorInstant(r, dayDateStr));
+    if (from && slotRecordIds[from] === r.id) {
+      times[from] = null;
+      delete slotRecordIds[from];
+    }
+    times[target] = hhmm;
+    slotRecordIds[target] = r.id;
+    emitMirrorAudit(audit, {
+      kind: 'TIME RECORD SLOT ASSIGNED',
+      record_id: r.id,
+      source: r.source ?? null,
+      timestamp: recordEffectiveMirrorInstant(r, dayDateStr),
+      assigned_slot: target,
+      detail: 'reconcile_entrada_saida_cross',
+    });
+  };
+
+  const saidaInEntrada = saidaTyped.some((r) => slotOfRecord(r.id, slotRecordIds) === 'entrada');
+  const entradaNotInEntrada = entradaTyped.some((r) => slotOfRecord(r.id, slotRecordIds) !== 'entrada');
+  const pairEntradaSaida =
+    real.length === 2 && entradaTyped.length === 1 && saidaTyped.length === 1;
+  const entradaOkSaidaWrong =
+    pairEntradaSaida &&
+    slotOfRecord(entradaTyped[0]!.id, slotRecordIds) === 'entrada' &&
+    slotOfRecord(saidaTyped[0]!.id, slotRecordIds) !== 'saida_final';
+  if (!saidaInEntrada && !entradaNotInEntrada && !entradaOkSaidaWrong) return state;
+
+  if (entradaOkSaidaWrong && !times.saida_final) {
+    assignToSlot(saidaTyped[0]!, 'saida_final', slotOfRecord(saidaTyped[0]!.id, slotRecordIds));
+    const assignedIds = new Set(Object.values(slotRecordIds).filter(Boolean));
+    const batidasExtra = sorted.filter((r) => !assignedIds.has(r.id));
+    return {
+      entradaInicio: times.entrada,
+      saidaIntervalo: times.saida_intervalo,
+      voltaIntervalo: times.volta_intervalo,
+      saidaFinal: times.saida_final,
+      slotRecordIds,
+      batidasExtra,
+      inconsistencias: state.inconsistencias,
+    };
+  }
+
+  for (const r of saidaTyped) {
+    const current = slotOfRecord(r.id, slotRecordIds);
+    if (current === 'saida_final') continue;
+    if (!times.saida_final) {
+      assignToSlot(r, 'saida_final', current);
+    }
+  }
+
+  for (const r of entradaTyped) {
+    const current = slotOfRecord(r.id, slotRecordIds);
+    if (current === 'entrada') continue;
+    if (!times.entrada) {
+      assignToSlot(r, 'entrada', current);
+    }
+  }
+
+  const entradaSlotId = slotRecordIds.entrada;
+  const saidaFinalId = slotRecordIds.saida_final;
+  if (entradaSlotId && saidaFinalId) {
+    const entOccupant = sorted.find((x) => x.id === entradaSlotId);
+    const saiOccupant = sorted.find((x) => x.id === saidaFinalId);
+    if (entOccupant && saiOccupant) {
+      const entNorm = normalizeRecordTypeForMirror(entOccupant.type);
+      const saiNorm = normalizeRecordTypeForMirror(saiOccupant.type);
+      if (entNorm === 'saida' && saiNorm === 'entrada') {
+        const rHhmm = extractTime(recordEffectiveMirrorInstant(saiOccupant, dayDateStr));
+        const oHhmm = extractTime(recordEffectiveMirrorInstant(entOccupant, dayDateStr));
+        times.entrada = rHhmm;
+        times.saida_final = oHhmm;
+        slotRecordIds.entrada = saiOccupant.id;
+        slotRecordIds.saida_final = entOccupant.id;
+      }
+    }
+  }
+
+  const assignedIds = new Set(Object.values(slotRecordIds).filter(Boolean));
+  const batidasExtra = sorted.filter((r) => !assignedIds.has(r.id));
+
+  return {
+    entradaInicio: times.entrada,
+    saidaIntervalo: times.saida_intervalo,
+    voltaIntervalo: times.volta_intervalo,
+    saidaFinal: times.saida_final,
+    slotRecordIds,
+    batidasExtra,
+    inconsistencias: state.inconsistencias,
+  };
+}
+
 function consolidateMirrorGridStrictChronology(
   sorted: TimeRecord[],
   dayDateStr: string,
@@ -425,12 +584,12 @@ export function classifyPunch(recordsDoDia: TimeRecord[], dayDateStr: string): {
 function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: DayScheduleSlots | null): DayMirror {
   const date = dayDateStr;
   const realRecords = records.filter((r) => !isStatusRecord(r));
-  const sortedFirst = sortRecordsByTime(realRecords, dayDateStr);
-  const sanitized = dedupeRepRecordsForMirror(sortedFirst, dayDateStr);
-  const sorted = sortRecordsByTime(sanitized, dayDateStr);
+  const sanitized = dedupeRepRecordsForMirror(realRecords, dayDateStr);
+  const sorted = sortRecordsForMirrorGrid(sanitized, dayDateStr, schedule ?? null);
 
   const audit: MirrorConsolidationAuditEntry[] = [];
-  const grid = consolidateMirrorGridStrictChronology(sorted, dayDateStr, schedule ?? null, audit);
+  const gridRaw = consolidateMirrorGridStrictChronology(sorted, dayDateStr, schedule ?? null, audit);
+  const grid = reconcileMirrorGridExplicitTypes(sorted, gridRaw, dayDateStr, audit);
 
   let workedMinutes = 0;
   if (grid.entradaInicio && grid.saidaFinal) {

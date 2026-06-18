@@ -467,6 +467,45 @@ describe('jornada noturna — agrupamento no espelho', () => {
     expect(map.get('2026-06-17')?.records.some((r) => r.id === 'manual-724')).toBe(true);
     expect(map.get('2026-06-16')?.records.some((r) => r.id === 'manual-724')).toBe(false);
   });
+
+  it('saída manual 07:24 + entrada REP 22:01 no mesmo dia: tipos nas colunas corretas', () => {
+    const nightSchedule17 = {
+      entrada: '22:00',
+      saida_intervalo: '01:00',
+      volta_intervalo: '02:00',
+      saida_final: '07:00',
+      toleranceMin: 60,
+    };
+    const records: TimeRecord[] = [
+      tr({
+        id: 'rep-e',
+        user_id: 'u',
+        created_at: '2026-06-18T01:01:00.000Z',
+        timestamp: '2026-06-17T22:01:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+        method: 'rep',
+      }),
+      tr({
+        id: 'manual-s',
+        user_id: 'u',
+        created_at: '2026-06-17T10:24:00.000Z',
+        timestamp: '2026-06-17T07:24:00.000-03:00',
+        type: 'saida',
+        source: 'manual',
+        method: 'admin',
+        manual_reason: 'Saída manual RH',
+        metadata: { mirror_date_ymd: '2026-06-17', method: 'admin' },
+      }),
+    ];
+    const scheduleByDay = (date: string) => (date === '2026-06-17' ? nightSchedule17 : null);
+    const map = buildDayMirrorSummary(records, '2026-06-17', '2026-06-17', { scheduleByDay });
+    const day = map.get('2026-06-17');
+    expect(day?.entradaInicio).toBe('22:01');
+    expect(day?.saidaFinal).toBe('07:24');
+    expect(day?.slotRecordIds?.entrada).toBe('rep-e');
+    expect(day?.slotRecordIds?.saida_final).toBe('manual-s');
+  });
 });
 
 describe('buildDayMirrorSummary — produção APP + REP (hard lock cronológico)', () => {
