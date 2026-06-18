@@ -9,7 +9,8 @@ import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import DataTable from '../components/DataTable';
 import { LoadingState, EmptyState } from '../../components/UI';
-import { extractLocalCalendarDateFromIso } from '../utils/timesheetMirror';
+import { filterRecordsForOperationalDay } from '../services/monitoring/monitoringGeoHardLock.service';
+import { recordPunchInstantIso } from '../utils/punchOrigin';
 import { calcularHorasHojeMs, formatarTempoLegivel, localTodayYmd } from '../utils/workedHoursToday';
 import { formatRequestType, formatWorkflowStatus } from '../../lib/i18n';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -220,10 +221,18 @@ const DashboardPage: React.FC = () => {
 
   const todayHours = useMemo(() => {
     const ymd = localTodayYmd();
-    const todayRecs = records.filter(
-      (r) => extractLocalCalendarDateFromIso(r.createdAt.toISOString()) === ymd,
+    const todayRecs = filterRecordsForOperationalDay(
+      records.map((r) => ({
+        id: r.id,
+        user_id: user.id,
+        type: r.type,
+        created_at: r.createdAt.toISOString(),
+        timestamp: r.createdAt.toISOString(),
+      })),
+      ymd,
+      { includeOpenNightJourney: true },
     );
-    return formatarTempoLegivel(calcularHorasHojeMs(todayRecs.map((r) => ({ created_at: r.createdAt.toISOString() }))));
+    return formatarTempoLegivel(calcularHorasHojeMs(todayRecs.map((r) => ({ created_at: recordPunchInstantIso(r) }))));
   }, [records]);
 
   const lastPunch = records[0] ?? null;

@@ -8,6 +8,15 @@ import { DateTime } from 'luxon';
 import { extractLatLng } from '../../utils/reverseGeocode';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
 import {
+  addDaysYmd,
+  filterRecordsByOperationalDate,
+  getOperationalDate,
+  isOpenNightJourney,
+  isJourneyStructurallyOpen,
+  type DayScheduleSlots,
+  type OperationalDateContext,
+} from '../../utils/resolveOperationalDate';
+import {
   buildOperationalDayRange,
   getOperationalTodayYmd,
   isFutureOperationalTimestamp,
@@ -249,11 +258,35 @@ export function companyOperationalDayBoundsUtc(
 export function punchInstantOperationalYmd(
   record: { timestamp?: string | null; created_at?: string | null },
   timezone: string = COMPANY_OPERATIONAL_TIMEZONE,
+  operationalCtx?: OperationalDateContext,
 ): string | null {
+  if (operationalCtx?.scheduleByDay) {
+    return getOperationalDate(record, operationalCtx);
+  }
   const iso = recordPunchInstantIso(record);
   const v = validateOperationalTimestamp(iso);
   if (!v.ok) return null;
   return DateTime.fromMillis(v.instantMs, { zone: 'utc' }).setZone(timezone).toISODate() ?? null;
+}
+
+export type FilterOperationalDayOptions = {
+  timezone?: string;
+  scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined;
+  periodStartYmd?: string;
+  periodEndYmd?: string;
+  /** Inclui batidas de ontem quando a jornada noturna ainda está aberta (sem escala). */
+  includeOpenNightJourney?: boolean;
+};
+
+function groupRecordsByUserId(records: OperationalPunchRecord[]): Map<string, OperationalPunchRecord[]> {
+  const map = new Map<string, OperationalPunchRecord[]>();
+  for (const r of records) {
+    const uid = String(r.user_id ?? '').trim();
+    if (!uid) continue;
+    if (!map.has(uid)) map.set(uid, []);
+    map.get(uid)!.push(r);
+  }
+  return map;
 }
 
 export function readGeoSnapshot(record: OperationalPunchRecord): GeoRead | null {
@@ -780,13 +813,40 @@ export function buildMonitoringPipelineRow(
   };
 }
 
-/** Presença do dia: apenas batidas cuja data operacional (SP) = `dayYmd`. */
+/** Presença do dia: batidas cuja data operacional = `dayYmd` (jornada noturna unificada). */
 export function filterRecordsForOperationalDay(
   records: OperationalPunchRecord[],
   dayYmd: string,
-  timezone: string = COMPANY_OPERATIONAL_TIMEZONE,
+  options?: FilterOperationalDayOptions,
 ): OperationalPunchRecord[] {
-  return records.filter((r) => punchInstantOperationalYmd(r, timezone) === dayYmd);
+  const timezone = options?.timezone ?? COMPANY_OPERATIONAL_TIMEZONE;
+
+  if (options?.scheduleByDay) {
+    const ctx: OperationalDateContext = {
+      periodStartYmd: options.periodStartYmd ?? addDaysYmd(dayYmd, -3),
+      periodEndYmd: options.periodEndYmd ?? addDaysYmd(dayYmd, 3),
+      scheduleByDay: options.scheduleByDay,
+    };
+    return filterRecordsByOperationalDate(records, dayYmd, ctx);
+  }
+
+  const civilToday = records.filter((r) => punchInstantOperationalYmd(r, timezone) === dayYmd);
+  if (!options?.includeOpenNightJourney) return civilToday;
+
+  const yesterday = addDaysYmd(dayYmd, -1);
+  const seen = new Set(civilToday.map((r) => r.id));
+  const merged = [...civilToday];
+  for (const [, userRecs] of groupRecordsByUserId(records)) {
+    const yest = userRecs.filter((r) => punchInstantOperationalYmd(r, timezone) === yesterday);
+    if (!isJourneyStructurallyOpen(yest)) continue;
+    for (const r of yest) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        merged.push(r);
+      }
+    }
+  }
+  return merged;
 }
 
 export function geoPrecisionBadgeLabel(badge: GeoPrecisionBadge | undefined): string {

@@ -18,6 +18,7 @@ import {
 } from './currentOperationalState.service';
 import { fetchLiveLocationsForCompany, flagStaleLiveLocations } from './liveEmployeeLocation.service';
 import {
+  filterRecordsForOperationalDay,
   punchInstantOperationalYmd,
   readGeoSnapshot,
   validateOperationalTimestamp,
@@ -25,6 +26,7 @@ import {
 } from './monitoring/monitoringGeoHardLock.service';
 import { resolveRealtimeMonitoringLocation } from './geolocation/monitoringGeoSourceResolver';
 import { buildOperationalDayRange, getOperationalTodayYmd } from '../utils/operationalDateHardLock';
+import { addDaysYmd } from '../utils/resolveOperationalDate';
 import { operationalClockMs } from '../utils/operationalClock';
 import { opLog } from '../utils/operationalLogger';
 import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
@@ -158,8 +160,16 @@ function operationalDashboardTodayYmd(): string {
 }
 
 function operationalDayQueryBounds(todayYmd: string): { startUtcIso: string; endUtcIso: string } {
-  const r = buildOperationalDayRange(todayYmd);
-  return { startUtcIso: r.startUtcIso, endUtcIso: r.endUtcIso };
+  const yesterday = addDaysYmd(todayYmd, -1);
+  const start = buildOperationalDayRange(yesterday).startUtcIso;
+  const end = buildOperationalDayRange(todayYmd).endUtcIso;
+  return { startUtcIso: start, endUtcIso: end };
+}
+
+function filterDashboardTodayRecords(records: any[], todayLocal: string): any[] {
+  return filterRecordsForOperationalDay(records as OperationalPunchRecord[], todayLocal, {
+    includeOpenNightJourney: true,
+  });
 }
 
 /**
@@ -277,10 +287,9 @@ function typeLabel(rawType: unknown): string {
 /** Mesma regra do dashboard do colaborador: segunda «entrada» tolerante → saída de intervalo no rótulo. */
 function buildAdminLastRecordTypeInferenceMap(recentRecords: any[], todayLocal: string): Map<string, NormalizedMirrorRecordType> {
   const out = new Map<string, NormalizedMirrorRecordType>();
+  const todayRecords = filterDashboardTodayRecords(recentRecords, todayLocal);
   const byUser = new Map<string, any[]>();
-  for (const r of recentRecords ?? []) {
-    const ymd = extractLocalCalendarDateFromIso(recordPunchInstantIso(r));
-    if (ymd !== todayLocal) continue;
+  for (const r of todayRecords) {
     const uid = String(r.user_id ?? '').trim();
     if (!uid) continue;
     if (!byUser.has(uid)) byUser.set(uid, []);
@@ -455,7 +464,7 @@ function buildAdminLastRecordsForToday(
 ): AdminDashboardLastRecord[] {
   const nameMap = new Map<string, string>(users.map((u: any) => [String(u.id), u.nome || u.email || 'N/A']));
   const inferById = buildAdminLastRecordTypeInferenceMap(recentRecords, todayLocal);
-  const todayRecords = recentRecords.filter((record: any) => punchInstantOperationalYmd(record) === todayLocal);
+  const todayRecords = filterDashboardTodayRecords(recentRecords, todayLocal);
   const allRecentRecords: AdminDashboardLastRecord[] = todayRecords.map((r: any) => {
     const tInfo = resolveDashboardDisplayInstant(r);
     const t = tInfo.instant;
@@ -679,9 +688,12 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
       const activeEmployeeIds = new Set(
         activeEmployees.flatMap((employee) => recordUserIdsForEmployee(employee, userIdByEmail)),
       );
-      const todayRecords = dedupeTimeRecordsByRepKey(recentRecordsRaw ?? [])
-        .filter((record: any) => visibleEmployeeIds.has(String(record?.user_id ?? '')))
-        .filter((record: any) => punchInstantOperationalYmd(record) === todayLocal);
+      const todayRecords = filterDashboardTodayRecords(
+        dedupeTimeRecordsByRepKey(recentRecordsRaw ?? []).filter((record: any) =>
+          visibleEmployeeIds.has(String(record?.user_id ?? '')),
+        ),
+        todayLocal,
+      );
       const activeIdsWithPunch = new Set<string>();
       todayRecords.forEach((r: any) => {
         const id = String(r?.user_id ?? '');
@@ -837,10 +849,7 @@ export async function getAdminDashboardData(companyId: string): Promise<AdminDas
     const recordByIdDash = new Map(recentRecords.map((r: any) => [String(r.id), r]));
     const cosByDash = new Map(cosRows.map((c) => [c.employee_id, c]));
 
-    const todayRecords = records.filter((r: any) => {
-      const ymd = punchInstantOperationalYmd(r);
-      return ymd === todayLocal;
-    });
+    const todayRecords = filterDashboardTodayRecords(records, todayLocal);
 
     const activeIdsWithPunch = new Set<string>();
     todayRecords.forEach((r: any) => {

@@ -112,6 +112,18 @@ describe('jornada noturna — motor (shift date)', () => {
     expect(journey).toHaveLength(4);
   });
 
+  it('Teste 5: saída 07:24 após entrada 22:00 — mesma jornada de 17/06', () => {
+    const records: RawTimeRecord[] = [
+      raw({ id: 'e', timestamp: '2026-06-17T22:00:00.000-03:00', type: 'entrada' }),
+      raw({ id: 's', timestamp: '2026-06-18T07:24:00.000-03:00', type: 'saida' }),
+    ];
+    const byDay = (date: string): DayScheduleSlots | null =>
+      date === '2026-06-17' ? nightSchedule : null;
+    const journey = filterRecordsByJourneyDate(records, '2026-06-17', '2026-06-16', '2026-06-18', byDay);
+    expect(journey).toHaveLength(2);
+    expect(filterRecordsByJourneyDate(records, '2026-06-18', '2026-06-16', '2026-06-18', byDay)).toHaveLength(0);
+  });
+
   it('expectedMinutesFromSchedule — turno 22:00–06:00 com intervalo 01:00–02:00 = 7h', () => {
     const schedule: WorkScheduleInfo = {
       start_time: '22:00',

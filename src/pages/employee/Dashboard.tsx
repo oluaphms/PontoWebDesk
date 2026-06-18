@@ -19,6 +19,7 @@ import {
   type WorkScheduleInfo,
 } from '../../services/timeProcessingService';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../../utils/punchOrigin';
+import { filterRecordsForOperationalDay } from '../../services/monitoring/monitoringGeoHardLock.service';
 import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
 import { isCompanyWideNotice } from '../../../services/notificationService';
 import { NOTIFICATION_LIST_COLUMNS } from '../../services/egressSelectColumns';
@@ -163,9 +164,9 @@ const EmployeeDashboard: React.FC = () => {
         logDashboardDebug('TIME RECORDS', rows);
         logDashboardDebug('PUNCHES', rows);
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
-        const todayList = sortedAll.filter(
-          (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) === todayYmd,
-        );
+        const todayList = filterRecordsForOperationalDay(sortedAll as any[], todayYmd, {
+          includeOpenNightJourney: true,
+        });
         const monthList = sortedAll.filter(
           (r: any) => extractLocalCalendarDateFromIso(recordPunchInstantIso(r)) >= monthStart,
         );

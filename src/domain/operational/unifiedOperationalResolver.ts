@@ -186,7 +186,9 @@ export function resolveUnifiedOperationalState(input: UnifiedOperationalResolver
   const usingOperationalStateTable = cosRows.length > 0;
   const cosByEmployee = new Map(cosRows.map((r) => [r.employee_id, r]));
   const matchIds = (rosterId: string) => Array.from(rosterIdSet(rosterId, rosterIdAliases));
-  const todayOperationalRecords = filterRecordsForOperationalDay(timeRecords, todayYmd);
+  const todayOperationalRecords = filterRecordsForOperationalDay(timeRecords, todayYmd, {
+    includeOpenNightJourney: true,
+  });
 
   let pipelineRows: MonitoringPipelineEmployeeRow[];
 

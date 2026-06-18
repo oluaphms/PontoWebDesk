@@ -7,6 +7,7 @@ import {
   normalizeRecordTypeForMirror,
   recordEffectiveMirrorInstant,
   recordMirrorInstant,
+  type DayScheduleSlots,
   type TimeRecord,
 } from './timesheetMirror';
 
@@ -505,6 +506,85 @@ describe('jornada noturna — agrupamento no espelho', () => {
     expect(day?.saidaFinal).toBe('07:24');
     expect(day?.slotRecordIds?.entrada).toBe('rep-e');
     expect(day?.slotRecordIds?.saida_final).toBe('manual-s');
+  });
+
+  it('jornada completa 17/06 22:00 → 18/06 07:24: todas as batidas na linha 17/06 (escala saida_final 07:00)', () => {
+    const schedule17: DayScheduleSlots = {
+      entrada: '22:00',
+      saida_intervalo: '01:00',
+      volta_intervalo: '02:00',
+      saida_final: '07:00',
+      toleranceMin: 60,
+    };
+    const records: TimeRecord[] = [
+      tr({
+        id: 'e',
+        user_id: 'u',
+        created_at: '2026-06-18T01:00:00.000Z',
+        timestamp: '2026-06-17T22:00:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+      tr({
+        id: 'si',
+        user_id: 'u',
+        created_at: '2026-06-18T04:00:00.000Z',
+        timestamp: '2026-06-18T01:00:00.000-03:00',
+        type: 'intervalo_saida',
+        source: 'rep',
+      }),
+      tr({
+        id: 'vi',
+        user_id: 'u',
+        created_at: '2026-06-18T05:00:00.000Z',
+        timestamp: '2026-06-18T02:00:00.000-03:00',
+        type: 'intervalo_volta',
+        source: 'rep',
+      }),
+      tr({
+        id: 'sf',
+        user_id: 'u',
+        created_at: '2026-06-18T10:24:00.000Z',
+        timestamp: '2026-06-18T07:24:00.000-03:00',
+        type: 'saida',
+        source: 'rep',
+      }),
+    ];
+    const scheduleByDay = (date: string) => (date === '2026-06-17' ? schedule17 : null);
+    const map = buildDayMirrorSummary(records, '2026-06-17', '2026-06-18', { scheduleByDay });
+
+    for (const id of ['e', 'si', 'vi', 'sf']) {
+      expect(map.get('2026-06-17')?.records.some((r) => r.id === id)).toBe(true);
+    }
+    expect(map.get('2026-06-18')?.records.filter((r) => !r.type?.includes('status')).length ?? 0).toBe(0);
+
+    const day = map.get('2026-06-17');
+    expect(day?.entradaInicio).toBe('22:00');
+    expect(day?.saidaIntervalo).toBe('01:00');
+    expect(day?.voltaIntervalo).toBe('02:00');
+    expect(day?.saidaFinal).toBe('07:24');
+  });
+
+  it('saída 07:24 com escala saida_final 06:00: permanece na jornada 17/06 (cap 12h)', () => {
+    const records: TimeRecord[] = [
+      tr({
+        id: 'e',
+        user_id: 'u',
+        timestamp: '2026-06-17T22:00:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+      tr({
+        id: 'sf',
+        user_id: 'u',
+        timestamp: '2026-06-18T07:24:00.000-03:00',
+        type: 'saida',
+        source: 'rep',
+      }),
+    ];
+    const scheduleByDay = (date: string) => (date === '2026-06-17' ? nightSchedule : null);
+    expect(espelhoRowDateForRecord(records[0]!, '2026-06-17', '2026-06-18', scheduleByDay)).toBe('2026-06-17');
+    expect(espelhoRowDateForRecord(records[1]!, '2026-06-17', '2026-06-18', scheduleByDay)).toBe('2026-06-17');
   });
 });
 

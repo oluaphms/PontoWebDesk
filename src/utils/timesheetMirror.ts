@@ -10,8 +10,15 @@ import { isDevVerboseLogsEnabled } from './devVerboseLogs';
 import { isColaboradorSelfServicePunch, isRhAdjustmentOrigin, resolvePunchOrigin } from './punchOrigin';
 import { DateTime } from 'luxon';
 import { OPERATIONAL_TIMEZONE } from './operationalClock';
+import { computeNightAwareWorkedMinutes, getOperationalDate } from './resolveOperationalDate';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
+export {
+  getOperationalDate,
+  resolveOperationalDate,
+  computeNightAwareWorkedMinutes,
+  filterRecordsByOperationalDate,
+} from './resolveOperationalDate';
 
 export interface TimeRecord {
   id: string;
@@ -593,14 +600,13 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
 
   let workedMinutes = 0;
   if (grid.entradaInicio && grid.saidaFinal) {
-    const entrada = new Date(`${date}T${grid.entradaInicio}`);
-    const saida = new Date(`${date}T${grid.saidaFinal}`);
-    workedMinutes = Math.round((saida.getTime() - entrada.getTime()) / 60000);
-    if (grid.saidaIntervalo && grid.voltaIntervalo) {
-      const intervaloSaida = new Date(`${date}T${grid.saidaIntervalo}`);
-      const intervaloVolta = new Date(`${date}T${grid.voltaIntervalo}`);
-      workedMinutes -= Math.round((intervaloVolta.getTime() - intervaloSaida.getTime()) / 60000);
-    }
+    workedMinutes = computeNightAwareWorkedMinutes(
+      date,
+      grid.entradaInicio,
+      grid.saidaFinal,
+      grid.saidaIntervalo,
+      grid.voltaIntervalo,
+    );
   } else if (grid.entradaInicio && grid.saidaIntervalo && grid.voltaIntervalo && !grid.saidaFinal) {
     const entrada = new Date(`${date}T${grid.entradaInicio}`);
     const inicioIntervalo = new Date(`${date}T${grid.saidaIntervalo}`);
@@ -668,7 +674,7 @@ export function isNightShiftSchedule(schedule: DayScheduleSlots): boolean {
 }
 
 /**
- * Data da linha do espelho — agrupa batidas pós-meia-noite na jornada noturna iniciada no dia anterior.
+ * Data da linha do espelho — delega ao helper central `getOperationalDate`.
  */
 export function espelhoRowDateForRecord(
   record: TimeRecord,
@@ -676,24 +682,7 @@ export function espelhoRowDateForRecord(
   periodEndYmd: string,
   scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined,
 ): string {
-  const declared = readAdminMirrorDateYmd(record);
-  if (declared) return declared;
-
-  const civil = calendarDateForEspelhoRow(record, periodStartYmd, periodEndYmd);
-  // Ajuste manual RH: respeita o dia civil escolhido no formulário (não reatribui à jornada noturna anterior).
-  if (isRhAdjustmentOrigin(record)) return civil;
-
-  if (!scheduleByDay) return civil;
-  const iso = recordMirrorInstant(record);
-  const timeMin = localMinutesFromIso(iso);
-  const yesterday = addDaysYmd(civil, -1);
-  if (yesterday < periodStartYmd.slice(0, 10)) return civil;
-  const prevSchedule = scheduleByDay(yesterday);
-  if (prevSchedule && isNightShiftSchedule(prevSchedule)) {
-    const cutoff = hhmmToMinutes(prevSchedule.saida_final) + (prevSchedule.toleranceMin ?? 60);
-    if (timeMin <= cutoff) return yesterday;
-  }
-  return civil;
+  return getOperationalDate(record, { periodStartYmd, periodEndYmd, scheduleByDay });
 }
 
 /**

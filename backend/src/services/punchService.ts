@@ -116,8 +116,7 @@ async function logLatestPunchBeforeInsert(
      from time_records
     where company_id::text = $1
       and user_id::text = $2
-      and ((coalesce(timestamp, created_at) at time zone 'America/Sao_Paulo')::date =
-           (($3::timestamptz at time zone 'America/Sao_Paulo')::date))
+      and coalesce(timestamp, created_at) >= ($3::timestamptz - interval '16 hours')
     order by coalesce(timestamp, created_at) desc
     limit 1`;
   try {

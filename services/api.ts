@@ -6,14 +6,14 @@
 import { db, type DbRow, type Filter } from './supabaseClient';
 import { fetchEmployees } from '../src/services/employeesApi.service';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
+import { addDaysYmd } from '../src/utils/resolveOperationalDate';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { isAdminGerente } from '../src/utils/accessProfile';
 
 /**
- * Espelho de ponto: batidas no período pelo dia civil do horário oficial (`timestamp`).
- * - `main`: `timestamp` dentro do período (caso normal, inclui REP e importação AFD).
- * - `legacy`: sem `timestamp`, mas `created_at` no período.
+ * Espelho de ponto: janela ampliada (D-1 … D+1) para capturar madrugada de jornadas noturnas.
+ * O agrupamento por data operacional ocorre em `buildDayMirrorSummary` / `getOperationalDate`.
  */
 export async function fetchTimeRecordsForMirrorWindow(
   baseFilters: Filter[],
@@ -22,8 +22,8 @@ export async function fetchTimeRecordsForMirrorWindow(
   orderAscending: boolean,
   limit: number
 ): Promise<DbRow[]> {
-  const periodStartTs = localCalendarDayStartUtc(periodStartYmd);
-  const periodEndTs = localCalendarDayEndUtc(periodEndYmd);
+  const periodStartTs = localCalendarDayStartUtc(addDaysYmd(periodStartYmd, -1));
+  const periodEndTs = localCalendarDayEndUtc(addDaysYmd(periodEndYmd, 1));
   const cap = Math.min(2000, limit);
 
   const [main, legacy] = await Promise.all([

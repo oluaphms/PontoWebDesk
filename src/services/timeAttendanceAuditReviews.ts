@@ -1,5 +1,14 @@
 import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../utils/calendarUtils';
+import {
+  addDaysYmd,
+  filterRecordsByOperationalDate,
+  type DayScheduleSlots,
+} from '../utils/resolveOperationalDate';
+import {
+  resolveEmployeeScheduleForDate,
+  workScheduleToDayScheduleSlots,
+} from './timeProcessingService';
 
 export function auditDayReviewKey(employeeId: string, dateYmd: string): string {
   return `${employeeId}|${String(dateYmd).slice(0, 10)}`;
@@ -38,7 +47,27 @@ export async function fetchTimeAttendanceAuditReviews(
   }
 }
 
-/** Batidas do espelho no dia civil (filtro pelo horário oficial `timestamp`, alinhado ao espelho). */
+async function buildAuditScheduleByDay(
+  employeeId: string,
+  companyId: string,
+  operationalDateYmd: string,
+): Promise<(date: string) => DayScheduleSlots | null> {
+  const cache = new Map<string, DayScheduleSlots | null>();
+  const dates = [
+    addDaysYmd(operationalDateYmd, -1),
+    operationalDateYmd,
+    addDaysYmd(operationalDateYmd, 1),
+  ];
+  await Promise.all(
+    dates.map(async (d) => {
+      const resolved = await resolveEmployeeScheduleForDate(employeeId, companyId, d);
+      cache.set(d, resolved.schedule ? workScheduleToDayScheduleSlots(resolved.schedule) : null);
+    }),
+  );
+  return (date: string) => cache.get(date.slice(0, 10)) ?? null;
+}
+
+/** Batidas do dia operacional (jornada noturna unificada via `resolveOperationalDate`). */
 export async function fetchDayTimeRecordsForAudit(
   companyId: string,
   employeeId: string,
@@ -46,13 +75,15 @@ export async function fetchDayTimeRecordsForAudit(
 ): Promise<Record<string, unknown>[]> {
   if (!isSupabaseConfigured() || !companyId || !employeeId) return [];
   const day = String(dateYmd).slice(0, 10);
-  const start = localCalendarDayStartUtc(day);
-  const end = localCalendarDayEndUtc(day);
+  const prev = addDaysYmd(day, -1);
+  const next = addDaysYmd(day, 1);
+  const start = localCalendarDayStartUtc(prev);
+  const end = localCalendarDayEndUtc(next);
   const baseFilters: Filter[] = [
     { column: 'company_id', operator: 'eq', value: companyId },
     { column: 'user_id', operator: 'eq', value: employeeId },
   ];
-  const columns = 'id,type,created_at,timestamp,origin,source,method,nsr,manual_reason';
+  const columns = 'id,type,created_at,timestamp,origin,source,method,nsr,manual_reason,metadata,raw_data';
   try {
     const [byTimestamp, legacyCreated] = await Promise.all([
       db.select(
@@ -88,11 +119,31 @@ export async function fetchDayTimeRecordsForAudit(
       const id = String((row as { id?: string }).id ?? '').trim();
       if (id) byId.set(id, row as Record<string, unknown>);
     }
-    return Array.from(byId.values()).sort((a, b) => {
-      const ta = new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime();
-      const tb = new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime();
-      return ta - tb;
-    });
+    const merged = Array.from(byId.values());
+    const scheduleByDay = await buildAuditScheduleByDay(employeeId, companyId, day);
+    const filtered = filterRecordsByOperationalDate(
+      merged.map((r) => ({
+        id: String(r.id ?? ''),
+        timestamp: (r.timestamp as string | null) ?? null,
+        created_at: String(r.created_at ?? ''),
+        type: String(r.type ?? ''),
+        metadata: r.metadata,
+        raw_data: r.raw_data,
+        source: (r.source as string | null) ?? null,
+        method: (r.method as string | null) ?? null,
+        manual_reason: (r.manual_reason as string | null) ?? null,
+      })),
+      day,
+      { periodStartYmd: prev, periodEndYmd: next, scheduleByDay },
+    );
+    const filteredIds = new Set(filtered.map((r) => r.id));
+    return merged
+      .filter((r) => filteredIds.has(String(r.id ?? '')))
+      .sort((a, b) => {
+        const ta = new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime();
+        const tb = new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime();
+        return ta - tb;
+      });
   } catch {
     return [];
   }
