@@ -122,6 +122,7 @@ export async function repImportAfdController(req: AuthedRequest, res: Response):
       ignored: result.ignored,
       user_not_found: result.user_not_found,
       employees_found: result.employees_found,
+      failed: result.failed,
       processing_ms: result.processing_ms,
       recalc_targets: result.recalc_targets,
       errors: result.errors.slice(0, 10),

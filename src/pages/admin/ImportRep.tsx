@@ -20,6 +20,7 @@ type ImportResult = {
   ignored: number;
   user_not_found: number;
   employees_found: number;
+  failed?: number;
   processing_ms: number;
   errors: string[];
   recalc_targets?: Array<{ user_id: string; date: string }>;
@@ -180,6 +181,7 @@ const AdminImportRep: React.FC = () => {
         ignored: data.ignored ?? 0,
         user_not_found: data.user_not_found ?? 0,
         employees_found: data.employees_found ?? 0,
+        failed: data.failed ?? 0,
         processing_ms: data.processing_ms ?? 0,
         errors: data.errors || [],
         recalc_targets: data.recalc_targets,
@@ -324,14 +326,27 @@ const AdminImportRep: React.FC = () => {
               </li>
               <li>
                 Funcionários não localizados: <strong>{result.user_not_found}</strong>
+                {result.user_not_found > 0 && (
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    PIS/CPF do arquivo não bate com o cadastro — confira o campo identificador do colaborador.
+                  </span>
+                )}
               </li>
+              {(result.failed ?? 0) > 0 && (
+                <li>
+                  Rejeitados por regra de sequência: <strong>{result.failed}</strong>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Ex.: saída sem entrada no mesmo dia, ou conflito com batidas já existentes.
+                  </span>
+                </li>
+              )}
               <li>
                 Tempo de processamento:{' '}
                 <strong>{result.processing_ms ? `${(result.processing_ms / 1000).toFixed(1)}s` : '—'}</strong>
               </li>
               {result.errors.length > 0 && (
                 <li className="text-red-600 dark:text-red-400">
-                  Erros: {result.errors.slice(0, 5).join('; ')}
+                  Erros: {[...new Set(result.errors)].slice(0, 5).join('; ')}
                 </li>
               )}
             </ul>

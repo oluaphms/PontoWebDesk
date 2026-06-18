@@ -18,6 +18,7 @@ export type AfdImportResult = {
   ignored: number;
   user_not_found: number;
   employees_found: number;
+  failed: number;
   errors: string[];
   processing_ms: number;
   recalc_targets: Array<{ user_id: string; date: string }>;
@@ -176,7 +177,14 @@ export async function processAfdImport(input: {
   const timeZone = input.timeZone?.trim() || 'America/Sao_Paulo';
 
   const isCsv = input.fileContent.includes(',') && (input.fileContent.split('\n')[0] || '').includes(',');
-  const records = isCsv ? parseTxtOrCsv(input.fileContent, ',') : parseAfdFile(input.fileContent);
+  const recordsRaw = isCsv ? parseTxtOrCsv(input.fileContent, ',') : parseAfdFile(input.fileContent);
+  /** Ordem cronológica evita rejeição por sequência (saída antes de entrada no mesmo dia). */
+  const records = [...recordsRaw].sort((a, b) => {
+    const ta = Date.parse(afdRecordToIsoUtc(a, timeZone));
+    const tb = Date.parse(afdRecordToIsoUtc(b, timeZone));
+    if (ta !== tb) return ta - tb;
+    return a.nsr - b.nsr;
+  });
   const linesRead = input.fileContent.split(/\r?\n/).filter((l) => l.trim()).length;
   const ignored = Math.max(0, linesRead - records.length);
 
@@ -202,6 +210,7 @@ export async function processAfdImport(input: {
       ignored,
       user_not_found: 0,
       employees_found: 0,
+      failed: 0,
       errors: ['Nenhum registro válido encontrado no arquivo'],
       processing_ms: Date.now() - t0,
       recalc_targets: [],
@@ -211,6 +220,7 @@ export async function processAfdImport(input: {
   let imported = 0;
   let duplicated = 0;
   let userNotFound = 0;
+  let failed = 0;
   const errors: string[] = [];
   const employeeIds = new Set<string>();
   const recalcTargets = new Map<string, { user_id: string; date: string }>();
@@ -237,8 +247,11 @@ export async function processAfdImport(input: {
       duplicated += 1;
     } else if (r.status === 'user_not_found') {
       userNotFound += 1;
-    } else if (r.status === 'error' && errors.length < 20) {
-      errors.push(r.error || 'erro');
+    } else if (r.status === 'error') {
+      failed += 1;
+      if (errors.length < 20) {
+        errors.push(r.error || 'erro');
+      }
     }
   }
 
@@ -290,6 +303,7 @@ export async function processAfdImport(input: {
     ignored,
     user_not_found: userNotFound,
     employees_found: employeeIds.size,
+    failed,
     errors,
     processing_ms: processingMs,
     recalc_targets: [...recalcTargets.values()],
