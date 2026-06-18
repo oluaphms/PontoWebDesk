@@ -2075,6 +2075,7 @@ const AdminTimesheet: React.FC = () => {
                     return renderTimeCell(null, undefined);
                   };
                   const dayRecs = day.records.filter((r) => !isStatusRecord(r));
+                  const extraIds = new Set(day.batidasExtra.map((r) => r.id));
                   const showPunchTimes =
                     dataNote !== 'Folga' && dataNote !== 'Falta';
                   return (
@@ -2255,6 +2256,11 @@ const AdminTimesheet: React.FC = () => {
                                   <span className="uppercase text-[10px] px-2 py-0.5 rounded-md bg-slate-200/90 dark:bg-slate-700 text-slate-800 dark:text-slate-100 shrink-0">
                                     {(r.type || '—').toString()}
                                   </span>
+                                  {extraIds.has(r.id) ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 shrink-0">
+                                      Extra (5ª+)
+                                    </span>
+                                  ) : null}
                                   <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100/90 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-200 shrink-0">
                                     {origin.label}
                                   </span>

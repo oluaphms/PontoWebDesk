@@ -1,4 +1,4 @@
-import { db, isSupabaseConfigured } from '../../services/supabaseClient';
+import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../utils/calendarUtils';
 
 export function auditDayReviewKey(employeeId: string, dateYmd: string): string {
@@ -38,7 +38,7 @@ export async function fetchTimeAttendanceAuditReviews(
   }
 }
 
-/** Batidas do espelho no dia civil (filtro alinhado à jornada). */
+/** Batidas do espelho no dia civil (filtro pelo horário oficial `timestamp`, alinhado ao espelho). */
 export async function fetchDayTimeRecordsForAudit(
   companyId: string,
   employeeId: string,
@@ -46,44 +46,55 @@ export async function fetchDayTimeRecordsForAudit(
 ): Promise<Record<string, unknown>[]> {
   if (!isSupabaseConfigured() || !companyId || !employeeId) return [];
   const day = String(dateYmd).slice(0, 10);
+  const start = localCalendarDayStartUtc(day);
+  const end = localCalendarDayEndUtc(day);
+  const baseFilters: Filter[] = [
+    { column: 'company_id', operator: 'eq', value: companyId },
+    { column: 'user_id', operator: 'eq', value: employeeId },
+  ];
+  const columns = 'id,type,created_at,timestamp,origin,source,method,nsr,manual_reason';
   try {
-    const start = localCalendarDayStartUtc(day);
-    const end = localCalendarDayEndUtc(day);
-    return await db.select(
-      'time_records',
-      [
-        { column: 'company_id', operator: 'eq', value: companyId },
-        { column: 'user_id', operator: 'eq', value: employeeId },
-        { column: 'created_at', operator: 'gte', value: start },
-        { column: 'created_at', operator: 'lte', value: end },
-      ],
-      {
-        columns: 'id,type,created_at,timestamp,origin,source,method,nsr,manual_reason',
-        orderBy: { column: 'created_at', ascending: true },
-        limit: 2000,
-      },
-    );
-  } catch {
-    try {
-      const start = localCalendarDayStartUtc(day);
-      const end = localCalendarDayEndUtc(day);
-      return await db.select(
+    const [byTimestamp, legacyCreated] = await Promise.all([
+      db.select(
         'time_records',
         [
-          { column: 'company_id', operator: 'eq', value: companyId },
-          { column: 'user_id', operator: 'eq', value: employeeId },
+          ...baseFilters,
+          { column: 'timestamp', operator: 'gte', value: start },
+          { column: 'timestamp', operator: 'lte', value: end },
+        ],
+        {
+          columns,
+          orderBy: { column: 'timestamp', ascending: true },
+          limit: 2000,
+        },
+      ),
+      db.select(
+        'time_records',
+        [
+          ...baseFilters,
+          { column: 'timestamp', operator: 'is', value: null },
           { column: 'created_at', operator: 'gte', value: start },
           { column: 'created_at', operator: 'lte', value: end },
         ],
         {
-          columns: 'id,type,created_at,timestamp,nsr',
+          columns,
           orderBy: { column: 'created_at', ascending: true },
           limit: 2000,
         },
-      );
-    } catch {
-      return [];
+      ),
+    ]);
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const row of [...(byTimestamp ?? []), ...(legacyCreated ?? [])]) {
+      const id = String((row as { id?: string }).id ?? '').trim();
+      if (id) byId.set(id, row as Record<string, unknown>);
     }
+    return Array.from(byId.values()).sort((a, b) => {
+      const ta = new Date(String(a.timestamp ?? a.created_at ?? 0)).getTime();
+      const tb = new Date(String(b.timestamp ?? b.created_at ?? 0)).getTime();
+      return ta - tb;
+    });
+  } catch {
+    return [];
   }
 }
 

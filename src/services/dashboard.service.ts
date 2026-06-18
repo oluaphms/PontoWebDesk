@@ -291,13 +291,21 @@ function buildAdminLastRecordTypeInferenceMap(recentRecords: any[], todayLocal: 
     sorted.forEach((rec, idx) => {
       const id = String(rec.id ?? '').trim();
       if (!id) return;
+      const curMs = recordPunchInstantMs(rec);
+      const prevMs = idx > 0 ? recordPunchInstantMs(sorted[idx - 1]!) : null;
+      // Mesmo instante (duplicata REP/promote): não reinterpretar sequência — evita «Entrada» + «Saída» às 07:24.
+      if (prevMs != null && Math.abs(curMs - prevMs) < 60_000) {
+        out.set(id, normalizeRecordTypeForMirror(rec.type));
+        return;
+      }
       let norm = inferDashboardPunchDisplayMirrorType(sorted as RawTimeRecord[], idx);
       if (
         sorted.length === 2 &&
         idx === 1 &&
         normalizeRecordTypeForMirror(sorted[0]!.type) === 'entrada' &&
         normalizeRecordTypeForMirror(sorted[1]!.type) === 'entrada' &&
-        norm === 'intervalo_saida'
+        norm === 'intervalo_saida' &&
+        Math.abs(recordPunchInstantMs(sorted[0]!) - recordPunchInstantMs(sorted[1]!)) >= 60_000
       ) {
         norm = 'saida';
       }
