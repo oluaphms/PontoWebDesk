@@ -3,13 +3,12 @@ import { Navigate, Link } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db } from '../../services/supabaseClient';
-import { buildApiUrl } from '../../services/api';
+import { buildApiUrl, buildSessionAuthHeaders } from '../../services/api';
 import { readFileHead, validateAfdUpload } from '../../shared/upload/fileValidation';
 import { UPLOAD_LIMITS } from '../../shared/upload/limits';
 import { validateUploadByPolicy } from '../../shared/upload/uploadPolicies';
 import { LoadingState, Button } from '../../../components/UI';
 import { Upload, FileText, History } from 'lucide-react';
-import { getToken } from '../../services/authToken';
 import { recalculate_period } from '../../engine/timeEngine';
 import { invalidateAfterPunch } from '../../services/queryCache';
 
@@ -149,18 +148,20 @@ const AdminImportRep: React.FC = () => {
       if (repDeviceId) formData.set('rep_device_id', repDeviceId);
       formData.set('file', file);
 
-      const headers: Record<string, string> = {};
-      const token = getToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-
       const res = await fetch(buildApiUrl('/rep/import-afd'), {
         method: 'POST',
-        headers,
+        credentials: 'include',
+        headers: buildSessionAuthHeaders(),
         body: formData,
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const code = String(data.code ?? data.error ?? '').trim();
+        const message =
+          code === 'missing_token' || code === 'AUTH_MISSING_TOKEN'
+            ? 'Sessão não reconhecida pela API. Faça login novamente e tente importar o arquivo.'
+            : data.message || data.error || res.statusText;
         setResult({
           imported: 0,
           duplicated: 0,
@@ -168,7 +169,7 @@ const AdminImportRep: React.FC = () => {
           user_not_found: 0,
           employees_found: 0,
           processing_ms: 0,
-          errors: [data.message || data.error || res.statusText],
+          errors: [message],
         });
         return;
       }
