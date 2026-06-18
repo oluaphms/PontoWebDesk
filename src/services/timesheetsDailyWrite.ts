@@ -4,6 +4,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  */
 
 import { getSupabaseClient } from './supabaseClient';
+import { isGenericDataApiWriteAllowed } from './api';
 import { validateTimesheetIntegrity } from './timesheetIntegrity';
 import {
   type TimesheetProcessingStatus,
@@ -218,6 +219,15 @@ export async function writeTimesheetsDailyCalculatedRow(
     skipClosedRpc?: boolean;
   },
 ): Promise<TimesheetWriteResult> {
+  if (!isGenericDataApiWriteAllowed()) {
+    observabilityConsole.info('[CALC SKIP] data_api_writes_disabled', {
+      employee_id: payload.employee_id,
+      company_id: payload.company_id,
+      date: payload.date,
+    });
+    return finalizeWrite('skipped_integrity', payload.raw_data, payload);
+  }
+
   const integrity = await validateTimesheetIntegrity({
     employee_id: payload.employee_id,
     company_id: payload.company_id,

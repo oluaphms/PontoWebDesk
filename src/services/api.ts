@@ -8,13 +8,60 @@ type UnauthorizedHandler = () => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 /** Definido após o primeiro 403 `data_api_writes_disabled` da API genérica `/data`. */
 let dataApiWritesDisabledFlag = false;
+let apiRateLimitedUntil = 0;
+
+export function isApiRateLimited(): boolean {
+  return Date.now() < apiRateLimitedUntil;
+}
+
+function markApiRateLimited(ms = 90_000): void {
+  apiRateLimitedUntil = Date.now() + ms;
+  try {
+    sessionStorage.setItem('pontowebdesk:api_rate_limited_until', String(apiRateLimitedUntil));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readPersistedRateLimit(): void {
+  try {
+    const v = Number(sessionStorage.getItem('pontowebdesk:api_rate_limited_until'));
+    if (Number.isFinite(v) && v > Date.now()) apiRateLimitedUntil = v;
+  } catch {
+    /* ignore */
+  }
+}
 
 export function isDataApiWritesDisabled(): boolean {
   return dataApiWritesDisabledFlag;
 }
 
-export function isDataApiWritesDisabledResponse(status: number, body: unknown): boolean {
-  return status === 403 && authFailureCode(body) === 'data_api_writes_disabled';
+function authFailureCode(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const record = body as Record<string, unknown>;
+  const code = typeof record.code === 'string' ? record.code : '';
+  const error = typeof record.error === 'string' ? record.error : '';
+  return (code || error).trim();
+}
+
+function isDataWritePath(path: string): boolean {
+  const p = path.startsWith('/api/') ? path.slice(4) : path;
+  return p.startsWith('/data/') || p === '/data';
+}
+
+export function isDataApiWritesDisabledResponse(
+  status: number,
+  body: unknown,
+  context?: { method?: string; path?: string },
+): boolean {
+  if (status !== 403) return false;
+  if (authFailureCode(body) === 'data_api_writes_disabled') return true;
+  const method = context?.method?.toUpperCase() ?? '';
+  const path = context?.path ?? '';
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && path && isDataWritePath(path)) {
+    return true;
+  }
+  return false;
 }
 
 export function isDataApiWritesDisabledError(error: unknown): boolean {
@@ -48,8 +95,9 @@ export function isGenericDataApiWriteAllowed(): boolean {
   return /localhost|127\.0\.0\.1/i.test(API_BASE);
 }
 
-// Restaura flag da sessão após primeiro 403 data_api_writes_disabled.
+// Restaura flags da sessão.
 dataApiWritesDisabledFlag = readPersistedWritesDisabled();
+readPersistedRateLimit();
 
 /** Registra callback global para 401 (logout automático). */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
@@ -66,6 +114,15 @@ export function normalizeApiBase(raw?: string): string {
 
 /** Base normalizada usada por todas as funções HTTP do frontend. */
 export const API_BASE = normalizeApiBase();
+
+/** VPS remota: evita tempestade de POST 403 antes do primeiro erro explícito. */
+if (
+  String(import.meta.env.VITE_DATA_API_WRITES_ENABLED ?? '').trim().toLowerCase() !== 'true' &&
+  !/localhost|127\.0\.0\.1/i.test(API_BASE)
+) {
+  markDataApiWritesDisabled();
+}
+
 let currentCorrelationId: string | null = null;
 
 function normalizeApiPath(path: string): string {
@@ -176,14 +233,6 @@ function extractApiErrorMessage(body: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
-function authFailureCode(body: unknown): string {
-  if (!body || typeof body !== 'object') return '';
-  const record = body as Record<string, unknown>;
-  const code = typeof record.code === 'string' ? record.code : '';
-  const error = typeof record.error === 'string' ? record.error : '';
-  return (code || error).trim();
-}
-
 function shouldClearSessionOnUnauthorized(body: unknown): boolean {
   const code = authFailureCode(body);
   // missing_token = requisição sem credencial; não equivale a sessão revogada (evita logout pós-login).
@@ -276,9 +325,19 @@ async function parseResponse<T>(
       });
     }
     const errMsg = extractApiErrorMessage(body, status);
-    const writesDisabled = isDataApiWritesDisabledResponse(status, body);
+    const writesDisabled = isDataApiWritesDisabledResponse(status, body, context);
     if (writesDisabled) {
       markDataApiWritesDisabled();
+    }
+    if (status === 429) {
+      const retryAfterHeader =
+        resLike && typeof resLike.headers?.get === 'function'
+          ? Number(resLike.headers.get('retry-after'))
+          : NaN;
+      const cooldownMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+        ? Math.min(retryAfterHeader * 1000, 180_000)
+        : 90_000;
+      markApiRateLimited(cooldownMs);
     }
     const errorContext = {
       method: context.method,
@@ -298,6 +357,8 @@ async function parseResponse<T>(
       observabilityConsole.info('[API] GET sem sessão (ignorado)', errorContext);
     } else if (writesDisabled) {
       observabilityConsole.info('[API] DATA_API_WRITES_DISABLED (expected)', errorContext);
+    } else if (status === 429) {
+      observabilityConsole.warn('[API] RATE LIMITED — cooldown ativo', errorContext);
     } else {
       console.error(consoleMessage, errorContext);
       if (context.method === 'PATCH' || context.method === 'PUT') {
@@ -322,6 +383,20 @@ async function parseResponse<T>(
           path: context.path,
           url: context.url,
           status,
+        },
+      });
+    } else if (status === 429) {
+      logger.warn({
+        module: 'frontend.api',
+        action: 'API_RATE_LIMITED',
+        message: errMsg,
+        correlationId: currentCorrelationId || undefined,
+        meta: {
+          method: context.method,
+          path: context.path,
+          url: context.url,
+          status,
+          cooldown_until: apiRateLimitedUntil,
         },
       });
     } else {

@@ -1280,6 +1280,7 @@ const AppMain: React.FC = () => {
             observabilityConsole.log('[USER SET MANUAL]');
           }
         });
+        beginPostLoginRequestBudgetWindow('manual_login_success');
 
         if (isAdminOrHrRole(result.user.role)) {
           setActiveTab('admin');

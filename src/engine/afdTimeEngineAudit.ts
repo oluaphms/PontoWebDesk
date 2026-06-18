@@ -5,6 +5,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  */
 
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { isGenericDataApiWriteAllowed } from '../services/api';
 
 function stableStringify(obj: Record<string, unknown>): string {
   if (typeof obj !== 'object' || obj === null) return JSON.stringify(obj);
@@ -77,6 +78,7 @@ export async function appendAfdTimeEngineAudit(params: {
   payload: Record<string, unknown>;
 }): Promise<void> {
   if (!isSupabaseConfigured()) return;
+  if (!isGenericDataApiWriteAllowed()) return;
   if (!params?.employeeId || !params.companyId || !params.action?.trim()) {
     observabilityConsole.error('[AUDIT CRITICAL] insert negado — employee_id, action ou company_id ausentes');
     return;

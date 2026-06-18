@@ -12,8 +12,9 @@ export interface RetryOptions {
 const defaultShouldRetry = (error: unknown, _attempt: number): boolean => {
   if (error && typeof error === 'object' && 'status' in error) {
     const s = (error as { status?: number }).status;
+    if (typeof s === 'number' && s === 429) return false;
+    if (typeof s === 'number' && s === 403) return false;
     if (typeof s === 'number' && s >= 500) return true;
-    if (typeof s === 'number' && s === 429) return true;
   }
   const msg = error instanceof Error ? error.message : String(error);
   if (/fetch|network|ECONNRESET|ETIMEDOUT|timeout/i.test(msg)) return true;

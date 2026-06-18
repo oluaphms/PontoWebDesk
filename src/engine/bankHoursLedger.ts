@@ -5,6 +5,8 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  */
 
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { isGenericDataApiWriteAllowed } from '../services/api';
+import { queryCache, TTL } from '../services/queryCache';
 
 export const BANK_LEDGER_DAILY_SCOPE = 'timeEngine.bank_hours_ledger.daily.v1';
 
@@ -71,38 +73,45 @@ export async function fetchBankHoursLedgerRows(
   companyId: string,
 ): Promise<BankHoursLedgerRow[]> {
   if (!companyId || !isSupabaseConfigured()) return [];
-  const raw = await db
-    .select(
-      'bank_hours_ledger',
-      [
-        { column: 'employee_id', operator: 'eq', value: employeeId },
-        { column: 'company_id', operator: 'eq', value: companyId },
-      ],
-      {
-        columns:
-          'id,employee_id,company_id,date,minutes,type,source,expires_at,used_minutes,meta,created_at',
-        orderBy: { column: 'created_at', ascending: true },
-        limit: 20000,
-      },
-    )
-    .catch(() => [] as Record<string, unknown>[]);
-  const list = Array.isArray(raw) ? raw : [];
-  return list.map((row) => ({
-    id: String((row as { id?: unknown }).id || ''),
-    employee_id: String((row as { employee_id?: unknown }).employee_id || ''),
-    company_id: String((row as { company_id?: unknown }).company_id || ''),
-    date: String((row as { date?: unknown }).date || '').slice(0, 10),
-    minutes: Number((row as { minutes?: unknown }).minutes) || 0,
-    type: ((row as { type?: unknown }).type as BankHoursLedgerType) || 'CREDIT',
-    source: ((row as { source?: unknown }).source as BankHoursLedgerSource) || 'EXTRA',
-    expires_at:
-      (row as { expires_at?: unknown }).expires_at != null
-        ? String((row as { expires_at?: unknown }).expires_at)
-        : null,
-    used_minutes: Number((row as { used_minutes?: unknown }).used_minutes) || 0,
-    meta: ((row as { meta?: Record<string, unknown> }).meta as Record<string, unknown>) ?? {},
-    created_at: String((row as { created_at?: unknown }).created_at || ''),
-  }));
+  const cacheKey = `bank_hours_ledger:${companyId}:${employeeId}`;
+  return queryCache.getOrFetch(
+    cacheKey,
+    async () => {
+      const raw = await db
+        .select(
+          'bank_hours_ledger',
+          [
+            { column: 'employee_id', operator: 'eq', value: employeeId },
+            { column: 'company_id', operator: 'eq', value: companyId },
+          ],
+          {
+            columns:
+              'id,employee_id,company_id,date,minutes,type,source,expires_at,used_minutes,meta,created_at',
+            orderBy: { column: 'created_at', ascending: true },
+            limit: 20000,
+          },
+        )
+        .catch(() => [] as Record<string, unknown>[]);
+      const list = Array.isArray(raw) ? raw : [];
+      return list.map((row) => ({
+        id: String((row as { id?: unknown }).id || ''),
+        employee_id: String((row as { employee_id?: unknown }).employee_id || ''),
+        company_id: String((row as { company_id?: unknown }).company_id || ''),
+        date: String((row as { date?: unknown }).date || '').slice(0, 10),
+        minutes: Number((row as { minutes?: unknown }).minutes) || 0,
+        type: ((row as { type?: unknown }).type as BankHoursLedgerType) || 'CREDIT',
+        source: ((row as { source?: unknown }).source as BankHoursLedgerSource) || 'EXTRA',
+        expires_at:
+          (row as { expires_at?: unknown }).expires_at != null
+            ? String((row as { expires_at?: unknown }).expires_at)
+            : null,
+        used_minutes: Number((row as { used_minutes?: unknown }).used_minutes) || 0,
+        meta: ((row as { meta?: Record<string, unknown> }).meta as Record<string, unknown>) ?? {},
+        created_at: String((row as { created_at?: unknown }).created_at || ''),
+      }));
+    },
+    TTL.REALTIME,
+  );
 }
 
 async function deleteDailyAutoLedgerEntries(
@@ -212,6 +221,19 @@ export async function applyBankHoursLedgerDay(params: {
       compensatedFromBank: compensated0,
       payrollNegativeMinutes: Math.max(0, negativeDay - compensated0),
       balanceEndReal: Math.max(-cap, Math.min(cap, credited0 - compensated0)),
+    };
+  }
+
+  if (!isGenericDataApiWriteAllowed()) {
+    const rowsBefore = await fetchBankHoursLedgerRows(employeeId, companyId);
+    const balanceStart = computeBankWalletMinutes(rowsBefore, day);
+    const creditedCap = Math.max(0, Math.min(Math.max(0, Math.round(extraDay)), Math.max(0, Math.round(cap - balanceStart))));
+    const payrollNeg = Math.max(0, Math.round(negativeDay));
+    return {
+      creditedExtra: creditedCap,
+      compensatedFromBank: 0,
+      payrollNegativeMinutes: payrollNeg,
+      balanceEndReal: balanceStart,
     };
   }
 

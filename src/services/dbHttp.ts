@@ -2,7 +2,7 @@
  * Camada db → API HTTP (VPS). Substitui PostgREST/Supabase no frontend.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { apiDelete, apiGet, apiPatch, apiPost, ApiError, isDataApiWritesDisabled } from './api';
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError, isDataApiWritesDisabled, isApiRateLimited } from './api';
 import { getToken } from './authToken';
 import { uploadPhotoViaApi } from './uploadPhotoApi';
 
@@ -101,9 +101,18 @@ function listQuery(
 }
 
 async function fetchList(table: string, query: string): Promise<DbRow[]> {
+  if (isApiRateLimited()) {
+    throw new ApiError('rate_limited_cooldown', 429, { code: 'rate_limited_cooldown' });
+  }
   const res = await apiGet<ListResponse>(`/data/${table}${query}`);
   if (res.error) throw new ApiError(res.error, 400, res);
   return Array.isArray(res.data) ? res.data : [];
+}
+
+function assertDataWriteAllowed(): void {
+  if (isDataApiWritesDisabled()) {
+    throw new ApiError('data_api_writes_disabled', 403, { code: 'data_api_writes_disabled' });
+  }
 }
 
 export const db = {
@@ -118,12 +127,14 @@ export const db = {
   },
 
   insert: async <T extends DbRow = DbRow>(table: string, data: DbRow): Promise<T> => {
+    assertDataWriteAllowed();
     const res = await apiPost<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(`/data/${table}`, data);
     if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'insert_failed', 400, res);
     return res.data as T;
   },
 
   upsert: async (table: string, data: DbRow, onConflict: string): Promise<void> => {
+    if (isDataApiWritesDisabled()) return;
     const conflictColumns = onConflict
       .split(',')
       .map((c) => c.trim())
@@ -193,6 +204,12 @@ export const db = {
         error: { message: 'data_api_writes_disabled', code: 'data_api_writes_disabled' },
       };
     }
+    if (isDataApiWritesDisabled()) {
+      return {
+        data: null,
+        error: { message: 'data_api_writes_disabled', code: 'data_api_writes_disabled' },
+      };
+    }
     try {
       const res = await apiPost<{ ok?: boolean; data?: T; error?: string | null; code?: string; details?: unknown }>(
         `/data/rpc/${fn}`,
@@ -220,6 +237,7 @@ export const db = {
     idOrData: string | DbRow,
     dataOrFilters?: DbRow | Filter[],
   ): Promise<T> => {
+    assertDataWriteAllowed();
     if (typeof idOrData === 'string') {
       const res = await apiPatch<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(
         `/data/${table}/${idOrData}`,
@@ -236,6 +254,7 @@ export const db = {
   }) as DbInterface['update'],
 
   delete: (async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
+    assertDataWriteAllowed();
     if (typeof idOrFilters === 'string') {
       await apiDelete(`/data/${table}/${idOrFilters}`);
       return;
