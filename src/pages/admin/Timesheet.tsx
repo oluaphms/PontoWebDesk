@@ -953,6 +953,7 @@ const AdminTimesheet: React.FC = () => {
     created_at: string;
     type: string;
     manual_reason?: string;
+    mirror_date_ymd?: string;
     latitude?: number;
     longitude?: number;
   }) => {

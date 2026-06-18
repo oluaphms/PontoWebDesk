@@ -268,6 +268,16 @@ type TimeRecordLockRow = {
 };
 
 async function selectTimeRecordLockRow(id: string): Promise<TimeRecordLockRow | null> {
+  try {
+    const row = await db.findById<TimeRecordLockRow>(
+      'time_records',
+      id,
+      'company_id, user_id, timestamp, created_at',
+    );
+    if (row) return row;
+  } catch {
+    /* fallback abaixo */
+  }
   const { data, error } = await getSupabaseClientOrThrow()
     .from('time_records')
     .select('company_id, user_id, timestamp, created_at')
@@ -513,6 +523,7 @@ export async function insertAdminMirrorTimeRecord(
   });
 
   const sb = getSupabaseClientOrThrow() as unknown as SupabaseClient;
+  const mirrorDateYmd = String(data.mirror_date_ymd ?? extractLocalCalendarDateFromIso(createdAt)).slice(0, 10);
   const inserted = await insertTimeRecordForUser(sb, {
     userId,
     companyId: companyUuid,
@@ -524,6 +535,7 @@ export async function insertAdminMirrorTimeRecord(
     // Hard lock produção: ajuste manual deve aceitar retroativo por padrão.
     allowOutOfOrder: opts?.allowOutOfOrder ?? true,
     manualReason: (data.manual_reason as string | null | undefined) ?? null,
+    mirrorDateYmd: /^\d{4}-\d{2}-\d{2}$/.test(mirrorDateYmd) ? mirrorDateYmd : null,
     latitude: (data.latitude as number | null | undefined) ?? null,
     longitude: (data.longitude as number | null | undefined) ?? null,
   });

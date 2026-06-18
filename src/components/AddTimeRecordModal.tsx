@@ -9,7 +9,15 @@ import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
 interface AddTimeRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { user_id: string; created_at: string; type: string; manual_reason?: string; latitude?: number; longitude?: number }) => Promise<void>;
+  onSubmit: (data: {
+    user_id: string;
+    created_at: string;
+    type: string;
+    manual_reason?: string;
+    mirror_date_ymd?: string;
+    latitude?: number;
+    longitude?: number;
+  }) => Promise<void>;
   userId?: string;
   date?: string;
   employees: { id: string; nome: string }[];
@@ -306,6 +314,7 @@ export const AddTimeRecordModal: React.FC<AddTimeRecordModalProps> = ({
         created_at,
         type: mapPunchTypeToDb(form.entry_mode === 'STATUS' ? 'ENTRADA' : form.type),
         manual_reason: reason,
+        mirror_date_ymd: form.date.slice(0, 10),
         latitude: location?.lat,
         longitude: location?.lng,
       });

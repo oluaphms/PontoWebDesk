@@ -64,6 +64,7 @@ export type InsertTimeRecordRpcParams = {
   method?: string;
   source?: string;
   manualReason?: string | null;
+  mirrorDateYmd?: string | null;
   location?: Record<string, unknown> | null;
   photoUrl?: string | null;
   latitude?: number | null;
@@ -176,6 +177,7 @@ export async function insertTimeRecordForUser(
     metadata: {
       method: params.method ?? null,
       manual_reason: params.manualReason ?? null,
+      mirror_date_ymd: params.mirrorDateYmd ?? null,
       latitude: params.latitude ?? null,
       longitude: params.longitude ?? null,
       accuracy: params.accuracy ?? null,

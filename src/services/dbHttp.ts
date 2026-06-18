@@ -76,6 +76,7 @@ const OPERATIONAL_WRITE_TABLES = new Set([
   'rep_punch_logs',
   'time_attendance_timeline',
   'time_attendance_incident_reviews',
+  'time_records',
 ]);
 
 type ListResponse = { ok?: boolean; data?: DbRow[]; count?: number; error?: string };

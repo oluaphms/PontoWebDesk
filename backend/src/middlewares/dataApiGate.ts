@@ -8,6 +8,7 @@ const OPERATIONAL_WRITE_TABLES = new Set([
   'rep_punch_logs',
   'time_attendance_timeline',
   'time_attendance_incident_reviews',
+  'time_records',
 ]);
 
 function tableFromDataPath(path: string): string | null {

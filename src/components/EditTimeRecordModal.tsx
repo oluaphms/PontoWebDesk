@@ -6,6 +6,8 @@ import { deleteTimeRecord, updateTimeRecord } from '../../services/timeRecords.s
 import { TIPOS_BATIDA, mapPunchTypeToDb, mapDbToPunchType } from '../constants/punchTypes';
 import { localDateAndTimeToIsoUtc } from '../utils/localDateTimeToIso';
 import { resolvePunchOrigin } from '../utils/punchOrigin';
+import { DateTime } from 'luxon';
+import { OPERATIONAL_TIMEZONE } from '../utils/operationalClock';
 
 const STATUS_TAG_REGEX = /\[STATUS:(FOLGA|FALTA|EXTRA)\]/i;
 
@@ -29,17 +31,14 @@ function getReadableManualReason(raw: string | null | undefined): string {
   return stripStatusTag(txt);
 }
 
-function toLocalDateYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function toOperationalDateYmd(iso: string): string {
+  const dt = DateTime.fromISO(iso, { zone: 'utc' }).setZone(OPERATIONAL_TIMEZONE);
+  return dt.isValid ? dt.toFormat('yyyy-MM-dd') : '';
 }
 
-function toLocalTimeHm(d: Date): string {
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
+function toOperationalTimeHm(iso: string): string {
+  const dt = DateTime.fromISO(iso, { zone: 'utc' }).setZone(OPERATIONAL_TIMEZONE);
+  return dt.isValid ? dt.toFormat('HH:mm') : '';
 }
 
 function normalizePunchTypeForMatch(raw: string | null | undefined): string {
@@ -133,12 +132,11 @@ export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
   useEffect(() => {
     if (record && isOpen) {
       const instant = record.timestamp && String(record.timestamp).trim() ? record.timestamp : record.created_at;
-      const date = new Date(instant);
       const rawReason = record.manual_reason || '';
       const st = parseStatusTypeFromReason(rawReason);
       if (st) {
         setForm({
-          date: date.toISOString().slice(0, 10),
+          date: toOperationalDateYmd(instant),
           time: '12:00',
           type: 'ENTRADA',
           entry_mode: 'STATUS',
@@ -147,8 +145,8 @@ export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
         });
       } else {
         setForm({
-          date: date.toISOString().slice(0, 10),
-          time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          date: toOperationalDateYmd(instant),
+          time: toOperationalTimeHm(instant),
           type: mapDbToPunchType(record.type),
           entry_mode: 'HORARIO',
           status_type: 'FOLGA',
@@ -221,8 +219,8 @@ export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
     const d = new Date(instant);
     if (Number.isNaN(d.getTime())) return [];
 
-    const recordDate = toLocalDateYmd(d);
-    const recordTime = toLocalTimeHm(d);
+    const recordDate = toOperationalDateYmd(instant);
+    const recordTime = toOperationalTimeHm(instant);
     const recordType = normalizePunchTypeForMatch(mapDbToPunchType(record.type) || record.type);
 
     return adjustmentRequests.filter((req) => {
@@ -260,6 +258,7 @@ export const EditTimeRecordModal: React.FC<EditTimeRecordModalProps> = ({
         updated_at: new Date().toISOString(),
         type: mapPunchTypeToDb(form.entry_mode === 'STATUS' ? 'ENTRADA' : form.type),
         manual_reason,
+        metadata: { mirror_date_ymd: form.date.slice(0, 10) },
       });
 
       onUpdated?.({

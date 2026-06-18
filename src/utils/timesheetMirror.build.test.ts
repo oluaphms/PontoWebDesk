@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calendarDateForEspelhoRow } from './calendarUtils';
 import {
   buildDayMirrorSummary,
+  espelhoRowDateForRecord,
   isNightShiftSchedule,
   normalizeRecordTypeForMirror,
   recordEffectiveMirrorInstant,
@@ -445,6 +446,26 @@ describe('jornada noturna — agrupamento no espelho', () => {
     expect(day?.voltaIntervalo).toBe('02:00');
     expect(day?.saidaFinal).toBe('06:00');
     expect(map.get('2026-06-10')?.records.filter((r) => !r.type?.includes('status')).length ?? 0).toBe(0);
+  });
+
+  it('batida manual RH às 07:24 permanece no dia escolhido (não reatribui à jornada noturna de 16/06)', () => {
+    const manualSaida = tr({
+      id: 'manual-724',
+      user_id: 'u',
+      created_at: '2026-06-17T10:24:00.000Z',
+      timestamp: '2026-06-17T07:24:00.000-03:00',
+      type: 'saida',
+      source: 'manual',
+      method: 'admin',
+      manual_reason: 'Saída manual RH',
+      metadata: { mirror_date_ymd: '2026-06-17', method: 'admin' },
+    });
+    const scheduleByDay = (date: string) => (date === '2026-06-16' ? nightSchedule : null);
+    const rowDate = espelhoRowDateForRecord(manualSaida, '2026-06-16', '2026-06-18', scheduleByDay);
+    expect(rowDate).toBe('2026-06-17');
+    const map = buildDayMirrorSummary([manualSaida], '2026-06-16', '2026-06-18', { scheduleByDay });
+    expect(map.get('2026-06-17')?.records.some((r) => r.id === 'manual-724')).toBe(true);
+    expect(map.get('2026-06-16')?.records.some((r) => r.id === 'manual-724')).toBe(false);
   });
 });
 

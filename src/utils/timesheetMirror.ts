@@ -8,6 +8,8 @@ import { localCalendarYmd } from './localDateTimeToIso';
 import { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 import { isDevVerboseLogsEnabled } from './devVerboseLogs';
 import { isColaboradorSelfServicePunch, isRhAdjustmentOrigin, resolvePunchOrigin } from './punchOrigin';
+import { DateTime } from 'luxon';
+import { OPERATIONAL_TIMEZONE } from './operationalClock';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 
@@ -479,8 +481,26 @@ function hhmmToMinutes(hhmm: string): number {
 }
 
 function localMinutesFromIso(iso: string): number {
-  const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
+  const dt = DateTime.fromISO(iso, { zone: 'utc' }).setZone(OPERATIONAL_TIMEZONE);
+  if (!dt.isValid) return 0;
+  return dt.hour * 60 + dt.minute;
+}
+
+/** Data de linha declarada pelo RH no lançamento manual (metadata da RPC). */
+export function readAdminMirrorDateYmd(record: TimeRecord): string | null {
+  const bags: unknown[] = [record.metadata, record.raw_data];
+  for (const bag of bags) {
+    if (!bag || typeof bag !== 'object') continue;
+    const obj = bag as Record<string, unknown>;
+    const nested =
+      obj.metadata && typeof obj.metadata === 'object'
+        ? (obj.metadata as Record<string, unknown>)
+        : null;
+    const raw = obj.mirror_date_ymd ?? obj.admin_mirror_date ?? nested?.mirror_date_ymd;
+    const s = String(raw ?? '').trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  }
+  return null;
 }
 
 /** Turno com entrada após saída final (ex.: 22:00 → 06:00). */
@@ -497,7 +517,13 @@ export function espelhoRowDateForRecord(
   periodEndYmd: string,
   scheduleByDay?: (date: string) => DayScheduleSlots | null | undefined,
 ): string {
+  const declared = readAdminMirrorDateYmd(record);
+  if (declared) return declared;
+
   const civil = calendarDateForEspelhoRow(record, periodStartYmd, periodEndYmd);
+  // Ajuste manual RH: respeita o dia civil escolhido no formulário (não reatribui à jornada noturna anterior).
+  if (isRhAdjustmentOrigin(record)) return civil;
+
   if (!scheduleByDay) return civil;
   const iso = recordMirrorInstant(record);
   const timeMin = localMinutesFromIso(iso);
