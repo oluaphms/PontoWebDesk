@@ -158,3 +158,10 @@ BEGIN
     RAISE NOTICE 'Próximo passo: repetir batidas no relógio (18/06 22h, 19/06 01h/02h/07h24) e reimportar AFD.';
   END IF;
 END $$;
+
+-- Após aplicar migration 20260619180000 e reimportar, reclassificar tipos da jornada:
+-- SELECT public.reclassify_operational_journey_types(
+--   'a145b0cd-76f4-4dc8-b50c-02b0c9bfe24b'::uuid,
+--   'a96ae0cd-c0fd-4f70-a8c3-7714b49f1ce5'::uuid,
+--   '2026-06-18'::date
+-- );
