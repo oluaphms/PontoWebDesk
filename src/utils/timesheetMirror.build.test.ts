@@ -598,6 +598,46 @@ describe('jornada noturna — agrupamento no espelho', () => {
     });
     expect(recordEffectiveMirrorInstant(rep, '2026-06-17')).toBe('2026-06-18T01:00:00.000-03:00');
   });
+
+  it('AFD mesma data civil (07:24, 01:00, 02:00, 22:00) — ordena 22:00 como entrada', () => {
+    const records: TimeRecord[] = [
+      tr({
+        id: 'sf',
+        user_id: 'u',
+        timestamp: '2026-06-18T07:24:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+      tr({
+        id: 'si',
+        user_id: 'u',
+        timestamp: '2026-06-18T01:00:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+      tr({
+        id: 'vi',
+        user_id: 'u',
+        timestamp: '2026-06-18T02:00:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+      tr({
+        id: 'e',
+        user_id: 'u',
+        timestamp: '2026-06-18T22:00:00.000-03:00',
+        type: 'entrada',
+        source: 'rep',
+      }),
+    ];
+    const map = buildDayMirrorSummary(records, '2026-06-18', '2026-06-18');
+    const day = map.get('2026-06-18');
+    expect(day?.entradaInicio).toBe('22:00');
+    expect(day?.saidaIntervalo).toBe('01:00');
+    expect(day?.voltaIntervalo).toBe('02:00');
+    expect(day?.saidaFinal).toBe('07:24');
+    expect(day?.workedMinutes).toBe(504);
+  });
 });
 
 describe('buildDayMirrorSummary — produção APP + REP (hard lock cronológico)', () => {

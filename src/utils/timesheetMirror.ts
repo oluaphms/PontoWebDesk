@@ -230,19 +230,52 @@ function nightShiftOperationalSortKey(iso: string, entradaMin: number): number {
   return min >= entradaMin ? min : min + 24 * 60;
 }
 
+/** Detecta jornada noturna pelas batidas (ex.: AFD com 22h e 01h no mesmo dia civil). */
+function inferNightShiftEntradaMinFromRecords(
+  records: TimeRecord[],
+  dayDateStr: string,
+): number | null {
+  const eveningThreshold = 21 * 60;
+  const morningThreshold = 8 * 60;
+  let maxEveningMin: number | null = null;
+  let hasEarlyMorning = false;
+
+  for (const r of records) {
+    if (isStatusRecord(r)) continue;
+    const min = localMinutesFromIso(recordEffectiveMirrorInstant(r, dayDateStr));
+    if (min >= eveningThreshold) {
+      maxEveningMin = maxEveningMin == null ? min : Math.max(maxEveningMin, min);
+    }
+    if (min < morningThreshold) {
+      hasEarlyMorning = true;
+    }
+  }
+
+  if (maxEveningMin != null && hasEarlyMorning) {
+    return maxEveningMin;
+  }
+  return null;
+}
+
 function sortRecordsForMirrorGrid(
   records: TimeRecord[],
   dayDateStr: string,
   schedule?: DayScheduleSlots | null,
 ): TimeRecord[] {
-  if (!schedule || !isNightShiftSchedule(schedule)) {
+  let entradaMin: number | null = null;
+  if (schedule && isNightShiftSchedule(schedule)) {
+    entradaMin = hhmmToMinutes(schedule.entrada);
+  } else {
+    entradaMin = inferNightShiftEntradaMinFromRecords(records, dayDateStr);
+  }
+
+  if (entradaMin == null) {
     return sortRecordsByTime(records, dayDateStr);
   }
-  const entradaMin = hhmmToMinutes(schedule.entrada);
-  if (entradaMin == null) return sortRecordsByTime(records, dayDateStr);
+
   return [...records].sort((a, b) => {
-    const ka = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(a, dayDateStr), entradaMin);
-    const kb = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(b, dayDateStr), entradaMin);
+    const ka = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(a, dayDateStr), entradaMin!);
+    const kb = nightShiftOperationalSortKey(recordEffectiveMirrorInstant(b, dayDateStr), entradaMin!);
     if (ka !== kb) return ka - kb;
     return (
       new Date(recordEffectiveMirrorInstant(a, dayDateStr)).getTime() -
