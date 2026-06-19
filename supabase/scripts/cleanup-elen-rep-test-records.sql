@@ -39,7 +39,7 @@ SELECT
   tr.timestamp AT TIME ZONE 'America/Sao_Paulo' AS horario_brt,
   tr.created_at AT TIME ZONE 'America/Sao_Paulo' AS ingestao_brt
 FROM public.time_records tr
-JOIN public.users u ON u.id = tr.user_id
+JOIN public.users u ON u.id::text = tr.user_id::text
 WHERE u.nome ILIKE '%ELEN DE OLIVEIRA CUNHA%'
   AND tr.timestamp >= TIMESTAMPTZ '2026-06-17 00:00:00-03'
   AND tr.timestamp <  TIMESTAMPTZ '2026-06-20 00:00:00-03'
@@ -52,7 +52,7 @@ SELECT
   rpl.data_hora AT TIME ZONE 'America/Sao_Paulo' AS horario_brt,
   rpl.time_record_id
 FROM public.rep_punch_logs rpl
-JOIN public.users u ON u.id = rpl.resolved_user_id
+JOIN public.users u ON u.id::text = rpl.resolved_user_id::text
 WHERE u.nome ILIKE '%ELEN DE OLIVEIRA CUNHA%'
   AND rpl.data_hora >= TIMESTAMPTZ '2026-06-17 00:00:00-03'
   AND rpl.data_hora <  TIMESTAMPTZ '2026-06-20 00:00:00-03'
@@ -85,27 +85,36 @@ BEGIN
     RAISE EXCEPTION 'cleanup_mode inválido: % (use preview, dedupe ou full_retest)', v_mode;
   END IF;
 
-  SELECT u.id::uuid INTO v_user_id
+  SELECT u.id INTO v_user_id
   FROM public.users u
   WHERE u.nome ILIKE '%ELEN DE OLIVEIRA CUNHA%'
-  ORDER BY u.nome
+  ORDER BY (
+    SELECT count(*)::int
+    FROM public.time_records tr
+    WHERE tr.user_id::text = u.id::text
+      AND tr.timestamp >= TIMESTAMPTZ '2026-06-17 00:00:00-03'
+      AND tr.timestamp < TIMESTAMPTZ '2026-06-20 00:00:00-03'
+  ) DESC,
+  u.nome
   LIMIT 1;
 
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Colaboradora ELEN não encontrada';
   END IF;
 
+  RAISE NOTICE 'Colaborador selecionado: %', v_user_id;
+
   IF v_mode = 'dedupe' THEN
     SELECT array_agg(tr.id ORDER BY tr.timestamp)
     INTO v_drop_ids
     FROM public.time_records tr
-    WHERE tr.user_id = v_user_id::text
+    WHERE tr.user_id::text = v_user_id::text
       AND tr.id = ANY (v_dedupe_ids);
   ELSE
     SELECT array_agg(tr.id ORDER BY tr.timestamp)
     INTO v_drop_ids
     FROM public.time_records tr
-    WHERE tr.user_id = v_user_id::text
+    WHERE tr.user_id::text = v_user_id::text
       AND tr.timestamp >= TIMESTAMPTZ '2026-06-17 00:00:00-03'
       AND tr.timestamp <  TIMESTAMPTZ '2026-06-20 00:00:00-03';
   END IF;
