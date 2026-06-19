@@ -1,5 +1,4 @@
--- Alinha time_record_operational_date_sp com resolveOperationalDate.ts:
--- madrugada usa escala NOTURNA de ONTEM antes da escala do dia civil.
+-- Fallback quando ESS não tem escala noturna: madrugada após entrada >=21h ontem → op_date = ontem.
 
 CREATE OR REPLACE FUNCTION public.time_record_operational_date_sp(
   p_user_id uuid,
@@ -28,7 +27,6 @@ BEGIN
   v_time_min := EXTRACT(HOUR FROM (p_instant AT TIME ZONE 'America/Sao_Paulo'))::int * 60
               + EXTRACT(MINUTE FROM (p_instant AT TIME ZONE 'America/Sao_Paulo'))::int;
 
-  -- Madrugada: jornada noturna iniciada ontem (mesma regra do frontend).
   SELECT t.shift_start, t.shift_end, COALESCE(t.tol, 60)
   INTO v_shift_start, v_shift_end, v_tol
   FROM public.ess_day_shift_times(p_user_id, p_company_id::text, v_prev_dow) t
@@ -52,6 +50,7 @@ BEGIN
     RETURN public.resolve_operational_date_sp(p_instant, v_shift_start, v_shift_end, v_tol);
   END IF;
 
+  -- REP sem ESS: madrugada (até 12h) após batida >=21h no dia civil anterior.
   IF v_time_min <= 720 THEN
     IF EXISTS (
       SELECT 1
@@ -74,4 +73,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.time_record_operational_date_sp(uuid, uuid, timestamptz) IS
-  'Data operacional REP/DB: madrugada pertence à jornada noturna de ontem (paridade com resolveOperationalDate.ts).';
+  'Data operacional: ESS noturna → fallback REP (madrugada após entrada >=21h ontem).';

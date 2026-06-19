@@ -65,6 +65,23 @@ BEGIN
     RETURN public.resolve_operational_date_sp(p_instant, v_shift_start, v_shift_end, v_tol);
   END IF;
 
+  IF v_time_min <= 720 THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.time_records tr
+      WHERE tr.user_id::text = p_user_id::text
+        AND tr.company_id::text = p_company_id::text
+        AND (COALESCE(tr.source, '') = 'rep' OR COALESCE(tr.method, '') ILIKE '%rep%')
+        AND (COALESCE(tr.timestamp, tr.created_at) AT TIME ZONE 'America/Sao_Paulo')::date = v_yesterday
+        AND (
+          EXTRACT(HOUR FROM COALESCE(tr.timestamp, tr.created_at) AT TIME ZONE 'America/Sao_Paulo')::int * 60
+          + EXTRACT(MINUTE FROM COALESCE(tr.timestamp, tr.created_at) AT TIME ZONE 'America/Sao_Paulo')::int
+        ) >= 21 * 60
+    ) THEN
+      RETURN v_yesterday;
+    END IF;
+  END IF;
+
   RETURN v_civil;
 END;
 $$;
