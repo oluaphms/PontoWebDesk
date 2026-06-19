@@ -112,7 +112,15 @@ BEGIN
     INTO v_drop_ids
     FROM public.time_records tr
     WHERE tr.user_id::text = v_user_id::text
-      AND tr.id = ANY (v_dedupe_ids);
+      AND (
+        tr.id = ANY (v_dedupe_ids)
+        -- Fantasma AFD: NSR 16641 com data civil 18/06 01:00 (canônico é 19/06 01:00 NSR 16652)
+        OR (
+          tr.nsr = 16641
+          AND (tr.timestamp AT TIME ZONE 'America/Sao_Paulo')::date = DATE '2026-06-18'
+          AND EXTRACT(HOUR FROM tr.timestamp AT TIME ZONE 'America/Sao_Paulo') < 12
+        )
+      );
   ELSE
     SELECT array_agg(tr.id ORDER BY tr.timestamp)
     INTO v_drop_ids
