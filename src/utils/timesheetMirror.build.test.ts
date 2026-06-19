@@ -586,6 +586,18 @@ describe('jornada noturna — agrupamento no espelho', () => {
     expect(espelhoRowDateForRecord(records[0]!, '2026-06-17', '2026-06-18', scheduleByDay)).toBe('2026-06-17');
     expect(espelhoRowDateForRecord(records[1]!, '2026-06-17', '2026-06-18', scheduleByDay)).toBe('2026-06-17');
   });
+
+  it('recordEffectiveMirrorInstant — pós-meia-noite usa timestamp oficial, não created_at de ingestão', () => {
+    const rep = tr({
+      id: 'rep-0100',
+      user_id: 'u',
+      created_at: '2026-06-17T14:22:00.000Z',
+      timestamp: '2026-06-18T01:00:00.000-03:00',
+      type: 'intervalo_saida',
+      source: 'rep',
+    });
+    expect(recordEffectiveMirrorInstant(rep, '2026-06-17')).toBe('2026-06-18T01:00:00.000-03:00');
+  });
 });
 
 describe('buildDayMirrorSummary — produção APP + REP (hard lock cronológico)', () => {

@@ -95,11 +95,14 @@ export function recordMirrorInstant(record: TimeRecord): string {
 }
 
 /**
- * Instantâneo usado para horas no dia `dayDateStr` da grelha: alinha com `calendarDateForEspelhoRow`.
+ * Instantâneo usado para horas no dia `dayDateStr` da grelha.
+ * Batidas pós-meia-noite (dia civil > linha operacional) usam sempre o `timestamp` oficial.
  */
 export function recordEffectiveMirrorInstant(record: TimeRecord, dayDateStr: string): string {
   const instant = recordIso(record);
-  if (extractLocalCalendarDateFromIso(instant) === dayDateStr) return instant;
+  const civil = extractLocalCalendarDateFromIso(instant);
+  if (civil === dayDateStr) return instant;
+  if (civil > dayDateStr) return instant;
   if (extractLocalCalendarDateFromIso(record.created_at) === dayDateStr) {
     return record.created_at;
   }

@@ -381,6 +381,16 @@ function parseInstantSafe(raw: unknown): Date | null {
   return d;
 }
 
+function isRepLikeDashboardRecord(record: any): boolean {
+  const s = String(record?.source ?? '')
+    .trim()
+    .toLowerCase();
+  const m = String(record?.method ?? '')
+    .trim()
+    .toLowerCase();
+  return s === 'rep' || m === 'rep' || record?.nsr != null;
+}
+
 function resolveDashboardDisplayInstant(record: any): {
   instant: Date | null;
   hasAnomaly: boolean;
@@ -388,35 +398,24 @@ function resolveDashboardDisplayInstant(record: any): {
 } {
   const primary = parseInstantSafe(record?.timestamp);
   const fallback = parseInstantSafe(record?.created_at);
-  const now = operationalClockMs();
-  const primaryDeltaHours = primary ? (primary.getTime() - now) / 36e5 : null;
-  const fallbackDeltaHours = fallback ? (fallback.getTime() - now) / 36e5 : null;
 
-  if (primary && Math.abs(primaryDeltaHours ?? 0) <= 24) {
+  if (isRepLikeDashboardRecord(record) && primary) {
     return { instant: primary, hasAnomaly: false, anomalyReason: null };
   }
 
-  if (primary && Math.abs(primaryDeltaHours ?? 0) > 24) {
+  if (primary && fallback) {
+    const crossDeltaHours = Math.abs(primary.getTime() - fallback.getTime()) / 36e5;
+    if (crossDeltaHours <= 24) {
+      return { instant: primary, hasAnomaly: false, anomalyReason: null };
+    }
     observabilityConsole.info('[TIME DISPLAY BUG]', {
-      reason: 'timestamp_delta_gt_24h',
+      reason: 'timestamp_created_at_delta_gt_24h',
       source_record_id: String(record?.id ?? ''),
       user_id: String(record?.user_id ?? ''),
       timestamp: String(record?.timestamp ?? ''),
       created_at: String(record?.created_at ?? ''),
-      delta_hours: Math.round(primaryDeltaHours ?? 0),
+      delta_hours: Math.round(crossDeltaHours),
     });
-    if (fallback) {
-      opLog.diag('TIMEZONE NORMALIZATION', {
-        source_record_id: String(record?.id ?? ''),
-        chosen_source: 'created_at_due_to_timestamp_anomaly',
-        timezone: 'America/Sao_Paulo',
-      });
-      return {
-        instant: fallback,
-        hasAnomaly: true,
-        anomalyReason: 'timestamp fora da janela esperada (>24h)',
-      };
-    }
     return {
       instant: primary,
       hasAnomaly: true,
@@ -424,26 +423,11 @@ function resolveDashboardDisplayInstant(record: any): {
     };
   }
 
+  if (primary) {
+    return { instant: primary, hasAnomaly: false, anomalyReason: null };
+  }
+
   if (fallback) {
-    if (Math.abs(fallbackDeltaHours ?? 0) > 24) {
-      observabilityConsole.info('[TIME DISPLAY BUG]', {
-        reason: 'created_at_delta_gt_24h',
-        source_record_id: String(record?.id ?? ''),
-        user_id: String(record?.user_id ?? ''),
-        created_at: String(record?.created_at ?? ''),
-        delta_hours: Math.round(fallbackDeltaHours ?? 0),
-      });
-      return {
-        instant: fallback,
-        hasAnomaly: true,
-        anomalyReason: 'created_at fora da janela esperada (>24h)',
-      };
-    }
-    opLog.diag('TIMEZONE NORMALIZATION', {
-      source_record_id: String(record?.id ?? ''),
-      chosen_source: 'created_at',
-      timezone: 'America/Sao_Paulo',
-    });
     return { instant: fallback, hasAnomaly: false, anomalyReason: null };
   }
 
