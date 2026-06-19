@@ -21,6 +21,9 @@
   \set cleanup_mode preview
 \endif
 
+-- psql não substitui :'var' dentro de DO $$ — passa o modo via GUC
+SELECT set_config('app.cleanup_mode', :'cleanup_mode', false);
+
 -- =============================================================================
 -- 1) DIAGNÓSTICO
 -- =============================================================================
@@ -64,7 +67,7 @@ ORDER BY rpl.data_hora ASC;
 
 DO $$
 DECLARE
-  v_mode text := :'cleanup_mode';
+  v_mode text := current_setting('app.cleanup_mode', true);
   v_user_id uuid;
   v_drop_ids text[];
   v_dedupe_ids text[] := ARRAY[
