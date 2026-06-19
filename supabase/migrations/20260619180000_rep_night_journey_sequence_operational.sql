@@ -139,30 +139,46 @@ DECLARE
   r record;
   v_pos int := 0;
   v_updated int := 0;
+  v_new_type text;
 BEGIN
-  PERFORM set_config('ponto.time_record_sequence_reconcile', '1', true);
+  PERFORM set_config('ponto.operational_journey_reclassify', '1', true);
   PERFORM set_config('ponto.skip_time_record_sequence_check', '1', true);
 
   FOR r IN
-    SELECT tr.id
+    SELECT tr.id, tr.type AS old_type
     FROM public.time_records tr
     WHERE tr.company_id = p_company_id
       AND tr.user_id = p_user_id
       AND public.time_record_operational_date_sp(p_user_id, p_company_id, COALESCE(tr.timestamp, tr.created_at)) = p_operational_date
-      AND (COALESCE(tr.source, '') = 'rep' OR COALESCE(tr.method, '') ILIKE 'rep')
+      AND (COALESCE(tr.source, '') = 'rep' OR COALESCE(tr.method, '') ILIKE '%rep%')
     ORDER BY COALESCE(tr.timestamp, tr.created_at), tr.id
   LOOP
-    UPDATE public.time_records
-    SET type = public.rep_journey_type_for_position(v_pos)
-    WHERE id = r.id;
+    v_new_type := public.rep_journey_type_for_position(v_pos);
+    IF r.old_type IS DISTINCT FROM v_new_type THEN
+      UPDATE public.time_records
+      SET
+        type = v_new_type,
+        raw_data = COALESCE(raw_data, '{}'::jsonb) || jsonb_build_object(
+          'journey_type_reclassified', true,
+          'journey_operational_date', p_operational_date::text,
+          'journey_type_position', v_pos,
+          'journey_type_before', r.old_type
+        )
+      WHERE id = r.id;
+      v_updated := v_updated + 1;
+    END IF;
     v_pos := v_pos + 1;
-    v_updated := v_updated + 1;
   END LOOP;
 
   PERFORM set_config('ponto.skip_time_record_sequence_check', '0', true);
-  PERFORM set_config('ponto.time_record_sequence_reconcile', '0', true);
+  PERFORM set_config('ponto.operational_journey_reclassify', '0', true);
 
   RETURN jsonb_build_object('updated', v_updated, 'operational_date', p_operational_date);
+EXCEPTION
+  WHEN OTHERS THEN
+    PERFORM set_config('ponto.skip_time_record_sequence_check', '0', true);
+    PERFORM set_config('ponto.operational_journey_reclassify', '0', true);
+    RAISE;
 END;
 $$;
 
