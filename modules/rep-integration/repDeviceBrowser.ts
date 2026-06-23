@@ -324,11 +324,12 @@ export async function repExchangeViaApi(
       maxMs: REP_EXCHANGE_POLL_MAX_MS,
       onProgress: options?.onPollProgress,
     });
-    if (!polled.ok) {
+    if (polled.ok === false) {
+      const msg = polled.message;
       return {
         ok: false,
-        error: polled.message,
-        message: polled.message,
+        error: msg,
+        message: msg,
       };
     }
     const parsed = extractExchangeFromCommandResult(

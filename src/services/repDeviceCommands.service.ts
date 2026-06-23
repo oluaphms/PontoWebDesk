@@ -168,9 +168,11 @@ export async function pollRepTestConnectionResult(
   const deadline = started + maxMs;
   let lastPhase: PollTestProgressPhase = 'polling';
   let lastStatus: RepCommandPollStatus = null;
+  let reachedSlowPhase = false;
 
   const emit = (phase: PollTestProgressPhase, commandStatus?: RepCommandPollStatus) => {
     const status = commandStatus ?? null;
+    if (phase === 'agent_slow') reachedSlowPhase = true;
     if (phase === lastPhase && status === lastStatus) return;
     lastPhase = phase;
     lastStatus = status;
@@ -212,6 +214,6 @@ export async function pollRepTestConnectionResult(
     ok: false,
     message: 'AGENT_COMMAND_TIMEOUT',
     timedOut: true,
-    slowAgent: lastPhase === 'agent_slow',
+    slowAgent: reachedSlowPhase,
   };
 }
