@@ -15,6 +15,7 @@ import { db, storage, isSupabaseConfigured } from '../../services/supabaseClient
 import { getRecentTimeRecordsForUser } from '../../../services/timeRecords.service';
 import { getLocalDateString, persistenceTypeFromClockWebAction } from '../../services/timeProcessingService';
 import { getLastPunchLocal, validarSequenciaLocal } from '../../utils/clockInLocalSequence';
+import { formatPunchSequenceWarnings } from '../../domain/attendance/punchSequenceAudit';
 import { getConsolidatedDayPunches } from '../../services/punchStateEngine';
 import {
   getCurrentLocationRobustResult,
@@ -464,15 +465,9 @@ const EmployeeClockIn: React.FC = () => {
       const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
         nextEventTime: punchInstant,
       });
-      if (!lastLocal.tipo && logicalTypeStr !== 'entrada') {
-        setError('O primeiro registro do dia deve ser entrada.');
-        toast.addToast('error', 'O primeiro registro do dia deve ser entrada.');
-        return;
-      }
-      if (!validation.valid) {
-        setError(validation.error || 'Sequência inválida.');
-        toast.addToast('error', validation.error || 'Sequência inválida.');
-        return;
+      if (validation.warnings?.length) {
+        const msg = formatPunchSequenceWarnings(validation.warnings).join(' · ');
+        toast.addToast('warning', `Batida registrada com pendência: ${msg}`);
       }
 
       if (globalSettings?.gps_required && !manualBypass) {
@@ -872,15 +867,9 @@ const EmployeeClockIn: React.FC = () => {
     const validation = validarSequenciaLocal(dayRecords, logicalTypeStr, {
       nextEventTime: new Date(),
     });
-    if (!lastLocal.tipo && logicalTypeStr !== 'entrada') {
-      setError('O primeiro registro do dia deve ser entrada.');
-      toast.addToast('error', 'O primeiro registro do dia deve ser entrada.');
-      return;
-    }
-    if (!validation.valid) {
-      setError(validation.error || 'Sequência inválida.');
-      toast.addToast('error', validation.error || 'Sequência inválida.');
-      return;
+    if (validation.warnings?.length) {
+      const msg = formatPunchSequenceWarnings(validation.warnings).join(' · ');
+      toast.addToast('warning', `Será registrado com pendência: ${msg}`);
     }
     setVerificationMode(mode);
     setPendingLogType(type);
@@ -918,7 +907,7 @@ const EmployeeClockIn: React.FC = () => {
     <div className="space-y-8 relative z-10">
       <PageHeader
         title="Registrar Ponto"
-        subtitle="Marcações com sequência válida, localização automática, foto ou biometria do aparelho (HTTPS)."
+        subtitle="Marcações com localização automática, foto ou biometria do aparelho (HTTPS). Inconsistências são sinalizadas após o registro."
         icon={<Clock className="w-5 h-5" />}
       />
 

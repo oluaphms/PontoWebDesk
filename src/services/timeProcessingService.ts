@@ -23,6 +23,10 @@ import {
 } from './timeAttendanceTimeline.constants';
 import { LogType } from '../../types';
 import { normalizeRecordTypeForMirror, type NormalizedMirrorRecordType, espelhoRowDateForRecord, type DayScheduleSlots } from '../utils/timesheetMirror';
+import {
+  auditNextPunchRegistration,
+  type PunchSequenceWarning,
+} from '../domain/attendance/punchSequenceAudit';
 
 export {
   assertMonthOpenForEmployee,
@@ -283,61 +287,28 @@ export function normalizePunchType(t: string | undefined): string {
 
 /**
  * Valida a próxima batida em relação às batidas já gravadas no dia.
- * Alinhado ao fluxo do ClockIn: entrada → pausa → entrada (retorno) → saída.
+ * Política: registrar sempre; inconsistências retornam em `warnings` (não bloqueiam).
  */
 const SEQUENCE_TOLERANCE_MS = 5 * 60 * 1000;
+
+export type PunchSequenceValidation = {
+  valid: boolean;
+  error?: string;
+  warnings?: PunchSequenceWarning[];
+  sequenceTolerantExit?: boolean;
+};
 
 export function validatePunchSequence(
   dayRecords: RawTimeRecord[],
   nextTypeRaw: string,
-  opts?: { nextEventTime?: Date | string }
-): { valid: boolean; error?: string; sequenceTolerantExit?: boolean } {
-  const next = normalizePunchType(nextTypeRaw);
-  const sorted = sortedByTime(dayRecords);
-  const lastRec = sorted[sorted.length - 1];
-  const last = lastRec ? effectiveNormalizedLast(sorted) : null;
-  const nextEventMs = opts?.nextEventTime != null ? new Date(opts.nextEventTime).getTime() : Date.now();
-
-  if (!last) {
-    if (next === 'entrada') return { valid: true };
-    return {
-      valid: false,
-      error: 'O primeiro registro do dia deve ser entrada.',
-    };
-  }
-
-  if (last === 'entrada') {
-    if (next === 'pausa' || next === 'saida') return { valid: true };
-    if (next === 'entrada') {
-      const lastMs = recordEventInstantMs(lastRec!);
-      if (nextEventMs - lastMs > SEQUENCE_TOLERANCE_MS) {
-        return { valid: true, sequenceTolerantExit: true };
-      }
-      return { valid: false, error: 'Registre intervalo ou saída antes de uma nova entrada.' };
-    }
-  }
-
-  if (last === 'pausa') {
-    if (next === 'entrada') return { valid: true };
-    if (next === 'pausa') {
-      return { valid: false, error: 'Intervalo já iniciado. Finalize o intervalo antes de iniciar outro.' };
-    }
-    if (next === 'saida') {
-      return { valid: false, error: 'Finalize o intervalo (retorno) antes da saída.' };
-    }
-  }
-
-  if (last === 'saida') {
-    if (next === 'entrada') return { valid: true };
-    if (next === 'saida') {
-      return { valid: false, error: 'Registre entrada antes de uma nova saída.' };
-    }
-    if (next === 'pausa') {
-      return { valid: false, error: 'Registre entrada antes de iniciar intervalo.' };
-    }
-  }
-
-  return { valid: true };
+  opts?: { nextEventTime?: Date | string },
+): PunchSequenceValidation {
+  const audit = auditNextPunchRegistration(dayRecords, nextTypeRaw, opts);
+  return {
+    valid: true,
+    warnings: audit.warnings,
+    sequenceTolerantExit: audit.sequenceTolerantExit,
+  };
 }
 
 /**

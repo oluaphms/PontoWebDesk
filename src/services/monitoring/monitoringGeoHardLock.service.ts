@@ -1006,6 +1006,44 @@ export function inferOperationalPresenceForDay(
       classificationReason: 'sem_batida_no_dia_operacional',
     };
   }
+
+  const missingEntry = !sorted.some((r) => {
+    const t = type(r.type);
+    return t === 'entrada';
+  });
+  if (missingEntry) {
+    const lastType = last ? type(last.type) : null;
+    const lastTs = last ? recordPunchInstantIso(last) : null;
+    if (lastType === 'pausa' || lastType === 'intervalo_saida') {
+      return {
+        status: 'lunch',
+        lastPunch: lastTs ?? undefined,
+        lastType: last?.type,
+        pairCount,
+        classificationReason: 'pendente_validacao_sem_entrada',
+      };
+    }
+    if (lastType === 'entrada' || lastType === 'intervalo_volta') {
+      return {
+        status: 'working',
+        lastPunch: lastTs ?? undefined,
+        lastType: last?.type,
+        pairCount,
+        classificationReason: 'pendente_validacao_sem_entrada',
+      };
+    }
+    if (lastType === 'saida') {
+      return {
+        status: 'off_duty',
+        lastPunch: lastTs ?? undefined,
+        lastType: last?.type,
+        pairCount,
+        offDutyReason: 'journey_closed',
+        classificationReason: 'pendente_validacao_sem_entrada',
+      };
+    }
+  }
+
   if (lastType === 'entrada' || lastType === 'intervalo_volta') {
     return {
       status: 'working',

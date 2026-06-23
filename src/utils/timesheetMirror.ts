@@ -11,6 +11,7 @@ import { isColaboradorSelfServicePunch, isRhAdjustmentOrigin, resolvePunchOrigin
 import { DateTime } from 'luxon';
 import { OPERATIONAL_TIMEZONE } from './operationalClock';
 import { computeNightAwareWorkedMinutes, getOperationalDate } from './resolveOperationalDate';
+import { auditDayPunchSequence, type PunchSequenceWarning } from '../domain/attendance/punchSequenceAudit';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 export {
@@ -138,6 +139,8 @@ export interface DayMirror {
   records: TimeRecord[];
   batidasExtra: TimeRecord[];
   inconsistencias: TimeRecord[];
+  /** Inconsistências de sequência (entrada ausente, intervalo sem retorno, etc.). */
+  sequenceIssues?: PunchSequenceWarning[];
   /** Batida → coluna (1:1), para UI/PDF sem heurística REP>APP. */
   slotRecordIds?: Partial<Record<MirrorGridSlot, string>>;
   /** Trilha opcional da consolidação (espelho). */
@@ -633,6 +636,7 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
   const audit: MirrorConsolidationAuditEntry[] = [];
   const gridRaw = consolidateMirrorGridStrictChronology(sorted, dayDateStr, schedule ?? null, audit);
   const grid = reconcileMirrorGridExplicitTypes(sorted, gridRaw, dayDateStr, audit);
+  const sequenceIssues = auditDayPunchSequence(realRecords);
 
   let workedMinutes = 0;
   if (grid.entradaInicio && grid.saidaFinal) {
@@ -665,6 +669,7 @@ function buildDaySummary(records: TimeRecord[], dayDateStr: string, schedule?: D
     records,
     batidasExtra: grid.batidasExtra,
     inconsistencias: grid.inconsistencias,
+    sequenceIssues: sequenceIssues.length > 0 ? sequenceIssues : undefined,
     slotRecordIds: grid.slotRecordIds,
     mirrorAudit: audit.length > 0 ? audit : undefined,
   };

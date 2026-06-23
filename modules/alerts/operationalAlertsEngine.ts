@@ -129,7 +129,18 @@ export function generateOperationalAlerts({
     });
   }
 
-  // 3. Inconsistência (crítico nos critérios de aceite)
+  // 3. Inconsistências de sequência (entrada ausente, intervalo sem retorno, etc.)
+  const meaningfulTypes = meaningful.map((x) => x.norm);
+  const hasEntrada = meaningfulTypes.includes('entrada');
+  if (meaningful.length > 0 && !hasEntrada) {
+    alerts.push({
+      type: 'inconsistency',
+      severity: 'high',
+      message: 'Jornada com batidas sem entrada registrada.',
+      metadata: { date, code: 'MISSING_ENTRY', mirrorCount: records.length },
+    });
+  }
+
   if (status === 'inconsistent') {
     alerts.push({
       type: 'inconsistency',

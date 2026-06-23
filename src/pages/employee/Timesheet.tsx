@@ -967,6 +967,7 @@ const EmployeeTimesheet: React.FC = () => {
               x.day &&
               (x.day.batidasExtra.length > 0 ||
                 x.day.inconsistencias.length > 0 ||
+                (x.day.sequenceIssues?.length ?? 0) > 0 ||
                 (repPendingByDate.get(x.date)?.length ?? 0) > 0),
           );
         if (daysWithIssues.length === 0) return null;
@@ -984,6 +985,7 @@ const EmployeeTimesheet: React.FC = () => {
                 const issueLabel = (r: MirrorTimeRecord) => `${fmtRecord(r)} · ${resolvePunchOrigin(r).label}`;
                 const extraLabels = day.batidasExtra.map(issueLabel);
                 const inconsistLabels = day.inconsistencias.map(issueLabel);
+                const sequenceLabels = (day.sequenceIssues ?? []).map((w) => w.message);
                 const repPend = repPendingByDate.get(date) ?? [];
                 return (
                   <div key={`issue-${date}`} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
@@ -996,7 +998,12 @@ const EmployeeTimesheet: React.FC = () => {
                       )}
                       {inconsistLabels.length > 0 && (
                         <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                          Incons.: {inconsistLabels.length}
+                          Incons.: {inconsistLabels.length + sequenceLabels.length}
+                        </span>
+                      )}
+                      {sequenceLabels.length > 0 && inconsistLabels.length === 0 && (
+                        <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          Seq.: {sequenceLabels.length}
                         </span>
                       )}
                       {repPend.length > 0 && (
@@ -1011,7 +1018,7 @@ const EmployeeTimesheet: React.FC = () => {
                           setIssuesModal({
                             date,
                             extras: extraLabels,
-                            inconsistencias: inconsistLabels,
+                            inconsistencias: [...inconsistLabels, ...sequenceLabels],
                             repPending: repPend,
                           })
                         }

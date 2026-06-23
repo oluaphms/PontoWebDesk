@@ -1,5 +1,6 @@
 
 import { LogType, TimeRecord, Company, GeoLocation, FraudFlag } from '../types';
+import { auditNextPunchRegistration } from '../src/domain/attendance/punchSequenceAudit';
 
 /**
  * ValidationService: Regras de negócio puras e testáveis.
@@ -43,27 +44,24 @@ export const ValidationService = {
     return { isValid: isWithin, flags };
   },
 
-  // Valida se a sequência de batidas faz sentido (ex: não pode entrar se já estiver 'dentro')
-  validateSequence: (lastRecord: TimeRecord | undefined, newType: LogType): { isValid: boolean; error?: string } => {
-    if (!lastRecord) {
-      if (newType !== LogType.IN) return { isValid: false, error: "O primeiro registro do dia deve ser 'Entrada'." };
-      return { isValid: true };
-    }
-
-    if (lastRecord.type === newType) {
-      return { isValid: false, error: `Você já realizou uma marcação de ${newType}.` };
-    }
-
-    if (lastRecord.type === LogType.OUT && newType === LogType.BREAK) {
-      return { isValid: false, error: 'Após saída, registre uma nova entrada antes do intervalo.' };
-    }
-
-    if (lastRecord.type === LogType.BREAK && newType === LogType.OUT) {
-      return { isValid: false, error: 'Após pausa, registre retorno (Entrada) antes da Saída.' };
-    }
-
-    return { isValid: true };
-  }
+  // Valida sequência — registrar sempre; sinalizar inconsistências (não bloqueia).
+  validateSequence: (lastRecord: TimeRecord | undefined, newType: LogType): { isValid: boolean; error?: string; warnings?: string[] } => {
+    const logical =
+      newType === LogType.IN ? 'entrada' : newType === LogType.OUT ? 'saida' : 'pausa';
+    const dayRecords = lastRecord
+      ? [{
+          id: lastRecord.id,
+          type: String(lastRecord.type),
+          timestamp: lastRecord.createdAt.toISOString(),
+          created_at: lastRecord.createdAt.toISOString(),
+        }]
+      : [];
+    const audit = auditNextPunchRegistration(dayRecords, logical);
+    return {
+      isValid: true,
+      warnings: audit.warnings.map((w) => w.message),
+    };
+  },
 };
 
 // Helper interno para testes

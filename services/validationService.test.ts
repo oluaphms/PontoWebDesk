@@ -31,23 +31,20 @@ function record(type: LogType, createdAt: Date): TimeRecord {
 
 describe('ValidationService', () => {
   describe('validateSequence', () => {
-    it('first punch of day must be IN', () => {
-      expect(ValidationService.validateSequence(undefined, LogType.IN)).toEqual({ isValid: true });
-      expect(ValidationService.validateSequence(undefined, LogType.OUT).isValid).toBe(false);
-      expect(ValidationService.validateSequence(undefined, LogType.BREAK).isValid).toBe(false);
+    it('registra sempre; sinaliza inconsistência na primeira batida não-entrada', () => {
+      expect(ValidationService.validateSequence(undefined, LogType.IN)).toEqual({ isValid: true, warnings: [] });
+      const out = ValidationService.validateSequence(undefined, LogType.OUT);
+      expect(out.isValid).toBe(true);
+      expect(out.warnings?.length).toBeGreaterThan(0);
+      const brk = ValidationService.validateSequence(undefined, LogType.BREAK);
+      expect(brk.isValid).toBe(true);
+      expect(brk.warnings?.length).toBeGreaterThan(0);
     });
 
-    it('cannot repeat same type', () => {
+    it('permite progressão com avisos quando aplicável', () => {
       const last = record(LogType.IN, new Date());
-      expect(ValidationService.validateSequence(last, LogType.IN).isValid).toBe(false);
       expect(ValidationService.validateSequence(last, LogType.OUT).isValid).toBe(true);
       expect(ValidationService.validateSequence(last, LogType.BREAK).isValid).toBe(true);
-    });
-
-    it('allows valid progression IN -> OUT, IN -> BREAK', () => {
-      const lastIn = record(LogType.IN, new Date());
-      expect(ValidationService.validateSequence(lastIn, LogType.OUT)).toEqual({ isValid: true });
-      expect(ValidationService.validateSequence(lastIn, LogType.BREAK)).toEqual({ isValid: true });
     });
   });
 

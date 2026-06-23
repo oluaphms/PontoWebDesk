@@ -310,7 +310,9 @@ export const PontoService = {
     const fraudFlags: FraudFlag[] = [];
 
     const seqCheck = ValidationService.validateSequence(last, type);
-    if (!seqCheck.isValid) throw new Error(seqCheck.error);
+    if (seqCheck.warnings?.length && typeof console !== 'undefined') {
+      observabilityConsole.warn('[PONTO] sequência com pendência', seqCheck.warnings);
+    }
 
     const timeCheck = ValidationService.validateTimeInterval(last, serverTime);
     if (!timeCheck.isValid) throw new Error(timeCheck.error);

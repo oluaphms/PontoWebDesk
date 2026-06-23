@@ -10,6 +10,7 @@ import { buildPersistDayDecisionTree, snapshotPunchesFromRecords } from '../serv
 import { writeTimesheetsDailyCalculatedRow } from '../services/timesheetsDailyWrite';
 import { appendAfdTimeEngineAudit } from './afdTimeEngineAudit';
 import { appendEngineCalcAudit } from './engineCalcAudit';
+import { auditDayPunchSequence } from '../domain/attendance/punchSequenceAudit';
 import { applyDailyBankLedger, getBankExpiredToPayroll50ForPeriod } from './bankLedger';
 import {
   getDayRecords,
@@ -754,6 +755,21 @@ export function detectInconsistencies(
   const workedMin = parsed.totalWorkedMinutes;
   if (schedule && isWorkDay && schedule.break_start && schedule.break_end && workedMin > MIN_BREAK_IF_WORK_OVER && parsed.breakMinutes < 30) {
     list.push({ employee_id: employeeId, date: dateStr, type: 'missing_break', description: 'Jornada > 6h sem intervalo mínimo' });
+  }
+
+  const seen = new Set(list.map((x) => x.description));
+  for (const w of auditDayPunchSequence(records)) {
+    if (seen.has(w.message)) continue;
+    seen.add(w.message);
+    const incType: InconsistencyType =
+      w.code === 'MISSING_ENTRY' || w.code === 'INTERVAL_WITHOUT_ENTRY' || w.code === 'EXIT_WITHOUT_ENTRY'
+        ? 'missing_entry'
+        : w.code === 'INCOMPLETE_JOURNEY' || w.code === 'EXIT_WITHOUT_INTERVAL_RETURN'
+          ? 'missing_break'
+          : w.code === 'EXIT_WITHOUT_NEW_ENTRY'
+            ? 'missing_exit'
+            : 'invalid_sequence';
+    list.push({ employee_id: employeeId, date: dateStr, type: incType, description: w.message });
   }
 
   return list;
