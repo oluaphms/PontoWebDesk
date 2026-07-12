@@ -1,5 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import { isDataApiWritesDisabled, isDataApiWritesDisabledError, isGenericDataApiWriteAllowed } from './api';
+import { isDataApiWritesDisabled, isDataApiWritesDisabledError, isGenericDataApiWriteAllowed, apiGet } from './api';
 /**
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
@@ -1326,37 +1326,89 @@ export async function getTimeAttendanceData(
   const fetchStart = addDaysToYmdLocal(safeStart, -1);
   const fetchEnd = addDaysToYmdLocal(safeEnd, 1);
 
-  const [sheetRows, recordRows, repPendingFlat] = await Promise.all([
-    db.select(
-      'timesheets_daily',
-      [
-        { column: 'company_id', operator: 'eq', value: companyId },
-        { column: 'date', operator: 'gte', value: safeStart },
-        { column: 'date', operator: 'lte', value: safeEnd },
-      ],
-      {
-        columns: 'id,employee_id,company_id,date,worked_minutes,raw_data',
-        orderBy: { column: 'date', ascending: false },
-        limit: 20000,
-      },
-    ).catch(() => [] as Record<string, unknown>[]),
-    db
-      .select(
-        'time_records',
+  let sheetRows: Record<string, unknown>[] = [];
+  let recordRows: Record<string, unknown>[] = [];
+  let repPendingFlat: PendingRepPunch[] = [];
+
+  const periodFromApi = await apiGet(
+    `/attendance/period?start=${encodeURIComponent(safeStart)}&end=${encodeURIComponent(safeEnd)}`,
+  ).catch(() => null) as
+    | {
+        ok?: boolean;
+        sheets?: Record<string, unknown>[];
+        records?: Record<string, unknown>[];
+        repPending?: Record<string, unknown>[];
+      }
+    | null;
+
+  if (periodFromApi?.ok && Array.isArray(periodFromApi.sheets) && Array.isArray(periodFromApi.records)) {
+    sheetRows = periodFromApi.sheets;
+    recordRows = periodFromApi.records;
+    repPendingFlat = (periodFromApi.repPending ?? [])
+      .map((r) => {
+        const uid = String(r.resolved_user_id ?? '').trim();
+        const dh = String(r.data_hora ?? '');
+        if (!uid || !dh) return null;
+        const day = extractLocalCalendarDateFromIso(dh);
+        if (day < safeStart || day > safeEnd) return null;
+        return {
+          id: String(r.id ?? ''),
+          resolved_user_id: uid,
+          data_hora: dh,
+          tipo_marcacao: r.tipo_marcacao != null ? String(r.tipo_marcacao) : null,
+          nsr: typeof r.nsr === 'number' ? r.nsr : r.nsr != null ? Number(r.nsr) : null,
+          rep_device_id: r.rep_device_id != null ? String(r.rep_device_id) : null,
+          source: r.source != null ? String(r.source) : null,
+          promotion_error_code: r.promotion_error_code != null ? String(r.promotion_error_code) : null,
+          promotion_error_message:
+            r.promotion_error_message != null ? String(r.promotion_error_message) : null,
+          promotion_attempts: typeof r.promotion_attempts === 'number' ? r.promotion_attempts : null,
+          promotion_status: r.promotion_status != null ? String(r.promotion_status) : null,
+          operational_resolution_status:
+            r.operational_resolution_status != null
+              ? (String(r.operational_resolution_status) as RepOperationalResolutionStatus)
+              : null,
+          last_promotion_attempt_at:
+            r.last_promotion_attempt_at != null ? String(r.last_promotion_attempt_at) : null,
+        } satisfies PendingRepPunch;
+      })
+      .filter((p): p is PendingRepPunch => p != null);
+  } else {
+    const [sheetsFallback, recordsFallback, repFallback] = await Promise.all([
+      db.select(
+        'timesheets_daily',
         [
           { column: 'company_id', operator: 'eq', value: companyId },
-          { column: 'timestamp', operator: 'gte', value: localCalendarDayStartUtc(fetchStart) },
-          { column: 'timestamp', operator: 'lte', value: localCalendarDayEndUtc(fetchEnd) },
+          { column: 'date', operator: 'gte', value: safeStart },
+          { column: 'date', operator: 'lte', value: safeEnd },
         ],
         {
-          columns: 'id,user_id,company_id,type,created_at,timestamp',
-          orderBy: { column: 'timestamp', ascending: true },
-          limit: 50000,
+          columns: 'id,employee_id,company_id,date,worked_minutes,raw_data',
+          orderBy: { column: 'date', ascending: false },
+          limit: 2000,
         },
-      )
-      .catch(() => [] as Record<string, unknown>[]),
-    fetchPendingRepPunchLogsForPeriod(companyId, safeStart, safeEnd),
-  ]);
+      ).catch(() => [] as Record<string, unknown>[]),
+      db
+        .select(
+          'time_records',
+          [
+            { column: 'company_id', operator: 'eq', value: companyId },
+            { column: 'timestamp', operator: 'gte', value: localCalendarDayStartUtc(fetchStart) },
+            { column: 'timestamp', operator: 'lte', value: localCalendarDayEndUtc(fetchEnd) },
+          ],
+          {
+            columns: 'id,user_id,company_id,type,created_at,timestamp',
+            orderBy: { column: 'timestamp', ascending: true },
+            limit: 2000,
+          },
+        )
+        .catch(() => [] as Record<string, unknown>[]),
+      fetchPendingRepPunchLogsForPeriod(companyId, safeStart, safeEnd),
+    ]);
+    sheetRows = sheetsFallback ?? [];
+    recordRows = recordsFallback ?? [];
+    repPendingFlat = repFallback;
+  }
 
   const uniqueEmployeeIds = new Set<string>();
   for (const r of recordRows ?? []) {
@@ -1908,7 +1960,8 @@ export async function getAuditTrend(companyId: string): Promise<AuditTrendRow[]>
 
 const auditSummaryCache = new Map<string, { fetchedAt: number; data: TimeAttendanceAuditSummary }>();
 const auditSummaryInflight = new Map<string, Promise<TimeAttendanceAuditSummary | null>>();
-const AUDIT_SUMMARY_TTL_MS = 30_000;
+const AUDIT_SUMMARY_TTL_MS = 5 * 60_000; // 5 min — badge do menu não precisa recalcular o mês a cada 30s
+const AUDIT_SUMMARY_CACHE_MAX = 40;
 
 function auditSummaryCacheKey(companyId: string, start: string, end: string): string {
   return `${companyId}|${start}|${end}`;
@@ -2059,6 +2112,10 @@ export async function getTimeAttendanceAuditSummary(
   };
 
   auditSummaryCache.set(key, { fetchedAt: now, data: summary });
+  if (auditSummaryCache.size > AUDIT_SUMMARY_CACHE_MAX) {
+    const first = auditSummaryCache.keys().next().value;
+    if (first) auditSummaryCache.delete(first);
+  }
 
   await upsertAuditSnapshotIfNeeded(companyId, summary);
 

@@ -7,7 +7,7 @@ import {
 
 export type AuditMenuSignal = 'critical' | 'warning' | null;
 
-const POLL_MS = 30_000;
+const POLL_MS = 120_000; // 2 min — cache de summary é 5 min; evita pressão no path getTimeAttendanceData
 
 /**
  * Contadores leves para badge no menu (sidebar/dock/header). O cache de 30s fica em getTimeAttendanceAuditSummary.
