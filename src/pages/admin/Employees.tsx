@@ -43,7 +43,7 @@ import { setEmployeePasswordInAuth } from '../../services/authAdminApi.service';
 import { formatCpf } from '../../utils/cpfValidation';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { resolveTenantId } from '../../services/tenantScope';
-import { invalidateCompanyListCaches, queryCache } from '../../services/queryCache';
+import { invalidateCompanyListCaches, queryCache, TTL } from '../../services/queryCache';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { parseFile, extractHeaders } from '../../services/fileParser';
@@ -682,36 +682,66 @@ const AdminEmployees: React.FC = () => {
               'id,cpf,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id,ctps,observacoes,tipo_vinculo,naturalidade,estado_civil_text,data_nascimento,rg,rg_orgao,contrato_fim,employee_config',
             limit: 1000,
           }),
-          safeSelectRows('schedules', {
-            columns: 'id,name,shift_id,company_id',
-            limit: 1000,
-            orderBy: { column: 'name', ascending: true },
-          }),
-          safeSelectRows('work_shifts', {
-            columns: 'id,number,name,description,start_time,end_time,company_id',
-            limit: 1000,
-            orderBy: { column: 'name', ascending: true },
-          }),
-          safeSelectRows('departments', {
-            columns: 'id,name,company_id',
-            limit: 1000,
-            orderBy: { column: 'name', ascending: true },
-          }),
-          safeSelectRows('estruturas', {
-            columns: 'id,codigo,descricao,company_id',
-            limit: 1000,
-            orderBy: { column: 'codigo', ascending: true },
-          }),
-          safeSelectRows('job_titles', {
-            columns: 'id,name,company_id',
-            limit: 1000,
-            orderBy: { column: 'name', ascending: true },
-          }),
-          safeSelectRows('motivo_demissao', {
-            columns: 'id,name,company_id',
-            limit: 1000,
-            orderBy: { column: 'name', ascending: true },
-          }),
+          queryCache.getOrFetch(
+            `schedules:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('schedules', {
+                columns: 'id,name,shift_id,company_id',
+                limit: 1000,
+                orderBy: { column: 'name', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
+          queryCache.getOrFetch(
+            `work_shifts:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('work_shifts', {
+                columns: 'id,number,name,description,start_time,end_time,company_id',
+                limit: 1000,
+                orderBy: { column: 'name', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
+          queryCache.getOrFetch(
+            `departments:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('departments', {
+                columns: 'id,name,company_id',
+                limit: 1000,
+                orderBy: { column: 'name', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
+          queryCache.getOrFetch(
+            `estruturas:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('estruturas', {
+                columns: 'id,codigo,descricao,company_id',
+                limit: 1000,
+                orderBy: { column: 'codigo', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
+          queryCache.getOrFetch(
+            `job_titles:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('job_titles', {
+                columns: 'id,name,company_id',
+                limit: 1000,
+                orderBy: { column: 'name', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
+          queryCache.getOrFetch(
+            `motivo_demissao:list:${effectiveCompanyId}`,
+            () =>
+              safeSelectRows('motivo_demissao', {
+                columns: 'id,name,company_id',
+                limit: 1000,
+                orderBy: { column: 'name', ascending: true },
+              }),
+            TTL.STATIC,
+          ),
         ]);
 
       const scheduleOptions = (scheduleRows ?? [])

@@ -324,6 +324,13 @@ export function invalidateCompanyListCaches(companyId: string): void {
   queryCache.invalidate(`employees-api:${companyId}`);
   queryCache.invalidate(`espelho-users:${companyId}`);
   queryCache.invalidate(`espelho-departments:${companyId}`);
+  queryCache.invalidate(`cartao-ponto-users:${companyId}`);
+  queryCache.invalidate(`schedules:list:${companyId}`);
+  queryCache.invalidate(`work_shifts:list:${companyId}`);
+  queryCache.invalidate(`departments:list:${companyId}`);
+  queryCache.invalidate(`estruturas:list:${companyId}`);
+  queryCache.invalidate(`job_titles:list:${companyId}`);
+  queryCache.invalidate(`motivo_demissao:list:${companyId}`);
   queryCache.invalidate(`users:${companyId}`);
   queryCache.invalidate(`time_records:week:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);
