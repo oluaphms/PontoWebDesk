@@ -36,6 +36,8 @@ export async function fetchMonitoringDailyRecordCandidates(companyId: string): P
   if (!isCloudEnabled()) return cloudFallback([]);
   const todayLocal = getOperationalTodayYmd();
   const { startUtcIso, endUtcIso } = buildOperationalDayRange(todayLocal);
+  const columns =
+    'id,user_id,company_id,type,timestamp,created_at,accuracy,latitude,longitude,raw_data,origin,source,method';
 
   const [byPunchInstant, byCreatedAtFallback] = await Promise.all([
     queryCache.getOrFetch(
@@ -48,8 +50,11 @@ export async function fetchMonitoringDailyRecordCandidates(companyId: string): P
             { column: 'timestamp', operator: 'gte', value: startUtcIso },
             { column: 'timestamp', operator: 'lte', value: endUtcIso },
           ],
-          { column: 'timestamp', ascending: false },
-          MONITORING_DAILY_RECORD_QUERY_LIMIT,
+          {
+            columns,
+            orderBy: { column: 'timestamp', ascending: false },
+            limit: MONITORING_DAILY_RECORD_QUERY_LIMIT,
+          },
         ) as Promise<OperationalPunchRecord[]>,
       TTL.REALTIME,
     ),
@@ -63,8 +68,11 @@ export async function fetchMonitoringDailyRecordCandidates(companyId: string): P
             { column: 'created_at', operator: 'gte', value: startUtcIso },
             { column: 'created_at', operator: 'lte', value: endUtcIso },
           ],
-          { column: 'created_at', ascending: false },
-          MONITORING_DAILY_RECORD_QUERY_LIMIT,
+          {
+            columns,
+            orderBy: { column: 'created_at', ascending: false },
+            limit: MONITORING_DAILY_RECORD_QUERY_LIMIT,
+          },
         ) as Promise<OperationalPunchRecord[]>,
       TTL.REALTIME,
     ),
@@ -76,12 +84,17 @@ export async function fetchMonitoringDailyRecordCandidates(companyId: string): P
 /** Registros recentes + dia operacional (evita perder batidas de hoje em empresas com alto volume). */
 export async function fetchMonitoringTimeRecordsBundle(companyId: string): Promise<OperationalPunchRecord[]> {
   if (!isCloudEnabled()) return cloudFallback([]);
+  const columns =
+    'id,user_id,company_id,type,timestamp,created_at,accuracy,latitude,longitude,raw_data,origin,source,method';
   const [daily, recent] = await Promise.all([
     fetchMonitoringDailyRecordCandidates(companyId),
     listTimeRecords(
       [{ column: 'company_id', operator: 'eq', value: companyId }],
-      { column: 'created_at', ascending: false },
-      MONITORING_RECENT_RECORD_QUERY_LIMIT,
+      {
+        columns,
+        orderBy: { column: 'created_at', ascending: false },
+        limit: MONITORING_RECENT_RECORD_QUERY_LIMIT,
+      },
     ) as Promise<OperationalPunchRecord[]>,
   ]);
   return mergeMonitoringRecordRows(daily, recent);

@@ -148,11 +148,8 @@ function recordUserIdsForEmployee(employee: ApiEmployee, userIdByEmail: Map<stri
 }
 
 async function fetchDashboardEmployees(companyId: string): Promise<ApiEmployee[]> {
-  return queryCache.getOrFetch(
-    `employees:${companyId}:dashboard`,
-    () => fetchEmployees(companyId),
-    TTL.SHORT,
-  );
+  // Reusa `employees-api:` (fetchEmployees) — sem wrapper paralelo.
+  return fetchEmployees(companyId);
 }
 
 function operationalDashboardTodayYmd(): string {
@@ -210,6 +207,8 @@ async function fetchAdminDashboardDailyRecordCandidates(
   startUtcIso: string,
   endUtcIso: string,
 ): Promise<DashboardRecordCandidate[]> {
+  const columns =
+    'id,user_id,company_id,type,timestamp,created_at,accuracy,latitude,longitude,raw_data,origin,source,method,metadata,source_type,is_manual,manual_reason,device_id,nsr';
   const [byPunchInstant, byCreatedAtFallback] = await Promise.all([
     queryCache.getOrFetch(
       `time_records:admin_dash:daily:punch:${companyId}:${todayLocal}`,
@@ -221,8 +220,11 @@ async function fetchAdminDashboardDailyRecordCandidates(
             { column: 'timestamp', operator: 'gte', value: startUtcIso },
             { column: 'timestamp', operator: 'lte', value: endUtcIso },
           ],
-          { column: 'timestamp', ascending: false },
-          ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+          {
+            columns,
+            orderBy: { column: 'timestamp', ascending: false },
+            limit: ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+          },
         ) as Promise<DashboardRecordCandidate[]>,
       TTL.REALTIME,
     ),
@@ -236,8 +238,11 @@ async function fetchAdminDashboardDailyRecordCandidates(
             { column: 'created_at', operator: 'gte', value: startUtcIso },
             { column: 'created_at', operator: 'lte', value: endUtcIso },
           ],
-          { column: 'created_at', ascending: false },
-          ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+          {
+            columns,
+            orderBy: { column: 'created_at', ascending: false },
+            limit: ADMIN_DASHBOARD_DAILY_RECORD_QUERY_LIMIT,
+          },
         ) as Promise<DashboardRecordCandidate[]>,
       TTL.REALTIME,
     ),
