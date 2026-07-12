@@ -118,7 +118,9 @@ const ReportInconsistencies: React.FC = () => {
               500
             )) as any[];
 
-            const apiEmployees = (await fetchEmployees(cid)).filter(isActiveCollaborator);
+            const apiEmployees = (
+              await queryCache.getOrFetch(`employees-api:${cid}`, () => fetchEmployees(cid), TTL.NORMAL)
+            ).filter(isActiveCollaborator);
             const users = (await db.select(
               'users',
               [{ column: 'company_id', operator: 'eq', value: cid }],
