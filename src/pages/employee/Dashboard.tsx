@@ -23,6 +23,7 @@ import { filterRecordsForOperationalDay } from '../../services/monitoring/monito
 import { deriveOperationalStatusFromLastPunch, EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
 import { isCompanyWideNotice } from '../../../services/notificationService';
 import { NOTIFICATION_LIST_COLUMNS } from '../../services/egressSelectColumns';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 
 function logDashboardDebug(label: string, payload: unknown): void {
   console.log(label, payload);
@@ -106,61 +107,68 @@ const EmployeeDashboard: React.FC = () => {
         const todayYmd = localTodayYmd();
         const now = new Date();
         const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-        let schedToday: WorkScheduleInfo | null = null;
-        if (user.companyId) {
-          try {
-            const resolved = await resolveEmployeeScheduleForDate(user.id, user.companyId, todayYmd);
-            schedToday = resolved.schedule;
-          } catch {
-            schedToday = null;
-          }
-        }
-        setTodaySchedule(schedToday);
 
-        let rows: any[] = [];
-        try {
-          rows = (await getTimeRecordsForEmployeeDashboard(user.id, user.companyId, monthStart, todayYmd)) as any[];
-          logDashboardDebug('API RESPONSE', {
-            endpoint: '/api/data/time_records',
-            query: 'time_records por company_id e user_id, com alias users.id/employees.id resolvido por e-mail quando disponível',
-            filters: [
-              ...(user.companyId ? [{ column: 'company_id', operator: 'eq', value: user.companyId }] : []),
-              { column: 'user_id', operator: 'eq', value: user.id },
-            ],
-            periodStart: monthStart,
-            periodEnd: todayYmd,
-            count: rows.length,
-            sample: rows.slice(0, 5),
-          });
-        } catch (error) {
-          observabilityConsole.error('[EmployeeDashboard] time_records indisponível:', error);
-          rows = [];
+        const schedulePromise = user.companyId
+          ? resolveEmployeeScheduleForDate(user.id, user.companyId, todayYmd)
+              .then((resolved) => resolved.schedule)
+              .catch(() => null)
+          : Promise.resolve(null);
+
+        const recordsPromise = (async (): Promise<any[]> => {
           try {
-            const fallbackFilters = [
-              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
-              { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
-            ];
-            rows =
-              (await db.select(
-                'time_records',
-                fallbackFilters,
-                {
-                  columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
-                  orderBy: { column: 'created_at', ascending: false },
-                  limit: 500,
-                },
-              )) ?? [];
+            const rows = (await getTimeRecordsForEmployeeDashboard(
+              user.id,
+              user.companyId,
+              monthStart,
+              todayYmd,
+            )) as any[];
             logDashboardDebug('API RESPONSE', {
               endpoint: '/api/data/time_records',
-              fallback: true,
-              filters: fallbackFilters,
+              query: 'time_records por company_id e user_id, com alias users.id/employees.id resolvido por e-mail quando disponível',
+              filters: [
+                ...(user.companyId ? [{ column: 'company_id', operator: 'eq', value: user.companyId }] : []),
+                { column: 'user_id', operator: 'eq', value: user.id },
+              ],
+              periodStart: monthStart,
+              periodEnd: todayYmd,
               count: rows.length,
               sample: rows.slice(0, 5),
             });
-          } catch (fallbackErr) {
-            observabilityConsole.error('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
+            return rows;
+          } catch (error) {
+            observabilityConsole.error('[EmployeeDashboard] time_records indisponível:', error);
+            try {
+              const fallbackFilters = [
+                ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+                { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+              ];
+              const rows =
+                (await db.select(
+                  'time_records',
+                  fallbackFilters,
+                  {
+                    columns: 'id, user_id, company_id, type, method, created_at, timestamp, source, origin',
+                    orderBy: { column: 'created_at', ascending: false },
+                    limit: 500,
+                  },
+                )) ?? [];
+              logDashboardDebug('API RESPONSE', {
+                endpoint: '/api/data/time_records',
+                fallback: true,
+                filters: fallbackFilters,
+                count: rows.length,
+                sample: rows.slice(0, 5),
+              });
+              return rows as any[];
+            } catch (fallbackErr) {
+              observabilityConsole.error('[EmployeeDashboard] fallback time_records falhou:', fallbackErr);
+              return [];
+            }
           }
-        }
+        })();
+
+        const [schedToday, rows] = await Promise.all([schedulePromise, recordsPromise]);
+        setTodaySchedule(schedToday);
         logDashboardDebug('TIME RECORDS', rows);
         logDashboardDebug('PUNCHES', rows);
         const sortedAll = [...(rows ?? [])].sort((a, b) => recordPunchInstantMs(b) - recordPunchInstantMs(a));
@@ -211,17 +219,6 @@ const EmployeeDashboard: React.FC = () => {
         }
 
         try {
-          const reqs = (await db.select('requests', [{ column: 'user_id', operator: 'eq', value: user.id }], {
-            columns: 'id, status',
-            limit: 100,
-          })) as any[];
-          const pending = (reqs ?? []).filter((r: any) => (r.status || '').toLowerCase() === 'pending' || (r.status || '').toLowerCase() === 'pendente');
-          setPendingRequests(pending.length);
-        } catch {
-          setPendingRequests(0);
-        }
-
-        try {
           const monthPrefix = new Date().toISOString().slice(0, 7);
           const companyId = String(user.companyId ?? '').trim();
           const ledgerFilters = [
@@ -230,9 +227,47 @@ const EmployeeDashboard: React.FC = () => {
             { column: 'date', operator: 'lte' as const, value: monthEndYmd(monthPrefix) },
             ...(companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: companyId }] : []),
           ];
-          const ledgerRows = await db
-            .select('bank_hours_ledger', ledgerFilters, { column: 'created_at', ascending: false }, 400)
-            .catch(() => [] as any[]);
+
+          const [reqsSettled, ledgerSettled, schedSettled, noticesSettled] = await Promise.allSettled([
+            db.select('requests', [{ column: 'user_id', operator: 'eq', value: user.id }], {
+              columns: 'id, status',
+              limit: 100,
+            }),
+            db.select('bank_hours_ledger', ledgerFilters, { column: 'created_at', ascending: false }, 400),
+            user.schedule_id
+              ? db.select('schedules', [
+                  ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+                  { column: 'id' as const, operator: 'eq' as const, value: user.schedule_id },
+                ])
+              : Promise.resolve(null),
+            db.select(
+              'notifications',
+              [
+                ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
+                { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
+                { column: 'read' as const, operator: 'eq' as const, value: false },
+              ],
+              {
+                columns: NOTIFICATION_LIST_COLUMNS,
+                orderBy: { column: 'created_at', ascending: false },
+                limit: 20,
+              },
+            ),
+          ]);
+
+          if (reqsSettled.status === 'fulfilled') {
+            const reqs = (reqsSettled.value as any[]) ?? [];
+            const pending = reqs.filter(
+              (r: any) =>
+                (r.status || '').toLowerCase() === 'pending' || (r.status || '').toLowerCase() === 'pendente',
+            );
+            setPendingRequests(pending.length);
+          } else {
+            setPendingRequests(0);
+          }
+
+          const ledgerRows =
+            ledgerSettled.status === 'fulfilled' ? ((ledgerSettled.value as any[]) ?? []) : [];
           if (ledgerRows?.length) {
             const creditMin = ledgerRows
               .filter((r: any) => String(r.type).toUpperCase() === 'CREDIT')
@@ -243,17 +278,28 @@ const EmployeeDashboard: React.FC = () => {
             const bal = computeLedgerAvailableBalanceMinutes(ledgerRows) / 60;
             setBalanceHours(formatSignedHours(bal));
             setBankCreditDebit(`Este mês: +${(creditMin / 60).toFixed(1)}h crédito · −${(debitMin / 60).toFixed(1)}h débito`);
-          } else {
+          } else if (ledgerSettled.status === 'fulfilled') {
             setBalanceHours('0h');
             setBankCreditDebit('Sem movimentações no banco ainda');
+          } else {
+            setBalanceHours('—');
+            setBankCreditDebit('Indisponível');
           }
+
           logDashboardDebug('DASHBOARD_DATA', {
             todayRecords: todaySortedAsc.length,
             lastRecord: lastPick,
             todayHours: todaySortedAsc.length > 0 ? formatarTempoLegivel(calcularHorasHojeMs(todaySortedAsc)) : '0h 0m',
             monthRecords: monthList.length,
             ledgerRows: ledgerRows?.length ?? 0,
-            pendingRequests,
+            pendingRequests:
+              reqsSettled.status === 'fulfilled'
+                ? ((reqsSettled.value as any[]) ?? []).filter(
+                    (r: any) =>
+                      (r.status || '').toLowerCase() === 'pending' ||
+                      (r.status || '').toLowerCase() === 'pendente',
+                  ).length
+                : 0,
           });
           logDashboardDebug('TIMESHEET_DATA', {
             source: 'time_records',
@@ -263,52 +309,44 @@ const EmployeeDashboard: React.FC = () => {
             monthRecords: monthList.length,
             ledgerRows: ledgerRows?.length ?? 0,
           });
+
+          if (user.schedule_id) {
+            if (schedSettled.status === 'fulfilled' && Array.isArray(schedSettled.value) && schedSettled.value[0]) {
+              setScheduleName(schedSettled.value[0].name || '—');
+            } else {
+              setScheduleName('—');
+            }
+          } else if (user.scheduleName) {
+            setScheduleName(user.scheduleName);
+          }
+
+          if (noticesSettled.status === 'fulfilled') {
+            const notices = (noticesSettled.value as Array<{
+              id?: string;
+              title?: string;
+              message?: string;
+              metadata?: Record<string, unknown>;
+              created_at?: string;
+            }>) ?? [];
+            setCompanyNotices(
+              notices
+                .filter((n) => isCompanyWideNotice(n))
+                .slice(0, 5)
+                .map((n) => ({
+                  id: String(n.id ?? ''),
+                  title: String(n.title ?? 'Aviso'),
+                  body: String(n.message ?? ''),
+                  createdAt: String(n.created_at ?? ''),
+                }))
+                .filter((n) => n.id),
+            );
+          } else {
+            setCompanyNotices([]);
+          }
         } catch {
           setBalanceHours('—');
           setBankCreditDebit('Indisponível');
-        }
-
-        if (user.schedule_id) {
-          try {
-            const sched = (await db.select('schedules', [
-              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
-              { column: 'id' as const, operator: 'eq' as const, value: user.schedule_id },
-            ])) as any[];
-            if (sched?.[0]) setScheduleName(sched[0].name || '—');
-          } catch {
-            setScheduleName('—');
-          }
-        } else if (user.scheduleName) {
-          setScheduleName(user.scheduleName);
-        }
-
-        try {
-          const notices = (await db.select(
-            'notifications',
-            [
-              ...(user.companyId ? [{ column: 'company_id' as const, operator: 'eq' as const, value: user.companyId }] : []),
-              { column: 'user_id' as const, operator: 'eq' as const, value: user.id },
-              { column: 'read' as const, operator: 'eq' as const, value: false },
-            ],
-            {
-              columns: NOTIFICATION_LIST_COLUMNS,
-              orderBy: { column: 'created_at', ascending: false },
-              limit: 20,
-            },
-          )) as Array<{ id?: string; title?: string; message?: string; metadata?: Record<string, unknown> }>;
-          setCompanyNotices(
-            (notices ?? [])
-              .filter((n) => isCompanyWideNotice(n))
-              .slice(0, 5)
-              .map((n: { id?: string; title?: string; message?: string; created_at?: string }) => ({
-                id: String(n.id ?? ''),
-                title: String(n.title ?? 'Aviso'),
-                body: String(n.message ?? ''),
-                createdAt: String(n.created_at ?? ''),
-              }))
-              .filter((n) => n.id),
-          );
-        } catch {
+          setPendingRequests(0);
           setCompanyNotices([]);
         }
       } catch (e) {
@@ -317,7 +355,7 @@ const EmployeeDashboard: React.FC = () => {
         if (showLoading) setLoadingData(false);
       }
     },
-    [user],
+    [user?.id, user?.companyId, user?.schedule_id, user?.scheduleName, user?.tenantId, user?.role],
   );
 
   useEffect(() => {
@@ -332,8 +370,9 @@ const EmployeeDashboard: React.FC = () => {
   useEffect(() => {
     if (!user?.id) return;
     const t = window.setInterval(() => {
+      if (isPollingSuppressedByVisibility()) return;
       void loadDashboard({ showLoading: false });
-    }, 15_000);
+    }, getAdaptiveRefetchIntervalMs(15_000));
     return () => window.clearInterval(t);
   }, [user?.id, loadDashboard]);
 
