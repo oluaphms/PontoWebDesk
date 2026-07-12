@@ -9,7 +9,7 @@ import { formatDateForTablePtBr } from '../../utils/timeCalculations';
 import { queryCache, TTL } from '../../services/queryCache';
 import { apiGet, apiPost } from '../../services/api';
 import { useToast } from '../../components/ToastProvider';
-import { fetchEmployees } from '../../services/employeesApi.service';
+import { fetchEmployeesPage } from '../../services/employeesApi.service';
 
 interface BankHoursLedgerRow {
   id: string;
@@ -122,11 +122,7 @@ const AdminBankHours: React.FC = () => {
   useEffect(() => {
     if (!user?.companyId) return;
     const load = async () => {
-      const employeeRows = await queryCache.getOrFetch(
-        `employees:${user.companyId}:bank_hours_options`,
-        () => fetchEmployees(user.companyId),
-        TTL.NORMAL,
-      );
+      const { employees: employeeRows } = await fetchEmployeesPage(user.companyId, { limit: 200, offset: 0 });
       const activeEmployees = (employeeRows ?? [])
         .filter((employee) => employee.status !== 'inactive' && employee.status !== 'inativo' && employee.invisivel !== true)
         .map((employee) => ({

@@ -17,7 +17,7 @@ import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState } from '../../../components/UI';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
-import { buscarColaboradores } from '../../../services/api';
+import { fetchEmployeesPage } from '../../services/employeesApi.service';
 import { runCalcPeriodJob } from '../../services/adminCalcPeriodJob.service';
 import {
   processEmployeeDay,
@@ -155,8 +155,8 @@ const AdminCalculos: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const [list, holidays] = await Promise.all([
-          buscarColaboradores(user.companyId!),
+        const [page, holidays] = await Promise.all([
+          fetchEmployeesPage(user.companyId!, { limit: 200, offset: 0 }),
           db
             .select('holidays', [{ column: 'company_id', operator: 'eq', value: user.companyId }])
             .catch(() =>
@@ -164,6 +164,10 @@ const AdminCalculos: React.FC = () => {
             ),
         ]);
         if (!cancelled) {
+          const list = (page.employees ?? []).map((e) => ({
+            id: e.id,
+            nome: e.nome || e.email || e.id,
+          }));
           setEmployees([...list].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')));
           const holSet = new Set(
             (holidays ?? [])
@@ -293,8 +297,12 @@ const AdminCalculos: React.FC = () => {
           { column: 'date', operator: 'gte', value: periodStart },
           { column: 'date', operator: 'lte', value: periodEnd },
         ],
-        { column: 'date', ascending: true },
-        500
+        {
+          columns:
+            'date,worked_minutes,expected_minutes,overtime_minutes,absence_minutes,night_minutes,late_minutes,raw_data',
+          orderBy: { column: 'date', ascending: true },
+          limit: 500,
+        },
       )) as Array<{
         date: string;
         worked_minutes: number;

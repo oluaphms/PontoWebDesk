@@ -43,7 +43,15 @@ import { setEmployeePasswordInAuth } from '../../services/authAdminApi.service';
 import { formatCpf } from '../../utils/cpfValidation';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
 import { resolveTenantId } from '../../services/tenantScope';
-import { invalidateCompanyListCaches, queryCache, TTL } from '../../services/queryCache';
+import { invalidateCompanyListCaches, queryCache } from '../../services/queryCache';
+import {
+  fetchCachedDepartments,
+  fetchCachedEstruturas,
+  fetchCachedJobTitles,
+  fetchCachedMotivoDemissao,
+  fetchCachedSchedules,
+  fetchCachedWorkShifts,
+} from '../../services/catalogCache.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { parseFile, extractHeaders } from '../../services/fileParser';
@@ -434,6 +442,8 @@ const AdminEmployees: React.FC = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const scrollModalTopRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<EmployeeRow[]>([]);
+  const [listPage, setListPage] = useState(0);
+  const EMPLOYEES_PAGE_SIZE = 50;
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
   const [workShifts, setWorkShifts] = useState<WorkShiftOption[]>([]);
   const [cargos, setCargos] = useState<{ id: string; name: string }[]>([]);
@@ -509,6 +519,9 @@ const AdminEmployees: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  useEffect(() => {
+    setListPage(0);
+  }, [search, showInvisiveis]);
   const [showPassword, setShowPassword] = useState(false);
   const [askInvisivel, setAskInvisivel] = useState<string | null>(null);
   const [settingPassword, setSettingPassword] = useState(false);
@@ -682,66 +695,12 @@ const AdminEmployees: React.FC = () => {
               'id,cpf,schedule_id,shift_id,department_id,estrutura_id,motivo_demissao_id,ctps,observacoes,tipo_vinculo,naturalidade,estado_civil_text,data_nascimento,rg,rg_orgao,contrato_fim,employee_config',
             limit: 1000,
           }),
-          queryCache.getOrFetch(
-            `schedules:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('schedules', {
-                columns: 'id,name,shift_id,company_id',
-                limit: 1000,
-                orderBy: { column: 'name', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
-          queryCache.getOrFetch(
-            `work_shifts:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('work_shifts', {
-                columns: 'id,number,name,description,start_time,end_time,company_id',
-                limit: 1000,
-                orderBy: { column: 'name', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
-          queryCache.getOrFetch(
-            `departments:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('departments', {
-                columns: 'id,name,company_id',
-                limit: 1000,
-                orderBy: { column: 'name', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
-          queryCache.getOrFetch(
-            `estruturas:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('estruturas', {
-                columns: 'id,codigo,descricao,company_id',
-                limit: 1000,
-                orderBy: { column: 'codigo', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
-          queryCache.getOrFetch(
-            `job_titles:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('job_titles', {
-                columns: 'id,name,company_id',
-                limit: 1000,
-                orderBy: { column: 'name', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
-          queryCache.getOrFetch(
-            `motivo_demissao:list:${effectiveCompanyId}`,
-            () =>
-              safeSelectRows('motivo_demissao', {
-                columns: 'id,name,company_id',
-                limit: 1000,
-                orderBy: { column: 'name', ascending: true },
-              }),
-            TTL.STATIC,
-          ),
+          fetchCachedSchedules(effectiveCompanyId),
+          fetchCachedWorkShifts(effectiveCompanyId),
+          fetchCachedDepartments(effectiveCompanyId),
+          fetchCachedEstruturas(effectiveCompanyId),
+          fetchCachedJobTitles(effectiveCompanyId),
+          fetchCachedMotivoDemissao(effectiveCompanyId),
         ]);
 
       const scheduleOptions = (scheduleRows ?? [])
@@ -1239,6 +1198,13 @@ const AdminEmployees: React.FC = () => {
     )
     : visibleRows;
 
+  const listPageCount = Math.max(1, Math.ceil(filteredRows.length / EMPLOYEES_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, listPageCount - 1);
+  const pagedRows = filteredRows.slice(
+    safeListPage * EMPLOYEES_PAGE_SIZE,
+    safeListPage * EMPLOYEES_PAGE_SIZE + EMPLOYEES_PAGE_SIZE,
+  );
+
   const employeeModalStatusRow = useMemo(
     () => (editingId ? rows.find((r) => r.id === editingId) : undefined),
     [editingId, rows],
@@ -1645,12 +1611,35 @@ const AdminEmployees: React.FC = () => {
               {filteredRows.length} de {visibleRows.length} resultado(s)
             </span>
           )}
+          {filteredRows.length > EMPLOYEES_PAGE_SIZE && (
+            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 ml-auto">
+              <button
+                type="button"
+                disabled={safeListPage <= 0}
+                onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span>
+                {safeListPage + 1}/{listPageCount}
+              </span>
+              <button
+                type="button"
+                disabled={safeListPage >= listPageCount - 1}
+                onClick={() => setListPage((p) => Math.min(listPageCount - 1, p + 1))}
+                className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+              >
+                Próxima
+              </button>
+            </div>
+          )}
         </div>
 
         <EmployeesTable
           loading={loadingData}
           rows={rows}
-          filteredRows={filteredRows}
+          filteredRows={pagedRows}
           search={search}
           onOpenTimesheet={(id) => navigate('/admin/timesheet?user=' + id)}
           onEdit={openEdit}

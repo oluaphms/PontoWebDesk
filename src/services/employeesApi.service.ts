@@ -112,6 +112,7 @@ export type EmployeesListResponse = {
   message?: string;
   code?: string;
   field?: string;
+  meta?: { limit?: number; offset?: number; hasMore?: boolean; q?: string | null };
 };
 
 function toApiBody(input: EmployeeWriteInput | EmployeeUpdateInput): Record<string, unknown> {
@@ -248,6 +249,55 @@ export async function fetchEmployees(companyId: string): Promise<ApiEmployee[]> 
     },
     TTL.NORMAL,
   );
+}
+
+/** Busca leve (header / typeahead) — não usa cache da lista completa. */
+export async function searchEmployees(
+  companyId: string,
+  q: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ApiEmployee[]> {
+  const cid = String(companyId || '').trim();
+  const query = String(q || '').trim();
+  if (!cid || query.length < 2) return [];
+  const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
+  const offset = Math.max(0, opts?.offset ?? 0);
+  const params = new URLSearchParams({
+    companyId: cid,
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const data = (await apiGet(`/employees?${params.toString()}`)) as EmployeesListResponse;
+  if (!data?.ok && !data?.employees) {
+    throw new Error(String(data?.error || 'Erro ao buscar colaboradores'));
+  }
+  return (data.employees ?? []).map(normalizeApiEmployee);
+}
+
+/** Página de colaboradores (selects / listagens) — não polui o cache da lista completa. */
+export async function fetchEmployeesPage(
+  companyId: string,
+  opts?: { limit?: number; offset?: number; q?: string },
+): Promise<{ employees: ApiEmployee[]; hasMore: boolean; limit: number; offset: number }> {
+  const cid = String(companyId || '').trim();
+  if (!cid) return { employees: [], hasMore: false, limit: 0, offset: 0 };
+  const limit = Math.min(1000, Math.max(1, opts?.limit ?? 50));
+  const offset = Math.max(0, opts?.offset ?? 0);
+  const q = String(opts?.q ?? '').trim();
+  const params = new URLSearchParams({
+    companyId: cid,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (q) params.set('q', q);
+  const data = (await apiGet(`/employees?${params.toString()}`)) as EmployeesListResponse;
+  if (!data?.ok && !data?.employees) {
+    throw new Error(String(data?.error || 'Erro ao listar colaboradores'));
+  }
+  const employees = (data.employees ?? []).map(normalizeApiEmployee);
+  const hasMore = Boolean(data.meta?.hasMore ?? employees.length === limit);
+  return { employees, hasMore, limit, offset };
 }
 
 export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmployee> {
