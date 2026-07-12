@@ -271,20 +271,20 @@ const EmployeeTimesheet: React.FC = () => {
           2000
         );
 
-        let holidayRows: any[] = [];
-        if (companyId) {
+        const holidaysP = (async (): Promise<any[]> => {
+          if (!companyId) return [];
           try {
-            holidayRows = (await db.select('holidays', [
+            return (await db.select('holidays', [
               { column: 'company_id', operator: 'eq', value: companyId },
             ])) as any[];
           } catch {
-            holidayRows = (await db
+            return (await db
               .select('feriados', [{ column: 'company_id', operator: 'eq', value: companyId }])
               .catch(() => [])) as any[];
           }
-        }
+        })();
 
-        const [rows] = await Promise.all([rowsP]);
+        const [rows, holidayRows] = await Promise.all([rowsP, holidaysP]);
         logTimesheetDebug('API RESPONSE', {
           endpoint: '/api/data/time_records',
           filters: recordFilters,

@@ -128,18 +128,26 @@ const AdminLancamentoEventos: React.FC = () => {
         { column: 'data', operator: 'lte', value: periodEnd },
       ];
       const rows = (await db.select('lancamento_eventos', filters)) as any[];
-      const userIds = [...new Set((rows ?? []).map((r: any) => r.user_id))];
-      const eventoIds = [...new Set((rows ?? []).map((r: any) => r.evento_id))];
       const userMap = new Map<string, string>();
       const eventoMap = new Map<string, { codigo: string; descricao: string }>();
-      if (userIds.length) {
-        const usersData = await fetchEmployees(user.companyId);
-        (usersData ?? []).forEach((u: any) => userMap.set(u.id, u.nome || u.email || ''));
-      }
-      if (eventoIds.length) {
-        const eventosData = (await db.select('eventos_folha', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
-        (eventosData ?? []).forEach((e: any) => eventoMap.set(e.id, { codigo: e.codigo || '', descricao: e.descricao || '' }));
-      }
+      // Preferir estado já carregado; fallback na API (cache employees-api)
+      const empRows =
+        employees.length > 0
+          ? employees
+          : ((await fetchEmployees(user.companyId)) ?? []).map((u: any) => ({
+              id: u.id,
+              nome: u.nome || u.email || '',
+            }));
+      empRows.forEach((u: { id: string; nome: string }) => userMap.set(u.id, u.nome || ''));
+      const evtRows =
+        eventos.length > 0
+          ? eventos
+          : (((await db.select('eventos_folha', [
+              { column: 'company_id', operator: 'eq', value: user.companyId },
+            ])) as any[]) ?? []);
+      evtRows.forEach((e: any) =>
+        eventoMap.set(e.id, { codigo: e.codigo || '', descricao: e.descricao || '' }),
+      );
       setLancamentos((rows ?? []).map((r: any) => ({
         ...r,
         user_nome: userMap.get(r.user_id) ?? '',
@@ -152,6 +160,8 @@ const AdminLancamentoEventos: React.FC = () => {
     } finally {
       setLoadingData(false);
     }
+    // employees/eventos lidos do closure atual sem re-disparar o effect a cada load de catálogo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.companyId, periodStart, periodEnd]);
 
   useEffect(() => {
