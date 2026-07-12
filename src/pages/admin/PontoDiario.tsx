@@ -11,6 +11,7 @@ import { fetchEmployees } from '../../services/employeesApi.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
+import { queryCache, TTL } from '../../services/queryCache';
 
 const MAX_PONTO_DIARIO_RANGE_DAYS = 31;
 
@@ -111,16 +112,26 @@ const AdminPontoDiario: React.FC = () => {
       setLoadingData(false);
       return;
     }
-    const loadEmployees = async () => {
+    const loadCatalog = async () => {
       setLoadingData(true);
       try {
-        const [colaboradores, apiEmployees, metasRows, departmentsRows, shiftRows] = await Promise.all([
-          buscarColaboradores(user.companyId),
-          fetchEmployees(user.companyId),
-          db.select('cartao_ponto_dia', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
-          buscarDepartamentos(user.companyId),
-          db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: user.companyId }]) as Promise<any[]>,
+        const cid = user.companyId;
+        const [colaboradores, departmentsRows, shiftRows] = await Promise.all([
+          buscarColaboradores(cid),
+          buscarDepartamentos(cid),
+          queryCache.getOrFetch(
+            `work_shifts:list:${cid}`,
+            () =>
+              db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: cid }], {
+                columns: 'id,number,name,description,start_time,end_time,ativo,company_id',
+                limit: 500,
+                orderBy: { column: 'name', ascending: true },
+              }) as Promise<any[]>,
+            TTL.STATIC,
+          ),
         ]);
+        // Hit de cache de buscarColaboradores → fetchEmployees (sem 2º HTTP)
+        const apiEmployees = await fetchEmployees(cid);
         const cargoById = new Map(apiEmployees.map((e) => [e.id, e.cargo ?? '']));
         const shiftById = new Map(
           apiEmployees.map((e) => [e.id, e.shift_id ?? e.work_shift_id ?? '']),
@@ -149,6 +160,31 @@ const AdminPontoDiario: React.FC = () => {
             }))
             .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
         );
+      } catch (e) {
+        observabilityConsole.error(e);
+        setMessage({ type: 'error', text: 'Erro ao carregar colaboradores do Ponto Diário.' });
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    void loadCatalog();
+  }, [user?.companyId]);
+
+  useEffect(() => {
+    if (!user?.companyId || !isSupabaseConfigured() || !periodValid) {
+      setDiasMeta({});
+      setDiasDirty({});
+      return;
+    }
+    let cancelled = false;
+    const loadMetas = async () => {
+      try {
+        const metasRows = (await db.select('cartao_ponto_dia', [
+          { column: 'company_id', operator: 'eq', value: user.companyId },
+          { column: 'data', operator: 'gte', value: data },
+          { column: 'data', operator: 'lte', value: dataFim },
+        ])) as any[];
+        if (cancelled) return;
         const metaMap: Record<string, { id?: string; meta: DayMeta }> = {};
         (metasRows ?? []).forEach((row: any) => {
           const d = row.data?.slice?.(0, 10) ?? row.data;
@@ -165,14 +201,14 @@ const AdminPontoDiario: React.FC = () => {
         setDiasMeta(metaMap);
         setDiasDirty({});
       } catch (e) {
-        observabilityConsole.error(e);
-        setMessage({ type: 'error', text: 'Erro ao carregar colaboradores do Ponto Diário.' });
-      } finally {
-        setLoadingData(false);
+        if (!cancelled) observabilityConsole.error(e);
       }
     };
-    void loadEmployees();
-  }, [user?.companyId]);
+    void loadMetas();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.companyId, data, dataFim, periodValid]);
 
   useEffect(() => {
     if (!user?.companyId || !isSupabaseConfigured() || !periodValid) {
