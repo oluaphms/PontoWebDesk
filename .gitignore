@@ -82,3 +82,7 @@ backend/data/*.sql
 vps-pre-import-*.dump
 vps-backup-*.dump
 supabase-data.dump
+
+# Backup local de migrations (não versionar)
+supabase_old/
+
