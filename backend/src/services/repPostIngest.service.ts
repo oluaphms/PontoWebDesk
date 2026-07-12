@@ -275,7 +275,29 @@ export async function processRepCalcDayJobsImmediate(companyId: string, limit = 
 }
 
 export async function logRepPipelineDbDiagnostics(companyId?: string | null): Promise<Record<string, number>> {
+  const enabled =
+    process.env.REP_PIPELINE_DIAG === '1' ||
+    process.env.REP_PIPELINE_DIAG === 'true' ||
+    process.env.NODE_ENV === 'development';
+  if (!enabled) {
+    return {
+      rep_punch_logs_24h: -1,
+      time_records_24h: -1,
+      timesheets_daily_7d: -1,
+      rep_pending_promotion: -1,
+    };
+  }
+
   const cid = companyId?.trim() || undefined;
+  if (!cid) {
+    // Não roda COUNTs globais cross-tenant.
+    return {
+      rep_punch_logs_24h: 0,
+      time_records_24h: 0,
+      timesheets_daily_7d: 0,
+      rep_pending_promotion: 0,
+    };
+  }
   const [repPunchLogs24h, timeRecords24h, timesheetsDaily7d, pendingPromotion] = await Promise.all([
     countRepPunchLogsRecent(cid, 24),
     countTimeRecordsRepRecent(cid, 24),
@@ -294,7 +316,7 @@ export async function logRepPipelineDbDiagnostics(companyId?: string | null): Pr
     module: 'rep.pipeline',
     action: 'REP_DB_DIAGNOSTICS',
     message: 'Diagnóstico automático do pipeline REP',
-    companyId: cid ?? null,
+    companyId: cid,
     meta: snapshot,
   });
 
