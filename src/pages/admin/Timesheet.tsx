@@ -29,7 +29,6 @@ import {
 } from '../../utils/timesheetMirror';
 import {
   expectedMinutesFromDayWindow,
-  getEmployeeSchedule,
   getEmployeeTimesheetScheduleContext,
   type DayExpectedWindow,
 } from '../../services/timeProcessingService';
@@ -482,12 +481,9 @@ const AdminTimesheet: React.FC = () => {
     }
     let active = true;
     (async () => {
-      const [schedule, ctx] = await Promise.all([
-        getEmployeeSchedule(filterUserId, companyId),
-        getEmployeeTimesheetScheduleContext(filterUserId, companyId),
-      ]);
+      const ctx = await getEmployeeTimesheetScheduleContext(filterUserId, companyId);
       if (active) {
-        setScheduleWorkDays(ctx.workDays?.length ? ctx.workDays : schedule?.work_days ?? null);
+        setScheduleWorkDays(ctx.workDays?.length ? ctx.workDays : null);
         setScheduleWindowsByDow(ctx.windowByJsDow);
       }
     })();
