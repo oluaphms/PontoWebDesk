@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import authRoutes from './authRoutes.js';
 import employeeRoutes from './employeeRoutes.js';
+import attendanceRoutes from './attendanceRoutes.js';
 import punchRoutes from './punchRoutes.js';
 import dataRoutes from './dataRoutes.js';
 import adminRoutes from './adminRoutes.js';
@@ -86,6 +87,7 @@ apiRouter.get('/health/time', async (_req, res) => {
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/employees', employeeRoutes);
+apiRouter.use('/attendance', attendanceRoutes);
 apiRouter.use('/punches', punchRoutes);
 apiRouter.get('/diagnostics/rep', repDiagnosticsController);
 apiRouter.use('/rep', repRoutes);
