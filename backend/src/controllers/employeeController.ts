@@ -270,6 +270,25 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
 
   try {
     const { select: viewSelect, estruturaJoin } = await buildEmployeeViewSelect(pool);
+    const q = String(req.query.q ?? '').trim();
+    const limitRaw = Number(req.query.limit);
+    const offsetRaw = Number(req.query.offset);
+    // Busca no header: default 20; listagem clássica: default 1000 (compat).
+    const defaultLimit = q ? 20 : 1000;
+    const limit = Math.min(1000, Math.max(1, Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : defaultLimit));
+    const offset = Math.max(0, Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0);
+
+    const params: unknown[] = [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS)];
+    let searchClause = '';
+    if (q) {
+      params.push(`%${q.replace(/[%_]/g, '\\$&')}%`);
+      searchClause = `and (
+        e.nome ilike $${params.length}
+        or coalesce(e.email, '') ilike $${params.length}
+        or coalesce(u.email, '') ilike $${params.length}
+      )`;
+    }
+
     const result = await pool.query(
       `select
          ${viewSelect}
@@ -279,12 +298,20 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
        where e.company_id = $1
          and coalesce(e.status, 'active') = 'active'
          and lower(coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), ''), '')) <> all($2::text[])
-       order by e.created_at desc
-       limit 1000`,
-      [companyId, Array.from(PROTECTED_SYSTEM_USER_EMAILS)],
+         ${searchClause}
+       ${q ? 'order by e.nome asc nulls last, e.created_at desc' : 'order by e.created_at desc'}
+       limit ${limit} offset ${offset}`,
+      params,
     );
     const employees = result.rows.map(mapRow);
-    res.json({ ok: true, success: true, employees, data: employees });
+    const hasMore = employees.length === limit;
+    res.json({
+      ok: true,
+      success: true,
+      employees,
+      data: employees,
+      meta: { limit, offset, hasMore, q: q || null },
+    });
   } catch (e) {
     logger.error({
       module: 'employee.controller',

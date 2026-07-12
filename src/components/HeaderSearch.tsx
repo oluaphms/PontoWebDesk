@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, Search, User } from 'lucide-react';
 import type { User as AppUser } from '../../types';
 import { i18n } from '../../lib/i18n';
-import { useCompanyEmployees } from '../hooks/useCompanyEmployees';
+import { searchEmployees } from '../services/employeesApi.service';
 import { getFlatNavigationByRole } from '../navigation/navigationSchema';
 import { resolveTenantId } from '../services/tenantScope';
 import { hasAdminAccess } from '../utils/accessProfile';
@@ -17,13 +17,6 @@ const TIME_PATH_PREFIXES = ['/admin/timesheet', '/admin/calculos', '/admin/carta
 
 function normalizeQuery(value: string): string {
   return value.trim().toLowerCase();
-}
-
-function matchesEmployee(nome: string, email: string | undefined, query: string): boolean {
-  if (!query) return false;
-  if (nome.toLowerCase().includes(query)) return true;
-  if (email && email.toLowerCase().includes(query)) return true;
-  return false;
 }
 
 function isTimeRelatedPath(path: string): boolean {
@@ -41,29 +34,59 @@ const HeaderSearch: React.FC<HeaderSearchProps> = ({ user }) => {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [employeeHits, setEmployeeHits] = useState<SearchResult[]>([]);
+  const [searchingEmployees, setSearchingEmployees] = useState(false);
 
   const isAdmin = hasAdminAccess(user.role);
   const companyId = resolveTenantId(user);
-  const { employees, loadingEmployees } = useCompanyEmployees(isAdmin ? companyId : undefined);
+
+  useEffect(() => {
+    if (!isAdmin || !companyId) {
+      setEmployeeHits([]);
+      setSearchingEmployees(false);
+      return;
+    }
+    const q = normalizeQuery(query);
+    if (q.length < 2) {
+      setEmployeeHits([]);
+      setSearchingEmployees(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchingEmployees(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const list = await searchEmployees(companyId, q, { limit: 8 });
+          if (cancelled) return;
+          setEmployeeHits(
+            list.map((emp) => ({
+              kind: 'employee' as const,
+              id: emp.id,
+              label: emp.nome || emp.email || 'Sem nome',
+              hint: emp.email ?? undefined,
+            })),
+          );
+        } catch {
+          if (!cancelled) setEmployeeHits([]);
+        } finally {
+          if (!cancelled) setSearchingEmployees(false);
+        }
+      })();
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, isAdmin, companyId]);
 
   const results = useMemo<SearchResult[]>(() => {
     const q = normalizeQuery(query);
     if (q.length < 2) return [];
 
-    const out: SearchResult[] = [];
-
-    if (isAdmin) {
-      for (const emp of employees) {
-        if (!matchesEmployee(emp.nome, emp.email, q)) continue;
-        out.push({
-          kind: 'employee',
-          id: emp.id,
-          label: emp.nome,
-          hint: emp.email,
-        });
-        if (out.length >= 8) break;
-      }
-    }
+    const out: SearchResult[] = [...(isAdmin ? employeeHits : [])];
 
     const navItems = getFlatNavigationByRole(user.role ?? 'employee');
     for (const item of navItems) {
@@ -76,7 +99,7 @@ const HeaderSearch: React.FC<HeaderSearchProps> = ({ user }) => {
     }
 
     return out;
-  }, [query, employees, isAdmin, user.role]);
+  }, [query, employeeHits, isAdmin, user.role]);
 
   const clampedIndex = Math.min(Math.max(0, selectedIndex), Math.max(0, results.length - 1));
 
@@ -167,7 +190,7 @@ const HeaderSearch: React.FC<HeaderSearchProps> = ({ user }) => {
           role="listbox"
           className="absolute left-0 right-0 top-full mt-2 z-50 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl"
         >
-          {loadingEmployees && isAdmin && results.length === 0 ? (
+          {searchingEmployees && isAdmin && results.length === 0 ? (
             <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
               {i18n.t('layout.searchLoading')}
             </div>

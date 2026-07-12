@@ -5,12 +5,17 @@
 
 import { db, type DbRow, type Filter } from './supabaseClient';
 import { fetchEmployees } from '../src/services/employeesApi.service';
+import { fetchCachedDepartments } from '../src/services/catalogCache.service';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../src/utils/calendarUtils';
 import { addDaysYmd } from '../src/utils/resolveOperationalDate';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { isAdminGerente } from '../src/utils/accessProfile';
 import { queryCache, TTL } from '../src/services/queryCache';
+
+/** Colunas do espelho — inclui metadata/raw_data (opt-in após default seguro da API). */
+const MIRROR_TIME_RECORD_COLUMNS =
+  'id,user_id,company_id,type,method,created_at,timestamp,latitude,longitude,accuracy,location,source,origin,source_type,is_manual,manual_reason,justification,photo_url,device_id,ip_address,nsr,rep_id,fraud_flags,adjustments,metadata,raw_data';
 
 /**
  * Espelho de ponto: janela ampliada (D-1 … D+1) para capturar madrugada de jornadas noturnas.
@@ -35,8 +40,11 @@ export async function fetchTimeRecordsForMirrorWindow(
         { column: 'timestamp', operator: 'gte', value: periodStartTs },
         { column: 'timestamp', operator: 'lte', value: periodEndTs },
       ],
-      { column: 'timestamp', ascending: orderAscending },
-      limit
+      {
+        columns: MIRROR_TIME_RECORD_COLUMNS,
+        orderBy: { column: 'timestamp', ascending: orderAscending },
+        limit,
+      },
     ),
     db.select(
       'time_records',
@@ -46,8 +54,11 @@ export async function fetchTimeRecordsForMirrorWindow(
         { column: 'created_at', operator: 'gte', value: periodStartTs },
         { column: 'created_at', operator: 'lte', value: periodEndTs },
       ],
-      { column: 'created_at', ascending: orderAscending },
-      cap
+      {
+        columns: MIRROR_TIME_RECORD_COLUMNS,
+        orderBy: { column: 'created_at', ascending: orderAscending },
+        limit: cap,
+      },
     ),
   ]);
 
@@ -115,7 +126,7 @@ export async function buscarColaboradores(companyId: string): Promise<AdminTimes
 /** Departamentos da empresa. */
 export async function buscarDepartamentos(companyId: string): Promise<AdminTimesheetDepartment[]> {
   const cid = String(companyId).trim();
-  const rows = (await db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }])) as DbRow[];
+  const rows = await fetchCachedDepartments(cid);
   return (rows ?? []).map((d: DbRow) => ({ id: String(d.id ?? ''), name: String(d.name ?? '') }));
 }
 
@@ -138,11 +149,8 @@ async function fetchEspelhoUsers(cid: string): Promise<DbRow[]> {
 }
 
 async function fetchEspelhoDepartments(cid: string): Promise<DbRow[]> {
-  return queryCache.getOrFetch(
-    `espelho-departments:${cid}`,
-    () => db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
-    TTL.STATIC,
-  );
+  // Mesma chave que Employees / getDepartments — sem segundo cache paralelo.
+  return fetchCachedDepartments(cid);
 }
 
 function mapApiEmployeesToEspelho(
