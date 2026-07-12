@@ -6,10 +6,12 @@ import { resolveUserForRepPunch } from '../services/repUserMatch.service.js';
 import {
   enqueueRepTimesheetRecalcJobs,
   isRepIngestMigrationError,
+  isRepPostIngestAsync,
   logRepPipelineDbDiagnostics,
   logRepPipelineTelemetry,
   processRepCalcDayJobsImmediate,
   promotePendingRepLogsAfterBatch,
+  scheduleRepBackgroundWork,
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
@@ -674,57 +676,75 @@ export async function repPunchesController(req: Request, res: Response): Promise
     extra: { inserted, duplicates, unresolved, migration_error: migrationError },
   });
 
-  let allPromoted = [...promoted];
-  if (companyId) {
+  let allPromoted: RepPromotedRow[] = [...promoted];
+  let calcDaysRecalculated = 0;
+  const postIngestAsync = isRepPostIngestAsync();
+
+  const runPostIngestHeavyWork = async (seedPromoted: RepPromotedRow[]): Promise<{
+    allPromoted: RepPromotedRow[];
+    calcDaysRecalculated: number;
+  }> => {
+    let merged = [...seedPromoted];
+    if (!companyId) return { allPromoted: merged, calcDaysRecalculated: 0 };
+
     const pendingPromote = await promotePendingRepLogsAfterBatch(companyId, deviceId);
     if (pendingPromote.promoted.length > 0) {
-      const seen = new Set(allPromoted.map((p) => `${p.user_id}|${p.data_hora}|${p.time_record_id ?? ''}`));
+      const seen = new Set(merged.map((p) => `${p.user_id}|${p.data_hora}|${p.time_record_id ?? ''}`));
       for (const row of pendingPromote.promoted) {
         const key = `${row.user_id}|${row.data_hora}|${row.time_record_id ?? ''}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        allPromoted.push(row);
+        merged.push(row);
       }
     }
-  }
 
-  await logRepPipelineTelemetry({
-    deviceId,
-    companyId: companyId || null,
-    recordsReceived: chunk.length,
-    recordsSaved: saved,
-    recordsPromoted: allPromoted.length,
-    recordsRejected: errors,
-    executionTimeMs: Date.now() - t0,
-    phase: 'upload',
-    extra: { inserted, duplicates, unresolved, migration_error: migrationError },
-  });
+    let days = 0;
+    if (merged.length > 0) {
+      await enqueueRepTimesheetRecalcJobs(companyId, merged);
+      days = await processRepCalcDayJobsImmediate(companyId, Math.max(merged.length, 25));
+      logger.info({
+        module: 'rep.pipeline',
+        action: 'REP_TIMESHEET',
+        message: '[REP TIMESHEET]',
+        companyId,
+        meta: { jobs: merged.length, dias_recalculados: days, async: postIngestAsync },
+      });
+      await logRepPipelineTelemetry({
+        deviceId,
+        companyId,
+        recordsReceived: merged.length,
+        recordsSaved: merged.length,
+        recordsPromoted: merged.length,
+        recordsRejected: 0,
+        executionTimeMs: Date.now() - t0,
+        phase: 'timesheet',
+        extra: { calc_day_jobs_enqueued: merged.length, dias_recalculados: days, async: postIngestAsync },
+      });
+    }
+    return { allPromoted: merged, calcDaysRecalculated: days };
+  };
 
-  let calcDaysRecalculated = 0;
-  if (allPromoted.length > 0 && companyId) {
-    await enqueueRepTimesheetRecalcJobs(companyId, allPromoted);
-    calcDaysRecalculated = await processRepCalcDayJobsImmediate(companyId, Math.max(allPromoted.length, 25));
-    logger.info({
-      module: 'rep.pipeline',
-      action: 'REP_TIMESHEET',
-      message: '[REP TIMESHEET]',
-      companyId,
-      meta: { jobs: allPromoted.length, dias_recalculados: calcDaysRecalculated },
+  if (companyId && postIngestAsync) {
+    // Promote + enqueue + drain fora do await HTTP (libera pool/timeout do request).
+    scheduleRepBackgroundWork('rep_post_ingest_async', async () => {
+      await runPostIngestHeavyWork(promoted);
+      await logRepPipelineDbDiagnostics(companyId);
     });
+  } else if (companyId) {
+    const heavy = await runPostIngestHeavyWork(promoted);
+    allPromoted = heavy.allPromoted;
+    calcDaysRecalculated = heavy.calcDaysRecalculated;
     await logRepPipelineTelemetry({
       deviceId,
-      companyId,
-      recordsReceived: allPromoted.length,
-      recordsSaved: allPromoted.length,
+      companyId: companyId || null,
+      recordsReceived: chunk.length,
+      recordsSaved: saved,
       recordsPromoted: allPromoted.length,
-      recordsRejected: 0,
+      recordsRejected: errors,
       executionTimeMs: Date.now() - t0,
-      phase: 'timesheet',
-      extra: { calc_day_jobs_enqueued: allPromoted.length, dias_recalculados: calcDaysRecalculated },
+      phase: 'upload',
+      extra: { inserted, duplicates, unresolved, migration_error: migrationError },
     });
-  }
-
-  if (companyId) {
     await logRepPipelineDbDiagnostics(companyId);
   }
 
@@ -740,6 +760,7 @@ export async function repPunchesController(req: Request, res: Response): Promise
     migration_error: migrationError,
     timesheet_jobs_enqueued: allPromoted.length > 0 && companyId ? allPromoted.length : 0,
     timesheet_days_recalculated: calcDaysRecalculated,
+    post_ingest_async: postIngestAsync,
     results,
   });
 }

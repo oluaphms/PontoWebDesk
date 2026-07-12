@@ -15,6 +15,24 @@ export type RepPromotePendingResult = {
   errorCount: number;
 };
 
+/** SaaS: `REP_POST_INGEST_ASYNC=1` — promote/recalc fora do await do HTTP (default sync = compat). */
+export function isRepPostIngestAsync(): boolean {
+  const v = String(process.env.REP_POST_INGEST_ASYNC ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/** Fire-and-forget com log — não altera o contrato da resposta HTTP. */
+export function scheduleRepBackgroundWork(label: string, work: () => Promise<void>): void {
+  void work().catch((error) => {
+    logger.warn({
+      module: 'rep.pipeline',
+      action: 'REP_BG_WORK_FAILED',
+      message: label,
+      error,
+    });
+  });
+}
+
 function civilDateSaoPauloFromIso(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;

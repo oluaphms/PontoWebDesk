@@ -9,6 +9,7 @@ import {
   parseTxtOrCsv,
   type ParsedAfdRecord,
 } from './repAfdParser.service.js';
+import { isRepPostIngestAsync, scheduleRepBackgroundWork } from './repPostIngest.service.js';
 
 export type AfdImportResult = {
   importId: string;
