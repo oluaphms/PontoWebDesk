@@ -23,7 +23,7 @@ export function buildPgPoolConfig(): PoolConfig {
       password: password != null ? String(password) : undefined,
       database,
       ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-      max: Number(process.env.PG_POOL_MAX || 10),
+      max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     };
@@ -32,7 +32,7 @@ export function buildPgPoolConfig(): PoolConfig {
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
     return {
-      max: Number(process.env.PG_POOL_MAX || 10),
+      max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     };
@@ -51,7 +51,7 @@ export function buildPgPoolConfig(): PoolConfig {
       password: String(decodeURIComponent(parsed.password || '')),
       database: decodeURIComponent(parsed.pathname.replace(/^\//, '') || ''),
       ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-      max: Number(process.env.PG_POOL_MAX || 10),
+      max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     };
@@ -63,7 +63,7 @@ export function buildPgPoolConfig(): PoolConfig {
     return {
       connectionString,
       ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-      max: Number(process.env.PG_POOL_MAX || 10),
+      max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     };
