@@ -19,6 +19,7 @@ import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
 import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../../utils/calendarUtils';
+import { queryCache, TTL } from '../../services/queryCache';
 
 type DayMeta = {
   comp: boolean;
@@ -123,14 +124,28 @@ const AdminCartaoPonto: React.FC = () => {
   const loadEmployees = useCallback(async () => {
     if (!user?.companyId || !isSupabaseConfigured()) return;
     try {
-      const rows = (await db.select('users', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
+      const cid = user.companyId;
+      const rows = await queryCache.getOrFetch(
+        `cartao-ponto-users:${cid}`,
+        () =>
+          db.select(
+            'users',
+            [{ column: 'company_id', operator: 'eq', value: cid }],
+            {
+              columns: 'id,nome,email,numero_folha,department_id',
+              limit: 500,
+              orderBy: { column: 'nome', ascending: true },
+            },
+          ) as Promise<any[]>,
+        TTL.NORMAL,
+      );
       setEmployees(
         (rows ?? []).map((u: any) => ({
           id: u.id,
           nome: u.nome || u.email || '',
           numero_folha: u.numero_folha,
           department_id: u.department_id,
-        }))
+        })),
       );
     } catch (e) {
       observabilityConsole.error(e);
