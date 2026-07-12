@@ -1,6 +1,6 @@
 ﻿import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { db, isSupabaseConfigured, supabase } from '../../services/supabaseClient';
 import { insertAdminMirrorTimeRecord } from '../../../services/timeRecords.service';
 import { buscarEspelhoAdmin, buscarFiltrosEspelhoAdmin } from '../../../services/api';
@@ -8,10 +8,10 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useToast } from '../../components/ToastProvider';
 import PageHeader from '../../components/PageHeader';
 import { LoadingState, Button } from '../../../components/UI';
-import { ChevronDown, ChevronRight, FileDown, FileSpreadsheet, Lock, Plus, RefreshCw, Unlock, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AddTimeRecordModal } from '../../components/AddTimeRecordModal';
 import { EditTimeRecordModal } from '../../components/EditTimeRecordModal';
-import { SkeletonFiltro, TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
+import { TimesheetTableSkeleton } from '../../components/TimesheetTableSkeleton';
 import {
   buildDayMirrorSummary,
   DayMirror,
@@ -48,6 +48,9 @@ import {
 import { RepPendingSequenceResolutionModal } from '../../components/RepPendingSequenceResolutionModal';
 import { DayIssuesModal } from './timesheet/DayIssuesModal';
 import { PeriodCalculationHealthSection } from './timesheet/PeriodCalculationHealthSection';
+import { TimesheetFiltersSection } from './timesheet/TimesheetFiltersSection';
+import { TimesheetExportActionsSection } from './timesheet/TimesheetExportActionsSection';
+import { TimesheetCloseMonthSection } from './timesheet/TimesheetCloseMonthSection';
 import {
   invalidateAfterPunch,
   invalidateAfterTimesheetMonthClose,
@@ -1221,269 +1224,63 @@ const AdminTimesheet: React.FC = () => {
     <div className="space-y-6 print:space-y-4">
       <PageHeader title="Espelho de Ponto" helpSlug="espelho-de-ponto" helpSection="como-funciona" />
 
-      {/* FILTROS — layout original (departamento → colaborador → período) */}
-      <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm backdrop-blur-sm print:border print:shadow-none">
-        <div className="px-4 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filtros</h2>
-        </div>
-        {loadingFiltros && employees.length === 0 ? (
-          <SkeletonFiltro />
-        ) : (
-          <div className="p-4 flex flex-wrap gap-4 items-end">
-            <div className="min-w-[200px] flex-1">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Departamento</label>
-              <select
-                value={filterDepartmentId}
-                onChange={(e) => {
-                  setFilterDepartmentId(e.target.value);
-                  setFilterUserId('');
-                }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-              >
-                <option value="">Todos</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="min-w-[220px] flex-1">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Colaborador</label>
-              <select
-                value={filterUserId}
-                onChange={(e) => setFilterUserId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-              >
-                <option value="">Selecione o colaborador</option>
-                {filteredEmployees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Período (início)</label>
-              <input
-                type="date"
-                value={periodStart}
-                max={todayMax}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Período (fim)</label>
-              <input
-                type="date"
-                value={periodEnd}
-                max={todayMax}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-              />
-            </div>
-            {!periodValid && (periodStart || periodEnd) && (
-              <p className="w-full text-xs text-amber-700 dark:text-amber-300">
-                Informe início e fim, com início ≤ fim, e datas não posteriores a hoje.
-              </p>
-            )}
-            {!periodStart && !periodEnd && (
-              <p className="w-full text-xs text-slate-500 dark:text-slate-400">
-                Selecione o período para carregar os registros do espelho.
-              </p>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="inline-flex items-center gap-2 shrink-0"
-              disabled={!periodValid || loadingEspelho || recalculatingEspelho || !companyId || !filterUserId}
-              title="Recarrega batidas e recalcula hora extra / banco de horas do período (útil após REP, reconciliação ou ajuste manual)"
-              onClick={() => {
-                void handleRefreshEspelho();
-              }}
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${loadingEspelho || recalculatingEspelho ? 'animate-spin' : ''}`}
-                aria-hidden
-              />
-              Atualizar batidas
-            </Button>
-          </div>
-        )}
-      </section>
+      <TimesheetFiltersSection
+        loadingFiltros={loadingFiltros}
+        employeesCount={employees.length}
+        departments={departments}
+        filteredEmployees={filteredEmployees}
+        filterDepartmentId={filterDepartmentId}
+        filterUserId={filterUserId}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        todayMax={todayMax}
+        periodValid={periodValid}
+        loadingEspelho={loadingEspelho}
+        recalculatingEspelho={recalculatingEspelho}
+        companyId={companyId}
+        onDepartmentChange={(id) => {
+          setFilterDepartmentId(id);
+          setFilterUserId('');
+        }}
+        onUserChange={setFilterUserId}
+        onPeriodStartChange={setPeriodStart}
+        onPeriodEndChange={setPeriodEnd}
+        onRefreshEspelho={handleRefreshEspelho}
+      />
 
-      {/* EXPORTAR E BATIDAS */}
-      <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm backdrop-blur-sm print:hidden">
-        <div className="px-4 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Exportar e batidas
-          </h2>
-        </div>
-        <div className="p-4 flex flex-wrap gap-3 items-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2"
-            disabled={!filterUserId || !periodValid || loadingEspelho}
-            onClick={handleExportPDF}
-          >
-            <FileDown className="w-4 h-4" />
-            Exportar PDF
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2"
-            disabled={!filterUserId || !periodValid || loadingEspelho}
-            onClick={handleExportExcel}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Exportar Excel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="inline-flex items-center gap-2"
-            disabled={periodClosedLock || !filterUserId || !periodValid}
-            title={
-              periodClosedLock
-                ? `${TOOLTIP_PERIODO_FECHADO_HARD_LOCK} Não é possível adicionar batidas.`
-                : undefined
-            }
-            onClick={() => setShowAddModal(true)}
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar batida
-          </Button>
-          {periodClosedLock ? (
-            <span
-              className="inline-flex items-center justify-center gap-2 font-bold rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-4 py-2 text-xs cursor-not-allowed select-none opacity-70"
-              title={`${TOOLTIP_PERIODO_FECHADO_HARD_LOCK} Importação REP bloqueada.`}
-              role="presentation"
-            >
-              <Upload className="w-4 h-4 shrink-0" aria-hidden />
-              Importar arquivo REP
-            </span>
-          ) : (
-            <Link
-              to={
-                filterUserId
-                  ? `/admin/import-rep?forceUserId=${encodeURIComponent(filterUserId)}`
-                  : '/admin/import-rep'
-              }
-              className="inline-flex items-center justify-center gap-2 font-bold rounded-2xl transition-all active:scale-[0.98] border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 text-xs"
-              title={
-                filterUserId
-                  ? 'Envie um AFD/TXT do relógio e atribua as batidas a este colaborador (quando o PIS do arquivo não casa com o cadastro)'
-                  : 'Importar arquivo AFD ou TXT das marcações'
-              }
-            >
-              <Upload className="w-4 h-4" aria-hidden />
-              Importar arquivo REP
-            </Link>
-          )}
-        </div>
-      </section>
+      <TimesheetExportActionsSection
+        filterUserId={filterUserId}
+        periodValid={periodValid}
+        loadingEspelho={loadingEspelho}
+        periodClosedLock={periodClosedLock}
+        periodClosedLockTooltip={TOOLTIP_PERIODO_FECHADO_HARD_LOCK}
+        onExportPDF={() => {
+          void handleExportPDF();
+        }}
+        onExportExcel={handleExportExcel}
+        onAddBatida={() => setShowAddModal(true)}
+      />
 
-      {/* FECHAMENTO MENSAL */}
-      <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 shadow-sm backdrop-blur-sm print:hidden">
-        <div className="px-4 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Fechamento mensal
-          </h2>
-        </div>
-        <div className="p-4 flex flex-wrap gap-4 items-end">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Mês a fechar</label>
-            <input
-              type="month"
-              value={closingMonth}
-              title={
-                closingMonthIsClosed
-                  ? TOOLTIP_PERIODO_FECHADO_HARD_LOCK
-                  : 'Sincronizado com o primeiro dia do período do espelho.'
-              }
-              onChange={(e) => setClosingMonth(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm disabled:opacity-70"
-              disabled={closingMonthIsClosed}
-            />
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="inline-flex items-center gap-2"
-            disabled={
-              closingLoading ||
-              !filterUserId ||
-              !periodValid ||
-              closingMonthIsClosed ||
-              closeBlockedByOperational
-            }
-            title={
-              closingMonthIsClosed
-                ? 'Este mês civil já está fechado para o colaborador.'
-                : closeBlockedByOperational
-                  ? 'Há dias com divergência ou erro de cálculo (replay). Corrija ou use override de administrador.'
-                  : !periodValid
-                    ? 'Defina o período completo no espelho.'
-                    : undefined
-            }
-            onClick={() => void handleCloseMonth()}
-          >
-            <Lock className="w-4 h-4" />
-            {closingLoading ? 'Fechando…' : 'Fechar folha'}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2 border-amber-300 text-amber-900 dark:border-amber-700 dark:text-amber-100 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-            disabled={
-              reopenLoading ||
-              closingLoading ||
-              !filterUserId ||
-              !periodValid ||
-              !periodClosedLock ||
-              !/^\d{4}-\d{2}-\d{2}$/.test(String(periodStart).slice(0, 10)) ||
-              !/^\d{4}-\d{2}-\d{2}$/.test(String(periodEnd).slice(0, 10))
-            }
-            title={
-              !periodClosedLock
-                ? 'Só disponível quando existir pelo menos um mês civil fechado no intervalo do espelho (início a fim).'
-                : 'Remove fecho e snapshot do mês civil mais recente ainda fechado nesse intervalo (auditoria registada).'
-            }
-            onClick={() => void handleReopenMonth()}
-          >
-            <Unlock className="w-4 h-4" aria-hidden />
-            {reopenLoading ? 'Reabrindo…' : 'Reabrir mês'}
-          </Button>
-          {periodOperationalBlocked && user?.role !== 'admin' && (
-            <p className="w-full text-sm text-red-700 dark:text-red-300 mt-2">
-              Fechamento bloqueado: existe divergência ou erro de cálculo em pelo menos um dia do período.
-              Solicite um administrador para analisar ou aplicar override.
-            </p>
-          )}
-          {periodOperationalBlocked && user?.role === 'admin' && (
-            <label className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-100 mt-2 max-w-xl cursor-pointer">
-              <input
-                type="checkbox"
-                className="mt-1 rounded border-slate-300"
-                checked={adminCloseOverride}
-                onChange={(e) => setAdminCloseOverride(e.target.checked)}
-              />
-              <span>
-                Permitir fechar a folha mesmo com divergência ou erro de cálculo no período (override
-                administrativo — use apenas após validação explícita).
-              </span>
-            </label>
-          )}
-        </div>
-      </section>
+      <TimesheetCloseMonthSection
+        closingMonth={closingMonth}
+        onClosingMonthChange={setClosingMonth}
+        closingMonthIsClosed={closingMonthIsClosed}
+        periodClosedLockTooltip={TOOLTIP_PERIODO_FECHADO_HARD_LOCK}
+        closingLoading={closingLoading}
+        reopenLoading={reopenLoading}
+        filterUserId={filterUserId}
+        periodValid={periodValid}
+        closeBlockedByOperational={closeBlockedByOperational}
+        onCloseMonth={handleCloseMonth}
+        periodClosedLock={periodClosedLock}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        onReopenMonth={handleReopenMonth}
+        periodOperationalBlocked={periodOperationalBlocked}
+        isAdmin={user?.role === 'admin'}
+        adminCloseOverride={adminCloseOverride}
+        onAdminCloseOverrideChange={setAdminCloseOverride}
+      />
 
       <PeriodCalculationHealthSection
         periodValid={periodValid}
