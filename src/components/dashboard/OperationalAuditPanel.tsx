@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ScrollText } from 'lucide-react';
 import { apiQueryKeys } from '../../lib/apiQueryKeys';
 import { fetchOperationalAudit, type OperationalAuditRow } from '../../services/operationalAudit.service';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -40,7 +41,7 @@ const OperationalAuditPanel = memo(function OperationalAuditPanel({ companyId }:
     queryKey: qk,
     queryFn: () => fetchOperationalAudit(companyId, { limit: 100 }),
     enabled: !!companyId.trim(),
-    refetchInterval: 30_000,
+    refetchInterval: () => (isPollingSuppressedByVisibility() ? false : getAdaptiveRefetchIntervalMs(30_000)),
   });
 
   return (
