@@ -1,3 +1,4 @@
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Eye, Pencil, UserX, UserCheck, Trash2 } from 'lucide-react';
 import {
   accessProfileLabel,
@@ -17,6 +18,10 @@ function getDisplayShortName(fullName: string): string {
   if (parts.length <= 2) return parts.join(' ');
   return `${parts[0]} ${parts[1]}...`;
 }
+
+const ROW_HEIGHT_PX = 52;
+const VIEWPORT_MAX_PX = 520;
+const OVERSCAN = 6;
 
 export interface EmployeesTableProps {
   loading: boolean;
@@ -41,14 +46,44 @@ export function EmployeesTable({
   onReactivate,
   onDelete,
 }: EmployeesTableProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setScrollTop(el.scrollTop);
+  }, []);
+
+  const { start, end, topPad, bottomPad } = useMemo(() => {
+    const total = filteredRows.length;
+    if (total === 0) return { start: 0, end: 0, topPad: 0, bottomPad: 0 };
+    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX) - OVERSCAN);
+    const visibleCount = Math.ceil(VIEWPORT_MAX_PX / ROW_HEIGHT_PX) + OVERSCAN * 2;
+    const endIdx = Math.min(total, startIdx + visibleCount);
+    return {
+      start: startIdx,
+      end: endIdx,
+      topPad: startIdx * ROW_HEIGHT_PX,
+      bottomPad: Math.max(0, (total - endIdx) * ROW_HEIGHT_PX),
+    };
+  }, [filteredRows.length, scrollTop]);
+
+  const visibleRows = filteredRows.slice(start, end);
+
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 overflow-hidden">
       {loading ? (
         <div className="p-12 text-center text-slate-500">Carregando...</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="overflow-auto"
+          style={{ maxHeight: VIEWPORT_MAX_PX }}
+        >
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Nº Folha</th>
                 <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400">Nome</th>
@@ -66,8 +101,17 @@ export function EmployeesTable({
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
-                <tr key={row.id} className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 ${row.invisivel ? 'opacity-60' : ''}`}>
+              {topPad > 0 ? (
+                <tr aria-hidden>
+                  <td colSpan={13} style={{ height: topPad, padding: 0, border: 0 }} />
+                </tr>
+              ) : null}
+              {visibleRows.map((row) => (
+                <tr
+                  key={row.id}
+                  style={{ height: ROW_HEIGHT_PX }}
+                  className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 ${row.invisivel ? 'opacity-60' : ''}`}
+                >
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.numero_folha || '—'}</td>
                   <td className="px-4 py-3 text-slate-900 dark:text-white font-medium max-w-[180px] truncate" title={row.nome}>
                     <div className="flex items-center gap-2 min-w-0">
@@ -133,6 +177,11 @@ export function EmployeesTable({
                   </td>
                 </tr>
               ))}
+              {bottomPad > 0 ? (
+                <tr aria-hidden>
+                  <td colSpan={13} style={{ height: bottomPad, padding: 0, border: 0 }} />
+                </tr>
+              ) : null}
             </tbody>
           </table>
           {rows.length === 0 && (
