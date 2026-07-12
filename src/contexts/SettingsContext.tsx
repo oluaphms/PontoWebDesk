@@ -1,4 +1,4 @@
-import { createContext, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { readCachedSessionUser } from './AuthSessionProvider';
 import { DEFAULT_SETTINGS, getSettings } from '../services/settingsService';
 import { isCloudEnabled } from '../services/cloudService';
@@ -78,11 +78,14 @@ const SettingsContext = createContext<SettingsContextValue>(defaultValue);
 
 export function useSettings(): SettingsContextValue {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return {
-    settings: state.settings,
-    loading: state.loading,
-    refreshSettings: refreshSettingsInternal,
-  };
+  return useMemo(
+    () => ({
+      settings: state.settings,
+      loading: state.loading,
+      refreshSettings: refreshSettingsInternal,
+    }),
+    [state.settings, state.loading],
+  );
 }
 
 interface SettingsProviderProps {

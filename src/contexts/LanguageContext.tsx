@@ -62,6 +62,11 @@ export const LanguageContext = createContext<LanguageContextValue>({
   setLanguage: defaultSetLanguage,
 });
 
+const languageProviderValue: LanguageContextValue = {
+  language: getDefaultLanguage(),
+  setLanguage: defaultSetLanguage,
+};
+
 export function useLanguage(): LanguageContextValue {
   const language = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   return { language, setLanguage: defaultSetLanguage };
@@ -69,12 +74,8 @@ export function useLanguage(): LanguageContextValue {
 
 /** Provider sem hooks: só repassa children. O estado fica no store e no useLanguage(). */
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const value: LanguageContextValue = {
-    language: getSnapshot(),
-    setLanguage: defaultSetLanguage,
-  };
   return (
-    <LanguageContext.Provider value={value}>
+    <LanguageContext.Provider value={languageProviderValue}>
       {children}
     </LanguageContext.Provider>
   );
