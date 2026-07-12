@@ -18,6 +18,7 @@ import { listTimeRecords } from '../../../services/timeRecords.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { AdminPunchPhotoViewer, resolvePunchPhotoUrl } from '../../components/AdminPunchPhotoViewer';
+import { localCalendarDayEndUtc, localCalendarDayStartUtc } from '../../utils/calendarUtils';
 
 type DayMeta = {
   comp: boolean;
@@ -145,10 +146,22 @@ const AdminCartaoPonto: React.FC = () => {
     }
     setLoadingData(true);
     try {
+      const periodStartTs = localCalendarDayStartUtc(periodStart);
+      const periodEndTs = localCalendarDayEndUtc(periodEnd);
       const [recs, dias] = await Promise.all([
-        listTimeRecords([{ column: 'user_id', operator: 'eq', value: selectedEmployee.id }]) as Promise<any[]>,
+        listTimeRecords(
+          [
+            { column: 'user_id', operator: 'eq', value: selectedEmployee.id },
+            { column: 'created_at', operator: 'gte', value: periodStartTs },
+            { column: 'created_at', operator: 'lte', value: periodEndTs },
+          ],
+          { column: 'created_at', ascending: true },
+          5000,
+        ) as Promise<any[]>,
         db.select('cartao_ponto_dia', [
           { column: 'user_id', operator: 'eq', value: selectedEmployee.id },
+          { column: 'data', operator: 'gte', value: periodStart },
+          { column: 'data', operator: 'lte', value: periodEnd },
         ]) as Promise<any[]>,
       ]);
       const byDate = new Map<string, any[]>();
@@ -194,12 +207,6 @@ const AdminCartaoPonto: React.FC = () => {
       setLoadingData(false);
     }
   }, [user?.companyId, selectedEmployee?.id, periodStart, periodEnd]);
-
-  // Garante que o período esteja limpo na montagem (evita restauração de estado)
-  useEffect(() => {
-    setPeriodStart('');
-    setPeriodEnd('');
-  }, []);
 
   useEffect(() => {
     loadEmployees();
