@@ -1,5 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, AlertTriangle, PauseCircle, PlayCircle, Users } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
@@ -41,6 +41,10 @@ const RealTimeInsightsPage: React.FC = () => {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const employeesRef = useRef(employees);
+  const projectsRef = useRef(projects);
+  employeesRef.current = employees;
+  projectsRef.current = projects;
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured()) return;
@@ -124,8 +128,8 @@ const RealTimeInsightsPage: React.FC = () => {
             const clone = [...prev];
             const row: any = payload.new ?? payload.old;
             if (!row) return prev;
-            const employee = employees.find((e) => e.id === row.employee_id);
-            const project = projects.find((p) => p.id === row.current_project_id);
+            const employee = employeesRef.current.find((e) => e.id === row.employee_id);
+            const project = projectsRef.current.find((p) => p.id === row.current_project_id);
             const session: ActivitySessionRow = {
               id: row.id,
               employee_id: row.employee_id,
@@ -157,7 +161,7 @@ const RealTimeInsightsPage: React.FC = () => {
     return () => {
       channel.unsubscribe();
     };
-  }, [user, employees, projects]);
+  }, [user?.companyId, user?.id]);
 
   const onlineCount = sessions.filter((s) => s.status === 'online').length;
   const idleCount = sessions.filter((s) => s.status === 'idle').length;
