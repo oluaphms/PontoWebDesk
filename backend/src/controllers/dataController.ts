@@ -45,6 +45,24 @@ type FilterInput = { column: string; operator: string; value: unknown };
 const SELF_SCOPED_USER_ID_TABLES = new Set(['time_records', 'time_balance', 'time_logs']);
 const SELF_SCOPED_EMPLOYEE_ID_TABLES = new Set(['bank_hours', 'bank_hours_ledger']);
 const DATA_QUERY_LOG_TABLES = new Set(['time_records', 'schedules', 'estruturas', 'estrutura_responsaveis']);
+/**
+ * Colunas JSON/payload pesadas omitidas quando `columns` é omitido ou `*`.
+ * Opt-in: listar a coluna explicitamente em `?columns=...`.
+ */
+const HEAVY_DEFAULT_OMIT_BY_TABLE: Record<string, ReadonlySet<string>> = {
+  time_records: new Set(['raw_data', 'metadata', 'device_info', 'geo_payload', 'photo_base64']),
+  users: new Set(['employee_config', 'metadata', 'preferences', 'raw_app_meta_data', 'raw_user_meta_data']),
+  rep_punch_logs: new Set(['raw_data', 'raw_payload', 'payload', 'metadata', 'afd_line']),
+  timesheets_daily: new Set(['raw_data', 'metadata', 'engine_debug', 'debug_payload']),
+};
+
+function applyDefaultHeavyColumnOmit(table: string, columns: string[], rawCols: string): string[] {
+  if (rawCols !== '*') return columns;
+  const omit = HEAVY_DEFAULT_OMIT_BY_TABLE[table];
+  if (!omit) return columns;
+  return columns.filter((c) => !omit.has(c));
+}
+
 const LEGACY_AUTH_USER_FK_EMPLOYEE_TABLES = new Set([
   'bank_hours_ledger',
   'timesheets_daily',
@@ -157,6 +175,9 @@ async function buildWhere(
       parts.push(tenantClause);
       params.push(companyId);
       idx += 1;
+    } else {
+      // Fail-closed: tabela marcada como tenant sem company_id/tenant_id não lista global.
+      throw new Error('tenant_scope_unavailable');
     }
   }
 
@@ -555,6 +576,7 @@ function logDataQuery(
   extraMeta?: Record<string, unknown>,
 ): void {
   if (!DATA_QUERY_LOG_TABLES.has(table)) return;
+  const logSql = process.env.LOG_DATA_SQL === '1' || process.env.LOG_DATA_SQL === 'true';
   logger.info({
     module: 'data.controller',
     action,
@@ -565,9 +587,8 @@ function logDataQuery(
     meta: {
       employeeId: authUserId(req.auth),
       table,
-      sql,
-      params,
       returnedRows,
+      ...(logSql ? { sql, params } : { paramsCount: params.length }),
       ...extraMeta,
     },
   });
@@ -600,14 +621,15 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     res.status(400).json({ ok: false, error: 'columns_not_allowed' });
     return;
   }
-  const selectedColumns =
+  const selectedColumnsRaw =
     rawCols === '*'
       ? readableColumns
       : rawCols
           .split(',')
           .map((c) => safeIdent(c.trim()))
           .filter((c): c is string => c !== null && readableSet.has(c) && !isSensitiveColumnName(c));
-  if (rawCols !== '*' && !selectedColumns.length) {
+  const selectedColumns = applyDefaultHeavyColumnOmit(table, selectedColumnsRaw, rawCols);
+  if (!selectedColumns.length) {
     res.status(400).json({ ok: false, error: 'columns_not_allowed' });
     return;
   }
@@ -650,6 +672,10 @@ export async function listDataController(req: AuthedRequest, res: Response): Pro
     const pgMsg = e instanceof Error ? e.message : String(e);
     if (pgMsg === 'user_scope_unavailable') {
       res.status(403).json(failureBody('forbidden', 'DATA_USER_SCOPE_FORBIDDEN'));
+      return;
+    }
+    if (pgMsg === 'tenant_scope_unavailable') {
+      res.status(403).json(failureBody('forbidden', 'DATA_TENANT_SCOPE_UNAVAILABLE'));
       return;
     }
     logger.error({
@@ -1079,6 +1105,10 @@ export async function countDataController(req: AuthedRequest, res: Response): Pr
   } catch (e) {
     if (e instanceof Error && e.message === 'user_scope_unavailable') {
       res.status(403).json({ ok: false, error: 'forbidden' });
+      return;
+    }
+    if (e instanceof Error && e.message === 'tenant_scope_unavailable') {
+      res.status(403).json({ ok: false, error: 'forbidden', code: 'DATA_TENANT_SCOPE_UNAVAILABLE' });
       return;
     }
     logger.error({
