@@ -10,6 +10,7 @@ import { addDaysYmd } from '../src/utils/resolveOperationalDate';
 import { getNationalHolidayDatesForPeriod } from '../src/engine/timeEngine';
 import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import { isAdminGerente } from '../src/utils/accessProfile';
+import { queryCache, TTL } from '../src/services/queryCache';
 
 /**
  * Espelho de ponto: janela ampliada (D-1 … D+1) para capturar madrugada de jornadas noturnas.
@@ -125,6 +126,25 @@ const ESPELHO_USERS_SELECT_OPTS = {
   orderBy: { column: 'nome', ascending: true },
 } as const;
 
+async function fetchEspelhoUsers(cid: string): Promise<DbRow[]> {
+  return queryCache.getOrFetch(
+    `espelho-users:${cid}`,
+    () =>
+      db
+        .select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS)
+        .catch(() => []) as Promise<DbRow[]>,
+    TTL.NORMAL,
+  );
+}
+
+async function fetchEspelhoDepartments(cid: string): Promise<DbRow[]> {
+  return queryCache.getOrFetch(
+    `espelho-departments:${cid}`,
+    () => db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    TTL.STATIC,
+  );
+}
+
 function mapApiEmployeesToEspelho(
   rows: Awaited<ReturnType<typeof fetchEmployees>>,
   userRows: DbRow[],
@@ -162,8 +182,8 @@ export async function buscarFiltrosEspelhoAdmin(companyId: string): Promise<{
   const cid = String(companyId).trim();
   const [apiEmployees, userRows, departmentsRows] = await Promise.all([
     fetchEmployees(cid),
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS).catch(() => []) as Promise<DbRow[]>,
-    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    fetchEspelhoUsers(cid),
+    fetchEspelhoDepartments(cid),
   ]);
   return {
     employees: mapApiEmployeesToEspelho(apiEmployees, userRows ?? []),
@@ -205,8 +225,8 @@ export async function buscarEspelhoAdmin(
 
   const [apiEmployees, userRows, departmentsRows, shiftsRows, holidaysRows] = await Promise.all([
     fetchEmployees(cid),
-    db.select('users', [{ column: 'company_id', operator: 'eq', value: cid }], ESPELHO_USERS_SELECT_OPTS).catch(() => []) as Promise<DbRow[]>,
-    db.select('departments', [{ column: 'company_id', operator: 'eq', value: cid }]) as Promise<DbRow[]>,
+    fetchEspelhoUsers(cid),
+    fetchEspelhoDepartments(cid),
     db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
     db
       .select('holidays', [{ column: 'company_id', operator: 'eq', value: cid }])
