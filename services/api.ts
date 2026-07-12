@@ -227,7 +227,17 @@ export async function buscarEspelhoAdmin(
     fetchEmployees(cid),
     fetchEspelhoUsers(cid),
     fetchEspelhoDepartments(cid),
-    db.select('employee_shift_schedule', [{ column: 'company_id', operator: 'eq', value: cid }]).catch(() => []) as Promise<DbRow[]>,
+    db
+      .select(
+        'employee_shift_schedule',
+        uid
+          ? [
+              { column: 'company_id', operator: 'eq', value: cid },
+              { column: 'employee_id', operator: 'eq', value: uid },
+            ]
+          : [{ column: 'company_id', operator: 'eq', value: cid }],
+      )
+      .catch(() => []) as Promise<DbRow[]>,
     db
       .select('holidays', [{ column: 'company_id', operator: 'eq', value: cid }])
       .catch(() =>
