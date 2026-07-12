@@ -19,6 +19,7 @@ import { queryCache, TTL } from '../services/queryCache';
 import { withRetry } from '../services/retry';
 import { recordPunchInstantIso, recordPunchInstantMs, resolvePunchOrigin } from '../utils/punchOrigin';
 import { SYSTEM_CONFIG } from '../config/system';
+import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../performance/pollingGovernor';
 
 function isTimeoutLike(e: unknown): boolean {
   return /tempo esgotado|timeout/i.test(String((e as Error)?.message ?? e));
@@ -207,15 +208,16 @@ const DashboardPage: React.FC = () => {
     };
 
     load();
-  }, [user, rtTick]);
+  }, [user?.id, user?.companyId, rtTick]);
 
   useEffect(() => {
     if (!user?.id) return;
     if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     const t = window.setInterval(() => {
+      if (isPollingSuppressedByVisibility()) return;
       queryCache.invalidate(`time_records:user:${user.id}`);
       setRtTick((x) => x + 1);
-    }, 15_000);
+    }, getAdaptiveRefetchIntervalMs(15_000));
     return () => window.clearInterval(t);
   }, [user?.id]);
 
