@@ -256,7 +256,11 @@ export async function processAfdImport(input: {
     }
   }
 
-  await promotePending(companyId, repDeviceId);
+  if (isRepPostIngestAsync()) {
+    scheduleRepBackgroundWork('afd_promote_pending', () => promotePending(companyId, repDeviceId));
+  } else {
+    await promotePending(companyId, repDeviceId);
+  }
 
   const processingMs = Date.now() - t0;
   const status = errors.length > 0 && imported === 0 ? 'error' : 'done';
