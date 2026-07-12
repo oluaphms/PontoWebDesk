@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { CalendarRange, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
@@ -21,6 +21,33 @@ interface WorkScheduleRow {
   break_end?: string | null;
   tolerance_minutes?: number | null;
 }
+
+const SCHEDULES_COLUMNS: Column<WorkScheduleRow>[] = [
+  { key: 'name', header: 'Nome' },
+  {
+    key: 'start_time',
+    header: 'Início',
+    render: (row) => row.start_time,
+  },
+  {
+    key: 'end_time',
+    header: 'Fim',
+    render: (row) => row.end_time,
+  },
+  {
+    key: 'break',
+    header: 'Intervalo',
+    render: (row) =>
+      row.break_start && row.break_end
+        ? `${row.break_start} - ${row.break_end}`
+        : '-',
+  },
+  {
+    key: 'tolerance_minutes',
+    header: 'Tolerância (min)',
+    render: (row) => row.tolerance_minutes ?? 0,
+  },
+];
 
 const SchedulesPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -150,32 +177,7 @@ const SchedulesPage: React.FC = () => {
         <LoadingState message="Carregando escalas..." />
       ) : (
         <DataTable<WorkScheduleRow>
-          columns={[
-            { key: 'name', header: 'Nome' },
-            {
-              key: 'start_time',
-              header: 'Início',
-              render: (row) => row.start_time,
-            },
-            {
-              key: 'end_time',
-              header: 'Fim',
-              render: (row) => row.end_time,
-            },
-            {
-              key: 'break',
-              header: 'Intervalo',
-              render: (row) =>
-                row.break_start && row.break_end
-                  ? `${row.break_start} - ${row.break_end}`
-                  : '-',
-            },
-            {
-              key: 'tolerance_minutes',
-              header: 'Tolerância (min)',
-              render: (row) => row.tolerance_minutes ?? 0,
-            },
-          ]}
+          columns={SCHEDULES_COLUMNS}
           data={rows}
         />
       )}

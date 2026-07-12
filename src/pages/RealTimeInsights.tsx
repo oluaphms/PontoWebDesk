@@ -1,10 +1,10 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AlertTriangle, PauseCircle, PlayCircle, Users } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured, supabase } from '../services/supabaseClient';
@@ -172,22 +172,91 @@ const RealTimeInsightsPage: React.FC = () => {
       .map((s) => s.current_project_id as string),
   ).size;
 
-  const handlePauseTracking = async (session: ActivitySessionRow) => {
+  const handlePauseTracking = useCallback(async (session: ActivitySessionRow) => {
     if (!isSupabaseConfigured()) return;
     observabilityConsole.log('Pause tracking for', session.id);
-  };
+  }, []);
 
-  const handleViewEmployee = (session: ActivitySessionRow) => {
+  const handleViewEmployee = useCallback((session: ActivitySessionRow) => {
     navigate('/employees');
-  };
+  }, [navigate]);
 
-  const handleSendAlert = (session: ActivitySessionRow) => {
+  const handleSendAlert = useCallback((session: ActivitySessionRow) => {
     navigate('/alerts');
-  };
+  }, [navigate]);
 
-  const handleOpenScreenshot = (session: ActivitySessionRow) => {
+  const handleOpenScreenshot = useCallback((session: ActivitySessionRow) => {
     navigate('/screenshots');
-  };
+  }, [navigate]);
+
+  const columns = useMemo<Column<ActivitySessionRow>[]>(
+    () => [
+      {
+        key: 'employee_name',
+        header: 'Colaborador',
+        render: (row) => row.employee_name ?? row.employee_id,
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row) => {
+          if (row.status === 'online') {
+            return <span className="text-emerald-600 text-xs font-semibold">Online</span>;
+          }
+          if (row.status === 'idle') {
+            return <span className="text-amber-600 text-xs font-semibold">Ocioso</span>;
+          }
+          return <span className="text-slate-500 text-xs font-semibold">Offline</span>;
+        },
+      },
+      {
+        key: 'current_activity',
+        header: 'Atividade atual',
+        render: (row) => row.current_activity ?? '-',
+      },
+      {
+        key: 'active_time',
+        header: 'Tempo ativo (min)',
+        render: (row) => Math.round((row.active_time ?? 0) / 60),
+      },
+      {
+        key: 'idle_time',
+        header: 'Tempo ocioso (min)',
+        render: (row) => Math.round((row.idle_time ?? 0) / 60),
+      },
+      {
+        key: 'current_project_name',
+        header: 'Projeto atual',
+        render: (row) => row.current_project_name ?? '-',
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (row) => (
+          <div className="flex justify-end gap-2">
+            <Button size="xs" variant="outline" onClick={() => handleViewEmployee(row)}>
+              Ver colaborador
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => handleSendAlert(row)}>
+              Enviar alerta
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => handleOpenScreenshot(row)}>
+              Screenshot
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => handlePauseTracking(row)}
+              title="Pausar rastreamento"
+            >
+              <PlayCircle className="w-4 h-4" />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [handleViewEmployee, handleSendAlert, handleOpenScreenshot, handlePauseTracking],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando visão em tempo real..." />;
@@ -242,71 +311,7 @@ const RealTimeInsightsPage: React.FC = () => {
           <EmptyState title="Nenhuma sessão ativa" message="Nenhum colaborador está em sessão no momento." />
         ) : (
           <DataTable<ActivitySessionRow>
-            columns={[
-              {
-                key: 'employee_name',
-                header: 'Colaborador',
-                render: (row) => row.employee_name ?? row.employee_id,
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (row) => {
-                  if (row.status === 'online') {
-                    return <span className="text-emerald-600 text-xs font-semibold">Online</span>;
-                  }
-                  if (row.status === 'idle') {
-                    return <span className="text-amber-600 text-xs font-semibold">Ocioso</span>;
-                  }
-                  return <span className="text-slate-500 text-xs font-semibold">Offline</span>;
-                },
-              },
-              {
-                key: 'current_activity',
-                header: 'Atividade atual',
-                render: (row) => row.current_activity ?? '-',
-              },
-              {
-                key: 'active_time',
-                header: 'Tempo ativo (min)',
-                render: (row) => Math.round((row.active_time ?? 0) / 60),
-              },
-              {
-                key: 'idle_time',
-                header: 'Tempo ocioso (min)',
-                render: (row) => Math.round((row.idle_time ?? 0) / 60),
-              },
-              {
-                key: 'current_project_name',
-                header: 'Projeto atual',
-                render: (row) => row.current_project_name ?? '-',
-              },
-              {
-                key: 'actions',
-                header: '',
-                render: (row) => (
-                  <div className="flex justify-end gap-2">
-                    <Button size="xs" variant="outline" onClick={() => handleViewEmployee(row)}>
-                      Ver colaborador
-                    </Button>
-                    <Button size="xs" variant="outline" onClick={() => handleSendAlert(row)}>
-                      Enviar alerta
-                    </Button>
-                    <Button size="xs" variant="outline" onClick={() => handleOpenScreenshot(row)}>
-                      Screenshot
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => handlePauseTracking(row)}
-                      title="Pausar rastreamento"
-                    >
-                      <PlayCircle className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
+            columns={columns}
             data={sessions}
           />
         )}

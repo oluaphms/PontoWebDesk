@@ -1,10 +1,10 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClipboardList, PlusCircle, Trash2 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState } from '../../components/UI';
 import { formatRequestType, formatWorkflowStatus } from '../../lib/i18n';
@@ -254,7 +254,7 @@ const RequestsPage: React.FC = () => {
     }
   };
 
-  const handleStatusChange = async (row: RequestRow, status: 'approved' | 'rejected') => {
+  const handleStatusChange = useCallback(async (row: RequestRow, status: 'approved' | 'rejected') => {
     if (!user || !isSupabaseConfigured()) return;
 
     const companyId = row.company_id ?? user.companyId;
@@ -360,9 +360,9 @@ const RequestsPage: React.FC = () => {
     } catch (err) {
       observabilityConsole.error('Erro ao atualizar solicitação:', err);
     }
-  };
+  }, [user, toast]);
 
-  const handleDeleteRequest = async (row: RequestRow) => {
+  const handleDeleteRequest = useCallback(async (row: RequestRow) => {
     if (!user || !isSupabaseConfigured()) return;
     if (row.company_id && row.company_id !== user.companyId) {
       toast.addToast('error', 'Solicitação fora da empresa da sua sessão.');
@@ -399,10 +399,108 @@ const RequestsPage: React.FC = () => {
           : msg,
       );
     }
-  };
+  }, [user, toast, isAdminView]);
 
-  const canDeleteRow = (row: RequestRow) =>
-    isAdminView || row.user_id === user?.id;
+  const canDeleteRow = useCallback(
+    (row: RequestRow) => isAdminView || row.user_id === user?.id,
+    [isAdminView, user?.id],
+  );
+
+  const columns = useMemo<Column<RequestRow>[]>(
+    () => [
+      {
+        key: 'type',
+        header: 'Tipo',
+        render: (row) => (
+          <ExpandableTextCell label="Tipo" value={formatRequestType(row.type)} />
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row) => (
+          <ExpandableTextCell label="Status" value={formatWorkflowStatus(row.status)} />
+        ),
+      },
+      {
+        key: 'adjustment',
+        header: 'Batida solicitada',
+        render: (row) => {
+          const adj = getAdjustmentMeta(row);
+          if (!adj) {
+            return <span className="text-slate-400 text-sm">—</span>;
+          }
+          const label =
+            TIPOS_BATIDA.find((t) => t.value === adj.punchType)?.label ?? adj.punchType;
+          return (
+            <ExpandableTextCell
+              label="Batida"
+              value={`${adj.date} ${adj.time} · ${label}`}
+            />
+          );
+        },
+      },
+      {
+        key: 'reason',
+        header: 'Motivo',
+        render: (row) => <ExpandableTextCell label="Motivo" value={row.reason} />,
+      },
+      {
+        key: 'created_at',
+        header: 'Criado em',
+        render: (row) => (
+          <ExpandableTextCell
+            label="Criado em"
+            value={new Date(row.created_at).toLocaleString('pt-BR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          />
+        ),
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (row: RequestRow) => (
+          <div className="flex justify-end flex-wrap gap-2">
+            {isAdminView && (row.status === 'pending' || row.status === 'pendente') && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleStatusChange(row, 'approved')}
+                >
+                  Aceitar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleStatusChange(row, 'rejected')}
+                >
+                  Rejeitar
+                </Button>
+              </>
+            )}
+            {canDeleteRow(row) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                onClick={() => handleDeleteRequest(row)}
+                title="Excluir solicitação"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    [isAdminView, handleStatusChange, handleDeleteRequest, canDeleteRow],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando solicitações..." />;
@@ -436,98 +534,7 @@ const RequestsPage: React.FC = () => {
         <LoadingState message="Carregando solicitações..." />
       ) : (
         <DataTable<RequestRow>
-          columns={[
-            {
-              key: 'type',
-              header: 'Tipo',
-              render: (row) => (
-                <ExpandableTextCell label="Tipo" value={formatRequestType(row.type)} />
-              ),
-            },
-            {
-              key: 'status',
-              header: 'Status',
-              render: (row) => (
-                <ExpandableTextCell label="Status" value={formatWorkflowStatus(row.status)} />
-              ),
-            },
-            {
-              key: 'adjustment',
-              header: 'Batida solicitada',
-              render: (row) => {
-                const adj = getAdjustmentMeta(row);
-                if (!adj) {
-                  return <span className="text-slate-400 text-sm">—</span>;
-                }
-                const label =
-                  TIPOS_BATIDA.find((t) => t.value === adj.punchType)?.label ?? adj.punchType;
-                return (
-                  <ExpandableTextCell
-                    label="Batida"
-                    value={`${adj.date} ${adj.time} · ${label}`}
-                  />
-                );
-              },
-            },
-            {
-              key: 'reason',
-              header: 'Motivo',
-              render: (row) => <ExpandableTextCell label="Motivo" value={row.reason} />,
-            },
-            {
-              key: 'created_at',
-              header: 'Criado em',
-              render: (row) => (
-                <ExpandableTextCell
-                  label="Criado em"
-                  value={new Date(row.created_at).toLocaleString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                />
-              ),
-            },
-            {
-              key: 'actions',
-              header: '',
-              render: (row: RequestRow) => (
-                <div className="flex justify-end flex-wrap gap-2">
-                  {isAdminView && (row.status === 'pending' || row.status === 'pendente') && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleStatusChange(row, 'approved')}
-                      >
-                        Aceitar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleStatusChange(row, 'rejected')}
-                      >
-                        Rejeitar
-                      </Button>
-                    </>
-                  )}
-                  {canDeleteRow(row) && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                      onClick={() => handleDeleteRequest(row)}
-                      title="Excluir solicitação"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              ),
-            },
-          ]}
+          columns={columns}
           data={rows}
         />
       )}

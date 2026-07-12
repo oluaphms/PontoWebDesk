@@ -5,7 +5,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { isSupabaseConfigured, type Filter } from '../services/supabaseClient';
 import { listTimeRecords } from '../../services/timeRecords.service';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { LoadingState, Input } from '../../components/UI';
 import { LogType } from '../../types';
 import { MapPin, MonitorSmartphone, ListOrdered } from 'lucide-react';
@@ -21,6 +21,72 @@ interface TimeRecordRow {
   longitude?: number | null;
   device_id?: string | null;
 }
+
+const TIME_RECORDS_COLUMNS: Column<TimeRecordRow>[] = [
+  {
+    key: 'created_at',
+    header: 'Data',
+    render: (row) =>
+      new Date(row.created_at).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }),
+  },
+  {
+    key: 'type',
+    header: 'Tipo',
+    render: (row) => {
+      switch (row.type as LogType) {
+        case LogType.IN:
+          return 'Entrada';
+        case LogType.OUT:
+          return 'Saída';
+        case LogType.BREAK:
+          return 'Pausa';
+        default:
+          return row.type;
+      }
+    },
+  },
+  {
+    key: 'created_at',
+    header: 'Horário',
+    render: (row) =>
+      new Date(row.created_at).toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+  },
+  {
+    key: 'location',
+    header: 'Localização',
+    render: (row) => {
+      const ll = extractLatLng(row);
+      return ll ? (
+        <span className="inline-flex items-start gap-1 text-xs text-slate-600 dark:text-slate-300 max-w-[240px]">
+          <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+          <StreetAddress lat={ll.lat} lng={ll.lng} />
+        </span>
+      ) : (
+        '-'
+      );
+    },
+  },
+  {
+    key: 'device_id',
+    header: 'Dispositivo',
+    render: (row) =>
+      row.device_id ? (
+        <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+          <MonitorSmartphone className="w-3 h-3" />
+          {row.device_id}
+        </span>
+      ) : (
+        '-'
+      ),
+  },
+];
 
 function localDateStartIso(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -134,71 +200,7 @@ const TimeRecordsPage: React.FC = () => {
         <LoadingState message="Carregando registros de ponto..." />
       ) : (
         <DataTable<TimeRecordRow>
-          columns={[
-            {
-              key: 'created_at',
-              header: 'Data',
-              render: (row) =>
-                new Date(row.created_at).toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                }),
-            },
-            {
-              key: 'type',
-              header: 'Tipo',
-              render: (row) => {
-                switch (row.type as LogType) {
-                  case LogType.IN:
-                    return 'Entrada';
-                  case LogType.OUT:
-                    return 'Saída';
-                  case LogType.BREAK:
-                    return 'Pausa';
-                  default:
-                    return row.type;
-                }
-              },
-            },
-            {
-              key: 'created_at',
-              header: 'Horário',
-              render: (row) =>
-                new Date(row.created_at).toLocaleTimeString('pt-BR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }),
-            },
-            {
-              key: 'location',
-              header: 'Localização',
-              render: (row) => {
-                const ll = extractLatLng(row);
-                return ll ? (
-                  <span className="inline-flex items-start gap-1 text-xs text-slate-600 dark:text-slate-300 max-w-[240px]">
-                    <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                    <StreetAddress lat={ll.lat} lng={ll.lng} />
-                  </span>
-                ) : (
-                  '-'
-                );
-              },
-            },
-            {
-              key: 'device_id',
-              header: 'Dispositivo',
-              render: (row) =>
-                row.device_id ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
-                    <MonitorSmartphone className="w-3 h-3" />
-                    {row.device_id}
-                  </span>
-                ) : (
-                  '-'
-                ),
-            },
-          ]}
+          columns={TIME_RECORDS_COLUMNS}
           data={rows}
         />
       )}

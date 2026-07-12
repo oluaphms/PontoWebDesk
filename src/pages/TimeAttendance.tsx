@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, Download, ExternalLink, Plus } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -30,6 +30,85 @@ interface TimeAttendanceFormState {
   clockOut: string;
   breakMinutes: string;
 }
+
+const TIME_ATTENDANCE_COLUMNS: Column<TimeAttendanceRow>[] = [
+  {
+    key: 'date',
+    header: 'Data',
+    render: (row) => row.date,
+  },
+  {
+    key: 'employee_name',
+    header: 'Colaborador',
+    render: (row) => row.employee_name ?? row.employee_id,
+  },
+  {
+    key: 'clock_in',
+    header: 'Entrada',
+    render: (row) => {
+      const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
+      if (row.status_label === 'inconsistent_data') return batidasMsg;
+      if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
+        return batidasMsg;
+      }
+      return row.clock_in ?? '—';
+    },
+  },
+  {
+    key: 'clock_out',
+    header: 'Saída',
+    render: (row) => {
+      const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
+      if (row.status_label === 'inconsistent_data') return batidasMsg;
+      if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
+        return batidasMsg;
+      }
+      return row.clock_out ?? '—';
+    },
+  },
+  {
+    key: 'break_minutes',
+    header: 'Intervalo',
+    render: (row) => `${row.break_minutes ?? 0} min`,
+  },
+  {
+    key: 'total_hours_motor',
+    header: 'Total (motor)',
+    render: (row) =>
+      row.total_hours_motor != null ? `${row.total_hours_motor.toFixed(2)} h` : '—',
+  },
+  {
+    key: 'rep_pending',
+    header: 'REP (pend.)',
+    render: (row) => {
+      const n = row.pending_rep_punch_count ?? 0;
+      if (!row.has_pending_rep_punches || n <= 0) return '—';
+      return (
+        <span
+          className="text-amber-800 dark:text-amber-200 font-medium"
+          title="Batidas no REP com colaborador identificado, ainda sem linha no espelho — não somam ao total do motor."
+        >
+          {n} batida(s)
+        </span>
+      );
+    },
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (row) => {
+      const st = getTimeAttendanceStatusPresentation(row);
+      return (
+        <span
+          className={`text-xs font-semibold ${st.badgeClassName} ${st.tooltip ? 'cursor-help border-b border-dotted border-current/40' : ''}`}
+          title={st.tooltip}
+        >
+          {st.label}
+        </span>
+      );
+    },
+  },
+];
 
 function civilMonthBounds(d = new Date()): { start: string; end: string } {
   const y = d.getFullYear();
@@ -338,84 +417,7 @@ const TimeAttendancePage: React.FC = () => {
         ) : (
           <div className="overflow-x-auto max-w-full">
             <DataTable<TimeAttendanceRow>
-              columns={[
-                {
-                  key: 'date',
-                  header: 'Data',
-                  render: (row) => row.date,
-                },
-                {
-                  key: 'employee_name',
-                  header: 'Colaborador',
-                  render: (row) => row.employee_name ?? row.employee_id,
-                },
-                {
-                  key: 'clock_in',
-                  header: 'Entrada',
-                  render: (row) => {
-                    const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
-                    if (row.status_label === 'inconsistent_data') return batidasMsg;
-                    if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
-                      return batidasMsg;
-                    }
-                    return row.clock_in ?? '—';
-                  },
-                },
-                {
-                  key: 'clock_out',
-                  header: 'Saída',
-                  render: (row) => {
-                    const batidasMsg = 'Batidas não localizadas (verifique sincronização)';
-                    if (row.status_label === 'inconsistent_data') return batidasMsg;
-                    if (row.total_hours_motor != null && row.total_hours_motor > 0 && !row.clock_in && !row.clock_out) {
-                      return batidasMsg;
-                    }
-                    return row.clock_out ?? '—';
-                  },
-                },
-                {
-                  key: 'break_minutes',
-                  header: 'Intervalo',
-                  render: (row) => `${row.break_minutes ?? 0} min`,
-                },
-                {
-                  key: 'total_hours_motor',
-                  header: 'Total (motor)',
-                  render: (row) =>
-                    row.total_hours_motor != null ? `${row.total_hours_motor.toFixed(2)} h` : '—',
-                },
-                {
-                  key: 'rep_pending',
-                  header: 'REP (pend.)',
-                  render: (row) => {
-                    const n = row.pending_rep_punch_count ?? 0;
-                    if (!row.has_pending_rep_punches || n <= 0) return '—';
-                    return (
-                      <span
-                        className="text-amber-800 dark:text-amber-200 font-medium"
-                        title="Batidas no REP com colaborador identificado, ainda sem linha no espelho — não somam ao total do motor."
-                      >
-                        {n} batida(s)
-                      </span>
-                    );
-                  },
-                },
-                {
-                  key: 'status',
-                  header: 'Status',
-                  render: (row) => {
-                    const st = getTimeAttendanceStatusPresentation(row);
-                    return (
-                      <span
-                        className={`text-xs font-semibold ${st.badgeClassName} ${st.tooltip ? 'cursor-help border-b border-dotted border-current/40' : ''}`}
-                        title={st.tooltip}
-                      >
-                        {st.label}
-                      </span>
-                    );
-                  },
-                },
-              ]}
+              columns={TIME_ATTENDANCE_COLUMNS}
               data={filteredRows}
             />
           </div>

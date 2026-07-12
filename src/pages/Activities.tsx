@@ -1,9 +1,9 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ActivitySquare, BadgeX, Clock3, Link2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import ModalForm from '../components/ModalForm';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -109,7 +109,7 @@ const ActivitiesPage: React.FC = () => {
     return true;
   });
 
-  const handleViewDetails = (log: ActivityLogRow) => {
+  const handleViewDetails = useCallback((log: ActivityLogRow) => {
     const entries = logs.filter(
       (l) => l.employee_id === log.employee_id && l.app_name === log.app_name && l.url === log.url,
     );
@@ -119,9 +119,9 @@ const ActivitiesPage: React.FC = () => {
       entries,
     });
     setDetailsOpen(true);
-  };
+  }, [logs]);
 
-  const updateProductivityTag = async (log: ActivityLogRow, tag: 'productive' | 'unproductive') => {
+  const updateProductivityTag = useCallback(async (log: ActivityLogRow, tag: 'productive' | 'unproductive') => {
     if (!isSupabaseConfigured()) return;
     try {
       await (db as { update: (table: string, id: string, data: any) => Promise<any> }).update('activity_logs', log.id, {
@@ -131,11 +131,92 @@ const ActivitiesPage: React.FC = () => {
     } catch (e) {
       observabilityConsole.error('Erro ao marcar produtividade:', e);
     }
-  };
+  }, []);
 
-  const handleBlockApp = (log: ActivityLogRow) => {
+  const handleBlockApp = useCallback((log: ActivityLogRow) => {
     observabilityConsole.log('Bloquear app', log.app_name, log.url);
-  };
+  }, []);
+
+  const columns = useMemo<Column<ActivityLogRow>[]>(
+    () => [
+      {
+        key: 'employee_name',
+        header: 'Colaborador',
+        render: (row) => row.employee_name ?? row.employee_id,
+      },
+      { key: 'app_name', header: 'Aplicativo' },
+      {
+        key: 'url',
+        header: 'URL',
+        render: (row) =>
+          row.url ? (
+            <a
+              href={row.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline max-w-xs truncate"
+            >
+              <Link2 className="w-3 h-3" />
+              {row.url}
+            </a>
+          ) : (
+            '-'
+          ),
+      },
+      {
+        key: 'duration',
+        header: 'Duração',
+        render: (row) => `${Math.round((row.duration ?? 0) / 60)} min`,
+      },
+      {
+        key: 'timestamp',
+        header: 'Horário',
+        render: (row) =>
+          new Date(row.timestamp).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+      },
+      {
+        key: 'productivity_tag',
+        header: 'Produtividade',
+        render: (row) => {
+          if (row.productivity_tag === 'productive') {
+            return <span className="text-emerald-600 text-xs font-semibold">Produtivo</span>;
+          }
+          if (row.productivity_tag === 'unproductive') {
+            return <span className="text-red-600 text-xs font-semibold">Não produtivo</span>;
+          }
+          return <span className="text-slate-500 text-xs font-semibold">Não classificado</span>;
+        },
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (row) => (
+          <div className="flex justify-end gap-2">
+            <Button size="xs" variant="outline" onClick={() => handleViewDetails(row)}>
+              Detalhes
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => handleBlockApp(row)}>
+              Bloquear app
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => updateProductivityTag(row, 'productive')}>
+              <Clock3 className="w-3 h-3 text-emerald-500" />
+              Produtivo
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => updateProductivityTag(row, 'unproductive')}>
+              <BadgeX className="w-3 h-3 text-red-500" />
+              Não produtivo
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [handleViewDetails, handleBlockApp, updateProductivityTag],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando atividades..." />;
@@ -219,83 +300,7 @@ const ActivitiesPage: React.FC = () => {
           />
         ) : (
           <DataTable<ActivityLogRow>
-            columns={[
-              {
-                key: 'employee_name',
-                header: 'Colaborador',
-                render: (row) => row.employee_name ?? row.employee_id,
-              },
-              { key: 'app_name', header: 'Aplicativo' },
-              {
-                key: 'url',
-                header: 'URL',
-                render: (row) =>
-                  row.url ? (
-                    <a
-                      href={row.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline max-w-xs truncate"
-                    >
-                      <Link2 className="w-3 h-3" />
-                      {row.url}
-                    </a>
-                  ) : (
-                    '-'
-                  ),
-              },
-              {
-                key: 'duration',
-                header: 'Duração',
-                render: (row) => `${Math.round((row.duration ?? 0) / 60)} min`,
-              },
-              {
-                key: 'timestamp',
-                header: 'Horário',
-                render: (row) =>
-                  new Date(row.timestamp).toLocaleString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
-              },
-              {
-                key: 'productivity_tag',
-                header: 'Produtividade',
-                render: (row) => {
-                  if (row.productivity_tag === 'productive') {
-                    return <span className="text-emerald-600 text-xs font-semibold">Produtivo</span>;
-                  }
-                  if (row.productivity_tag === 'unproductive') {
-                    return <span className="text-red-600 text-xs font-semibold">Não produtivo</span>;
-                  }
-                  return <span className="text-slate-500 text-xs font-semibold">Não classificado</span>;
-                },
-              },
-              {
-                key: 'actions',
-                header: '',
-                render: (row) => (
-                  <div className="flex justify-end gap-2">
-                    <Button size="xs" variant="outline" onClick={() => handleViewDetails(row)}>
-                      Detalhes
-                    </Button>
-                    <Button size="xs" variant="outline" onClick={() => handleBlockApp(row)}>
-                      Bloquear app
-                    </Button>
-                    <Button size="xs" variant="ghost" onClick={() => updateProductivityTag(row, 'productive')}>
-                      <Clock3 className="w-3 h-3 text-emerald-500" />
-                      Produtivo
-                    </Button>
-                    <Button size="xs" variant="ghost" onClick={() => updateProductivityTag(row, 'unproductive')}>
-                      <BadgeX className="w-3 h-3 text-red-500" />
-                      Não produtivo
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
+            columns={columns}
             data={filteredLogs}
           />
         )}

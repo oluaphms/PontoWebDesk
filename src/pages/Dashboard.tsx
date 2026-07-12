@@ -7,7 +7,7 @@ import { db } from '../services/supabaseClient';
 import { TimeRecord, LogType } from '../../types';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { LoadingState, EmptyState } from '../../components/UI';
 import { filterRecordsForOperationalDay } from '../services/monitoring/monitoringGeoHardLock.service';
 import { recordPunchInstantIso } from '../utils/punchOrigin';
@@ -42,6 +42,44 @@ interface TimeBalanceRow {
   debit_hours: number;
   final_balance: number;
 }
+
+const DASHBOARD_PENDING_REQUESTS_COLUMNS: Column<RequestRow>[] = [
+  {
+    key: 'type',
+    header: 'Tipo',
+    render: (row) => (
+      <ExpandableTextCell label="Tipo" value={formatRequestType(row.type)} />
+    ),
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (row) => (
+      <ExpandableTextCell label="Status" value={formatWorkflowStatus(row.status)} />
+    ),
+  },
+  {
+    key: 'reason',
+    header: 'Motivo',
+    render: (row) => <ExpandableTextCell label="Motivo" value={row.reason} />,
+  },
+  {
+    key: 'created_at',
+    header: 'Criado em',
+    render: (row) => (
+      <ExpandableTextCell
+        label="Criado em"
+        value={new Date(row.created_at).toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      />
+    ),
+  },
+];
 
 const DashboardPage: React.FC = () => {
   useLanguage();
@@ -303,43 +341,7 @@ const DashboardPage: React.FC = () => {
           <EmptyState title="Nenhuma solicitação" message="Você não possui solicitações pendentes." />
         ) : (
           <DataTable<RequestRow>
-            columns={[
-              {
-                key: 'type',
-                header: 'Tipo',
-                render: (row) => (
-                  <ExpandableTextCell label="Tipo" value={formatRequestType(row.type)} />
-                ),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (row) => (
-                  <ExpandableTextCell label="Status" value={formatWorkflowStatus(row.status)} />
-                ),
-              },
-              {
-                key: 'reason',
-                header: 'Motivo',
-                render: (row) => <ExpandableTextCell label="Motivo" value={row.reason} />,
-              },
-              {
-                key: 'created_at',
-                header: 'Criado em',
-                render: (row) => (
-                  <ExpandableTextCell
-                    label="Criado em"
-                    value={new Date(row.created_at).toLocaleString('pt-BR', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  />
-                ),
-              },
-            ]}
+            columns={DASHBOARD_PENDING_REQUESTS_COLUMNS}
             data={pendingRequests}
           />
         )}

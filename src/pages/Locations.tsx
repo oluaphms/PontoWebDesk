@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { MapPin, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
@@ -18,6 +18,24 @@ interface WorkLocationRow {
   longitude: number;
   radius_meters: number;
 }
+
+const LOCATIONS_COLUMNS: Column<WorkLocationRow>[] = [
+  { key: 'name', header: 'Nome' },
+  {
+    key: 'latitude',
+    header: 'Latitude',
+    render: (row) => row.latitude.toFixed(5),
+  },
+  {
+    key: 'longitude',
+    header: 'Longitude',
+    render: (row) => row.longitude.toFixed(5),
+  },
+  {
+    key: 'radius_meters',
+    header: 'Raio (m)',
+  },
+];
 
 const LocationsPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -133,23 +151,7 @@ const LocationsPage: React.FC = () => {
         <LoadingState message="Carregando locais..." />
       ) : (
         <DataTable<WorkLocationRow>
-          columns={[
-            { key: 'name', header: 'Nome' },
-            {
-              key: 'latitude',
-              header: 'Latitude',
-              render: (row) => row.latitude.toFixed(5),
-            },
-            {
-              key: 'longitude',
-              header: 'Longitude',
-              render: (row) => row.longitude.toFixed(5),
-            },
-            {
-              key: 'radius_meters',
-              header: 'Raio (m)',
-            },
-          ]}
+          columns={LOCATIONS_COLUMNS}
           data={rows}
         />
       )}

@@ -1,10 +1,10 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { PlaneTakeoff } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, Input, LoadingState } from '../../components/UI';
 import { formatWorkflowStatus } from '../../lib/i18n';
@@ -130,7 +130,7 @@ const VacationsPage: React.FC = () => {
     }
   };
 
-  const handleStatusChange = async (row: VacationRow, status: 'approved' | 'rejected') => {
+  const handleStatusChange = useCallback(async (row: VacationRow, status: 'approved' | 'rejected') => {
     if (!user || !isSupabaseConfigured()) return;
 
     try {
@@ -163,7 +163,57 @@ const VacationsPage: React.FC = () => {
     } catch (err) {
       observabilityConsole.error('Erro ao atualizar férias:', err);
     }
-  };
+  }, [user]);
+
+  const columns = useMemo<Column<VacationRow>[]>(
+    () => [
+      {
+        key: 'start_date',
+        header: 'Início',
+        render: (row) =>
+          new Date(row.start_date).toLocaleDateString('pt-BR'),
+      },
+      {
+        key: 'end_date',
+        header: 'Fim',
+        render: (row) =>
+          new Date(row.end_date).toLocaleDateString('pt-BR'),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row) => formatWorkflowStatus(row.status),
+      },
+      ...(isAdminView
+        ? [
+            {
+              key: 'actions',
+              header: '',
+              render: (row: VacationRow) =>
+                row.status === 'pending' && (
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleStatusChange(row, 'approved')}
+                    >
+                      Aprovar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleStatusChange(row, 'rejected')}
+                    >
+                      Rejeitar
+                    </Button>
+                  </div>
+                ),
+            },
+          ]
+        : []),
+    ],
+    [isAdminView, handleStatusChange],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando férias..." />;
@@ -195,52 +245,7 @@ const VacationsPage: React.FC = () => {
         <LoadingState message="Carregando férias..." />
       ) : (
         <DataTable<VacationRow>
-          columns={[
-            {
-              key: 'start_date',
-              header: 'Início',
-              render: (row) =>
-                new Date(row.start_date).toLocaleDateString('pt-BR'),
-            },
-            {
-              key: 'end_date',
-              header: 'Fim',
-              render: (row) =>
-                new Date(row.end_date).toLocaleDateString('pt-BR'),
-            },
-            {
-              key: 'status',
-              header: 'Status',
-              render: (row) => formatWorkflowStatus(row.status),
-            },
-            ...(isAdminView
-              ? [
-                  {
-                    key: 'actions',
-                    header: '',
-                    render: (row: VacationRow) =>
-                      row.status === 'pending' && (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatusChange(row, 'approved')}
-                          >
-                            Aprovar
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleStatusChange(row, 'rejected')}
-                          >
-                            Rejeitar
-                          </Button>
-                        </div>
-                      ),
-                  },
-                ]
-              : []),
-          ]}
+          columns={columns}
           data={rows}
         />
       )}

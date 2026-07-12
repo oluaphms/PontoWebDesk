@@ -1,11 +1,11 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CircleOff, Trash2 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useToast } from '../components/ToastProvider';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured, type Filter } from '../services/supabaseClient';
@@ -137,7 +137,7 @@ const AbsencesPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (!user || !isSupabaseConfigured()) return;
     setDeletingId(id);
     try {
@@ -160,7 +160,37 @@ const AbsencesPage: React.FC = () => {
     } finally {
       setDeletingId(null);
     }
-  };
+  }, [user, toast]);
+
+  const columns = useMemo<Column<AbsenceRow>[]>(
+    () => [
+      {
+        key: 'absence_date',
+        header: 'Data',
+        render: (row) =>
+          new Date(row.absence_date).toLocaleDateString('pt-BR'),
+      },
+      { key: 'type', header: 'Tipo' },
+      { key: 'reason', header: 'Motivo' },
+      {
+        key: 'actions',
+        header: 'Ações',
+        render: (row) => (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => handleDelete(row.id)}
+              disabled={deletingId === row.id}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
+              title="Deletar ausência"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [handleDelete, deletingId],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando sessão..." />;
@@ -193,32 +223,7 @@ const AbsencesPage: React.FC = () => {
         <LoadingState message="Carregando ausências..." />
       ) : (
         <DataTable<AbsenceRow>
-          columns={[
-            {
-              key: 'absence_date',
-              header: 'Data',
-              render: (row) =>
-                new Date(row.absence_date).toLocaleDateString('pt-BR'),
-            },
-            { key: 'type', header: 'Tipo' },
-            { key: 'reason', header: 'Motivo' },
-            {
-              key: 'actions',
-              header: 'Ações',
-              render: (row) => (
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    onClick={() => handleDelete(row.id)}
-                    disabled={deletingId === row.id}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                    title="Deletar ausência"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ),
-            },
-          ]}
+          columns={columns}
           data={rows}
         />
       )}

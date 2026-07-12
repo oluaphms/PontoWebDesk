@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { Cpu, PlusCircle } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import ModalForm from '../components/ModalForm';
 import { Button, Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
@@ -17,6 +17,12 @@ interface DeviceRow {
   device_identifier: string;
   status: string;
 }
+
+const DEVICES_COLUMNS: Column<DeviceRow>[] = [
+  { key: 'name', header: 'Nome' },
+  { key: 'device_identifier', header: 'Identificador' },
+  { key: 'status', header: 'Status' },
+];
 
 const DevicesPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -128,11 +134,7 @@ const DevicesPage: React.FC = () => {
         <LoadingState message="Carregando dispositivos..." />
       ) : (
         <DataTable<DeviceRow>
-          columns={[
-            { key: 'name', header: 'Nome' },
-            { key: 'device_identifier', header: 'Identificador' },
-            { key: 'status', header: 'Status' },
-          ]}
+          columns={DEVICES_COLUMNS}
           data={rows}
         />
       )}

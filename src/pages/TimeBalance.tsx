@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { Scale, Info } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { Input, LoadingState } from '../../components/UI';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { formatDateForTablePtBr } from '../utils/timeCalculations';
@@ -68,6 +68,31 @@ type DailyRefRow = {
   balanceHours: number;
   isWorkday: boolean;
 };
+
+const DAILY_REF_COLUMNS: Column<DailyRefRow>[] = [
+  { key: 'dateLabel', header: 'Data' },
+  {
+    key: 'workedHours',
+    header: 'Trabalhado',
+    render: (row) => `${row.workedHours.toFixed(1)}h`,
+  },
+  {
+    key: 'expectedHours',
+    header: 'Previsto',
+    render: (row) => (row.isWorkday ? `${row.expectedHours.toFixed(1)}h` : '—'),
+  },
+  {
+    key: 'balanceHours',
+    header: 'Saldo (dia)',
+    render: (row) =>
+      row.isWorkday ? `${row.balanceHours >= 0 ? '+' : ''}${row.balanceHours.toFixed(1)}h` : '—',
+  },
+  {
+    key: 'isWorkday',
+    header: 'Tipo',
+    render: (row) => (row.isWorkday ? 'Jornada' : 'Folga'),
+  },
+];
 
 function computeLedgerAvailableBalanceMinutes(rows: LedgerMonthRow[]): number {
   return rows.reduce((acc, row) => {
@@ -389,29 +414,7 @@ const TimeBalancePage: React.FC = () => {
                 </div>
               </div>
               <DataTable<DailyRefRow>
-                columns={[
-                  { key: 'dateLabel', header: 'Data' },
-                  {
-                    key: 'workedHours',
-                    header: 'Trabalhado',
-                    render: (row) => `${row.workedHours.toFixed(1)}h`,
-                  },
-                  {
-                    key: 'expectedHours',
-                    header: 'Previsto',
-                    render: (row) => (row.isWorkday ? `${row.expectedHours.toFixed(1)}h` : '—'),
-                  },
-                  {
-                    key: 'balanceHours',
-                    header: 'Saldo (dia)',
-                    render: (row) => (row.isWorkday ? `${row.balanceHours >= 0 ? '+' : ''}${row.balanceHours.toFixed(1)}h` : '—'),
-                  },
-                  {
-                    key: 'isWorkday',
-                    header: 'Tipo',
-                    render: (row) => (row.isWorkday ? 'Jornada' : 'Folga'),
-                  },
-                ]}
+                columns={DAILY_REF_COLUMNS}
                 data={dailyReference}
               />
             </div>

@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Ca
 import { Activity, BarChart3, Clock3, TrendingUp } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured, type Filter } from '../services/supabaseClient';
@@ -30,6 +30,57 @@ interface EmployeeAggregateRow {
   tasksCompleted: number;
   trend: 'up' | 'down' | 'stable';
 }
+
+const PRODUCTIVITY_EMPLOYEE_COLUMNS: Column<EmployeeAggregateRow>[] = [
+  { key: 'name', header: 'Colaborador' },
+  {
+    key: 'avgProductivity',
+    header: 'Produtividade média',
+    render: (row) => `${row.avgProductivity.toFixed(1)} pts`,
+  },
+  {
+    key: 'activeHours',
+    header: 'Horas ativas',
+    render: (row) => `${row.activeHours.toFixed(1)} h`,
+  },
+  {
+    key: 'idleHours',
+    header: 'Horas ociosas',
+    render: (row) => `${row.idleHours.toFixed(1)} h`,
+  },
+  {
+    key: 'tasksCompleted',
+    header: 'Tarefas concluídas',
+    render: (row) => row.tasksCompleted,
+  },
+  {
+    key: 'trend',
+    header: 'Tendência',
+    render: (row) => {
+      if (row.trend === 'up') {
+        return <span className="text-emerald-600 text-xs font-semibold">↑ Alta</span>;
+      }
+      if (row.trend === 'down') {
+        return <span className="text-red-600 text-xs font-semibold">↓ Queda</span>;
+      }
+      return <span className="text-slate-500 text-xs font-semibold">→ Estável</span>;
+    },
+  },
+  {
+    key: 'actions',
+    header: '',
+    render: () => (
+      <div className="flex justify-end gap-2">
+        <Button size="xs" variant="outline">
+          Ver detalhes
+        </Button>
+        <Button size="xs" variant="ghost">
+          Abrir perfil
+        </Button>
+      </div>
+    ),
+  },
+];
 
 interface TeamRow {
   id: string;
@@ -545,56 +596,7 @@ const ProductivityTrendsPage: React.FC = () => {
           <LoadingState message="Carregando comparação de colaboradores..." />
         ) : (
           <DataTable<EmployeeAggregateRow>
-            columns={[
-              { key: 'name', header: 'Colaborador' },
-              {
-                key: 'avgProductivity',
-                header: 'Produtividade média',
-                render: (row) => `${row.avgProductivity.toFixed(1)} pts`,
-              },
-              {
-                key: 'activeHours',
-                header: 'Horas ativas',
-                render: (row) => `${row.activeHours.toFixed(1)} h`,
-              },
-              {
-                key: 'idleHours',
-                header: 'Horas ociosas',
-                render: (row) => `${row.idleHours.toFixed(1)} h`,
-              },
-              {
-                key: 'tasksCompleted',
-                header: 'Tarefas concluídas',
-                render: (row) => row.tasksCompleted,
-              },
-              {
-                key: 'trend',
-                header: 'Tendência',
-                render: (row) => {
-                  if (row.trend === 'up') {
-                    return <span className="text-emerald-600 text-xs font-semibold">↑ Alta</span>;
-                  }
-                  if (row.trend === 'down') {
-                    return <span className="text-red-600 text-xs font-semibold">↓ Queda</span>;
-                  }
-                  return <span className="text-slate-500 text-xs font-semibold">→ Estável</span>;
-                },
-              },
-              {
-                key: 'actions',
-                header: '',
-                render: () => (
-                  <div className="flex justify-end gap-2">
-                    <Button size="xs" variant="outline">
-                      Ver detalhes
-                    </Button>
-                    <Button size="xs" variant="ghost">
-                      Abrir perfil
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
+            columns={PRODUCTIVITY_EMPLOYEE_COLUMNS}
             data={employeeAggregates}
             emptyMessage="Nenhum colaborador com dados de produtividade no período."
           />

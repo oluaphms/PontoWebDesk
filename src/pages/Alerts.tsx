@@ -1,9 +1,9 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2 } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
-import DataTable from '../components/DataTable';
+import DataTable, { type Column } from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
@@ -99,7 +99,7 @@ const AlertsPage: React.FC = () => {
     return true;
   });
 
-  const updateAlertResolved = async (alert: AlertRow, resolved: boolean) => {
+  const updateAlertResolved = useCallback(async (alert: AlertRow, resolved: boolean) => {
     if (!isSupabaseConfigured()) return;
     try {
       await (db as { update: (table: string, id: string, data: any) => Promise<any> }).update('alerts', alert.id, {
@@ -109,23 +109,106 @@ const AlertsPage: React.FC = () => {
     } catch (e) {
       observabilityConsole.error('Erro ao atualizar alerta:', e);
     }
-  };
+  }, []);
 
-  const handleResolve = (alert: AlertRow) => {
+  const handleResolve = useCallback((alert: AlertRow) => {
     updateAlertResolved(alert, true);
-  };
+  }, [updateAlertResolved]);
 
-  const handleIgnore = (alert: AlertRow) => {
+  const handleIgnore = useCallback((alert: AlertRow) => {
     updateAlertResolved(alert, true);
-  };
+  }, [updateAlertResolved]);
 
-  const handleViewDetails = (alert: AlertRow) => {
+  const handleViewDetails = useCallback((alert: AlertRow) => {
     navigate('/activities');
-  };
+  }, [navigate]);
 
-  const handleNotifyEmployee = (alert: AlertRow) => {
+  const handleNotifyEmployee = useCallback((alert: AlertRow) => {
     navigate('/notifications');
-  };
+  }, [navigate]);
+
+  const columns = useMemo<Column<AlertRow>[]>(
+    () => [
+      {
+        key: 'employee_name',
+        header: 'Colaborador',
+        render: (row) => row.employee_name ?? row.employee_id,
+      },
+      { key: 'type', header: 'Tipo' },
+      {
+        key: 'description',
+        header: 'Descrição',
+        render: (row) => (
+          <span className="line-clamp-2 text-sm text-slate-700 dark:text-slate-200">{row.description}</span>
+        ),
+      },
+      {
+        key: 'severity',
+        header: 'Severidade',
+        render: (row) => {
+          if (row.severity === 'high') {
+            return <span className="text-red-600 text-xs font-semibold">Alta</span>;
+          }
+          if (row.severity === 'medium') {
+            return <span className="text-amber-600 text-xs font-semibold">Média</span>;
+          }
+          return <span className="text-slate-600 text-xs font-semibold">Baixa</span>;
+        },
+      },
+      {
+        key: 'created_at',
+        header: 'Data',
+        render: (row) =>
+          new Date(row.created_at).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+      },
+      {
+        key: 'resolved',
+        header: 'Status',
+        render: (row) =>
+          row.resolved ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
+              <CheckCircle2 className="w-3 h-3" />
+              Resolvido
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600">
+              <Bell className="w-3 h-3" />
+              Aberto
+            </span>
+          ),
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (row) => (
+          <div className="flex justify-end gap-2">
+            {!row.resolved && (
+              <Button size="xs" variant="outline" onClick={() => handleResolve(row)}>
+                Resolver
+              </Button>
+            )}
+            {!row.resolved && (
+              <Button size="xs" variant="ghost" onClick={() => handleIgnore(row)}>
+                Ignorar
+              </Button>
+            )}
+            <Button size="xs" variant="ghost" onClick={() => handleViewDetails(row)}>
+              Detalhes
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => handleNotifyEmployee(row)}>
+              Notificar
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [handleResolve, handleIgnore, handleViewDetails, handleNotifyEmployee],
+  );
 
   if (loading) {
     return <LoadingState message="Carregando alertas..." />;
@@ -212,85 +295,7 @@ const AlertsPage: React.FC = () => {
           <EmptyState title="Nenhum alerta" message="Nenhum alerta encontrado para os filtros selecionados." />
         ) : (
           <DataTable<AlertRow>
-            columns={[
-              {
-                key: 'employee_name',
-                header: 'Colaborador',
-                render: (row) => row.employee_name ?? row.employee_id,
-              },
-              { key: 'type', header: 'Tipo' },
-              {
-                key: 'description',
-                header: 'Descrição',
-                render: (row) => (
-                  <span className="line-clamp-2 text-sm text-slate-700 dark:text-slate-200">{row.description}</span>
-                ),
-              },
-              {
-                key: 'severity',
-                header: 'Severidade',
-                render: (row) => {
-                  if (row.severity === 'high') {
-                    return <span className="text-red-600 text-xs font-semibold">Alta</span>;
-                  }
-                  if (row.severity === 'medium') {
-                    return <span className="text-amber-600 text-xs font-semibold">Média</span>;
-                  }
-                  return <span className="text-slate-600 text-xs font-semibold">Baixa</span>;
-                },
-              },
-              {
-                key: 'created_at',
-                header: 'Data',
-                render: (row) =>
-                  new Date(row.created_at).toLocaleString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
-              },
-              {
-                key: 'resolved',
-                header: 'Status',
-                render: (row) =>
-                  row.resolved ? (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Resolvido
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600">
-                      <Bell className="w-3 h-3" />
-                      Aberto
-                    </span>
-                  ),
-              },
-              {
-                key: 'actions',
-                header: '',
-                render: (row) => (
-                  <div className="flex justify-end gap-2">
-                    {!row.resolved && (
-                      <Button size="xs" variant="outline" onClick={() => handleResolve(row)}>
-                        Resolver
-                      </Button>
-                    )}
-                    {!row.resolved && (
-                      <Button size="xs" variant="ghost" onClick={() => handleIgnore(row)}>
-                        Ignorar
-                      </Button>
-                    )}
-                    <Button size="xs" variant="ghost" onClick={() => handleViewDetails(row)}>
-                      Detalhes
-                    </Button>
-                    <Button size="xs" variant="outline" onClick={() => handleNotifyEmployee(row)}>
-                      Notificar
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
+            columns={columns}
             data={filteredAlerts}
           />
         )}
