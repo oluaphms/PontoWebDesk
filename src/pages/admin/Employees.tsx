@@ -9,7 +9,6 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Check,
   UserCheck,
   Search,
   Upload,
@@ -22,6 +21,9 @@ import {
   ClipboardList,
   CalendarOff,
 } from 'lucide-react';
+import { EmployeeEditModalSkeleton } from './employees/EmployeeEditModalSkeleton';
+import { EmployeeInvisivelConfirmDialog } from './employees/EmployeeInvisivelConfirmDialog';
+import { EmployeePasswordResetModal } from './employees/EmployeePasswordResetModal';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import {
   accessProfileLabel,
@@ -494,44 +496,6 @@ function getDisplayShortName(fullName: string): string {
   const parts = clean.split(/\s+/).filter(Boolean);
   if (parts.length <= 2) return parts.join(' ');
   return `${parts[0]} ${parts[1]}...`;
-}
-
-/** Skeleton visual do modal de funcionário (lista ainda carregando). */
-function EmployeeEditModalSkeleton() {
-  const bar = 'h-10 rounded-lg bg-slate-100 dark:bg-slate-800/90';
-  const cap = 'h-2.5 rounded bg-slate-200/90 dark:bg-slate-700 w-24 mb-2';
-  return (
-    <div className="space-y-8 animate-pulse pt-1" aria-busy="true" aria-label="Carregando dados do formulário">
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 lg:gap-8">
-        <div className="order-2 lg:order-1 lg:col-span-7 space-y-8">
-          {[0, 1, 2].map((k) => (
-            <div key={k} className="space-y-4">
-              <div className={cap} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2 space-y-2">
-                  <div className={cap} />
-                  <div className={bar} />
-                </div>
-                <div className="space-y-2">
-                  <div className={cap} />
-                  <div className={bar} />
-                </div>
-                <div className="space-y-2">
-                  <div className={cap} />
-                  <div className={bar} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="order-1 lg:order-2 lg:col-span-3 flex flex-col items-center gap-4">
-          <div className="h-[104px] w-[104px] rounded-2xl bg-slate-200 dark:bg-slate-700" />
-          <div className="h-9 w-full max-w-[220px] rounded-lg bg-slate-200 dark:bg-slate-700" />
-          <div className="h-32 w-full rounded-xl bg-slate-100 dark:bg-slate-800/80" />
-        </div>
-      </div>
-    </div>
-  );
 }
 
 const AdminEmployees: React.FC = () => {
@@ -2565,164 +2529,49 @@ const AdminEmployees: React.FC = () => {
           </div>
         )}
 
-        {passwordModalOpen && editingId && form.email?.trim() && (
-          <div
-            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-sm"
-            role="dialog"
-            aria-modal="true"
-            onClick={() => {
-              if (!settingPassword) closePasswordModal();
-            }}
-          >
-            <div
-              className="w-full max-w-xl rounded-2xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-5 sm:p-6 space-y-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="space-y-1">
-                <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">Redefinir senha</h4>
-                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                  Defina a nova senha de acesso para <strong>{form.email.trim()}</strong>.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Senha temporária</label>
-                <div className="flex items-stretch gap-2">
-                  <input
-                    type={showPasswordDraft ? 'text' : 'password'}
-                    value={passwordDraft}
-                    onChange={(e) => {
-                      setPasswordDraft(e.target.value);
-                      setPasswordCopied(false);
-                      if (passwordMessageTone !== 'error') {
-                        setPasswordMessage(null);
-                        setPasswordMessageTone(null);
-                      }
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordDraft((v) => !v)}
-                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                    aria-label={showPasswordDraft ? 'Ocultar senha' : 'Mostrar senha'}
-                  >
-                    {showPasswordDraft ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyPassword}
-                    disabled={!passwordDraft.trim()}
-                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
-                    aria-label="Copiar senha"
-                    title="Copiar senha"
-                  >
-                    {passwordCopied ? <Check size={18} /> : <Copy size={18} />}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Após salvar, informe a senha ao funcionário por um canal seguro.
-                </p>
-                {passwordJustSaved && passwordDraft.trim() && (
-                  <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/90 dark:bg-emerald-950/25 p-3 space-y-1.5">
-                    <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                      Senha cadastrada (visível para repasse)
-                    </p>
-                    <p className="text-sm font-mono text-emerald-900 dark:text-emerald-100 break-all">
-                      {passwordDraft}
-                    </p>
-                    <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/90">
-                      Permanece nesta tela e em &quot;Gerenciar senha&quot; enquanto esta sessão do navegador estiver aberta.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Força da senha</span>
-                  <span className={passwordStrengthInfo.textClass}>{passwordStrengthInfo.label}</span>
-                </div>
-                <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-200 ${passwordStrengthInfo.barClass}`}
-                    style={{ width: `${Math.max(6, passwordStrengthInfo.score)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-                {passwordChecks.map((item) => (
-                  <p key={item.label} className={`text-xs ${item.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                    {item.ok ? 'OK' : '-'} {item.label}
-                  </p>
-                ))}
-              </div>
-
-              {passwordValidationMessage && (
-                <p className="text-xs text-amber-700 dark:text-amber-300">{passwordValidationMessage}</p>
-              )}
-
-              {passwordMessage && (
-                <p
-                  className={`text-xs ${
-                    passwordMessageTone === 'error'
-                      ? 'text-red-600 dark:text-red-400'
-                      : passwordMessageTone === 'success'
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-sky-600 dark:text-sky-400'
-                  }`}
-                >
-                  {passwordMessage}
-                </p>
-              )}
-
-              <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={handleGenerateStrongPassword}
-                  disabled={settingPassword}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-sm"
-                >
-                  Gerar senha temporária forte
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!settingPassword) closePasswordModal();
-                  }}
-                  disabled={settingPassword}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-sm"
-                >
-                  {passwordJustSaved ? 'Fechar' : 'Cancelar'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSavePassword}
-                  disabled={settingPassword || !!passwordValidationMessage}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium inline-flex items-center gap-2"
-                >
-                  {settingPassword ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : null}
-                  {settingPassword ? 'Salvando...' : 'Salvar Senha'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <EmployeePasswordResetModal
+          open={Boolean(passwordModalOpen && editingId && form.email?.trim())}
+          email={form.email || ''}
+          passwordDraft={passwordDraft}
+          showPasswordDraft={showPasswordDraft}
+          passwordCopied={passwordCopied}
+          passwordJustSaved={passwordJustSaved}
+          settingPassword={settingPassword}
+          passwordMessage={passwordMessage}
+          passwordMessageTone={passwordMessageTone}
+          passwordStrengthInfo={passwordStrengthInfo}
+          passwordChecks={passwordChecks}
+          passwordValidationMessage={passwordValidationMessage}
+          onPasswordDraftChange={(value) => {
+            setPasswordDraft(value);
+            setPasswordCopied(false);
+            if (passwordMessageTone !== 'error') {
+              setPasswordMessage(null);
+              setPasswordMessageTone(null);
+            }
+          }}
+          onToggleShowPasswordDraft={() => setShowPasswordDraft((v) => !v)}
+          onCopyPassword={() => {
+            void handleCopyPassword();
+          }}
+          onGenerateStrongPassword={handleGenerateStrongPassword}
+          onClose={closePasswordModal}
+          onSave={() => {
+            void handleSavePassword();
+          }}
+        />
 
         {/* Diálogo: Tornar invisível após demissão */}
-        {askInvisivel && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm">
-              <p className="text-slate-700 dark:text-slate-200 mb-4">Deseja tornar este funcionário <strong>invisível</strong>? Ele não aparecerá nos relatórios nem na listagem, mas os dados permanecem salvos.</p>
-              <div className="flex gap-3">
-                <button type="button" onClick={() => { confirmInvisivel(askInvisivel); }} className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-medium">Sim, tornar invisível</button>
-                <button type="button" onClick={() => { setAskInvisivel(null); loadData(); }} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium">Não</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <EmployeeInvisivelConfirmDialog
+          employeeId={askInvisivel}
+          onConfirm={(id) => {
+            void confirmInvisivel(id);
+          }}
+          onDecline={() => {
+            setAskInvisivel(null);
+            void loadData();
+          }}
+        />
 
         {/* Modal Importar funcionário */}
         {importModalOpen && (
