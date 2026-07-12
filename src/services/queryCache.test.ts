@@ -7,6 +7,7 @@ import {
   invalidatePendingRequestsCachesForUsers,
   invalidateOperationalGeoCaches,
   invalidateRealtimeGeoEntity,
+  invalidateStaticCatalogCaches,
   flushPendingGeoCacheInvalidations,
   __resetCacheInvalidationCoalescersForTests,
 } from './queryCache';
@@ -44,14 +45,32 @@ describe('queryCache.invalidate', () => {
     expect(queryCache.get('admin_report:cid-1:work_hours:2026-04')).toBeNull();
   });
 
-  it('invalidateAfterPunch cobre empresa e usuário', async () => {
-    await queryCache.getOrFetch('users:c1', async () => [], 60_000);
+  it('invalidateAfterPunch limpa registros/saldo sem apagar catálogos estáticos', async () => {
+    await queryCache.getOrFetch('departments:list:c1', async () => [], 60_000);
     await queryCache.getOrFetch('time_records:user:u1:recent', async () => [], 60_000);
     await queryCache.getOrFetch('time_balance:u1:2026-04', async () => [], 60_000);
+    await queryCache.getOrFetch('time_records:admin_dash:recent:c1', async () => [], 60_000);
     invalidateAfterPunch('u1', 'c1');
-    expect(queryCache.get('users:c1')).toBeNull();
+    expect(queryCache.get('departments:list:c1')).not.toBeNull();
     expect(queryCache.get('time_records:user:u1:recent')).toBeNull();
     expect(queryCache.get('time_balance:u1:2026-04')).toBeNull();
+    expect(queryCache.get('time_records:admin_dash:recent:c1')).toBeNull();
+  });
+
+  it('invalidateStaticCatalogCaches limpa só catálogos', async () => {
+    await queryCache.getOrFetch('departments:list:c1', async () => [], 60_000);
+    await queryCache.getOrFetch('time_records:admin_dash:recent:c1', async () => [], 60_000);
+    invalidateStaticCatalogCaches('c1');
+    expect(queryCache.get('departments:list:c1')).toBeNull();
+    expect(queryCache.get('time_records:admin_dash:recent:c1')).not.toBeNull();
+  });
+
+  it('respeita teto de entradas no queryCache (eviction)', async () => {
+    for (let i = 0; i < 420; i += 1) {
+      await queryCache.getOrFetch(`scale-test:${i}`, async () => ({ i }), 60_000);
+    }
+    expect(queryCache.get('scale-test:0')).toBeNull();
+    expect(queryCache.get('scale-test:419')).not.toBeNull();
   });
 
   it('invalidateAfterTimesheetMonthClose limpa banco de horas admin e time_balance global', async () => {

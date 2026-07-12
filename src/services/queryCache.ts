@@ -30,6 +30,8 @@ interface CacheEntry<T> {
 
 const store = new Map<string, CacheEntry<unknown>>();
 const HARD_LOCK_NO_CACHE_KEYS = ['timesheet', 'payroll', 'rep_punch_logs', 'jobs'];
+/** Teto de entradas — evita crescimento ilimitado em navegação multi-tenant no mesmo browser. */
+const MAX_CACHE_ENTRIES = 400;
 let tenantCacheRegistryBootstrapped = false;
 
 function isHardLockNoCacheKey(key: string): boolean {
@@ -37,16 +39,36 @@ function isHardLockNoCacheKey(key: string): boolean {
   return HARD_LOCK_NO_CACHE_KEYS.some((token) => normalized.includes(token));
 }
 
+function evictExpiredAndOverCap(): void {
+  const now = Date.now();
+  for (const [key, entry] of store) {
+    if (now > entry.expiresAt) store.delete(key);
+  }
+  if (store.size <= MAX_CACHE_ENTRIES) return;
+  // Eviction FIFO aproximada (Map preserva ordem de inserção).
+  const excess = store.size - MAX_CACHE_ENTRIES;
+  let removed = 0;
+  for (const key of store.keys()) {
+    if (removed >= excess) break;
+    store.delete(key);
+    removed += 1;
+  }
+}
+
 /** TTLs padrão por tipo de dado (ms) */
 export const TTL = {
-  /** Dados que mudam raramente: departamentos, cargos, escalas */
-  STATIC: 5 * 60 * 1000,       // 5 min
-  /** Dados que mudam com frequência moderada: funcionários, configurações */
-  NORMAL: 60 * 1000,            // 1 min
+  /**
+   * Catálogos estáticos (departamentos, cargos, escalas, configs).
+   * Soft ceiling 30 min — invalidação explícita no CRUD evita stale de sessão.
+   * Evita Infinity (memory + dados fantasma após deploy/migração).
+   */
+  STATIC: 30 * 60 * 1000, // 30 min
+  /** Dados que mudam com frequência moderada: funcionários */
+  NORMAL: 5 * 60 * 1000, // 5 min (era 1 min) — invalidado em mutação de RH
   /** Dados de curta duração: dashboard admin, listas frequentes */
-  SHORT: 30 * 1000,             // 30 s
+  SHORT: 30 * 1000, // 30 s
   /** Dados em tempo real: registros de ponto, badges */
-  REALTIME: 15 * 1000,          // 15 s
+  REALTIME: 15 * 1000, // 15 s
 } as const;
 
 export const queryCache = {
@@ -63,7 +85,10 @@ export const queryCache = {
 
   set<T>(key: string, data: T, ttl: number): void {
     if (isHardLockNoCacheKey(key)) return;
+    // Re-insert move a chave para o fim (Map insertion order) — favorece LRU aproximado.
+    if (store.has(key)) store.delete(key);
     store.set(key, { data, expiresAt: Date.now() + ttl });
+    evictExpiredAndOverCap();
   },
 
   /**
@@ -321,16 +346,10 @@ export function invalidateCompanyListCaches(companyId: string): void {
   if (!companyId) return;
   invalidateEmployeesQueries(companyId);
   invalidateDashboardQueriesForCompany(companyId);
+  invalidateStaticCatalogCaches(companyId);
   queryCache.invalidate(`employees-api:${companyId}`);
   queryCache.invalidate(`espelho-users:${companyId}`);
-  queryCache.invalidate(`espelho-departments:${companyId}`);
   queryCache.invalidate(`cartao-ponto-users:${companyId}`);
-  queryCache.invalidate(`schedules:list:${companyId}`);
-  queryCache.invalidate(`work_shifts:list:${companyId}`);
-  queryCache.invalidate(`departments:list:${companyId}`);
-  queryCache.invalidate(`estruturas:list:${companyId}`);
-  queryCache.invalidate(`job_titles:list:${companyId}`);
-  queryCache.invalidate(`motivo_demissao:list:${companyId}`);
   queryCache.invalidate(`users:${companyId}`);
   queryCache.invalidate(`time_records:week:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);
@@ -339,16 +358,39 @@ export function invalidateCompanyListCaches(companyId: string): void {
   queryCache.invalidate(`current_operational_state:${companyId}`);
   queryCache.invalidate(`users:${companyId}:minimal`);
   queryCache.invalidate(`admin_report:${companyId}`);
+}
+
+/**
+ * Só catálogos estáticos + store Zustand — use após CRUD de cadastros (não após batida).
+ */
+export function invalidateStaticCatalogCaches(companyId: string): void {
+  if (!companyId) return;
+  queryCache.invalidate(`schedules:list:${companyId}`);
+  queryCache.invalidate(`work_shifts:list:${companyId}`);
+  queryCache.invalidate(`departments:list:${companyId}`);
+  queryCache.invalidate(`estruturas:list:${companyId}`);
+  queryCache.invalidate(`job_titles:list:${companyId}`);
+  queryCache.invalidate(`motivo_demissao:list:${companyId}`);
+  queryCache.invalidate(`cidades:list:${companyId}`);
+  queryCache.invalidate(`estados_civis:list:${companyId}`);
+  queryCache.invalidate(`espelho-departments:${companyId}`);
+  queryCache.invalidate(`company_rules:${companyId}`);
+  queryCache.invalidate(`global_settings:${companyId}`);
   useCatalogStore.getState().clearCompany(companyId);
 }
 
 /**
- * Após batida de ponto: admin dashboard + dashboard do colaborador (registros recentes / banco de horas).
+ * Após batida de ponto: KPIs / registros / saldo — **não** limpa catálogos estáticos.
  */
 export function invalidateAfterPunch(userId: string, companyId: string | undefined): void {
   if (!userId) return;
   if (companyId) {
-    invalidateCompanyListCaches(companyId);
+    invalidateDashboardQueriesForCompany(companyId);
+    queryCache.invalidate(`time_records:week:${companyId}`);
+    queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);
+    queryCache.invalidate(`time_records:admin_dash:chart:${companyId}`);
+    queryCache.invalidate(`time_records:admin_dash:recent:${companyId}`);
+    queryCache.invalidate(`current_operational_state:${companyId}`);
     const monthYyyyMm = new Date().toISOString().slice(0, 7);
     invalidatePunchRelatedReactQueries(companyId, userId, monthYyyyMm);
     invalidateOperationalStatusQueries(companyId);
