@@ -131,14 +131,14 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
           ? 'u.cpf as cpf'
           : 'null as cpf';
   const estruturaNameSelect = userColumns.estrutura_id
-    ? `(select coalesce(nullif(trim(est.descricao), ''), nullif(trim(est.codigo), ''))
-        from estruturas est
-        where est.id::text = u.estrutura_id::text
-          and est.company_id::text = e.company_id::text
-        limit 1) as estrutura_name`
+    ? `coalesce(nullif(trim(est.descricao), ''), nullif(trim(est.codigo), '')) as estrutura_name`
     : 'null as estrutura_name';
+  const estruturaJoin = userColumns.estrutura_id
+    ? `left join estruturas est on est.id::text = u.estrutura_id::text and est.company_id::text = e.company_id::text`
+    : '';
 
-  return `
+  return {
+    select: `
     e.id, e.nome, e.email, e.role, e.status, e.company_id, e.created_at,
     ${cpfSelect},
     ${pisSelect},
@@ -164,7 +164,9 @@ async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof po
     ${userColumnSelect(userColumns, 'rg')},
     ${userColumnSelect(userColumns, 'rg_orgao')},
     ${userColumnSelect(userColumns, 'contrato_fim')}
-  `.trim();
+  `.trim(),
+    estruturaJoin,
+  };
 }
 
 function toDateYmd(value: unknown): string | null {
@@ -267,12 +269,13 @@ export async function listEmployeesController(req: AuthedRequest, res: Response)
   }
 
   try {
-    const viewSelect = await buildEmployeeViewSelect(pool);
+    const { select: viewSelect, estruturaJoin } = await buildEmployeeViewSelect(pool);
     const result = await pool.query(
       `select
          ${viewSelect}
        from employees e
        left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+       ${estruturaJoin}
        where e.company_id = $1
          and coalesce(e.status, 'active') = 'active'
          and lower(coalesce(nullif(trim(e.email), ''), nullif(trim(u.email), ''), '')) <> all($2::text[])
@@ -596,12 +599,13 @@ async function fetchEmployeeViewById(
   id: string,
   companyId: string,
 ): Promise<Record<string, unknown> | null> {
-  const viewSelect = await buildEmployeeViewSelect(db);
+  const { select: viewSelect, estruturaJoin } = await buildEmployeeViewSelect(db);
   const refreshed = await db.query(
     `select
        ${viewSelect}
      from employees e
      left join users u on u.id::text = e.id::text and u.company_id::text = e.company_id::text
+     ${estruturaJoin}
      where e.id::text = $1 and e.company_id::text = $2
      limit 1`,
     [id, companyId],
