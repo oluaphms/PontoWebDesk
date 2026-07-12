@@ -41,11 +41,7 @@ const ReportWorkHours: React.FC = () => {
         const result = await queryCache.getOrFetch(
           cacheKey,
           async () => {
-            const apiEmployees = await queryCache.getOrFetch(
-              `employees-api:${cid}`,
-              () => fetchEmployees(cid),
-              TTL.NORMAL,
-            );
+            const apiEmployees = await fetchEmployees(cid);
             const { sheetByRecordId, recordIdMap } = await loadTimesheetMonthContext(cid, y, m, apiEmployees);
             const hasSheetData = sheetByRecordId.size > 0;
             const out = buildWorkHoursMonthReport(apiEmployees, recordIdMap, sheetByRecordId);

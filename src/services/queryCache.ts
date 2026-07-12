@@ -321,6 +321,9 @@ export function invalidateCompanyListCaches(companyId: string): void {
   if (!companyId) return;
   invalidateEmployeesQueries(companyId);
   invalidateDashboardQueriesForCompany(companyId);
+  queryCache.invalidate(`employees-api:${companyId}`);
+  queryCache.invalidate(`espelho-users:${companyId}`);
+  queryCache.invalidate(`espelho-departments:${companyId}`);
   queryCache.invalidate(`users:${companyId}`);
   queryCache.invalidate(`time_records:week:${companyId}`);
   queryCache.invalidate(`time_records:admin_dash:v3:${companyId}`);

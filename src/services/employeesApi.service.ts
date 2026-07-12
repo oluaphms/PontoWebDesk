@@ -1,5 +1,11 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from './api';
 import { isValidCpf, stripCpf } from '../utils/cpfValidation';
+import { queryCache, TTL } from './queryCache';
+
+function invalidateEmployeesApiCache(companyId: string | undefined | null): void {
+  const cid = String(companyId || '').trim();
+  if (cid) queryCache.invalidate(`employees-api:${cid}`);
+}
 
 export type ApiEmployee = {
   id: string;
@@ -230,12 +236,18 @@ export function validateEmployeeFormClient(input: {
 export async function fetchEmployees(companyId: string): Promise<ApiEmployee[]> {
   const cid = String(companyId || '').trim();
   if (!cid) return [];
-  const q = `?companyId=${encodeURIComponent(cid)}`;
-  const data = (await apiGet(`/employees${q}`)) as EmployeesListResponse;
-  if (!data?.ok && !data?.employees) {
-    throw new Error(String(data?.error || 'Erro ao listar colaboradores'));
-  }
-  return (data.employees ?? []).map(normalizeApiEmployee);
+  return queryCache.getOrFetch(
+    `employees-api:${cid}`,
+    async () => {
+      const q = `?companyId=${encodeURIComponent(cid)}`;
+      const data = (await apiGet(`/employees${q}`)) as EmployeesListResponse;
+      if (!data?.ok && !data?.employees) {
+        throw new Error(String(data?.error || 'Erro ao listar colaboradores'));
+      }
+      return (data.employees ?? []).map(normalizeApiEmployee);
+    },
+    TTL.NORMAL,
+  );
 }
 
 export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmployee> {
@@ -256,7 +268,9 @@ export async function createEmployee(input: EmployeeWriteInput): Promise<ApiEmpl
   if (!data?.ok || !data?.employee) {
     throw new Error(String(data?.message || data?.error || data?.code || 'Erro ao criar colaborador'));
   }
-  return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
+  const employee = normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
+  invalidateEmployeesApiCache(employee.company_id || input.companyId);
+  return employee;
 }
 
 export async function updateEmployee(id: string, input: EmployeeUpdateInput): Promise<ApiEmployee> {
@@ -280,7 +294,9 @@ export async function updateEmployee(id: string, input: EmployeeUpdateInput): Pr
   if (!data?.ok || !data?.employee) {
     throw new Error(String(data?.message || data?.error || data?.code || 'Erro ao atualizar colaborador'));
   }
-  return normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
+  const employee = normalizeApiEmployee(mergeInputScheduleFields(data.employee, input));
+  invalidateEmployeesApiCache(employee.company_id || input.companyId);
+  return employee;
 }
 
 export async function deleteEmployee(id: string): Promise<void> {

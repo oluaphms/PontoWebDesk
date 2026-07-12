@@ -1,7 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useState } from 'react';
 import { fetchEmployees } from '../services/employeesApi.service';
-import { queryCache, TTL } from '../services/queryCache';
 import { useAbortableAsyncEffect } from './useAbortableAsyncEffect';
 
 export type CompanyEmployeeOption = {
@@ -30,11 +29,7 @@ export function useCompanyEmployees(companyId: string | undefined): {
 
       setLoadingEmployees(true);
       try {
-        const list = await queryCache.getOrFetch(
-          `employees-api:${companyId}`,
-          () => fetchEmployees(companyId),
-          TTL.NORMAL,
-        );
+        const list = await fetchEmployees(companyId);
         if (isCancelled()) return;
         setEmployees(
           (list ?? []).map((u) => ({

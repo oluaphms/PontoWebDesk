@@ -94,11 +94,7 @@ const ReportOvertime: React.FC = () => {
       const cacheKey = adminReportCacheKey(cid, 'overtime', month);
 
       try {
-        const apiEmployees = await queryCache.getOrFetch(
-          `employees-api:${cid}`,
-          () => fetchEmployees(cid),
-          TTL.NORMAL,
-        );
+        const apiEmployees = await fetchEmployees(cid);
 
         const result = await queryCache.getOrFetch(
           cacheKey,
