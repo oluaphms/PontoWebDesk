@@ -1,6 +1,7 @@
 import './loadEnv.js';
 import { app } from './app.js';
 import { checkDatabaseConnection } from './db/index.js';
+import { isVpsRlsEnforced } from './db/tenantRls.js';
 import { logger } from './logger/logger.js';
 
 const port = Number(process.env.PORT || 3000);
@@ -35,6 +36,15 @@ async function start(): Promise<void> {
       module: 'bootstrap.server',
       action: 'JWT_SECRET_MISSING',
       message: 'JWT_SECRET ausente',
+    });
+  }
+
+  if (process.env.NODE_ENV === 'production' && !isVpsRlsEnforced()) {
+    logger.warn({
+      module: 'bootstrap.server',
+      action: 'VPS_RLS_NOT_ENFORCED',
+      message:
+        'VPS_RLS_ENFORCED=false em produção — ative após aplicar 016_vps_rls_tenant_isolation.sql (ver backend/.env.example)',
     });
   }
 
