@@ -7,7 +7,8 @@ export function useEmployees(companyId: string | undefined) {
     queryKey: companyId ? apiQueryKeys.employees(companyId) : ['employees', 'none'],
     queryFn: () => fetchEmployees(companyId!),
     enabled: Boolean(companyId),
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 

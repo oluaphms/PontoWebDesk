@@ -7,6 +7,8 @@ import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
+import { invalidateStaticCatalogCaches } from '../../services/queryCache';
+import { fetchCachedCidades } from '../../services/catalogCache.service';
 
 interface CidadeRow {
   id: string;
@@ -33,12 +35,12 @@ const AdminCidades: React.FC = () => {
     }
     setLoadingData(true);
     try {
-      const data = (await db.select('cidades', [{ column: 'company_id', operator: 'eq', value: user.companyId }])) as any[];
-      setRows((data ?? []).map((r: any) => ({
-        id: r.id,
-        name: r.name || '',
-        company_id: r.company_id,
-        created_at: r.created_at,
+      const data = await fetchCachedCidades(user.companyId);
+      setRows((data ?? []).map((r) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name || ''),
+        company_id: String(r.company_id ?? user.companyId),
+        created_at: String(r.created_at ?? ''),
       })));
     } catch (e) {
       observabilityConsole.error(e);
@@ -98,6 +100,7 @@ const AdminCidades: React.FC = () => {
         setMessage({ type: 'success', text: 'Cidade cadastrada com sucesso.' });
       }
       setModalOpen(false);
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (err: any) {
       const text = err?.message || err?.error?.message || 'Erro ao salvar. Tente novamente.';
@@ -113,6 +116,7 @@ const AdminCidades: React.FC = () => {
     try {
       await db.delete('cidades', id);
       setMessage({ type: 'success', text: 'Cidade excluída.' });
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao excluir.' });

@@ -11,6 +11,12 @@
 export const apiQueryKeys = {
   employees: (tenantId: string) => ['employees', tenantId] as const,
 
+  /** Catálogos estáticos — invalidar via `invalidateStaticCatalogCaches` + sync memory cache. */
+  departments: (tenantId: string) => ['catalog', 'departments', tenantId] as const,
+  jobTitles: (tenantId: string) => ['catalog', 'job_titles', tenantId] as const,
+  schedules: (tenantId: string) => ['catalog', 'schedules', tenantId] as const,
+  workShifts: (tenantId: string) => ['catalog', 'work_shifts', tenantId] as const,
+
   /** Espelho mensal — tenant + colaborador + YYYY-MM (sem ambiguidade entre utilizadores). */
   timesheet: (tenantId: string, userId: string, monthYyyyMm: string) =>
     ['timesheet', tenantId, userId, monthYyyyMm] as const,

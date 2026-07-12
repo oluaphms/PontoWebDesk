@@ -8,6 +8,7 @@ import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
 import { safeAsyncAction } from '../../utils/safeAsyncAction';
 import { fetchEmployees } from '../../services/employeesApi.service';
+import { invalidateStaticCatalogCaches } from '../../services/queryCache';
 
 const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -263,6 +264,7 @@ const AdminSchedules: React.FC = () => {
         setMessage({ type: 'success', text: 'Escala criada com sucesso.' });
       }
       setModalOpen(false);
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao salvar.' });
@@ -276,6 +278,7 @@ const AdminSchedules: React.FC = () => {
     try {
       await db.delete('schedules', id);
       setMessage({ type: 'success', text: 'Escala excluída.' });
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao excluir.' });

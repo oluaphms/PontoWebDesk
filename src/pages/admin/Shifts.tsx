@@ -6,6 +6,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured, type Filter } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
+import { invalidateStaticCatalogCaches } from '../../services/queryCache';
 import type {
   WeeklyScheduleDay,
   DayScheduleType,
@@ -359,6 +360,7 @@ const AdminShifts: React.FC = () => {
       setTipoMarcacaoModalOpen(false);
       setAdvancedModalOpen(false);
       setModalOpen(false);
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao salvar.' });
@@ -372,6 +374,7 @@ const AdminShifts: React.FC = () => {
     try {
       await db.delete('work_shifts', id);
       setMessage({ type: 'success', text: 'Horário excluído.' });
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao excluir.' });

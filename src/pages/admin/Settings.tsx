@@ -10,6 +10,8 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { i18n } from '../../../lib/i18n';
 import { LoadingState } from '../../../components/UI';
 import { db, isSupabaseConfigured, resetUsersSafeSelectCache } from '../../services/supabaseClient';
+import { invalidateStaticCatalogCaches } from '../../services/queryCache';
+import { fetchCachedCompanyRules } from '../../services/catalogCache.service';
 import {
   MapPin,
   Camera,
@@ -122,13 +124,7 @@ const AdminSettings: React.FC = () => {
         }
         if (isSupabaseConfigured() && user?.companyId) {
           try {
-            const cr = (await db.select(
-              'company_rules',
-              [{ column: 'company_id', operator: 'eq', value: user.companyId }],
-              undefined,
-              1,
-            )) as Record<string, unknown>[];
-            const row = cr?.[0];
+            const row = await fetchCachedCompanyRules(user.companyId);
             if (row) {
               const exp = Number(row.bank_hours_expiry_months);
               const expiry =
@@ -221,6 +217,7 @@ const AdminSettings: React.FC = () => {
         },
         'company_id',
       );
+      if (user.companyId) invalidateStaticCatalogCaches(user.companyId);
 
       setAppLanguage((form.language === 'en-US' || form.language === 'pt-BR') ? form.language : 'pt-BR');
       setMessage({ type: 'success', text: i18n.t('settings.savedSuccess') });

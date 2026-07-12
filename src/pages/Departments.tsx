@@ -7,6 +7,8 @@ import PageHeader from '../components/PageHeader';
 import { db, isSupabaseConfigured } from '../services/supabaseClient';
 import { LoadingState } from '../../components/UI';
 import RoleGuard from '../components/auth/RoleGuard';
+import { invalidateStaticCatalogCaches } from '../services/queryCache';
+import { fetchCachedDepartments } from '../services/catalogCache.service';
 
 interface DepartmentRow {
   id: string;
@@ -37,18 +39,14 @@ const DepartmentsPage: React.FC = () => {
     const companyId = user.companyId;
     setLoadingData(true);
     try {
-      const data = (await db.select(
-        'departments',
-        [{ column: 'company_id', operator: 'eq', value: companyId }],
-        { columns: 'id,name,numero_folha,company_id,manager_id,created_at', limit: 500 },
-      )) as any[];
-      setRows((data ?? []).map((r: any) => ({
-        id: r.id,
-        name: r.name || '',
-        numero_folha: r.numero_folha || '',
-        company_id: r.company_id,
-        manager_id: r.manager_id,
-        created_at: r.created_at,
+      const data = await fetchCachedDepartments(companyId);
+      setRows((data ?? []).map((r) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name || ''),
+        numero_folha: String(r.numero_folha || ''),
+        company_id: String(r.company_id ?? companyId),
+        manager_id: r.manager_id != null ? String(r.manager_id) : undefined,
+        created_at: String(r.created_at ?? ''),
       })));
     } catch (e) {
       observabilityConsole.error(e);
@@ -123,6 +121,7 @@ const DepartmentsPage: React.FC = () => {
         setMessage({ type: 'success', text: 'Departamento cadastrado com sucesso.' });
       }
       setModalOpen(false);
+      invalidateStaticCatalogCaches(companyId);
       load();
     } catch (err: any) {
       const text = err?.message || err?.error?.message || 'Erro ao salvar. Tente novamente.';
@@ -138,6 +137,7 @@ const DepartmentsPage: React.FC = () => {
     try {
       await db.delete('departments', id);
       setMessage({ type: 'success', text: 'Departamento excluído.' });
+      if (user?.companyId) invalidateStaticCatalogCaches(user.companyId);
       load();
     } catch (e: any) {
       setMessage({ type: 'error', text: e?.message || 'Erro ao excluir.' });

@@ -1,7 +1,5 @@
-import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import { useState } from 'react';
-import { fetchEmployees } from '../services/employeesApi.service';
-import { useAbortableAsyncEffect } from './useAbortableAsyncEffect';
+import { useMemo } from 'react';
+import { useEmployees } from './useEmployees';
 
 export type CompanyEmployeeOption = {
   id: string;
@@ -12,46 +10,33 @@ export type CompanyEmployeeOption = {
   status?: string;
 };
 
+/**
+ * Lista de colaboradores da empresa — React Query + `fetchEmployees` (queryCache).
+ * Mesma fonte / invalidação que `useEmployees` / `invalidateEmployeesQueries`.
+ */
 export function useCompanyEmployees(companyId: string | undefined): {
   employees: CompanyEmployeeOption[];
   loadingEmployees: boolean;
 } {
-  const [employees, setEmployees] = useState<CompanyEmployeeOption[]>([]);
-  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const { data, isLoading, isFetching } = useEmployees(companyId);
 
-  useAbortableAsyncEffect(
-    async (isCancelled) => {
-      if (!companyId) {
-        setEmployees([]);
-        setLoadingEmployees(false);
-        return;
-      }
-
-      setLoadingEmployees(true);
-      try {
-        const list = await fetchEmployees(companyId);
-        if (isCancelled()) return;
-        setEmployees(
-          (list ?? []).map((u) => ({
-            id: u.id,
-            nome: u.nome || u.email || 'Sem nome',
-            department_id: '',
-            email: u.email ?? undefined,
-            role: u.role,
-            status: u.status,
-          })),
-        );
-      } catch (e) {
-        observabilityConsole.warn('[useCompanyEmployees] API:', e);
-        if (!isCancelled()) setEmployees([]);
-      } finally {
-        if (!isCancelled()) setLoadingEmployees(false);
-      }
-    },
-    [companyId],
+  const employees = useMemo<CompanyEmployeeOption[]>(
+    () =>
+      (data ?? []).map((u) => ({
+        id: u.id,
+        nome: u.nome || u.email || 'Sem nome',
+        department_id: u.department_id ?? '',
+        email: u.email ?? undefined,
+        role: u.role,
+        status: u.status,
+      })),
+    [data],
   );
 
-  return { employees, loadingEmployees };
+  return {
+    employees,
+    loadingEmployees: Boolean(companyId) && (isLoading || (isFetching && employees.length === 0)),
+  };
 }
 
 export default useCompanyEmployees;

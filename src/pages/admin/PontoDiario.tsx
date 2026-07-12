@@ -8,10 +8,10 @@ import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { listTimeRecords } from '../../../services/timeRecords.service';
 import { buscarColaboradores, buscarDepartamentos } from '../../../services/api';
 import { fetchEmployees } from '../../services/employeesApi.service';
+import { fetchCachedWorkShifts } from '../../services/catalogCache.service';
 import { LoadingState } from '../../../components/UI';
 import RoleGuard from '../../components/auth/RoleGuard';
 import { enumerateLocalCalendarDays } from '../../utils/localDateTimeToIso';
-import { queryCache, TTL } from '../../services/queryCache';
 
 const MAX_PONTO_DIARIO_RANGE_DAYS = 31;
 
@@ -119,16 +119,7 @@ const AdminPontoDiario: React.FC = () => {
         const [colaboradores, departmentsRows, shiftRows] = await Promise.all([
           buscarColaboradores(cid),
           buscarDepartamentos(cid),
-          queryCache.getOrFetch(
-            `work_shifts:list:${cid}`,
-            () =>
-              db.select('work_shifts', [{ column: 'company_id', operator: 'eq', value: cid }], {
-                columns: 'id,number,name,description,start_time,end_time,ativo,company_id',
-                limit: 500,
-                orderBy: { column: 'name', ascending: true },
-              }) as Promise<any[]>,
-            TTL.STATIC,
-          ),
+          fetchCachedWorkShifts(cid),
         ]);
         // Hit de cache de buscarColaboradores → fetchEmployees (sem 2º HTTP)
         const apiEmployees = await fetchEmployees(cid);
