@@ -297,38 +297,42 @@ const EmployeeClockIn: React.FC = () => {
       setSamplesCollected(prev => Math.min(prev + 1, 3));
     }, 800);
 
-    const r = await getCurrentLocationRobustResult({ forceFresh: true });
+    try {
+      const r = await getCurrentLocationRobustResult({ forceFresh: true });
 
-    clearInterval(progressInterval);
-    setSamplesCollected(0);
-    setGpsLoading(false);
+      setSamplesCollected(0);
+      setGpsLoading(false);
 
-    if (r.ok === false) {
-      setGeo(null);
-      setGpsFailReason(r.reason);
-      setGeoLiveStatus('failed');
-      setAccuracyStatus(null);
-      logGeolocationDebug('retryGps:fail', { reason: r.reason, apiMessage: r.apiMessage });
-      return;
+      if (r.ok === false) {
+        setGeo(null);
+        setGpsFailReason(r.reason);
+        setGeoLiveStatus('failed');
+        setAccuracyStatus(null);
+        logGeolocationDebug('retryGps:fail', { reason: r.reason, apiMessage: r.apiMessage });
+        return;
+      }
+
+      setGeo(r.position);
+      setGpsFailReason(null);
+      setGeoLiveStatus('captured');
+
+      // Atualiza status de precisão
+      const status = getAccuracyStatusMessage(r.position.accuracy);
+      setAccuracyStatus(status);
+
+      logGeolocationDebug('retryGps:ok', {
+        position: r.position,
+        accuracy: r.position.accuracy,
+      });
+    } finally {
+      window.clearInterval(progressInterval);
     }
-
-    setGeo(r.position);
-    setGpsFailReason(null);
-    setGeoLiveStatus('captured');
-
-    // Atualiza status de precisão
-    const status = getAccuracyStatusMessage(r.position.accuracy);
-    setAccuracyStatus(status);
-
-    logGeolocationDebug('retryGps:ok', {
-      position: r.position,
-      accuracy: r.position.accuracy,
-    });
   }, []);
 
   useEffect(() => {
     if (!proofModalOpen) return;
     let cancelled = false;
+    let progressInterval: number | undefined;
     setGeoLiveStatus('capturing');
     setAccuracyStatus(null);
     setSamplesCollected(0);
@@ -343,47 +347,63 @@ const EmployeeClockIn: React.FC = () => {
         setGeoPermissionState(perm);
         logGeolocationDebug('modal:permission', { permission: perm });
       }
+      if (cancelled) return;
 
       // Mostra progresso simulado das amostras
-      const progressInterval = window.setInterval(() => {
+      progressInterval = window.setInterval(() => {
         if (!cancelled) {
           setSamplesCollected(prev => Math.min(prev + 1, 3));
         }
       }, 800);
-
-      const r = await getCurrentLocationRobustResult();
-
-      clearInterval(progressInterval);
-      if (cancelled) return;
-
-      setSamplesCollected(0);
-      setGpsLoading(false);
-
-      if (r.ok === false) {
-        setGeo(null);
-        setGpsFailReason(r.reason);
-        setGeoLiveStatus('failed');
-        setAccuracyStatus(null);
-        logGeolocationDebug('modal:initial:fail', { reason: r.reason, apiMessage: r.apiMessage });
+      if (cancelled) {
+        window.clearInterval(progressInterval);
+        progressInterval = undefined;
         return;
       }
 
-      setGeo(r.position);
-      setGpsFailReason(null);
-      setGeoLiveStatus('captured');
+      try {
+        const r = await getCurrentLocationRobustResult();
 
-      // Atualiza status de precisão
-      const status = getAccuracyStatusMessage(r.position.accuracy);
-      setAccuracyStatus(status);
+        if (cancelled) return;
 
-      logGeolocationDebug('modal:initial:ok', {
-        position: r.position,
-        accuracy: r.position.accuracy,
-      });
+        setSamplesCollected(0);
+        setGpsLoading(false);
+
+        if (r.ok === false) {
+          setGeo(null);
+          setGpsFailReason(r.reason);
+          setGeoLiveStatus('failed');
+          setAccuracyStatus(null);
+          logGeolocationDebug('modal:initial:fail', { reason: r.reason, apiMessage: r.apiMessage });
+          return;
+        }
+
+        setGeo(r.position);
+        setGpsFailReason(null);
+        setGeoLiveStatus('captured');
+
+        // Atualiza status de precisão
+        const status = getAccuracyStatusMessage(r.position.accuracy);
+        setAccuracyStatus(status);
+
+        logGeolocationDebug('modal:initial:ok', {
+          position: r.position,
+          accuracy: r.position.accuracy,
+        });
+      } finally {
+        if (progressInterval != null) {
+          window.clearInterval(progressInterval);
+          progressInterval = undefined;
+        }
+      }
     })();
 
     return () => {
       cancelled = true;
+      if (progressInterval != null) {
+        window.clearInterval(progressInterval);
+        progressInterval = undefined;
+      }
     };
   }, [proofModalOpen]);
 
