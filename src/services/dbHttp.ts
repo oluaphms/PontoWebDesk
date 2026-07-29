@@ -485,7 +485,7 @@ type QueryState = {
 
 type TableQueryResult = {
   data: DbRow[] | null;
-  error: { message: string } | null;
+  error: { message: string; code?: string } | null;
   count?: number | null;
 };
 
@@ -503,9 +503,9 @@ type TableQueryBuilder = {
   order: (column: string, options?: { ascending?: boolean }) => TableQueryBuilder;
   range: (from: number, to: number) => TableQueryBuilder;
   abortSignal: (signal: AbortSignal) => TableQueryBuilder;
-  limit: (n: number) => Promise<TableQueryResult>;
-  maybeSingle: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
-  single: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
+  limit: (n: number) => TableQueryBuilder;
+  maybeSingle: () => Promise<{ data: DbRow | null; error: { message: string; code?: string } | null }>;
+  single: () => Promise<{ data: DbRow | null; error: { message: string; code?: string } | null }>;
   then: <TResult1 = TableQueryResult, TResult2 = never>(
     onfulfilled?: ((value: TableQueryResult) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
@@ -602,7 +602,7 @@ function createTableQuery(table: string): TableQueryBuilder {
     },
     limit(n: number) {
       state.limit = n;
-      return runSelect();
+      return builder;
     },
     async maybeSingle() {
       state.limit = 1;
@@ -626,12 +626,12 @@ function createTableQuery(table: string): TableQueryBuilder {
   return builder;
 }
 
-type UpdateResult = { data: DbRow[] | null; error: { message: string } | null };
+type UpdateResult = { data: DbRow[] | null; error: { message: string; code?: string } | null };
 
 function createTableUpdate(table: string, data: DbRow): {
   eq: (column: string, value: FilterValue) => ReturnType<typeof createTableUpdate>;
   neq: (column: string, value: FilterValue) => ReturnType<typeof createTableUpdate>;
-  is: (column: string, operator: 'null', value: null) => ReturnType<typeof createTableUpdate>;
+  is: (column: string, value: FilterValue) => ReturnType<typeof createTableUpdate>;
   in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableUpdate>;
   then: (
     onfulfilled?: (value: UpdateResult) => unknown,
@@ -685,25 +685,108 @@ function createTableUpdate(table: string, data: DbRow): {
   return builder;
 }
 
+type DeleteResult = { data: DbRow[] | null; error: { message: string; code?: string } | null };
+
+function createTableDelete(table: string): {
+  eq: (column: string, value: FilterValue) => ReturnType<typeof createTableDelete>;
+  neq: (column: string, value: FilterValue) => ReturnType<typeof createTableDelete>;
+  is: (column: string, value: FilterValue) => ReturnType<typeof createTableDelete>;
+  in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableDelete>;
+  then: (
+    onfulfilled?: (value: DeleteResult) => unknown,
+    onrejected?: (reason: unknown) => unknown,
+  ) => Promise<unknown>;
+} {
+  const state: { filters: Filter[] } = { filters: [] };
+
+  const runDelete = async (): Promise<DeleteResult> => {
+    try {
+      await db.delete(table, state.filters);
+      return { data: null, error: null };
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'delete_failed';
+      return { data: null, error: { message: msg } };
+    }
+  };
+
+  const builder = {
+    eq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'eq', value });
+      return builder;
+    },
+    neq(column: string, value: FilterValue) {
+      state.filters.push({ column, operator: 'neq', value });
+      return builder;
+    },
+    is(column: string, value: FilterValue) {
+      if (value === null) {
+        state.filters.push({ column, operator: 'is', value: null });
+      }
+      return builder;
+    },
+    in(column: string, value: readonly unknown[]) {
+      state.filters.push({ column, operator: 'in', value });
+      return builder;
+    },
+    then(
+      onfulfilled?: (value: DeleteResult) => unknown,
+      onrejected?: (reason: unknown) => unknown,
+    ) {
+      return runDelete().then(onfulfilled, onrejected);
+    },
+  };
+
+  return builder;
+}
+
 export const supabase = {
   auth,
   storage,
   from: (table: string) => ({
     select: (columns?: string, options?: { count?: 'exact'; head?: boolean }) =>
       createTableQuery(table).select(columns, options),
-    insert: (data: DbRow) => ({
-      select: () => ({
-        single: async () => {
-          try {
-            const row = await db.insert(table, data);
-            return { data: row, error: null };
-          } catch (e) {
-            const msg = e instanceof ApiError ? e.message : 'insert_failed';
-            return { data: null, error: { message: msg } };
-          }
+    insert: (data: DbRow) => {
+      const runInsert = async (): Promise<{
+        data: DbRow | null;
+        error: { message: string; code?: string } | null;
+      }> => {
+        try {
+          const row = await db.insert(table, data);
+          return { data: row, error: null };
+        } catch (e) {
+          const msg = e instanceof ApiError ? e.message : 'insert_failed';
+          const code =
+            e instanceof ApiError
+              ? String((e.body as Record<string, unknown> | null)?.code ?? '') || undefined
+              : undefined;
+          return { data: null, error: { message: msg, code } };
+        }
+      };
+      return {
+        select: (_columns?: string) => ({
+          single: () => runInsert(),
+          maybeSingle: () => runInsert(),
+          then(
+            onfulfilled?: (value: {
+              data: DbRow | null;
+              error: { message: string; code?: string } | null;
+            }) => unknown,
+            onrejected?: (reason: unknown) => unknown,
+          ) {
+            return runInsert().then(onfulfilled, onrejected);
+          },
+        }),
+        then(
+          onfulfilled?: (value: {
+            data: DbRow | null;
+            error: { message: string; code?: string } | null;
+          }) => unknown,
+          onrejected?: (reason: unknown) => unknown,
+        ) {
+          return runInsert().then(onfulfilled, onrejected);
         },
-      }),
-    }),
+      };
+    },
     upsert: async (
       data: DbRow | DbRow[],
       options?: { onConflict?: string; ignoreDuplicates?: boolean },
@@ -722,9 +805,7 @@ export const supabase = {
       }
     },
     update: (data: DbRow) => createTableUpdate(table, data),
-    delete: () => ({
-      eq: async () => ({ data: null, error: null }),
-    }),
+    delete: () => createTableDelete(table),
   }),
   rpc: (fn: string, args?: DbRow) => db.rpc(fn, args),
 };

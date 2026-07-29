@@ -3,13 +3,15 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  * Persistência da timeline operacional — falhas nunca interrompem o fluxo principal.
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from './supabaseClient';
 import type { TimeAttendanceTimelineEventTypeValue, TimeAttendanceTimelineSeverityValue } from './timeAttendanceTimeline.constants';
 import { TimeAttendanceTimelineSeverity } from './timeAttendanceTimeline.constants';
 import { appendOperationalTraceSpan, beginOperationalTrace, failOperationalTrace, finalizeOperationalTrace } from '../domain/operational/tracing';
 import { recordOperationalMetric } from '../domain/operational/metrics';
 import { operationalCircuitBreaker } from '../domain/operational/resilience';
+
+/** Cliente HTTP do projeto (dbHttp) — evita união com SupabaseClient que explode a tipagem fluente. */
+type TimelineDbClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
 
 export type AppendTimeAttendanceTimelineEventInput = {
   companyId: string;
@@ -22,7 +24,7 @@ export type AppendTimeAttendanceTimelineEventInput = {
   payload?: Record<string, unknown>;
   createdBy?: string | null;
   /** Quando o chamador já tem cliente (ex.: worker REP). */
-  supabaseClient?: SupabaseClient | null;
+  supabaseClient?: TimelineDbClient | null;
 };
 
 export type TimeAttendanceTimelineRow = {
@@ -99,7 +101,7 @@ export async function appendTimeAttendanceTimelineEvent(input: AppendTimeAttenda
     if (error) {
       observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', {
         message: error.message,
-        code: error.code,
+        code: 'code' in error ? String(error.code) : undefined,
         event: input.eventType,
       });
       failOperationalTrace(trace.trace_id, error.message);
@@ -184,7 +186,7 @@ export type ListTimeAttendanceTimelineParams = {
   limit?: number;
   cursorCreatedAt?: string | null;
   cursorId?: string | null;
-  supabaseClient?: SupabaseClient | null;
+  supabaseClient?: TimelineDbClient | null;
 };
 
 export type ListTimeAttendanceTimelineResult = {
@@ -211,9 +213,7 @@ export async function listTimeAttendanceTimelinePage(
       .select(
         'id, company_id, employee_id, date, event_type, event_severity, source_module, source_reference_id, payload, created_by, created_at',
       )
-      .eq('company_id', companyId)
-      .order('created_at', { ascending: false })
-      .limit(limit + 1);
+      .eq('company_id', companyId);
 
     const emp = params.employeeId?.trim();
     if (emp) q = q.eq('employee_id', emp);
@@ -237,7 +237,7 @@ export async function listTimeAttendanceTimelinePage(
       q = q.lt('created_at', cAt);
     }
 
-    const { data, error } = await q;
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(limit + 1);
     if (error) {
       observabilityConsole.error('[TIME ATTENDANCE TIMELINE ERROR]', { message: error.message, context: 'list' });
       return { rows: [], nextCursor: null };

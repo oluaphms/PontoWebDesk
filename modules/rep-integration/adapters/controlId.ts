@@ -30,7 +30,6 @@ import {
   validatePisPasep11,
   repAfdCanonical11DigitsFromBlob,
 } from '../pisPasep';
-// @ts-expect-error módulo ESM partilhado com o agente Node
 import {
   buildControlIdLoadUsersPayload,
   parseControlIdBooleanFieldError,
