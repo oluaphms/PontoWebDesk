@@ -1,4 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
+import { IS_DEV } from '../config/runtimeEnv';
+
 /**
  * Controle central de logs verbosos em desenvolvimento.
  * Por padrão fica desligado para reduzir ruído no console.
@@ -7,7 +9,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
  *   localStorage.setItem('pw:verbose-logs', '1')
  */
 export function isDevVerboseLogsEnabled(): boolean {
-  if (typeof import.meta !== 'undefined' && !import.meta.env.DEV) return false;
+  if (!IS_DEV) return false;
   if (typeof window === 'undefined') return false;
   try {
     return window.localStorage.getItem('pw:verbose-logs') === '1';

@@ -7,10 +7,11 @@ import type { HelpDocSlug } from '../help/helpCenterCatalog';
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
-  icon?: ReactNode;
+  icon?: ReactNode | React.ComponentType<{ size?: number }>;
   actions?: ReactNode;
   /** Slug da documentação em /docs/operacional — exibe botão Ajuda contextual */
   helpSlug?: HelpDocSlug | string;
+  helpSection?: string;
 }
 
 export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, icon, actions, helpSlug, helpSection }) => {
@@ -19,7 +20,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, icon, a
     (React.isValidElement(icon)
       ? icon
       : typeof icon === 'function'
-        ? React.createElement(icon as React.ComponentType, { size: 24 })
+        ? React.createElement(icon, { size: 24 })
         : icon);
 
   const actionSlot = (

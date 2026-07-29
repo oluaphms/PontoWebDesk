@@ -28,12 +28,18 @@ export async function changeOwnPassword(params: {
 
   const hash = await bcrypt.hash(newPassword, BCRYPT_COST);
   const usersHasPasswordHash = await tableHasColumn('users', 'password_hash');
+  const usersHasMustChangePassword = await tableHasColumn('users', 'must_change_password');
+  const usersHasTemporaryPasswordCreatedAt = await tableHasColumn('users', 'temporary_password_created_at');
+  const usersHasTemporaryPasswordExpiresAt = await tableHasColumn('users', 'temporary_password_expires_at');
   const employeesHasPasswordHash = await tableHasColumn('employees', 'password_hash');
 
   if (usersHasPasswordHash) {
     const userUpd = await pool.query(
       `update public.users
        set password_hash = $1
+           ${usersHasMustChangePassword ? ', must_change_password = false' : ''}
+           ${usersHasTemporaryPasswordCreatedAt ? ', temporary_password_created_at = null' : ''}
+           ${usersHasTemporaryPasswordExpiresAt ? ', temporary_password_expires_at = null' : ''}
        where id::text = $2
          and company_id::text = $3
        returning email`,

@@ -8,6 +8,7 @@ import { validateCoordinateOrder } from '../../services/geolocation/geoIntegrity
 import { isDegradedMobileRuntime } from '../../performance/mobileCpuBudget';
 import { isRestrictedBootstrapMode } from '../../performance/networkMode';
 import { opLog } from '../../utils/operationalLogger';
+import { IS_DEV } from '../../config/runtimeEnv';
 
 type ResolvedAddress = {
   status: 'loading' | 'resolved' | 'unresolved' | 'timeout' | 'error';
@@ -102,7 +103,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
         const r = unresolved[i];
         try {
           if (cancelled) {
-            if (import.meta.env.DEV) {
+            if (IS_DEV) {
               opLog.diag('GEO ENRICH SKIPPED', {
                 reason: 'stale_request_cancelled',
                 record_id: r.id,
@@ -112,7 +113,7 @@ const DashboardLastRecordsGeoPanel = memo(function DashboardLastRecordsGeoPanel(
             break;
           }
           if (!navigator.onLine) {
-            if (import.meta.env.DEV) {
+            if (IS_DEV) {
               opLog.diag('GEO ENRICH SKIPPED', {
                 reason: 'offline',
                 record_id: r.id,

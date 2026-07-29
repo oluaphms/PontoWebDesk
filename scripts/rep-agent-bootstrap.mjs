@@ -28,7 +28,15 @@ export function bootstrapProductionAgent() {
   const packaged = isPackagedAgent();
   const configExists = existsSync(CONFIG_FILE);
 
-  if (packaged || configExists) {
+  // Produção (.exe): sempre config.json em ProgramData.
+  // Dev (`npm run rep:agent`): dotenv/.env.local — mesmo com agente Windows instalado,
+  // para o stack local (API :3000) não herdar saas_url de produção.
+  if (packaged) {
+    if (!configExists) {
+      const message = `Arquivo de configuração não encontrado: ${CONFIG_FILE}.`;
+      logBootstrap('ERROR', message);
+      return { ok: false, message };
+    }
     stripDeviceSessionFromConfigFile();
     const loaded = loadConfigJsonMandatory();
     if (!loaded.ok) {
@@ -49,31 +57,20 @@ export function bootstrapProductionAgent() {
     return { ok: true, source: 'config.json' };
   }
 
+  if (configExists) {
+    logBootstrap(
+      'INFO',
+      `[DEV] Ignorando ${CONFIG_FILE} (serviço Windows / produção). Usando .env / .env.local para o agente Node.`,
+    );
+  }
   return { ok: true, source: 'dotenv' };
 }
 
 /**
- * Revalida após dotenv (dev). Em produção já validado no bootstrap.
+ * Em produção (.exe) a validação já ocorreu no bootstrap.
+ * Em dev não reaplica config.json — senão sobrescreve REP_SAAS_URL/API_KEY do .env.local.
  */
 export function assertAgentCanStart() {
-  if (isPackagedAgent()) return true;
-  if (!existsSync(CONFIG_FILE)) return true;
-
-  const loaded = loadConfigJsonMandatory();
-  if (!loaded.ok) {
-    logBootstrap('ERROR', loaded.message);
-    return false;
-  }
-  const valid = validateProductionAgentConfig();
-  if (!valid.ok) {
-    logBootstrap('ERROR', valid.message);
-    return false;
-  }
-  const security = runProductionSecurityChecks(loaded.apiKey);
-  if (!security.ok) {
-    logBootstrap('ERROR', security.message);
-    return false;
-  }
   return true;
 }
 

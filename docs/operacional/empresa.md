@@ -7,7 +7,9 @@
 
 ## 1. O que é
 
-A tela **Empresa** exibe e permite editar os **dados cadastrais da organização** no PontoWebDesk: razão social, CNPJ, endereço, responsável, fuso horário, parâmetros do comprovante de ponto e opções que afetam todos os colaboradores (foto obrigatória, ponto manual, cerca geográfica).
+A tela **Empresa** exibe e permite editar os **dados cadastrais e operacionais** da organização no PontoWebDesk: razão social, CNPJ, endereço, responsável, fuso horário, parâmetros do comprovante de ponto e opções que afetam todos os colaboradores (foto obrigatória, ponto manual, cerca geográfica).
+
+**Plano, licença, assinatura, modo, limites, pagamento e bloqueio** são somente leitura nesta tela — a fonte de verdade é o **Painel Master**.
 
 ---
 
@@ -61,6 +63,7 @@ A tela **Empresa** exibe e permite editar os **dados cadastrais da organização
 - **Fuso horário** errado desloca todas as batidas — não altere sem planejamento.
 - Desligar **ponto manual** impede correções no espelho (exceto fluxos aprovados).
 - **Cerca** muito restritiva aumenta alertas de fraude (falsos positivos).
+- **Campos comerciais** (plano, licença, assinatura, bloqueio) não podem ser alterados no SaaS — apenas no Painel Master.
 
 **CLT / MTE:** dados do empregador nos registros de ponto devem refletir o estabelecimento real (Portaria 1510 e 671).
 

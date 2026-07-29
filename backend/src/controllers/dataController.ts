@@ -25,6 +25,11 @@ import {
 } from '../utils/dataRowSchema.js';
 import { logger } from '../logger/logger.js';
 import { executeRepRpcProxy, isRepRpcFunction } from '../services/repRpcProxy.service.js';
+import {
+  COMMERCIAL_FIELDS_MASTER_ONLY_CODE,
+  COMMERCIAL_FIELDS_MASTER_ONLY_MESSAGE,
+  findCommercialFieldsInPayload,
+} from '../master/commercial/index.js';
 
 const ALLOWED_OPS = new Set([
   'eq',
@@ -423,6 +428,26 @@ function sanitizeGenericWritePayload(
   return next;
 }
 
+/** Bloqueia escrita SaaS de campos comerciais (fonte de verdade = Master). */
+function rejectSaasCommercialCompanyWrite(
+  table: string,
+  payload: Record<string, unknown>,
+  res: Response,
+): boolean {
+  if (table !== 'companies') return false;
+  const commercial = findCommercialFieldsInPayload(payload);
+  if (!commercial.length) return false;
+  res.status(403).json({
+    ok: false,
+    success: false,
+    error: 'forbidden',
+    code: COMMERCIAL_FIELDS_MASTER_ONLY_CODE,
+    message: COMMERCIAL_FIELDS_MASTER_ONLY_MESSAGE,
+    details: { fields: commercial },
+  });
+  return true;
+}
+
 function failureBody(error: string, code: string, details?: Record<string, unknown>) {
   return {
     ok: false,
@@ -715,7 +740,8 @@ export async function insertDataController(req: AuthedRequest, res: Response): P
       success: false,
       error: 'forbidden',
       code: 'COMPANY_GENERIC_INSERT_FORBIDDEN',
-      message: 'Criação de empresas deve usar o fluxo de onboarding multi-tenant.',
+      message:
+        'Criação de empresas é exclusiva do Painel Master. O Sistema Operacional não cria empresas.',
     });
     return;
   }
@@ -862,7 +888,22 @@ export async function updateDataController(req: AuthedRequest, res: Response): P
   const companyId = requireCompanyId(req, res);
   if (companyId === null) return;
 
+  // Integridade: lifecycle de companies é exclusivo do writer canônico Master.
+  if (table === 'companies') {
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: 'COMPANY_GENERIC_UPDATE_FORBIDDEN',
+      message:
+        'Atualização de empresas é exclusiva do Painel Master. O Sistema Operacional não altera companies via CRUD genérico.',
+    });
+    return;
+  }
+
   const raw = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  if (rejectSaasCommercialCompanyWrite(table, raw, res)) return;
+
   let writeRaw: Record<string, unknown> = {};
   let scoped: Record<string, unknown> = {};
   let row: Record<string, unknown> = {};
@@ -1006,6 +1047,20 @@ export async function deleteDataController(req: AuthedRequest, res: Response): P
 
   const companyId = requireCompanyId(req, res);
   if (companyId === null) return;
+
+  // Integridade Master↔Operacional: lifecycle de companies é exclusivo do Master
+  // (provision / rollback / purge). DELETE genérico deixava master_tenants/licenses órfãos.
+  if (table === 'companies') {
+    res.status(403).json({
+      ok: false,
+      success: false,
+      error: 'forbidden',
+      code: 'COMPANY_GENERIC_DELETE_FORBIDDEN',
+      message:
+        'Exclusão de empresas é exclusiva do Painel Master. O Sistema Operacional não apaga companies.',
+    });
+    return;
+  }
 
   try {
     if (table === 'users') {

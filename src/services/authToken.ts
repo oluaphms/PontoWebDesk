@@ -1,5 +1,6 @@
 import { clearCsrfToken } from './csrfToken';
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
+import { bumpAuthSessionEpoch } from './authSessionEpoch';
 
 const COOKIE_SESSION_TOKEN = '__http_only_cookie_session__';
 const AUTH_TOKEN_STORAGE_KEY = 'pwd_auth_token';
@@ -38,23 +39,29 @@ export function getToken(): string | null {
 export function setToken(token: string | null): void {
   const next = String(token || '').trim();
   if (!next) {
+    const hadSession = Boolean(bearerTokenCache) || cookieSessionActive;
     bearerTokenCache = null;
     cookieSessionActive = false;
     clearLegacyStoredTokens();
     clearCsrfToken();
+    if (hadSession) bumpAuthSessionEpoch('token_cleared');
     return;
   }
 
   if (isCookieMarker(next)) {
+    const wasCookieOnly = cookieSessionActive && !bearerTokenCache;
     cookieSessionActive = true;
     clearLegacyStoredTokens();
+    if (!wasCookieOnly) bumpAuthSessionEpoch('token_saved_cookie');
     observabilityConsole.info('[AUTH-FLOW] TOKEN SAVED', { mode: 'cookie' });
     return;
   }
 
+  const prevBearer = bearerTokenCache;
   bearerTokenCache = next;
   cookieSessionActive = true;
   clearLegacyStoredTokens();
+  if (prevBearer !== next) bumpAuthSessionEpoch('token_saved_bearer');
   observabilityConsole.info('[AUTH-FLOW] TOKEN SAVED', { mode: 'bearer' });
 }
 

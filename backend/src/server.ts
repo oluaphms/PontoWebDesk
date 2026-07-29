@@ -6,6 +6,14 @@ import { logger } from './logger/logger.js';
 
 const port = Number(process.env.PORT || 3000);
 
+function isUnsafeProductionSecret(value: string | undefined): boolean {
+  const secret = String(value || '').trim();
+  return (
+    secret.length < 32 ||
+    /(?:change[-_ ]?me|generate[-_ ]|placeholder)/i.test(secret)
+  );
+}
+
 async function verifyDatabase(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     logger.warn({
@@ -31,6 +39,10 @@ async function verifyDatabase(): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  if (process.env.NODE_ENV === 'production' && isUnsafeProductionSecret(process.env.JWT_SECRET)) {
+    throw new Error('JWT_SECRET ausente, curto ou placeholder em produção.');
+  }
+
   if (!process.env.JWT_SECRET) {
     logger.warn({
       module: 'bootstrap.server',
@@ -61,7 +73,22 @@ async function start(): Promise<void> {
     server.on('error', reject);
   });
 
-  void verifyDatabase();
+  void verifyDatabase().then(async () => {
+    if (process.env.MASTER_RECOVERY_ON_BOOT === 'false') return;
+    try {
+      const { MasterRecoveryService } = await import(
+        './master/recovery/MasterRecoveryService.js'
+      );
+      await MasterRecoveryService.runStartupRecovery();
+    } catch (error) {
+      logger.warn({
+        module: 'bootstrap.server',
+        action: 'MASTER_RECOVERY_BOOT_FAILED',
+        message: 'Recovery Master no boot falhou (não bloqueia startup)',
+        meta: { error: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
 }
 
 start().catch((err) => {

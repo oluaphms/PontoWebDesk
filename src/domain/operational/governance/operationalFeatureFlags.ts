@@ -2,15 +2,10 @@ import {
   getOperationalFeatureFlags as getEnterpriseOperationalFlags,
   getOperationalFeatureFlag,
 } from '../../../config/operationalFeatureFlags';
+import { ConfigService } from '../../../platform/configService';
 
 function envBool(key: string, defaultTrue: boolean): boolean {
-  try {
-    const v = import.meta.env[key as keyof ImportMetaEnv] as string | undefined;
-    if (v === undefined || v === '') return defaultTrue;
-    return !/^(0|false|off|no)$/i.test(String(v).trim());
-  } catch {
-    return defaultTrue;
-  }
+  return ConfigService.getBoolean(key, defaultTrue);
 }
 
 export type OperationalFeatureFlags = {

@@ -1,12 +1,11 @@
 import { observabilityConsole } from './src/shared/logger/observabilityConsole';
-import React, { StrictMode } from 'react';
+import React, { StrictMode, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import './index.css';
 import { initSentry } from './lib/sentry';
 import { ThemeService } from './services/themeService';
 import { i18n } from './lib/i18n';
-import App from './App';
 import { ToastProvider } from './src/components/ToastProvider';
 import { RootErrorBoundary } from './components/ErrorBoundary';
 import { CHUNK_RELOAD_LEGACY_KEY, CHUNK_RELOAD_SESSION_KEY } from './src/utils/chunkLoadRecovery';
@@ -15,6 +14,56 @@ import { AppInitializer } from './src/components/AppInitializer';
 import { startLongTaskMonitor } from './src/performance/longTaskMonitor';
 import { focusManager } from '@tanstack/react-query';
 import { isPostLoginQueryCooldownActive } from './src/app/postLoginQueryGate';
+import { IS_DEV } from './src/config/runtimeEnv';
+import { isMasterPath } from './src/master/isMasterPath';
+
+const OperationalApp = React.lazy(() => import('./App'));
+const MasterBootstrap = React.lazy(() => import('./src/master/MasterBootstrap'));
+
+function BootFallback({ message }: { message: string }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        backgroundColor: '#f3f4f6',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      }}
+    >
+      <p style={{ color: '#666' }}>{message}</p>
+    </div>
+  );
+}
+
+/**
+ * Escolhe o shell Master vs Operacional conforme o pathname atual.
+ * Mantém cold start isolado (lazy) e corrige Links SPA entre os dois mundos.
+ * `key` força desmontagem limpa dos providers ao alternar.
+ */
+function WorldRoot() {
+  const { pathname } = useLocation();
+  const masterEntry = isMasterPath(pathname);
+
+  return (
+    <Suspense
+      fallback={
+        <BootFallback
+          message={masterEntry ? 'Carregando Painel Master...' : 'Carregando...'}
+        />
+      }
+    >
+      {masterEntry ? (
+        <MasterBootstrap key="world-master" />
+      ) : (
+        <AppInitializer key="world-operational">
+          <OperationalApp />
+        </AppInitializer>
+      )}
+    </Suspense>
+  );
+}
 
 try {
   initSentry();
@@ -67,7 +116,7 @@ if (typeof document !== 'undefined') {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         if (isPostLoginQueryCooldownActive()) {
-          if (import.meta.env.DEV && typeof console !== 'undefined') {
+          if (IS_DEV && typeof console !== 'undefined') {
             observabilityConsole.info('[QUERY WINDOW FOCUS REFETCH SUPPRESSED]', { reason: 'post_login_cooldown' });
           }
           return;
@@ -101,18 +150,17 @@ if (envFatalError) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+
 root.render(
   <StrictMode>
-    <AppInitializer>
-      <BrowserRouter>
-        <LanguageProvider>
-          <ToastProvider>
-            <RootErrorBoundary>
-              <App />
-            </RootErrorBoundary>
-          </ToastProvider>
-        </LanguageProvider>
-      </BrowserRouter>
-    </AppInitializer>
-  </StrictMode>
+    <BrowserRouter>
+      <LanguageProvider>
+        <ToastProvider>
+          <RootErrorBoundary>
+            <WorldRoot />
+          </RootErrorBoundary>
+        </ToastProvider>
+      </LanguageProvider>
+    </BrowserRouter>
+  </StrictMode>,
 );

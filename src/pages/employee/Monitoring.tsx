@@ -27,8 +27,6 @@ import { operationalClockMs } from '../../utils/operationalClock';
 import { isDegradedMobileRuntime } from '../../performance/mobileCpuBudget';
 import {
   commitMonitoringGeoRegistryFromFetch,
-  shouldProcessRealtimeCosPayload,
-  shouldProcessRealtimeLivePayload,
 } from '../../services/monitoring/realtimeMonitoringGeoRegistry';
 import { trackGeoSnapshotChecksumDrift } from '../../services/monitoring/geoSnapshotChecksumDrift';
 import { RefreshCw } from 'lucide-react';
@@ -39,12 +37,10 @@ import {
   upsertOperationalHeartbeat,
 } from '../../services/operationalHeartbeat.service';
 import { EmployeeOperationalStatus } from '../../types/employeeOperationalStatus';
-import { getRealtimeGeoStreamCoordinator } from '../../services/monitoring/realtimeGeoStreamCoordinator';
 import { setOperationalMonitoringIdentity } from '../../performance/operationalMonitoringContext';
 import { syncServerOperationalClockOffset } from '../../services/serverOperationalClock.service';
 import { operationalReliabilitySLO } from '../../domain/operational/reliability/operationalReliabilitySLO';
 import { reportDeviceOperationalReputationEvent } from '../../services/deviceOperationalReputation.service';
-import { SYSTEM_CONFIG } from '../../config/system';
 
 const LIVE_UPSERT_MIN_MS = isDegradedMobileRuntime() ? 4_000 : 10_000;
 
@@ -61,12 +57,6 @@ const EmployeeMonitoring: React.FC = () => {
 
   const load = useCallback(async () => {
     if (!user?.companyId) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
-      setUsingCos(false);
-      setPipelineRows([]);
-      setLoadingData(false);
-      return;
-    }
     const gen = ++refreshGenerationRef.current;
     setLoadingData(true);
     const nowMs = operationalClockMs();
@@ -146,10 +136,9 @@ const EmployeeMonitoring: React.FC = () => {
     void load();
   }, [load]);
 
-  /** Heartbeat leve só em jornada ativa (trabalhando). */
+  /** Heartbeat leve só em jornada ativa (trabalhando). LOCAL_API: HTTP via dbHttp (sem WebSocket). */
   useEffect(() => {
     if (!user?.companyId || !user?.id || !isWorking) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
 
     let cancelled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -211,10 +200,9 @@ const EmployeeMonitoring: React.FC = () => {
     };
   }, [user?.companyId, user?.id, isWorking]);
 
-  /** Publica posição na tabela `live_employee_location` (consumida pelo resolver de mapa). */
+  /** Publica posição na tabela `live_employee_location` (consumida pelo resolver de mapa). LOCAL_API: upsert HTTP. */
   useEffect(() => {
     if (!user?.companyId || !user?.id) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     let watchId: number | null = null;
@@ -306,9 +294,9 @@ const EmployeeMonitoring: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [load]);
 
+  /** Polling substitui postgres_changes do Supabase em LOCAL_API (mesmo contrato de dados). */
   useEffect(() => {
     if (!user?.companyId) return;
-    if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') return;
     const run = () => {
       if (isPollingSuppressedByVisibility()) return;
       clearGeocodeCache();

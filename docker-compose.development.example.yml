@@ -1,0 +1,25 @@
+# Exemplo — PostgreSQL local para development
+# Uso: copie para docker-compose.yml local (não versionar segredos) ou:
+#   docker compose -f docker-compose.development.example.yml up -d
+#
+# A API continua em `cd backend && npm run dev` (fora do Compose, por padrão).
+# Frontend: `npm run dev:local` na raiz.
+#
+# DATABASE_URL típica na API:
+#   postgresql://pontoweb:pontoweb@127.0.0.1:5432/pontowebdesk
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: pontoweb
+      POSTGRES_PASSWORD: pontoweb
+      POSTGRES_DB: pontowebdesk
+    volumes:
+      - pontowebdesk_pg_dev:/var/lib/postgresql/data
+
+volumes:
+  pontowebdesk_pg_dev:

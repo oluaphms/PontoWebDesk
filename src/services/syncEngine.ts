@@ -6,8 +6,8 @@ import {
   rescheduleSyncQueueItems,
   updateSyncQueueStatus,
 } from './localDb';
-import { isCloudEnabled } from './cloudService';
 import { getProvider } from './getProvider';
+import { PlatformService } from '../platform/PlatformService';
 
 const SYNC_MIN_BATCH = 10;
 const SYNC_MAX_BATCH = 50;
@@ -35,7 +35,7 @@ function schedule(ms: number): void {
 
 async function syncLoop(): Promise<void> {
   if (!running) return;
-  if (!isCloudEnabled()) {
+  if (!PlatformService.isDataLayerConfigured()) {
     schedule(SYNC_INTERVAL_MS);
     return;
   }
@@ -139,7 +139,7 @@ export function stopSyncEngine(): void {
 }
 
 export async function flushAll(): Promise<void> {
-  if (!isCloudEnabled()) return;
+  if (!PlatformService.isDataLayerConfigured()) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   for (;;) {
     const ready = await listReadySyncQueueItems(SYNC_MAX_BATCH);

@@ -87,7 +87,7 @@ describe('webSecurityMiddleware', () => {
         cookie: 'pwd_auth=session',
         'x-csrf-token': 'csrf-abc',
       },
-    } as Request;
+    } as unknown as Request;
     const next = vi.fn();
 
     webSecurityMiddleware(req, mockRes(), next as NextFunction);
@@ -122,7 +122,7 @@ describe('webSecurityMiddleware', () => {
         cookie: 'pwd_auth=session',
         'x-csrf-token': 'csrf-abc',
       },
-    } as Request;
+    } as unknown as Request;
     const res = mockRes();
     const next = vi.fn();
 

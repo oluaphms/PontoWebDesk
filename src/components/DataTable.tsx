@@ -19,7 +19,7 @@ interface TableRowProps<T> {
   columns: Column<T>[];
 }
 
-const TableRow = React.memo(function TableRow<T extends { id?: string | number }>({
+function TableRowInner<T extends { id?: string | number }>({
   row,
   rowKey,
   columns,
@@ -28,12 +28,14 @@ const TableRow = React.memo(function TableRow<T extends { id?: string | number }
     <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors" data-row-key={rowKey}>
       {columns.map((col) => (
         <td key={String(col.key)} className="px-6 py-4 align-middle text-sm">
-          {col.render ? col.render(row) : String((row as any)[col.key])}
+          {col.render ? col.render(row) : String(row[col.key as keyof T])}
         </td>
       ))}
     </tr>
   );
-});
+}
+
+const TableRow = React.memo(TableRowInner) as typeof TableRowInner;
 
 export function DataTable<T extends { id?: string | number }>({
   columns,
@@ -68,7 +70,7 @@ export function DataTable<T extends { id?: string | number }>({
             </tr>
           ) : (
             data.map((row, idx) => {
-              const rowKey = (row as any).id ?? idx;
+              const rowKey = row.id ?? idx;
               return <TableRow key={rowKey} row={row} rowKey={rowKey} columns={columns} />;
             })
           )}

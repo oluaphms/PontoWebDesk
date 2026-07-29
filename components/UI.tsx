@@ -4,7 +4,7 @@ import { AlertCircle, RefreshCcw, SearchX, Loader2, CheckCircle2 } from 'lucide-
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   loading?: boolean;
   ariaLabel?: string;
 }
@@ -29,6 +29,7 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const sizes = {
+    xs: "",
     sm: "px-4 py-2 text-xs",
     md: "px-6 py-3 text-sm",
     lg: "px-8 py-5 text-lg",
@@ -58,7 +59,7 @@ function safeReactChild(value: React.ReactNode): React.ReactNode {
   return value;
 }
 
-export const Badge: React.FC<{ children: React.ReactNode; color?: 'indigo' | 'green' | 'slate' | 'amber' | 'red'; className?: string; role?: string }> = ({ 
+export const Badge: React.FC<{ children: React.ReactNode; color?: 'indigo' | 'green' | 'slate' | 'amber' | 'red' | 'blue' | 'violet'; className?: string; role?: string }> = ({ 
   children, 
   color = 'slate',
   className = '',

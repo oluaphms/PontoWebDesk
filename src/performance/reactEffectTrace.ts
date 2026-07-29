@@ -1,5 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { useEffect, useMemo, useRef, type DependencyList } from 'react';
+import { IS_DEV } from '../config/runtimeEnv';
 
 const STORM_WINDOW_MS = 5000;
 const STORM_RUN_THRESHOLD = 3;
@@ -74,7 +75,7 @@ export function useTracedEffect(
 
       if (typeof console !== 'undefined') {
         const verbose =
-          import.meta.env.DEV ||
+          IS_DEV ||
           durationMs > 32 ||
           (prevSnap !== null && prevSnap !== depSnap) ||
           (typeof window !== 'undefined' && (window as unknown as { __REACT_EFFECT_TRACE?: boolean }).__REACT_EFFECT_TRACE);

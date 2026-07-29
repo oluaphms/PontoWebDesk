@@ -3,7 +3,6 @@ import { observabilityConsole } from '../../../shared/logger/observabilityConsol
  * Playback forense / RH: reconstrói trilha a partir de operational_state_history (append-only).
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { normalizeOperationalDate } from '../../../utils/operationalDateHardLock';
 import { computeGeoForensicsScore, type GeoForensicsPoint } from './geoForensics.service';
@@ -21,6 +20,25 @@ export type OperationalGeoTrailPoint = GeoForensicsPoint & {
   stateVersion?: number | null;
 };
 
+type OperationalGeoQueryResult = {
+  data: Record<string, unknown>[] | null;
+  error: { message: string } | null;
+};
+
+type OperationalGeoQuery = PromiseLike<OperationalGeoQueryResult> & {
+  eq: (column: string, value: string) => OperationalGeoQuery;
+  gte: (column: string, value: string) => OperationalGeoQuery;
+  lte: (column: string, value: string) => OperationalGeoQuery;
+  order: (column: string, options?: { ascending?: boolean }) => OperationalGeoQuery;
+  limit: (limit: number) => OperationalGeoQuery;
+};
+
+export type OperationalGeoClient = {
+  from: (table: string) => {
+    select: (columns: string) => OperationalGeoQuery;
+  };
+};
+
 function num(v: unknown): number | null {
   if (v == null) return null;
   const n = Number(v);
@@ -31,9 +49,9 @@ export async function fetchOperationalStateHistoryRange(
   companyId: string,
   employeeId: string,
   opts?: { fromIso?: string; toIso?: string; limit?: number },
-  clientOverride?: SupabaseClient | null,
+  clientOverride?: OperationalGeoClient | null,
 ): Promise<OperationalStateHistoryRow[]> {
-  const client = clientOverride ?? getSupabaseClient();
+  const client = (clientOverride ?? getSupabaseClient()) as OperationalGeoClient | null;
   if (!client) return [];
   let q = client
     .from('operational_state_history')
@@ -84,7 +102,7 @@ export class OperationalGeoPlayback {
   static async loadTrail(
     companyId: string,
     employeeId: string,
-    client: SupabaseClient | null,
+    client: OperationalGeoClient | null,
     opts?: { fromIso?: string; toIso?: string; limit?: number },
   ): Promise<{ history: OperationalStateHistoryRow[]; trail: OperationalGeoTrailPoint[] }> {
     if (!client) return { history: [], trail: [] };

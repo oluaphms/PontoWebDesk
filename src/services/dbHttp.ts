@@ -5,6 +5,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError, isDataApiWritesDisabled, isApiRateLimited } from './api';
 import { getToken } from './authToken';
 import { uploadPhotoViaApi } from './uploadPhotoApi';
+import { observabilityConsole } from '../shared/logger/observabilityConsole';
+import { PlatformService } from '../platform/PlatformService';
 
 export type FilterOperator =
   | 'eq'
@@ -136,6 +138,65 @@ function assertDataWriteAllowed(table?: string): void {
   }
 }
 
+async function updateDb<T extends DbRow = DbRow>(
+  table: string,
+  idOrData: string | DbRow,
+  dataOrFilters?: DbRow | Filter[],
+): Promise<T> {
+  assertDataWriteAllowed(table);
+  if (typeof idOrData === 'string') {
+    const res = await apiPatch<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(
+      `/data/${table}/${idOrData}`,
+      (dataOrFilters as DbRow) ?? {},
+    );
+    if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'update_failed', 400, res);
+    return res.data;
+  }
+  const filters = dataOrFilters as Filter[] | undefined;
+  const rows = await fetchList(table, listQuery(filters, undefined, 1));
+  const id = rows[0]?.id;
+  if (!id) throw new ApiError('record_not_found', 404, null);
+  return updateDb<T>(table, String(id), idOrData);
+}
+
+async function deleteDb(table: string, idOrFilters?: string | Filter[]): Promise<void> {
+  assertDataWriteAllowed(table);
+  if (typeof idOrFilters === 'string') {
+    await apiDelete(`/data/${table}/${idOrFilters}`);
+    return;
+  }
+  const rows = await fetchList(table, listQuery(idOrFilters, undefined, 1000, 'id'));
+  const ids = rows.map((row) => row.id).filter((id) => id != null);
+  await Promise.all(ids.map((id) => apiDelete(`/data/${table}/${String(id)}`)));
+}
+
+/** Polling realtime LOCAL_API — encerrado no bloqueio comercial / logout. */
+const activeRealtimeUnsubscribes = new Set<() => void>();
+let realtimeSuspended = false;
+
+/**
+ * Encerra todos os canais/pollings realtime operacionais.
+ * Chamado no bloqueio comercial (licença expirada) e no clearSession.
+ */
+export function disconnectAllOperationalRealtime(reason = 'session_cleared'): void {
+  realtimeSuspended = true;
+  const pending = [...activeRealtimeUnsubscribes];
+  activeRealtimeUnsubscribes.clear();
+  for (const unsub of pending) {
+    try {
+      unsub();
+    } catch {
+      /* best-effort */
+    }
+  }
+  observabilityConsole.info('[REALTIME DISCONNECT]', { reason, closed: pending.length });
+}
+
+/** Reabilita novas subscriptions após login (sessão válida). */
+export function resumeOperationalRealtime(): void {
+  realtimeSuspended = false;
+}
+
 export const db = {
   select: async <T extends DbRow = DbRow>(
     table: string,
@@ -167,7 +228,7 @@ export const db = {
 
     async function patchExistingByConflict(): Promise<boolean> {
       if (!conflictFilters.length) return false;
-      const rows = await db.select<{ id?: unknown }>(table, conflictFilters, { columns: 'id', limit: 1 });
+      const rows = await fetchList(table, listQuery(conflictFilters, { columns: 'id', limit: 1 }));
       const id = rows[0]?.id;
       if (!id) return false;
       await apiPatch(`/data/${table}/${String(id)}`, data);
@@ -192,7 +253,7 @@ export const db = {
     args?: DbRow,
   ): Promise<{ data: T | null; error: { message: string; code?: string; details?: unknown } | null }> => {
     if (fn.startsWith('rep_')) {
-      console.log('[REP RPC]', fn, args ?? {});
+      observabilityConsole.debug('[REP RPC]', fn, args ?? {});
     }
     if (fn === 'rep_promote_pending_rep_punch_logs') {
       try {
@@ -247,37 +308,9 @@ export const db = {
     }
   },
 
-  update: (async <T extends DbRow = DbRow>(
-    table: string,
-    idOrData: string | DbRow,
-    dataOrFilters?: DbRow | Filter[],
-  ): Promise<T> => {
-    assertDataWriteAllowed(table);
-    if (typeof idOrData === 'string') {
-      const res = await apiPatch<{ ok?: boolean; data?: T; error?: string; message?: string; code?: string }>(
-        `/data/${table}/${idOrData}`,
-        (dataOrFilters as DbRow) ?? {},
-      );
-      if (res.error || !res.data) throw new ApiError(res.message || res.error || res.code || 'update_failed', 400, res);
-      return res.data as T;
-    }
-    const filters = dataOrFilters as Filter[] | undefined;
-    const rows = await fetchList(table, listQuery(filters, undefined, 1));
-    const id = rows[0]?.id;
-    if (!id) throw new ApiError('record_not_found', 404, null);
-    return db.update<T>(table, String(id), idOrData);
-  }) as DbInterface['update'],
+  update: updateDb,
 
-  delete: (async (table: string, idOrFilters?: string | Filter[]): Promise<void> => {
-    assertDataWriteAllowed(table);
-    if (typeof idOrFilters === 'string') {
-      await apiDelete(`/data/${table}/${idOrFilters}`);
-      return;
-    }
-    const rows = await fetchList(table, listQuery(idOrFilters, undefined, 1000, 'id'));
-    const ids = rows.map((row) => row.id).filter((id) => id != null);
-    await Promise.all(ids.map((id) => apiDelete(`/data/${table}/${String(id)}`)));
-  }) as DbInterface['delete'],
+  delete: deleteDb,
 
   findById: async <T extends DbRow = DbRow>(table: string, id: string, columns?: string): Promise<T | null> => {
     const q = listQuery([{ column: 'id', operator: 'eq', value: id }], undefined, 1, columns);
@@ -319,12 +352,43 @@ export const db = {
     return res.count ?? 0;
   },
 
-  subscribe: (_table: string, _callback: (payload: DbRealtimePayload) => void, _filter?: string): (() => void) => {
-    return () => {};
+  /**
+   * LOCAL_API: sem WebSocket/Supabase Realtime — polling HTTP aciona o callback
+   * para invalidar caches (ex.: useRecords). Intervalo via VITE_LOCAL_REALTIME_POLL_MS.
+   * Registro global permite encerrar todos os canais no bloqueio comercial.
+   */
+  subscribe: (table: string, callback: (payload: DbRealtimePayload) => void, filter?: string): (() => void) => {
+    if (realtimeSuspended) {
+      return () => undefined;
+    }
+    const intervalMs = PlatformService.getLocalRealtimePollMs(12_000);
+
+    const tick = () => {
+      if (realtimeSuspended) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      try {
+        callback({
+          schema: 'public',
+          table,
+          eventType: '*',
+          new: null,
+          old: null,
+          commit_timestamp: new Date().toISOString(),
+        });
+      } catch (e) {
+        observabilityConsole.warn('[db.subscribe] poll callback error', { table, filter, error: e });
+      }
+    };
+
+    const id = setInterval(tick, intervalMs);
+    const unsubscribe = () => {
+      clearInterval(id);
+      activeRealtimeUnsubscribes.delete(unsubscribe);
+    };
+    activeRealtimeUnsubscribes.add(unsubscribe);
+    return unsubscribe;
   },
 };
-
-type DbInterface = typeof db;
 
 const uploadedPhotoUrls = new Map<string, string>();
 
@@ -343,7 +407,7 @@ async function uploadToPhotosApi(
   const kind = path.includes('avatar') ? 'avatar' : 'punch';
   const f = file instanceof File ? file : new File([file], path.split('/').pop() || 'photo.jpg', { type: 'image/jpeg' });
   const result = await uploadPhotoViaApi({ file: f, kind });
-  if (!result.ok) {
+  if (result.ok === false) {
     throw new ApiError(result.error, 400, null);
   }
   uploadedPhotoUrls.set(photoUploadKey(bucket, path), result.url);
@@ -415,39 +479,43 @@ type QueryState = {
   filters: Filter[];
   order?: OrderBy;
   limit?: number;
+  offset?: number;
   countOnly?: boolean;
 };
 
-function createTableQuery(table: string): {
-  select: (
-    columns?: string,
-    options?: { count?: 'exact'; head?: boolean },
-  ) => ReturnType<typeof createTableQuery>;
-  eq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  neq: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  not: (column: string, operator: 'is', value: null) => ReturnType<typeof createTableQuery>;
-  is: (column: string, operator: 'null', value: null) => ReturnType<typeof createTableQuery>;
-  gte: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  lte: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  gt: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  lt: (column: string, value: FilterValue) => ReturnType<typeof createTableQuery>;
-  in: (column: string, value: readonly unknown[]) => ReturnType<typeof createTableQuery>;
-  order: (column: string, options?: { ascending?: boolean }) => ReturnType<typeof createTableQuery>;
-  limit: (n: number) => Promise<{ data: DbRow[] | null; error: { message: string } | null; count?: number | null }>;
+type TableQueryResult = {
+  data: DbRow[] | null;
+  error: { message: string } | null;
+  count?: number | null;
+};
+
+type TableQueryBuilder = {
+  select: (columns?: string, options?: { count?: 'exact'; head?: boolean }) => TableQueryBuilder;
+  eq: (column: string, value: FilterValue) => TableQueryBuilder;
+  neq: (column: string, value: FilterValue) => TableQueryBuilder;
+  not: (column: string, operator: 'is', value: null) => TableQueryBuilder;
+  is: (column: string, value: FilterValue) => TableQueryBuilder;
+  gte: (column: string, value: FilterValue) => TableQueryBuilder;
+  lte: (column: string, value: FilterValue) => TableQueryBuilder;
+  gt: (column: string, value: FilterValue) => TableQueryBuilder;
+  lt: (column: string, value: FilterValue) => TableQueryBuilder;
+  in: (column: string, value: readonly unknown[]) => TableQueryBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => TableQueryBuilder;
+  range: (from: number, to: number) => TableQueryBuilder;
+  abortSignal: (signal: AbortSignal) => TableQueryBuilder;
+  limit: (n: number) => Promise<TableQueryResult>;
   maybeSingle: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
   single: () => Promise<{ data: DbRow | null; error: { message: string } | null }>;
-  then: (
-    onfulfilled?: (value: { data: DbRow[] | null; error: { message: string } | null }) => unknown,
-    onrejected?: (reason: unknown) => unknown,
-  ) => Promise<unknown>;
-} {
+  then: <TResult1 = TableQueryResult, TResult2 = never>(
+    onfulfilled?: ((value: TableQueryResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ) => Promise<TResult1 | TResult2>;
+};
+
+function createTableQuery(table: string): TableQueryBuilder {
   const state: QueryState = { table, filters: [] };
 
-  const runSelect = async (): Promise<{
-    data: DbRow[] | null;
-    error: { message: string } | null;
-    count?: number | null;
-  }> => {
+  const runSelect = async (): Promise<TableQueryResult> => {
     try {
       if (state.countOnly) {
         const count = await db.count(state.table, state.filters);
@@ -459,6 +527,7 @@ function createTableQuery(table: string): {
         {
           columns: state.columns,
           limit: state.limit,
+          offset: state.offset,
           orderBy: state.order,
         },
       );
@@ -469,7 +538,7 @@ function createTableQuery(table: string): {
     }
   };
 
-  const builder = {
+  const builder: TableQueryBuilder = {
     select(columns?: string, options?: { count?: 'exact'; head?: boolean }) {
       if (options?.count === 'exact' && options?.head) {
         state.countOnly = true;
@@ -522,6 +591,15 @@ function createTableQuery(table: string): {
       state.order = { column, ascending: options?.ascending !== false };
       return builder;
     },
+    range(from: number, to: number) {
+      state.offset = from;
+      state.limit = Math.max(0, to - from + 1);
+      return builder;
+    },
+    abortSignal(_signal: AbortSignal) {
+      // Compatibilidade fluente: apiGet ainda não encaminha AbortSignal ao fetch.
+      return builder;
+    },
     limit(n: number) {
       state.limit = n;
       return runSelect();
@@ -540,14 +618,7 @@ function createTableQuery(table: string): {
       if (!row) return { data: null, error: { message: 'PGRST116' } };
       return { data: row, error: null };
     },
-    then(
-      onfulfilled?: (value: {
-        data: DbRow[] | null;
-        error: { message: string } | null;
-        count?: number | null;
-      }) => unknown,
-      onrejected?: (reason: unknown) => unknown,
-    ) {
+    then(onfulfilled, onrejected) {
       return runSelect().then(onfulfilled, onrejected);
     },
   };
@@ -658,8 +729,6 @@ export const supabase = {
   rpc: (fn: string, args?: DbRow) => db.rpc(fn, args),
 };
 
-import { isDataLayerConfigured } from '../config/system';
-
 export { isApiConfigured, isSupabaseCloudEnvConfigured } from '../config/env';
 
 /**
@@ -667,14 +736,14 @@ export { isApiConfigured, isSupabaseCloudEnvConfigured } from '../config/env';
  * LOCAL_API → API VPS; SUPABASE → credenciais cloud (futuro).
  */
 export function isSupabaseConfigured(): boolean {
-  return isDataLayerConfigured();
+  return PlatformService.isDataLayerConfigured();
 }
 
 export const checkSupabaseConfigured = isSupabaseConfigured;
 
 /** Cliente compatível com código legado Supabase (API VPS via dbHttp). */
 export function getSupabaseClient(): typeof supabase | null {
-  if (!isDataLayerConfigured()) return null;
+  if (!PlatformService.isDataLayerConfigured()) return null;
   return supabase;
 }
 

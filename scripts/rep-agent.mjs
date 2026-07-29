@@ -979,7 +979,8 @@ function postPunch(body) {
 /** Conteúdo parece ficheiro AFD (linhas numéricas), não JSON de erro nem HTML. */
 function isPlausibleAfdText(content) {
   if (!content || typeof content !== 'string') return false;
-  const t = content.trim();
+  // Control iD incremental às vezes anexa " AFD000….txt" na mesma linha do marcador.
+  const t = content.replace(/\s+AFD\d+\.txt\b/gi, '').trim();
   if (t.length < 16) return false;
   const head = t.slice(0, 256).toLowerCase();
   if (head.includes('<html') || head.includes('<!doctype')) return false;
@@ -993,6 +994,8 @@ function isPlausibleAfdText(content) {
     if (/^\d{20,}$/.test(line)) return true;
     if (line.length === 35 && /^\d+$/.test(line)) return true;
     if (line.length === 34 && line[9] === '3' && /^\d+$/.test(line)) return true;
+    // Portaria 671 / Control iD: 34 dígitos + CRC hex curto
+    if (/^\d{34}[0-9a-fA-F]{1,8}$/.test(line) && (line[9] === '3' || line[9] === '7')) return true;
   }
   return false;
 }
@@ -1528,20 +1531,23 @@ async function downloadAFD({ lastNsr = 0 } = {}) {
 
 /** Corpo do get_afd pode ser texto AFD puro ou JSON com campo de conteúdo (Control iD). */
 function extractAfdFileText(text) {
-  const t = String(text ?? '').trim();
-  if (!t.startsWith('{')) return text;
+  let t = String(text ?? '').trim();
+  t = t.replace(/\s+AFD\d+\.txt\b/gi, '').trim();
+  if (!t.startsWith('{')) return t;
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object' && !Array.isArray(j)) {
       for (const k of ['afd', 'AFD', 'data', 'file', 'content', 'nfo', 'records', 'text', 'body', 'file_afd']) {
         const v = j[k];
-        if (typeof v === 'string' && v.trim().length > 16) return v;
+        if (typeof v === 'string' && v.trim().length > 16) {
+          return v.replace(/\s+AFD\d+\.txt\b/gi, '').trim();
+        }
       }
     }
   } catch {
     /* texto bruto */
   }
-  return text;
+  return t;
 }
 
 function afdNormalizeDate(ddmmaaaa) {

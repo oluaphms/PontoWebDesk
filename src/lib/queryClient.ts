@@ -2,9 +2,10 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { QueryClient } from '@tanstack/react-query';
 import { patchQueryClientInvalidationAudit } from '../performance/queryInvalidationAudit';
 import { patchQueryCostGuard } from '../performance/queryCostGuard';
+import { IS_DEV } from '../config/runtimeEnv';
 
 function patchQueryClientDevCacheHitLogger(queryClient: QueryClient): void {
-  if (!import.meta.env.DEV || typeof console === 'undefined') return;
+  if (!IS_DEV || typeof console === 'undefined') return;
 
   const allowedHeads = new Set(['employees', 'timesheet', 'dashboard', 'rep-pending', 'records']);
   const lastHitLog = new Map<string, number>();

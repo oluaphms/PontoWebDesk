@@ -669,26 +669,26 @@ async function fetchAllDeviceUsersCore(
       mode671,
       deviceExtra,
     });
-    console.log('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(payload, null, 2));
+    observabilityConsole.debug('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(payload, null, 2));
     let res = await deviceFetch(device, path, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     let text = await res.text();
-    console.log('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
+    observabilityConsole.debug('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
     if (!res.ok && first && /booleano/i.test(text)) {
       const boolField = parseControlIdBooleanFieldError(text);
       observabilityConsole.warn('[CONTROLID LOAD_USERS] retry após erro booleano', { boolField });
       const minimal = { limit, offset, templates: false as const };
-      console.log('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(minimal, null, 2));
+      observabilityConsole.debug('[CONTROLID LOAD_USERS REQUEST]', JSON.stringify(minimal, null, 2));
       res = await deviceFetch(device, path, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify(minimal),
       });
       text = await res.text();
-      console.log('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
+      observabilityConsole.debug('[CONTROLID LOAD_USERS RESPONSE]', res.status, text.slice(0, 2000));
     }
     if (!res.ok) {
       if (first) {

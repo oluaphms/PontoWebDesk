@@ -1,3 +1,4 @@
+import { logger } from '../../logger/logger.js';
 import { getRateLimitProvider } from './redisProvider.js';
 
 type MemoryEntry = {
@@ -20,11 +21,18 @@ export type DistributedRateLimitResult = {
 
 const memoryStore = new Map<string, MemoryEntry>();
 
-function isRedisRequired(): boolean {
-  const explicit = String(process.env.RATE_LIMIT_REDIS_REQUIRED || '').trim().toLowerCase();
-  if (explicit === 'true' || explicit === '1') return true;
-  if (explicit === 'false' || explicit === '0') return false;
-  return process.env.NODE_ENV === 'production';
+let memoryFallbackLogged = false;
+
+function logMemoryFallbackOnce(): void {
+  if (memoryFallbackLogged) return;
+  memoryFallbackLogged = true;
+  logger.warn({
+    module: 'security.rateLimit',
+    action: 'RATE_LIMIT_MEMORY_FALLBACK',
+    message:
+      'Rate limiting distribuído (Redis/Upstash) indisponível — usando store in-memory. ' +
+      'Configure REDIS_URL ou UPSTASH_* e RATE_LIMIT_REDIS_REQUIRED=true em produção.',
+  });
 }
 
 export async function checkDistributedRateLimit(
@@ -45,9 +53,7 @@ export async function checkDistributedRateLimit(
     };
   }
 
-  if (isRedisRequired()) {
-    throw new Error('RATE_LIMIT_REDIS_REQUIRED');
-  }
+  logMemoryFallbackOnce();
 
   const current = memoryStore.get(input.key);
   if (!current || now > current.resetAt) {

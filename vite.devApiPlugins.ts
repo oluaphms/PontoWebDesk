@@ -58,7 +58,7 @@ export function devApiPlugins(): Plugin[] {
             const query = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
             const fullUrl = `http://${host}${jobsPath}${query}`;
             const jobsRequestBody = await readConnectRequestBody(req as IncomingMessage);
-            const response = await handler(
+            const response = await handler.fetch(
               new Request(fullUrl, {
                 method: req.method || 'GET',
                 headers: req.headers as HeadersInit,

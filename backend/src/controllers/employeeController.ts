@@ -57,6 +57,7 @@ const USER_VIEW_COLUMNS = [
 ] as const;
 type UserViewColumn = (typeof USER_VIEW_COLUMNS)[number];
 type UserViewColumnMap = Record<UserViewColumn, boolean>;
+type EmployeeQueryExecutor = Pick<typeof pool, 'query'>;
 
 function isEmployeeLinkColumn(key: keyof NormalizedEmployeeInput): key is EmployeeLinkColumn {
   return (EMPLOYEE_LINK_COLUMNS as readonly string[]).includes(key);
@@ -68,7 +69,7 @@ function isProtectedSystemUserEmail(email: unknown): boolean {
 
 async function getTableLinkColumns(
   tableName: 'employees' | 'users',
-  db: Pick<PoolClient, 'query'> | typeof pool = pool,
+  db: EmployeeQueryExecutor = pool,
 ): Promise<LinkColumnMap> {
   const entries = await Promise.all(
     EMPLOYEE_LINK_COLUMNS.map(async (column) => [column, await tableHasColumn(tableName, column, db)] as const),
@@ -77,7 +78,7 @@ async function getTableLinkColumns(
 }
 
 async function getUserViewColumns(
-  db: Pick<PoolClient, 'query'> | typeof pool = pool,
+  db: EmployeeQueryExecutor = pool,
 ): Promise<UserViewColumnMap> {
   const entries = await Promise.all(
     USER_VIEW_COLUMNS.map(async (column) => [column, await tableHasColumn('users', column, db)] as const),
@@ -106,7 +107,14 @@ function buildLinkSelect(column: EmployeeLinkColumn, employeeLinks: LinkColumnMa
   return `null as ${column}`;
 }
 
-async function buildEmployeeViewSelect(db: Pick<PoolClient, 'query'> | typeof pool = pool): Promise<string> {
+type EmployeeViewSelect = {
+  select: string;
+  estruturaJoin: string;
+};
+
+async function buildEmployeeViewSelect(
+  db: EmployeeQueryExecutor = pool,
+): Promise<EmployeeViewSelect> {
   const [employeeLinks, userLinks, userColumns] = await Promise.all([
     getTableLinkColumns('employees', db),
     getTableLinkColumns('users', db),
@@ -622,7 +630,7 @@ const USER_SYNC_PATCH_FIELDS = new Set([
 ]);
 
 async function fetchEmployeeViewById(
-  db: Pick<PoolClient, 'query'> | typeof pool,
+  db: EmployeeQueryExecutor,
   id: string,
   companyId: string,
 ): Promise<Record<string, unknown> | null> {

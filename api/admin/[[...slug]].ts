@@ -29,7 +29,6 @@ import { getSupabaseUrlForServer } from '../_shared/getSupabaseConfig.js';
 import { getSecureCorsHeaders, requireTrustedOrigin } from '../_shared/security.js';
 import { noCache } from '../_shared/cache.js';
 import { logger } from '../../src/shared/logger/logger.js';
-import { encryptDeviceCredentialOrThrow } from '../_shared/deviceCredentialCrypto.js';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -600,96 +599,22 @@ async function handleAudit(request: Request, url: URL, slug: string[]): Promise<
 
 async function handleOnboarding(request: Request): Promise<Response> {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  const supabaseUrl = getSupabaseUrlForServer();
-  const serviceKey  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase não configurado.' }, 503);
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error) {
-    logger.warn({
-      module: 'api.admin',
-      action: 'ONBOARDING_BODY_PARSE_FAILED',
-      message: 'Body JSON invalido no onboarding',
-      error,
-    });
-    return json({ error: 'Body JSON inválido.' }, 400);
-  }
-
-  const { z } = await import('zod');
-  const Schema = z.object({
-    company: z.object({ name: z.string().min(2).max(200), cnpj: z.string().regex(/^\d{14}$/).optional(), timezone: z.string().default('America/Sao_Paulo') }),
-    admin:   z.object({ email: z.string().email(), name: z.string().min(2).max(200) }),
-    device:  z.object({ brand: z.enum(['controlid','dimep','henry','topdata']), ip: z.string().min(7), port: z.number().int().min(1).max(65535).optional(), username: z.string().optional(), password: z.string().optional(), name: z.string().optional() }).optional(),
-  });
-  const parsed = Schema.safeParse(body);
-  if (!parsed.success) return json({ error: 'Schema inválido.', details: parsed.error.format() }, 400);
-
-  const { company, admin, device } = parsed.data;
-  const { createClient } = await import('@supabase/supabase-js');
-  const sb = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const steps: Array<{ step: string; status: string; detail?: string }> = [];
-
-  let companyId: string | null = null;
-  try {
-    const { data, error } = await sb.from('companies').insert({ name: company.name, cnpj: company.cnpj ?? null, timezone: company.timezone }).select('id').single();
-    if (error) throw error;
-    companyId = data.id;
-    steps.push({ step: 'create_company', status: 'ok', detail: `company_id: ${companyId}` });
-  } catch (e) {
-    steps.push({ step: 'create_company', status: 'error', detail: e instanceof Error ? e.message : String(e) });
-    return json({ success: false, steps, error: 'Falha ao criar empresa.' }, 500);
-  }
-
-  let adminUserId: string | null = null;
-  try {
-    const { data: authData, error: authError } = await sb.auth.admin.createUser({ email: admin.email, email_confirm: true, user_metadata: { name: admin.name, company_id: companyId, role: 'admin' } });
-    if (authError) throw authError;
-    adminUserId = authData.user?.id ?? null;
-    if (adminUserId) await sb.from('users').upsert({ id: adminUserId, email: admin.email, name: admin.name, company_id: companyId, role: 'admin' }, { onConflict: 'id' });
-    steps.push({ step: 'create_admin', status: 'ok', detail: `user_id: ${adminUserId}` });
-  } catch (e) { steps.push({ step: 'create_admin', status: 'error', detail: e instanceof Error ? e.message : String(e) }); }
-
-  let deviceId: string | null = null;
-  if (device) {
-    try {
-      const encryptedPassword = device.password ? encryptDeviceCredentialOrThrow(device.password) : null;
-      const { data, error } = await sb.from('devices').insert({
-        company_id: companyId,
-        brand: device.brand,
-        ip: device.ip,
-        port: device.port ?? null,
-        username: device.username ?? null,
-        password: null,
-        password_encrypted: encryptedPassword?.encrypted ?? null,
-        password_iv: encryptedPassword?.iv ?? null,
-        password_tag: encryptedPassword?.tag ?? null,
-        name: device.name ?? `${device.brand}-${device.ip}`,
-        active: true,
-      }).select('id').single();
-      if (error) throw error;
-      deviceId = data.id;
-      steps.push({ step: 'register_device', status: 'ok', detail: `device_id: ${deviceId}` });
-    } catch (e) { steps.push({ step: 'register_device', status: 'error', detail: e instanceof Error ? e.message : String(e) }); }
-    if (deviceId && device.brand === 'controlid') {
-      try {
-        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 5_000);
-        const res = await fetch(`http://${device.ip}:${device.port ?? 80}/load_objects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ object: 'access_logs' }), signal: ctrl.signal });
-        clearTimeout(t);
-        steps.push({ step: 'validate_device_connectivity', status: res.ok ? 'ok' : 'error', detail: `HTTP ${res.status}` });
-      } catch (e) { steps.push({ step: 'validate_device_connectivity', status: 'error', detail: e instanceof Error ? e.message : String(e) }); }
-    } else { steps.push({ step: 'validate_device_connectivity', status: 'skipped', detail: deviceId ? `não disponível para ${device.brand}` : 'device não registrado' }); }
-  } else {
-    steps.push({ step: 'register_device', status: 'skipped', detail: 'nenhum device fornecido' });
-    steps.push({ step: 'validate_device_connectivity', status: 'skipped', detail: 'nenhum device fornecido' });
-  }
-  steps.push({ step: 'activate_collection', status: 'ok', detail: 'Agente coletará no próximo ciclo (15s)' });
-
-  const allOk = steps.every(s => s.status !== 'error');
-  return json({ success: allOk, companyId, adminUserId, deviceId, steps }, allOk ? 201 : 207);
+  // FASE 6.6+ — criação de empresas é exclusiva do Painel Master.
+  // O onboarding operacional legado não pode mais INSERT em public.companies.
+  void request;
+  return json(
+    {
+      success: false,
+      error: 'COMPANY_CREATE_MASTER_ONLY',
+      code: 'COMPANY_CREATE_MASTER_ONLY',
+      message:
+        'Criação de empresas é exclusiva do Painel Master. Use /master/tenants/new. O Sistema Operacional não cria empresas.',
+      steps: [{ step: 'create_company', status: 'blocked', detail: 'MASTER_ONLY' }],
+    },
+    410,
+  );
 }
-
 // ─── Support/diagnose handler ─────────────────────────────────────────────────
 
 async function handleSupport(request: Request, url: URL): Promise<Response> {

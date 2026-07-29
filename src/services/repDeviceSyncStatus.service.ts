@@ -1,6 +1,7 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import type { DeviceSyncStatusSnapshot } from '../pages/admin/repDevices/types';
 import { buildApiUrl, buildSessionAuthHeaders } from './api';
+import { IS_DEV } from '../config/runtimeEnv';
 
 export const REP_SYNC_STATUS_TIMEOUT_MS = 5000;
 export const REP_SYNC_STATUS_CACHE_MS = 30_000;
@@ -50,13 +51,13 @@ export async function fetchRepDeviceSyncStatus(
     const body = (await res.json().catch(() => null)) as DeviceSyncStatusSnapshot | null;
 
     if (!res.ok || !body) {
-      if (import.meta.env.DEV) {
+      if (IS_DEV) {
         observabilityConsole.warn('[REP STATUS] sync-status HTTP', { device_id: deviceId, status: res.status });
       }
       return offlineSnapshot();
     }
 
-    if (import.meta.env.DEV) {
+    if (IS_DEV) {
       observabilityConsole.log('[REP STATUS]', {
         device_id: deviceId,
         status: body.connection ?? (body.online ? 'online' : 'offline'),
@@ -77,7 +78,7 @@ export async function fetchRepDeviceSyncStatus(
       last_seen_at: body.last_seen_at ?? body.last_seen ?? null,
     };
   } catch (e) {
-    if (import.meta.env.DEV) {
+    if (IS_DEV) {
       const aborted = e instanceof DOMException && e.name === 'AbortError';
       observabilityConsole.warn('[REP STATUS] sync-status falhou', {
         device_id: deviceId,

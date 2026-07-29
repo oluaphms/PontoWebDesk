@@ -56,14 +56,14 @@ const POLICIES: Record<UploadPolicyName, UploadPolicy> = {
   },
   afdImport: {
     allowedExtensions: ['txt', 'csv', 'afd'],
-    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', ''],
+    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', 'application/octet-stream', ''],
     maxFileSize: UPLOAD_LIMITS.afdImport,
     requireMagicBytesValidation: true,
     blockedExtensions: EXECUTABLE_BLOCKLIST,
   },
   employeeImportCsv: {
     allowedExtensions: ['csv', 'txt'],
-    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', ''],
+    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', 'application/octet-stream', ''],
     maxFileSize: UPLOAD_LIMITS.textCsv,
     requireMagicBytesValidation: true,
     blockedExtensions: EXECUTABLE_BLOCKLIST,
@@ -79,6 +79,7 @@ const POLICIES: Record<UploadPolicyName, UploadPolicy> = {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword',
+      'application/octet-stream',
       '',
     ],
     maxFileSize: UPLOAD_LIMITS.pdf,
@@ -119,6 +120,8 @@ export function validateMimeType(mime: string, policy: UploadPolicy): UploadVali
   const normalized = normalizeImageMimeType(mime) || String(mime || '').toLowerCase().trim();
   if (isBlockedMime(normalized)) return 'blocked_mime';
   if (!normalized) return null;
+  // Windows local frequentemente reporta CSV/XLSX/PDF como application/octet-stream.
+  if (normalized === 'application/octet-stream') return null;
   const wildcardAllowed = policy.allowedMimeTypes.some((m) => m.endsWith('/*') && normalized.startsWith(m.slice(0, -1)));
   const exactAllowed = policy.allowedMimeTypes.includes(normalized);
   return wildcardAllowed || exactAllowed ? null : 'invalid_mime';

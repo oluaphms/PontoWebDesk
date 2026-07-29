@@ -126,7 +126,7 @@ const EmployeeProfile: React.FC = () => {
       mimeType: file.type || '',
       size: file.size,
     });
-    if (!check.ok) {
+    if (check.ok === false) {
       logger.warn({
         module: 'employee.profile',
         action: 'AVATAR_UPLOAD_POLICY_REJECTED',
@@ -153,7 +153,7 @@ const EmployeeProfile: React.FC = () => {
     setUploadingPhoto(true);
     try {
       const uploaded = await uploadPhotoViaApi({ file, kind: 'avatar' });
-      if (!uploaded.ok) {
+      if (uploaded.ok === false) {
         logger.warn({
           module: 'employee.profile',
           action: 'AVATAR_UPLOAD_FAILED',

@@ -2,8 +2,7 @@ import { observabilityConsole } from '../../shared/logger/observabilityConsole';
 import { useEffect, useRef, useState } from 'react';
 import { getSchemaGuardError } from '@/services/schemaGuard';
 import { safeJsonStringify } from '@/services/schemaGuardReporter';
-
-const IS_PRODUCTION = import.meta.env.MODE === 'production';
+import { IS_PRODUCTION } from '@/config/runtimeEnv';
 
 export default function SchemaGuardBadge() {
   const [state, setState] = useState<any>(null);

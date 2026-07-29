@@ -1,5 +1,4 @@
 import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { operationalBusEmitContract } from '../bus/operationalEventBus';
 import { operationalNowUtcIso } from '../../../utils/operationalClock';
 
@@ -27,8 +26,28 @@ export type OpenOperationalIncidentInput = {
   correlationId?: string | null;
 };
 
+type IncidentError = { message: string } | null;
+
+type IncidentUpdateQuery = PromiseLike<{ error: IncidentError }> & {
+  eq: (column: string, value: string | number) => IncidentUpdateQuery;
+};
+
+export type OperationalIncidentClient = {
+  from: (table: string) => {
+    insert: (data: Record<string, unknown>) => {
+      select: (columns: string) => {
+        single: () => Promise<{
+          data: { id?: number } | null;
+          error: IncidentError;
+        }>;
+      };
+    };
+    update: (data: Record<string, unknown>) => IncidentUpdateQuery;
+  };
+};
+
 export async function openOperationalIncident(
-  client: SupabaseClient | null,
+  client: OperationalIncidentClient | null,
   input: OpenOperationalIncidentInput,
 ): Promise<{ ok: boolean; id?: number; error?: string }> {
   if (!client) return { ok: false, error: 'no_client' };
@@ -73,7 +92,7 @@ export async function openOperationalIncident(
 }
 
 export async function resolveOperationalIncident(
-  client: SupabaseClient | null,
+  client: OperationalIncidentClient | null,
   input: { id: number; companyId: string; resolution?: string | null; correlationId?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
   if (!client) return { ok: false, error: 'no_client' };

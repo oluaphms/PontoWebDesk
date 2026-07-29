@@ -1007,7 +1007,7 @@ const AdminEmployees: React.FC = () => {
       let persistedPhotoUrl: string | null = null;
       if (form.photo_preview.startsWith('data:')) {
         const uploaded = await uploadPhotoViaApi({ dataUrl: form.photo_preview, kind: 'avatar' });
-        if (!uploaded.ok) {
+        if (uploaded.ok === false) {
           setError(uploaded.error || 'Falha ao enviar fotografia. Tente uma imagem menor.');
           scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           setSaving(false);
@@ -1511,10 +1511,10 @@ const AdminEmployees: React.FC = () => {
         size: file.size,
         type: file.type,
         normalizedMime,
-        validationCode: check.ok ? null : check.code,
+        validationCode: check.ok === true ? null : check.code,
       },
     });
-    if (!check.ok) {
+    if (check.ok === false) {
       setError(uploadValidationMessage(check.code, 'avatar'));
       scrollModalTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       e.target.value = '';

@@ -1,0 +1,26 @@
+{
+  "name": "pontowebdesk-updater-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PontoWebDesk Updater Service — agente de atualização LOCAL/HYBRID. Fora do navegador.",
+  "bin": {
+    "pwd-updater": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js run",
+    "once": "node dist/index.js once",
+    "dev": "tsc -p tsconfig.json && node dist/index.js run",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

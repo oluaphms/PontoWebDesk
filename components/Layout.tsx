@@ -24,10 +24,10 @@ import { MaintenanceBanner } from '../src/components/MaintenanceBanner';
 export type LayoutVariant = 'admin' | 'employee';
 
 interface LayoutProps {
-  user: User;
+  user?: User;
   children: React.ReactNode;
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab?: string;
+  setActiveTab?: (tab: string) => void;
   onLogout: () => void | Promise<void>;
   layoutVariant?: LayoutVariant;
   /**
@@ -41,7 +41,7 @@ const Layout: React.FC<LayoutProps> = ({
   user: userProp,
   children,
   onLogout,
-  layoutVariant: _layoutVariant,
+  layoutVariant,
   operationalChromeReady = true,
 }) => {
   const navigate = useNavigate();
@@ -95,9 +95,9 @@ const Layout: React.FC<LayoutProps> = ({
     <SmartNavigationProvider user={user} onLogout={onLogout}>
       <div className="flex h-screen overflow-hidden bg-transparent print:h-auto print:overflow-visible">
         <div className="flex-1 flex flex-col min-w-0 bg-transparent relative print:h-auto print:overflow-visible">
-          <header className="print:hidden h-16 lg:h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-20 transition-colors duration-300">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <span className="text-base lg:text-lg font-bold text-indigo-600 dark:text-indigo-400 shrink-0">PontoWebDesk</span>
+          <header className="print:hidden h-16 lg:h-20 ds-header-bar flex items-center justify-between px-4 lg:px-8 sticky top-0 z-20 transition-colors duration-300 shadow-sm">
+            <div className="flex items-center gap-3 flex-1 max-w-md min-w-0">
+              <span className="text-base lg:text-lg font-bold tracking-tight text-indigo-700 dark:text-indigo-400 shrink-0">PontoWebDesk</span>
               {auditHeaderSignal && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide border border-slate-200 dark:border-slate-600 shrink-0"
@@ -116,13 +116,13 @@ const Layout: React.FC<LayoutProps> = ({
                   </span>
                 </span>
               )}
-              <HeaderSearch user={user} />
+              {layoutVariant !== 'employee' && <HeaderSearch user={user} />}
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
               <button
                 onClick={toggleTheme}
-                className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                className="p-2.5 text-foreground-secondary hover:bg-surface-muted hover:text-foreground rounded-xl border border-transparent hover:border-border transition-all duration-150"
                 aria-label={theme === 'light' ? i18n.t('layout.ariaThemeLight') : i18n.t('layout.ariaThemeDark')}
                 title={theme === 'light' ? i18n.t('layout.themeLight') : i18n.t('layout.themeDark')}
               >
@@ -131,7 +131,7 @@ const Layout: React.FC<LayoutProps> = ({
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all relative"
+                  className="p-2.5 text-foreground-secondary hover:bg-surface-muted hover:text-foreground rounded-xl border border-transparent hover:border-border transition-all duration-150 relative"
                   aria-label={`${i18n.t('layout.notifications')}${unreadCount > 0 ? `, ${unreadCount} ${i18n.t('layout.unreadCount')}` : ''}`}
                   aria-expanded={showNotifications}
                 >
@@ -150,11 +150,11 @@ const Layout: React.FC<LayoutProps> = ({
                   </div>
                 )}
               </div>
-              <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block" aria-hidden="true" />
+              <div className="w-px h-6 bg-border mx-2 hidden sm:block" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => navigate(user?.role === 'admin' || user?.role === 'hr' ? '/profile' : '/employee/profile')}
-                className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold text-sm border-2 border-white dark:border-slate-700 hover:ring-2 hover:ring-indigo-500/50 transition-all shrink-0"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-bold text-sm border border-indigo-200/80 dark:border-slate-700 shadow-sm hover:ring-2 hover:ring-indigo-500/40 hover:border-indigo-300 transition-all duration-150 shrink-0"
                 aria-label={i18n.t('layout.openProfile')}
                 title={i18n.t('layout.profile')}
               >
@@ -166,11 +166,11 @@ const Layout: React.FC<LayoutProps> = ({
           <main
             id="main-content"
             tabIndex={-1}
-            className="flex-1 overflow-y-auto custom-scrollbar focus:outline-none pb-24 print:overflow-visible print:h-auto print:pb-0 bg-slate-50/30 dark:bg-slate-950/40 min-h-0"
+            className="flex-1 overflow-y-auto custom-scrollbar focus:outline-none pb-24 print:overflow-visible print:h-auto print:pb-0 bg-canvas min-h-0"
             role="main"
             aria-label={i18n.t('layout.mainContent')}
           >
-            <div className="p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full print:p-0 print:m-0 print:max-w-none min-h-full">
+            <div className="p-4 md:p-6 lg:p-10 max-w-7xl mx-auto w-full print:p-0 print:m-0 print:max-w-none min-h-full space-y-6">
               <MaintenanceBanner />
               {children}
             </div>

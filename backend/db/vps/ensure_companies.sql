@@ -41,6 +41,19 @@ ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS telefone TEXT;
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS cartao_ponto_footer TEXT;
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS journey_settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_plan TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_mode TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS license_status TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS subscription_status TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS payment_status TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS contracted_limits JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_blocked BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_block_reason TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_synced_at TIMESTAMPTZ;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS commercial_source TEXT NOT NULL DEFAULT 'master';
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS company_session_version BIGINT NOT NULL DEFAULT 0;
 
 -- endereco: se existir só como TEXT (migration parcial), converte endereço legado para JSONB.
 DO $$

@@ -13,8 +13,19 @@ export function getAppBaseUrl(): string {
     .toString()
     .trim()
     .replace(/\/$/, '');
-  if (fromEnv && /^https?:\/\//.test(fromEnv)) return fromEnv;
-  if (typeof window !== 'undefined' && window.location?.origin)
-    return String(window.location.origin).replace(/\/$/, '');
+  if (fromEnv && /^https?:\/\//.test(fromEnv)) {
+    // Nunca usar a porta da API local como base do frontend.
+    if (/^https?:\/\/(localhost|127\.0\.0\.1):3000$/i.test(fromEnv)) {
+      return DEV_FALLBACK;
+    }
+    return fromEnv;
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = String(window.location.origin).replace(/\/$/, '');
+    if (/^https?:\/\/(localhost|127\.0\.0\.1):3000$/i.test(origin)) {
+      return DEV_FALLBACK;
+    }
+    return origin;
+  }
   return DEV_FALLBACK;
 }

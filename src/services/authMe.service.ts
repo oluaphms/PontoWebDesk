@@ -1,5 +1,6 @@
 import { ApiError, apiGet } from './apiClient';
-import { clearToken, getToken } from './authToken';
+import { getToken, setToken } from './authToken';
+import { getAuthSessionEpoch, onAuthSessionEpochBump } from './authSessionEpoch';
 import type { User } from '../../types';
 import { normalizeUserRole } from '../utils/userRole';
 import { logger } from '../shared/logger/logger';
@@ -44,6 +45,12 @@ export type AuthMeSessionCheck = {
 };
 
 let authMeInflight: Promise<AuthMeSessionCheck> | null = null;
+let authMeInflightEpoch = -1;
+
+onAuthSessionEpochBump(() => {
+  authMeInflight = null;
+  authMeInflightEpoch = -1;
+});
 
 function authFlowLog(event: string, detail?: Record<string, unknown>): void {
   observabilityConsole.info(`[AUTH-FLOW] ${event}`, detail ?? {});
@@ -66,12 +73,17 @@ export function shouldInvalidateAuthSession(status: number | undefined, authCode
       authCode === 'AUTH_TOKEN_REVOKED' ||
       authCode === 'AUTH_USER_NOT_FOUND' ||
       authCode === 'AUTH_TENANT_CHANGED' ||
+      authCode === 'COMMERCIAL_BLOCKED_BY_MASTER' ||
+      authCode === 'commercial_blocked' ||
       authCode === 'invalid_token' ||
       authCode === 'token_expired' ||
       authCode === 'token_revoked' ||
       authCode === 'user_not_found' ||
       authCode === 'tenant_changed'
     );
+  }
+  if (status === 403) {
+    return authCode === 'COMMERCIAL_BLOCKED_BY_MASTER' || authCode === 'commercial_blocked';
   }
   if (status === 404) {
     return authCode === 'AUTH_USER_NOT_FOUND' || authCode === 'user_not_found';
@@ -114,24 +126,45 @@ function mapMeUser(row: MeUser): User {
 async function fetchAuthMeOnce(): Promise<AuthMeSessionCheck> {
   const hasLocalToken = Boolean(getToken());
 
+  // Sem marcador/Bearer em memória (ex.: após fechar o navegador), ainda assim
+  // consulta /auth/me com credentials:include — o cookie HttpOnly pwd_session
+  // pode continuar válido. Não alterar JWT/CSRF; só restaurar a sessão.
   if (!hasLocalToken) {
-    authFlowLog('AUTH CHECK SKIPPED', { reason: 'no_token' });
-    return { user: null, invalidateSession: false, reason: 'no_token' };
+    authFlowLog('AUTH CHECK COOKIE_PROBE', { reason: 'no_in_memory_token' });
+  } else {
+    authFlowLog('AUTH CHECK START');
   }
-
-  authFlowLog('AUTH CHECK START');
 
   try {
     const res = (await apiGet('/auth/me')) as MeResponse;
     const user = res.user ?? res.data;
     if ((res?.ok || res?.success) && user?.id) {
+      if (!hasLocalToken) {
+        setToken('__http_only_cookie_session__');
+        authFlowLog('TOKEN SAVED', { mode: 'cookie', source: 'auth_me_cookie_probe' });
+      }
       authFlowLog('AUTH CHECK SUCCESS', { userId: user.id, companyId: user.company_id });
       return { user: mapMeUser(user), invalidateSession: false };
     }
     const authCode = extractAuthCode(res);
+    // Backend pode responder 200 { ok:false, code:AUTH_MISSING_TOKEN } no probe sem cookie.
+    if (authCode === 'AUTH_MISSING_TOKEN' || authCode === 'missing_token') {
+      logger.info({
+        module: 'auth.me',
+        action: 'AUTH_ME_NO_SESSION',
+        message: 'Probe /auth/me sem credencial (esperado no boot / login)',
+      });
+      return { user: null, invalidateSession: false, reason: 'missing_token' };
+    }
     const invalidate = shouldInvalidateAuthSession(undefined, authCode);
-    authFlowLog('AUTH CHECK FAILED', { reason: 'invalid_me_payload', authCode, invalidate });
-    if (invalidate) clearToken();
+    authFlowLog('AUTH CHECK FAILED', {
+      reason: 'invalid_me_payload',
+      authCode,
+      invalidate,
+      at: new Date().toISOString(),
+    });
+    // Não limpar token aqui: parseResponse/AuthSessionProvider decidem.
+    // Limpar aqui apaga JWT de login recém-gravado quando /auth/me do boot responde tarde.
     return { user: null, invalidateSession: invalidate, reason: 'invalid_me_payload' };
   } catch (error) {
     const status = error instanceof ApiError ? error.status : undefined;
@@ -158,29 +191,46 @@ async function fetchAuthMeOnce(): Promise<AuthMeSessionCheck> {
       authFlowLog('AUTH CHECK FAILED', { status, authCode, transient: !invalidate });
     }
 
-    if (invalidate) {
-      clearToken();
-      authFlowLog('TOKEN REMOVED', { status, authCode });
-    }
-
-    logger.warn({
-      module: 'auth.me',
-      action: 'AUTH_ME_FAILED',
-      message:
-        status === 401
-          ? 'Sessão expirada ou token ausente ao consultar /auth/me'
-          : 'Falha ao consultar /auth/me',
-      error,
-      meta:
-        error instanceof ApiError
-          ? {
-              status: error.status,
-              body: error.body,
-              path: error.path,
-              correlationId: error.correlationId,
-            }
-          : {},
+    authFlowLog('AUTH CHECK DECISION', {
+      status,
+      authCode,
+      invalidate,
+      at: new Date().toISOString(),
+      note: 'token_clear_deferred_to_session_owner',
     });
+
+    const isMissingToken =
+      authCode === 'AUTH_MISSING_TOKEN' || authCode === 'missing_token';
+    if (isMissingToken) {
+      logger.info({
+        module: 'auth.me',
+        action: 'AUTH_ME_NO_SESSION',
+        message: 'Probe /auth/me sem credencial (esperado no boot / login)',
+        meta:
+          error instanceof ApiError
+            ? { status: error.status, path: error.path }
+            : {},
+      });
+    } else {
+      logger.warn({
+        module: 'auth.me',
+        action: 'AUTH_ME_FAILED',
+        message:
+          status === 401
+            ? 'Sessão expirada ou token inválido ao consultar /auth/me'
+            : 'Falha ao consultar /auth/me',
+        error,
+        meta:
+          error instanceof ApiError
+            ? {
+                status: error.status,
+                body: error.body,
+                path: error.path,
+                correlationId: error.correlationId,
+              }
+            : {},
+      });
+    }
 
     return {
       user: null,
@@ -192,11 +242,21 @@ async function fetchAuthMeOnce(): Promise<AuthMeSessionCheck> {
 
 /** Consulta /auth/me com decisão explícita de invalidar sessão. */
 export async function fetchAuthMeSessionCheck(): Promise<AuthMeSessionCheck> {
-  if (authMeInflight) return authMeInflight;
-  authMeInflight = fetchAuthMeOnce().finally(() => {
-    authMeInflight = null;
+  const epoch = getAuthSessionEpoch();
+  // Não reutilizar probe pré-login depois que o token/sessão mudou.
+  if (authMeInflight && authMeInflightEpoch === epoch) return authMeInflight;
+  authMeInflightEpoch = epoch;
+  const pending = fetchAuthMeOnce().finally(() => {
+    if (authMeInflight === pending) authMeInflight = null;
   });
-  return authMeInflight;
+  authMeInflight = pending;
+  return pending;
+}
+
+/** Descarta inflight de /auth/me (ex.: após gravar token de login). */
+export function invalidateAuthMeInflight(): void {
+  authMeInflight = null;
+  authMeInflightEpoch = -1;
 }
 
 /** Compat: retorna usuário ou null (não invalida sessão em falhas transitórias). */

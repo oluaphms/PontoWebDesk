@@ -307,7 +307,7 @@ export async function cacheSettings(settings: Record<string, unknown>): Promise<
   await txDone(tx);
 }
 
-export async function getCachedSettings<T extends Record<string, unknown>>(): Promise<T | null> {
+export async function getCachedSettings<T extends object>(): Promise<T | null> {
   const db = await openLocalDb();
   if (!db) return null;
   const tx = db.transaction([STORES.settingsCache], 'readonly');

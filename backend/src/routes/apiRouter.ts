@@ -8,9 +8,15 @@ import adminRoutes from './adminRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import bankHoursRoutes from './bankHoursRoutes.js';
 import repRoutes from './repRoutes.js';
+import exportRoutes from './exportRoutes.js';
+import lgpdRoutes from './lgpdRoutes.js';
+import updateAgentRoutes from './updateAgentRoutes.js';
+import masterRoutes from './master/index.js';
 import { repDiagnosticsController } from '../controllers/repDiagnosticsController.js';
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
+import { getHttpMetricsSnapshot } from '../observability/httpMetrics.js';
+import { requireMasterAuth } from '../middlewares/masterAuth.js';
 
 /** Rotas da API — montadas em `app.use('/api', apiRouter)`. */
 const apiRouter = Router();
@@ -84,6 +90,35 @@ apiRouter.get('/health/time', async (_req, res) => {
   }
 });
 
+/** Liveness — processo no ar (sem checar DB). */
+apiRouter.get('/health/live', (_req, res) => {
+  res.json({ status: 'ok', check: 'liveness' });
+});
+
+/** Readiness — aceita tráfego se DB responde. */
+apiRouter.get('/health/ready', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', check: 'readiness', db: 'connected' });
+  } catch (err) {
+    logger.error({
+      module: 'http.health',
+      action: 'HEALTH_READY_FAILED',
+      message: 'Readiness falhou',
+      error: err,
+    });
+    res.status(503).json({ status: 'not_ready', check: 'readiness', db: 'down' });
+  }
+});
+
+/** Métricas leves em memória (P0.4) — restritas ao Painel Master. */
+apiRouter.get('/metrics/summary', requireMasterAuth(), (_req, res) => {
+  res.json({
+    ok: true,
+    ...getHttpMetricsSnapshot(),
+  });
+});
+
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/employees', employeeRoutes);
@@ -94,5 +129,9 @@ apiRouter.use('/rep', repRoutes);
 apiRouter.use('/data', dataRoutes);
 apiRouter.use('/uploads', uploadRoutes);
 apiRouter.use('/bank-hours', bankHoursRoutes);
+apiRouter.use('/export', exportRoutes);
+apiRouter.use('/lgpd', lgpdRoutes);
+apiRouter.use('/update-agent', updateAgentRoutes);
+apiRouter.use('/master', masterRoutes);
 
 export default apiRouter;

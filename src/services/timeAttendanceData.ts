@@ -1,5 +1,6 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { isDataApiWritesDisabled, isDataApiWritesDisabledError, isGenericDataApiWriteAllowed, apiGet } from './api';
+import { IS_PRODUCTION } from '../config/runtimeEnv';
 /**
  * Jornada de trabalho (admin): dados alinhados ao motor — timesheets_daily + batidas em time_records.
  */
@@ -101,11 +102,7 @@ const AUTO_RECALC_MAX_ATTEMPTS = 5;
 const AUTO_FIX_LOG_SAMPLE_RATE = 0.05;
 
 function isRuntimeProduction(): boolean {
-  try {
-    if (import.meta.env.PROD === true) return true;
-  } catch {
-    /* import.meta indisponível (ex.: alguns runners) */
-  }
+  if (IS_PRODUCTION) return true;
   return typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
 }
 

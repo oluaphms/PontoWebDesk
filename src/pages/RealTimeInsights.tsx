@@ -7,7 +7,8 @@ import StatCard from '../components/StatCard';
 import DataTable, { type Column } from '../components/DataTable';
 import { Button, LoadingState, EmptyState } from '../../components/UI';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db, isSupabaseConfigured, supabase } from '../services/supabaseClient';
+import { db, isSupabaseConfigured } from '../services/supabaseClient';
+import { PlatformService } from '../platform/PlatformService';
 
 type SessionStatus = 'online' | 'idle' | 'offline';
 
@@ -118,49 +119,42 @@ const RealTimeInsightsPage: React.FC = () => {
     const companyId = user.companyId?.trim();
     if (!companyId) return;
 
-    const channel = supabase
-      .channel(`realtime-activity-sessions:${companyId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'activity_sessions', filter: `company_id=eq.${companyId}` },
-        (payload) => {
-          setSessions((prev) => {
-            const clone = [...prev];
-            const row: any = payload.new ?? payload.old;
-            if (!row) return prev;
-            const employee = employeesRef.current.find((e) => e.id === row.employee_id);
-            const project = projectsRef.current.find((p) => p.id === row.current_project_id);
-            const session: ActivitySessionRow = {
-              id: row.id,
-              employee_id: row.employee_id,
-              employee_name: employee?.nome,
-              status: (row.status as SessionStatus) ?? 'offline',
-              current_activity: row.current_activity ?? null,
-              active_time: row.active_time ?? 0,
-              idle_time: row.idle_time ?? 0,
-              current_project_id: row.current_project_id ?? null,
-              current_project_name: project?.name ?? null,
-            };
-
-            if (payload.eventType === 'INSERT') {
-              if (clone.find((c) => c.id === session.id)) return clone;
-              return [...clone, session];
-            }
-            if (payload.eventType === 'UPDATE') {
-              return clone.map((c) => (c.id === session.id ? session : c));
-            }
-            if (payload.eventType === 'DELETE') {
-              return clone.filter((c) => c.id !== session.id);
-            }
-            return prev;
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
+    // LOCAL_API: shim dbHttp não expõe .channel() — polling HTTP no lugar de postgres_changes.
+    const reload = () => {
+      void (async () => {
+        try {
+          const sessionsData = await db.select(
+            'activity_sessions',
+            [{ column: 'company_id', operator: 'eq', value: companyId }],
+            undefined,
+            500,
+          );
+          const mapped: ActivitySessionRow[] =
+            (sessionsData as any[] | null)?.map((row: any) => {
+              const employee = employeesRef.current.find((e) => e.id === row.employee_id);
+              const project = projectsRef.current.find((p) => p.id === row.current_project_id);
+              return {
+                id: row.id,
+                employee_id: row.employee_id,
+                employee_name: employee?.nome,
+                status: (row.status as SessionStatus) ?? 'offline',
+                current_activity: row.current_activity ?? null,
+                active_time: row.active_time ?? 0,
+                idle_time: row.idle_time ?? 0,
+                current_project_id: row.current_project_id ?? null,
+                current_project_name: project?.name ?? null,
+              };
+            }) ?? [];
+          setSessions(mapped);
+        } catch (e) {
+          observabilityConsole.error('Erro ao atualizar sessões em tempo real:', e);
+        }
+      })();
     };
+
+    const intervalMs = PlatformService.getLocalRealtimePollMs(12_000);
+    const t = window.setInterval(reload, intervalMs);
+    return () => window.clearInterval(t);
   }, [user?.companyId, user?.id]);
 
   const onlineCount = sessions.filter((s) => s.status === 'online').length;

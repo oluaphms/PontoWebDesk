@@ -13,6 +13,7 @@ import { observabilityConsole } from '../../../src/shared/logger/observabilityCo
  */
 
 import { getSupabaseUrlForServer } from '../getSupabaseConfig.js';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { noCache } from '../cache.js';
 import { checkRateLimitDistributed, getClientIP, getSecureCorsHeaders, requireTrustedOrigin } from '../security.js';
@@ -76,7 +77,7 @@ function generateSafeFallbackEmailBase(cpf: string, pis: string): string {
 }
 
 function generateFallbackPassword(): string {
-  return `Pwd${Date.now().toString(36)}!${Math.random().toString(36).slice(2, 8)}`;
+  return `Pwd!${randomBytes(18).toString('base64url')}`;
 }
 
 async function emailExistsInUsers(adminSup: any, email: string): Promise<boolean> {
@@ -446,7 +447,7 @@ async function handleRequest(request: Request): Promise<Response> {
         );
       }
       const tenantCheck = await assertTargetUserInCallerTenant(adminSup, String(target.id), callerCompanyId);
-      if (!tenantCheck.ok) {
+      if (tenantCheck.ok === false) {
         return new Response(tenantCheck.response.body, {
           status: tenantCheck.response.status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -480,7 +481,7 @@ async function handleRequest(request: Request): Promise<Response> {
         );
       }
       const tenantCheckPwd = await assertTargetUserInCallerTenant(adminSup, String(target.id), callerCompanyId);
-      if (!tenantCheckPwd.ok) {
+      if (tenantCheckPwd.ok === false) {
         return new Response(tenantCheckPwd.response.body, {
           status: tenantCheckPwd.response.status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -514,7 +515,7 @@ async function handleRequest(request: Request): Promise<Response> {
         );
       }
       const tenantCheckDel = await assertTargetUserInCallerTenant(adminSup, userIdToDelete, callerCompanyId);
-      if (!tenantCheckDel.ok) {
+      if (tenantCheckDel.ok === false) {
         return new Response(tenantCheckDel.response.body, {
           status: tenantCheckDel.response.status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

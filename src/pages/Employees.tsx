@@ -395,6 +395,15 @@ const EmployeesPage: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
+  const inviteLink =
+    inviteByLinkResult && 'inviteLink' in inviteByLinkResult
+      ? inviteByLinkResult.inviteLink
+      : null;
+  const inviteError =
+    inviteByLinkResult && 'error' in inviteByLinkResult
+      ? inviteByLinkResult.error
+      : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -577,37 +586,37 @@ const EmployeesPage: React.FC = () => {
         footer={
           <div className="flex justify-end gap-3">
             <Button type="button" variant="outline" size="sm" onClick={() => setInviteByLinkOpen(false)}>Fechar</Button>
-            {!inviteByLinkResult?.inviteLink && (
+            {!inviteLink && (
               <Button type="submit" size="sm" loading={inviteByLinkSending}>Gerar link</Button>
             )}
           </div>
         }
       >
         <div className="space-y-4">
-          {inviteByLinkResult?.inviteLink && (
+          {inviteLink && (
             <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2">
               <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Link gerado. Copie e envie ao colaborador:</p>
               <div className="flex gap-2">
                 <input
                   type="text"
                   readOnly
-                  value={inviteByLinkResult.inviteLink}
+                  value={inviteLink}
                   className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
                 />
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => { navigator.clipboard.writeText(inviteByLinkResult!.inviteLink); }}
+                  onClick={() => { navigator.clipboard.writeText(inviteLink); }}
                 >
                   Copiar
                 </Button>
               </div>
             </div>
           )}
-          {inviteByLinkResult?.error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{inviteByLinkResult.error}</p>
+          {inviteError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{inviteError}</p>
           )}
-          {!inviteByLinkResult?.inviteLink && (
+          {!inviteLink && (
             <>
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>

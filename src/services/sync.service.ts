@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { PUNCH_SOURCE_CLOCK } from '../constants/punchSource';
 import { getAdapter } from '../adapters/factory';
 import type { DeviceConfig, NormalizedRecord } from '../adapters/types';
+import { PlatformService } from '../platform/PlatformService';
 import type { SupabaseRestConfig } from './supabaseRest';
 import { promoteClockEventsToEspelho, type PromoteEspelhoResult } from './clockEventPromote.service';
 import { restGet, restPatch, restPostBulk } from './supabaseRest';
@@ -109,7 +110,7 @@ export interface SyncCycleResult {
 }
 
 function envTable(name: string, fallback: string): string {
-  const v = (process.env[name] || '').trim();
+  const v = PlatformService.getConfigString(name, '').trim();
   return v || fallback;
 }
 
@@ -196,7 +197,8 @@ export async function runSyncCycle(options: SyncCycleOptions): Promise<SyncCycle
   }
 
   const skipEspelho =
-    options.skipEspelhoPromote === true || (process.env.CLOCK_SYNC_SKIP_ESPELHO || '').trim() === '1';
+    options.skipEspelhoPromote === true ||
+    PlatformService.getConfigString('CLOCK_SYNC_SKIP_ESPELHO', '') === '1';
   const onBulkInsertFailure = options.onBulkInsertFailure;
   const offlineClockPersistence = options.offlineClockPersistence;
   const apiPunchSender = options.apiPunchSender;
@@ -233,7 +235,7 @@ export async function runSyncCycle(options: SyncCycleOptions): Promise<SyncCycle
 
 function shouldDeferCloudToRepWorker(offlineClockPersistence?: OfflineClockPersistenceHooks): boolean {
   if (!offlineClockPersistence) return false;
-  const v = (process.env.CLOCK_SYNC_DEFER_CLOUD_TO_WORKER || '1').trim();
+  const v = PlatformService.getConfigString('CLOCK_SYNC_DEFER_CLOUD_TO_WORKER', '1').trim();
   return v !== '0' && v.toLowerCase() !== 'false';
 }
 

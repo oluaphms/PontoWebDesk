@@ -14,6 +14,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@pontowebdesk/master-contract": [
+        "./shared/master-contract/index.ts"
       ]
     },
     "types": [
@@ -28,5 +31,6 @@
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": ["backend"]
 }

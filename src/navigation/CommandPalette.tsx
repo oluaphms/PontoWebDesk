@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useCallback, useState, useRef } from 'react';
+import React, { memo, useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -20,11 +20,14 @@ const CommandPalette: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const results = query.trim()
-    ? flatItems.filter((item) =>
-        i18n.t(item.nameKey).toLowerCase().includes(query.toLowerCase().trim())
-      )
-    : flatItems;
+  const results = useMemo(() => {
+    const normalizedQuery = query.toLowerCase().trim();
+    return normalizedQuery
+      ? flatItems.filter((item) =>
+          i18n.t(item.nameKey).toLowerCase().includes(normalizedQuery)
+        )
+      : flatItems;
+  }, [flatItems, query]);
 
   const clampedIndex = Math.min(Math.max(0, selectedIndex), Math.max(0, results.length - 1));
 

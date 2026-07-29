@@ -38,12 +38,12 @@ const POLICIES: Record<UploadType, Policy> = {
   },
   afdImport: {
     allowedExtensions: ['txt', 'csv', 'afd'],
-    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', ''],
+    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', 'application/octet-stream', ''],
     maxFileSize: UPLOAD_LIMITS.afdImport,
   },
   employeeImportCsv: {
     allowedExtensions: ['csv', 'txt'],
-    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', ''],
+    allowedMimeTypes: ['text/plain', 'text/csv', 'application/csv', 'application/vnd.ms-excel', 'application/octet-stream', ''],
     maxFileSize: UPLOAD_LIMITS.textCsv,
   },
   employeeImportDocument: {
@@ -57,6 +57,7 @@ const POLICIES: Record<UploadType, Policy> = {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword',
+      'application/octet-stream',
       '',
     ],
     maxFileSize: UPLOAD_LIMITS.pdf,

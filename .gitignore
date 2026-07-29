@@ -31,6 +31,11 @@ build
 .env.*
 !.env.example
 !.env.local.example
+!backend/.env.example
+
+# Backups locais DR (P0.3)
+backups/
+*.dump
 
 # Credenciais / chaves locais (nao versionar)
 *.pem
@@ -72,6 +77,12 @@ agent/data/offline-queue.json
 agent/data/pending.db
 agent/data/pending.db-wal
 agent/data/pending.db-shm
+agent/data/dr/
+data/rep-agent/*.db
+data/rep-agent/*.db-wal
+data/rep-agent/*.db-shm
+data/rep-agent/last-nsr.json
+data/rep-agent/processed-nsr.json
 
 # Script local com API_KEY / IP de produção (cópia de rep-agent-prod-env.ps1.example)
 scripts/rep-agent-prod-env.ps1

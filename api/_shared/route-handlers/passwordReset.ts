@@ -18,8 +18,26 @@ function json(body: unknown, status: number, headers: Record<string, string>): R
 }
 
 function resetRedirectUrl(request: Request): string {
-  const origin = request.headers.get('Origin') || new URL(request.url).origin;
-  return `${origin.replace(/\/+$/, '')}/reset-password`;
+  const fromEnv = (
+    process.env.FRONTEND_URL ||
+    process.env.APP_URL ||
+    process.env.VITE_APP_URL ||
+    process.env.CORS_APP_ORIGIN ||
+    ''
+  )
+    .toString()
+    .trim()
+    .replace(/\/+$/, '');
+
+  const originHeader = (request.headers.get('Origin') || '').trim().replace(/\/+$/, '');
+  // Preferir URL do frontend (env ou Origin). Nunca usar o host da API como fallback
+  // (ex.: localhost:3000 / api.phmsdev.com.br) — isso abre o backend sem a tela React.
+  const base =
+    (fromEnv && /^https?:\/\//i.test(fromEnv) ? fromEnv : '') ||
+    (originHeader && /^https?:\/\//i.test(originHeader) ? originHeader : '') ||
+    'http://localhost:3010';
+
+  return `${base}/reset-password`;
 }
 
 async function handler(request: Request): Promise<Response> {

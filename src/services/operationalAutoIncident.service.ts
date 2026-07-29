@@ -1,6 +1,9 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { getSupabaseClient } from './supabaseClient';
-import { openOperationalIncident } from '../domain/operational/incidents/operationalIncidentEngine';
+import {
+  openOperationalIncident,
+  type OperationalIncidentClient,
+} from '../domain/operational/incidents/operationalIncidentEngine';
 
 type AutoIncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -39,7 +42,7 @@ export function openAutoOperationalIncident(input: {
   }
   counters.set(input.key, entry);
   observabilityConsole.warn('[AUTO INCIDENT OPENED]', { key: input.key, severity: entry.severity });
-  const client = getSupabaseClient();
+  const client = getSupabaseClient() as OperationalIncidentClient | null;
   void openOperationalIncident(client, {
     companyId: input.companyId,
     employeeId: input.employeeId ?? null,

@@ -10,7 +10,9 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const CSRF_SKIP_PREFIXES = [
   '/api/rep/',
   '/api/auth/login',
+  '/api/auth/reset-password',
   '/api/auth/recovery',
+  '/api/master/auth/login',
   '/api/health',
   '/health',
 ];

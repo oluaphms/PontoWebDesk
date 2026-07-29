@@ -60,15 +60,17 @@ const SKIP_JSON_PARSER_PATHS = new Set(['/api/uploads/photo', '/api/uploads/phot
 
 app.use((req, res, next) => {
   const ct = String(req.headers['content-type'] || '');
-  if (req.path === '/api/rep/import-afd' && ct.includes('multipart/form-data')) {
+  const pathOnly = String(req.originalUrl || req.url || req.path || '').split('?')[0];
+  // Multipart AFD: não passar pelo JSON parser (Windows/local — body precisa chegar intacto ao Busboy).
+  if (pathOnly.endsWith('/rep/import-afd') && ct.includes('multipart/form-data')) {
     next();
     return;
   }
-  if (SKIP_JSON_PARSER_PATHS.has(req.path)) {
+  if (SKIP_JSON_PARSER_PATHS.has(req.path) || SKIP_JSON_PARSER_PATHS.has(pathOnly)) {
     next();
     return;
   }
-  const limit = req.path === '/api/rep/import-afd' ? '12mb' : '1mb';
+  const limit = pathOnly.endsWith('/rep/import-afd') ? '12mb' : '1mb';
   express.json({ limit })(req, res, next);
 });
 app.use(requestContextMiddleware);

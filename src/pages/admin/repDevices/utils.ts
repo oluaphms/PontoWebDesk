@@ -1,6 +1,7 @@
 import { observabilityConsole } from '../../../shared/logger/observabilityConsole';
 import type { ApiEmployee } from '../../../services/employeesApi.service';
 import type { RepDeviceClockSet } from '../../../../modules/rep-integration/types';
+import { PlatformService } from '../../../platform/PlatformService';
 import type { EmployeeForRep, RepAgentConnectionState, RepDeviceRow, RepRpcUserRow } from './types';
 import { TIPOS_CONEXAO } from './constants';
 
@@ -165,9 +166,7 @@ export function repConnectionCellText(d: RepDeviceRow): string {
 
 /** App publicado (Vercel etc.) — o browser não fala com a LAN; só o agente na empresa. */
 export function isCloudDeployedRepClient(): boolean {
-  if (typeof window === 'undefined') return true;
-  const host = window.location.hostname.toLowerCase();
-  return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local');
+  return PlatformService.isCloudDeployedClient();
 }
 
 /** Heartbeat recente (< 60s) — agente online. */

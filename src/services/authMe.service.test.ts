@@ -6,6 +6,11 @@ describe('shouldInvalidateAuthSession', () => {
     expect(shouldInvalidateAuthSession(401, 'AUTH_TOKEN_EXPIRED')).toBe(true);
     expect(shouldInvalidateAuthSession(401, 'AUTH_TENANT_CHANGED')).toBe(true);
     expect(shouldInvalidateAuthSession(401, 'AUTH_USER_NOT_FOUND')).toBe(true);
+    expect(shouldInvalidateAuthSession(401, 'COMMERCIAL_BLOCKED_BY_MASTER')).toBe(true);
+  });
+
+  it('invalida em 403 comercial do Master', () => {
+    expect(shouldInvalidateAuthSession(403, 'COMMERCIAL_BLOCKED_BY_MASTER')).toBe(true);
   });
 
   it('não invalida em erro de rede ou 500', () => {

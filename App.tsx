@@ -22,6 +22,7 @@ import { queryCache } from './src/services/queryCache';
 import { beginPostLoginRequestBudgetWindow } from './src/performance/requestBudget';
 import { installMobileClockDriftGuard } from './src/performance/mobileClockDriftGuard';
 import { clearTenantScopedCaches } from './src/domain/operational/cache/tenantCacheIsolation';
+import { IS_DEV } from './src/config/runtimeEnv';
 import {
   resetSession,
   clearLocalAuthSession,
@@ -196,6 +197,14 @@ import {
   AdminArquivosFiscais,
 } from './src/routes/portalLazyPages';
 
+/** Shell Master — lazy para não acoplar o bundle operacional. */
+const MasterAppLazy = React.lazy(() =>
+  import('./src/master/MasterApp').then((m) => ({ default: m.MasterApp })),
+);
+const LicenseBlockedPageLazy = React.lazy(() =>
+  import('./src/pages/LicenseBlockedPage').then((m) => ({ default: m.LicenseBlockedPage })),
+);
+
 const isAdminRole = (role: User['role'] | undefined): boolean => isAdminOrHrRole(role);
 /** Bloqueia só quem escolheu admin sem perfil admin/RH. Admin/RH pode entrar por qualquer opção (comum no mobile). */
 const isRoleAllowedForSelectedLogin = (
@@ -281,10 +290,9 @@ const AppMain: React.FC = () => {
   const [selectedMethod, setSelectedMethod] = useState<PunchMethod | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
-  /** Só bloqueia splash quando há cache de sessão a validar — login pode renderizar logo (sem “Protegendo…” longo). */
+  /** Só bloqueia splash quando há cache/cookie de sessão a validar — login renderiza logo. */
   const [isInitialLoading, setIsInitialLoading] = useState(() => {
-    const rememberMe = typeof window !== 'undefined' && localStorage.getItem('pontowebdesk_remember_me') === 'true';
-    return rememberMe && (readCachedSessionUser() != null || Boolean(getToken()));
+    return readCachedSessionUser() != null || Boolean(getToken());
   });
   const [company, setCompany] = useState<Company | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
@@ -433,9 +441,18 @@ const AppMain: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!authService.hasRecoveryLinkInUrl()) return;
-    if (location.pathname === '/reset-password') return;
+    // Captura tokens do hash/query antes de qualquer navegação limpar a URL.
+    void authService.getOrRestoreRecoverySession();
+    if (location.pathname === '/reset-password' || location.pathname.startsWith('/reset-password/')) return;
 
-    navigate(`/reset-password${window.location.search}${window.location.hash}`, { replace: true });
+    navigate(
+      {
+        pathname: '/reset-password',
+        search: window.location.search,
+        hash: window.location.hash,
+      },
+      { replace: true },
+    );
   }, [location.pathname, navigate]);
 
   useEffect(() => {
@@ -486,6 +503,15 @@ const AppMain: React.FC = () => {
 
     /** BOOT FLOW (restore session / silent hydration) — ownership separado do LOGIN FLOW em `handleLogin`. */
     const initApp = async () => {
+      // /master é isolado: não hidratar sessão operacional nem chamar getCurrentUser /auth/me.
+      if (
+        typeof window !== 'undefined' &&
+        (window.location.pathname === '/master' ||
+          window.location.pathname.startsWith('/master/'))
+      ) {
+        if (isMounted) setIsInitialLoading(false);
+        return;
+      }
       try {
         // Rede de segurança: getSession + getCurrentUser têm timeouts próprios; isto evita spinner eterno se algo travar.
         /** Deve ser ≥ pior caso de `getCurrentUser` (2×30s + retry) + margem. */
@@ -718,7 +744,7 @@ const AppMain: React.FC = () => {
       const result = await getWorkInsights([summary]);
       setInsights(result);
     } catch (e) {
-      if (import.meta.env.DEV) {
+      if (IS_DEV) {
         observabilityConsole.warn('[Dashboard] IA indisponível (ignorado):', e);
       }
       setInsights({
@@ -1040,9 +1066,9 @@ const AppMain: React.FC = () => {
           hydratedUserId: hydratedUser.id,
           hydratedRole: hydratedUser.role,
         });
-        if (!isRoleAllowedForSelection(role, hydratedUser.role)) {
+        if (!isRoleAllowedForSelectedLogin(role, hydratedUser.role)) {
           await forceLogoutAfterRoleMismatch();
-          setLoginError(getRoleMismatchMessage(role));
+          setLoginError(getRoleMismatchMessageForLogin(role));
           pendingLoginRoleRef.current = null;
           return false;
         }
@@ -1097,7 +1123,7 @@ const AppMain: React.FC = () => {
       if (precheckResult !== 'unknown' && !precheckResult.ok) {
         // Pré-check informativo: NÃO acionar telas globais nem connectionUnavailable —
         // isso roubava o formulário de login e mostrava "Servidor indisponível" mesmo antes de tentar sessão Auth.
-        if (import.meta.env.DEV && typeof console !== 'undefined') {
+        if (IS_DEV && typeof console !== 'undefined') {
           observabilityConsole.warn('[LOGIN PRECHECK] Health-check inconclusivo (login segue igual):', precheckResult.message);
         }
       }
@@ -1272,15 +1298,16 @@ const AppMain: React.FC = () => {
             ? '/dashboard-admin'
             : '/dashboard-colaborador';
 
+        // Cooldown ANTES do setSessionUser — evita logout por 401 paralelo no primeiro paint.
+        beginPostLoginRequestBudgetWindow('manual_login_success');
         flushSync(() => {
           setSessionUser(result.user);
           alreadyAuthenticatedRef.current = true;
           setIsInitialLoading(false);
-          if (typeof console !== 'undefined' && import.meta.env.DEV) {
+          if (typeof console !== 'undefined' && IS_DEV) {
             observabilityConsole.log('[USER SET MANUAL]');
           }
         });
-        beginPostLoginRequestBudgetWindow('manual_login_success');
 
         if (isAdminOrHrRole(result.user.role)) {
           setActiveTab('admin');
@@ -1306,7 +1333,7 @@ const AppMain: React.FC = () => {
         });
         pendingLoginRoleRef.current = null;
 
-        if (typeof console !== 'undefined' && import.meta.env.DEV) {
+        if (typeof console !== 'undefined' && IS_DEV) {
           observabilityConsole.log('[REDIRECT CHECK]', {
             userInState: !!result.user,
             targetRoute,
@@ -1350,6 +1377,26 @@ const AppMain: React.FC = () => {
       const errorText = String(
         error?.message || error?.details || error?.hint || error?.error?.message || ''
       ).toLowerCase();
+      const apiBody =
+        error?.body && typeof error.body === 'object'
+          ? (error.body as Record<string, unknown>)
+          : null;
+      const apiCode = String(apiBody?.code || apiBody?.error || '').trim();
+      if (
+        apiCode === 'COMMERCIAL_BLOCKED_BY_MASTER' ||
+        apiCode === 'commercial_blocked' ||
+        errorText.includes('licença expirada') ||
+        errorText.includes('licença bloqueada') ||
+        errorText.includes('bloqueado pelo painel master')
+      ) {
+        const msg =
+          String(apiBody?.message || apiBody?.error || error?.message || '').trim() ||
+          'Acesso bloqueado pelo Painel Master. Entre em contato com o suporte comercial.';
+        setLoginError(msg);
+        pendingLoginRoleRef.current = null;
+        endLoginTrace('failed:commercial_blocked');
+        return;
+      }
       const isDnsLike =
         errorText.includes('err_name_not_resolved') ||
         errorText.includes('name_not_resolved') ||
@@ -1752,6 +1799,46 @@ const AppMain: React.FC = () => {
     return () => clearTimeout(safetyTimeout);
   }, [isInitialLoading]);
 
+  const isResetPasswordPath =
+    location.pathname === '/reset-password' || location.pathname.startsWith('/reset-password/');
+
+  // Recuperação de senha tem prioridade sobre splash/sessão — evita perder o link no boot local.
+  if (isResetPasswordPath || isRecoveryHash) {
+    return (
+      <React.Suspense
+        key={`route-load-${routeLoadAttempt}`}
+        fallback={<RouteLoadingFallback message="Carregando..." onRetry={handleRouteRetry} />}
+      >
+        <ResetPasswordRoute />
+      </React.Suspense>
+    );
+  }
+
+  /** Painel Master — shell isolado (não usa sessão/login das empresas). */
+  const isMasterPath =
+    location.pathname === '/master' || location.pathname.startsWith('/master/');
+  if (isMasterPath) {
+    return (
+      <React.Suspense
+        key={`master-shell-${routeLoadAttempt}`}
+        fallback={<RouteLoadingFallback message="Carregando Painel Master..." onRetry={handleRouteRetry} />}
+      >
+        <MasterAppLazy />
+      </React.Suspense>
+    );
+  }
+
+  if (location.pathname === '/license-blocked') {
+    return (
+      <React.Suspense
+        key={`license-blocked-${routeLoadAttempt}`}
+        fallback={<RouteLoadingFallback message="Carregando..." onRetry={handleRouteRetry} />}
+      >
+        <LicenseBlockedPageLazy />
+      </React.Suspense>
+    );
+  }
+
   if (isInitialLoading) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><LoadingState message={i18n.t('app.securingConnection')} /></div>;
   }
@@ -1798,17 +1885,6 @@ const AppMain: React.FC = () => {
           </div>
         </div>
       </div>
-    );
-  }
-
-  if (location.pathname === '/reset-password' || isRecoveryHash) {
-    return (
-      <React.Suspense
-        key={`route-load-${routeLoadAttempt}`}
-        fallback={<RouteLoadingFallback message="Carregando..." onRetry={handleRouteRetry} />}
-      >
-        <ResetPasswordRoute />
-      </React.Suspense>
     );
   }
 

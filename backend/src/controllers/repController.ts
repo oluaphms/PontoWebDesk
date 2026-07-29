@@ -12,6 +12,7 @@ import {
   processRepCalcDayJobsImmediate,
   promotePendingRepLogsAfterBatch,
   scheduleRepBackgroundWork,
+  traceRepPunchPipelineByNsr,
   type RepPromotedRow,
 } from '../services/repPostIngest.service.js';
 import { executeRepRpcProxy, repRpcExistsInDatabase } from '../services/repRpcProxy.service.js';
@@ -529,6 +530,38 @@ async function processPunchBatch(
       } else if (success) inserted += 1;
       else errors += 1;
 
+      // TEMP: classificação por NSR logo após rep_ingest_punch
+      {
+        const nsr = normalizeNsr(body.nsr);
+        const classification = duplicate
+          ? 'duplicate'
+          : wasPromoted
+            ? 'promoted'
+            : userNotFound
+              ? 'unresolved'
+              : success
+                ? 'inserted_log_only'
+                : 'rejected';
+        logger.info({
+          module: 'rep.ingest',
+          action: 'TEMP_REP_NSR_CLASSIFY',
+          companyId: auth.companyId,
+          message: `[TEMP REP PIPELINE] NSR ${nsr ?? 'n/a'} classificado=${classification}`,
+          meta: {
+            nsr,
+            classification,
+            employee_id: result.resolved_user_id ?? null,
+            time_record_id: result.time_record_id ?? null,
+            rep_log_id: result.rep_log_id ?? null,
+            duplicate,
+            stage_received: true,
+            stage_rep_punch_logs: Boolean(result.rep_log_id) || duplicate,
+            stage_employee_identified: Boolean(result.resolved_user_id),
+            stage_time_record: wasPromoted,
+          },
+        });
+      }
+
       const errMsg = typeof result.error === 'string' ? result.error : '';
       if (!success && isRepIngestMigrationError(errMsg)) {
         migrationError = true;
@@ -625,6 +658,9 @@ export async function repPunchesController(req: Request, res: Response): Promise
   const chunk = list.slice(0, MAX_BATCH) as RepPunchBody[];
   const companyId = auth.companyId;
   const deviceId = auth.deviceId;
+  const batchNsrs = chunk
+    .map((p) => normalizeNsr(p?.nsr))
+    .filter((n): n is number => n != null);
 
   logger.info({
     module: 'rep.ingest',
@@ -635,8 +671,20 @@ export async function repPunchesController(req: Request, res: Response): Promise
       device_id: deviceId,
       records_received: chunk.length,
       records_truncated: list.length > MAX_BATCH ? list.length - MAX_BATCH : 0,
+      nsrs: batchNsrs,
     },
   });
+
+  // TEMP: ponto de entrada por NSR
+  for (const nsr of batchNsrs) {
+    logger.info({
+      module: 'rep.ingest',
+      action: 'TEMP_REP_NSR_RECEIVED',
+      companyId: companyId || null,
+      message: `[TEMP REP PIPELINE] NSR ${nsr} recebido no controller`,
+      meta: { nsr, device_id: deviceId, stage_received: true },
+    });
+  }
 
   const { results, inserted, duplicates, errors, unresolved, promoted, migrationError } =
     await processPunchBatch(chunk, auth);
@@ -721,6 +769,21 @@ export async function repPunchesController(req: Request, res: Response): Promise
         extra: { calc_day_jobs_enqueued: merged.length, dias_recalculados: days, async: postIngestAsync },
       });
     }
+    // TEMP: rastreador pós-promote/timesheet para NSRs do lote (+ 16674/16675)
+    const nsrsToTrace = [
+      ...new Set([
+        ...batchNsrs,
+        ...merged.map((p) => (p.nsr != null ? Number(p.nsr) : NaN)).filter((n) => Number.isFinite(n)),
+        16674,
+        16675,
+      ]),
+    ];
+    await traceRepPunchPipelineByNsr({
+      companyId,
+      nsrs: nsrsToTrace,
+      phase: 'after_promote_timesheet',
+    });
+
     return { allPromoted: merged, calcDaysRecalculated: days };
   };
 
@@ -746,6 +809,15 @@ export async function repPunchesController(req: Request, res: Response): Promise
       extra: { inserted, duplicates, unresolved, migration_error: migrationError },
     });
     await logRepPipelineDbDiagnostics(companyId);
+  }
+
+  // TEMP: snapshot final mesmo quando post-ingest async/skip (batch acabou de persistir)
+  if (companyId) {
+    await traceRepPunchPipelineByNsr({
+      companyId,
+      nsrs: [...new Set([...batchNsrs, 16674, 16675])],
+      phase: postIngestAsync ? 'http_response_async_pending' : 'http_response_sync_done',
+    });
   }
 
   json(res, 200, {

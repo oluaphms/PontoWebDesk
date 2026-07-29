@@ -410,7 +410,7 @@ export function invalidateAfterTimesheetMonthClose(companyId: string): void {
   queryCache.invalidate('time_balance:');
 }
 
-/** Dashboard colaborador usa `requests:pending:${userId}` (ver pages/Dashboard.tsx). */
+/** Dashboard colaborador usa `requests:pending:${userId}` (ver pages/employee/Dashboard.tsx). */
 export function invalidatePendingRequestsCache(userId: string): void {
   if (!userId) return;
   queryCache.invalidate(`requests:pending:${userId}`);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react';
 import { authService } from '../../services/authService';
+import { getCachedRecoverySession } from '../../services/supabaseAuthRecovery';
 import { Button } from '../../components/UI';
 import { validatePassword } from '../utils/passwordRules';
 
@@ -14,13 +15,23 @@ const ResetPasswordPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authService.hasRecoveryLinkInUrl()) {
-      setStep('expired');
-      return;
-    }
-    authService.getOrRestoreRecoverySession().then(({ session }) => {
-      setStep(session?.user ? 'form' : 'expired');
-    });
+    let cancelled = false;
+    (async () => {
+      const cached = getCachedRecoverySession();
+      if (cached?.user?.id) {
+        if (!cancelled) setStep('form');
+        return;
+      }
+      if (!authService.hasRecoveryLinkInUrl()) {
+        if (!cancelled) setStep('expired');
+        return;
+      }
+      const { session } = await authService.getOrRestoreRecoverySession();
+      if (!cancelled) setStep(session?.user ? 'form' : 'expired');
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

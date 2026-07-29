@@ -5,7 +5,6 @@
  */
 
 import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
 import { readFileHead, validateImportDocument } from '../shared/upload/fileValidation';
 
 export type ParsedRow = Record<string, string>;
@@ -73,7 +72,8 @@ function parseTXT(file: File): Promise<ParsedRow[]> {
   });
 }
 
-function parseExcel(file: File): Promise<ParsedRow[]> {
+async function parseExcel(file: File): Promise<ParsedRow[]> {
+  const XLSX = await import('xlsx');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {

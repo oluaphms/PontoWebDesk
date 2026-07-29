@@ -47,6 +47,38 @@ export type UpsertLiveLocationInput = {
   correlationId?: string | null;
 };
 
+type LiveLocationReadClient = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (
+        column: string,
+        value: string,
+      ) => PromiseLike<{
+        data: Record<string, unknown>[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+  };
+};
+
+type LiveLocationSingleQuery = {
+  eq: (column: string, value: string) => LiveLocationSingleQuery;
+  maybeSingle: () => Promise<{
+    data: Record<string, unknown> | null;
+    error: { message: string } | null;
+  }>;
+};
+
+type LiveLocationWriteClient = {
+  from: (table: string) => {
+    select: (columns: string) => LiveLocationSingleQuery;
+    upsert: (
+      data: Record<string, unknown>,
+      options: { onConflict: string },
+    ) => PromiseLike<{ error: { message: string } | null }>;
+  };
+};
+
 function expiresAtIso(ttlMs: number): string {
   return DateTime.fromMillis(operationalClockMs() + ttlMs, { zone: 'utc' }).toUTC().toISO() ?? '';
 }
@@ -55,7 +87,7 @@ export async function fetchLiveLocationsForCompany(
   companyId: string,
   clientOverride?: SupabaseClient | null,
 ): Promise<LiveEmployeeLocationRow[]> {
-  const client = clientOverride ?? getSupabaseClient();
+  const client = (clientOverride ?? getSupabaseClient()) as LiveLocationReadClient | null;
   if (!client || !companyId) return [];
   const { data, error } = await client
     .from('live_employee_location')
@@ -75,7 +107,7 @@ export async function upsertLiveEmployeeLocation(
   input: UpsertLiveLocationInput,
   clientOverride?: SupabaseClient | null,
 ): Promise<{ ok: boolean; confidence?: GeoConfidenceLevel; error?: string; skipped?: boolean }> {
-  const client = clientOverride ?? getSupabaseClient();
+  const client = (clientOverride ?? getSupabaseClient()) as LiveLocationWriteClient | null;
   if (!client) return { ok: false, error: 'no_client' };
   const nowMs = input.capturedAtMs ?? operationalClockMs();
   const capIso = DateTime.fromMillis(nowMs, { zone: 'utc' }).toUTC().toISO() ?? '';

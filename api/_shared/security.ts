@@ -113,9 +113,13 @@ function validateOrigin(origin: string | null): string | null {
   // Verifica wildcard para subdomínios (ex: *.seudominio.com)
   for (const allowedOrigin of allowed) {
     if (allowedOrigin.startsWith('*.')) {
-      const domain = allowedOrigin.slice(2);
-      if (origin.endsWith(domain)) {
-        return origin;
+      const domain = allowedOrigin.slice(2).toLowerCase();
+      try {
+        const parsed = new URL(origin);
+        const hostname = parsed.hostname.toLowerCase();
+        if (parsed.protocol === 'https:' && hostname.endsWith(`.${domain}`)) return origin;
+      } catch {
+        return null;
       }
     }
   }

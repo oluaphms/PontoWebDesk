@@ -85,6 +85,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(projectRoot, 'src'),
+        '@pontowebdesk/master-contract': path.resolve(projectRoot, 'shared/master-contract/index.ts'),
         ...reactAlias,
         // recharts (DataUtils.js) usa "import get from 'es-toolkit/compat/get'" mas es-toolkit só expõe named export
         'es-toolkit/compat/get': path.resolve(projectRoot, 'src/shim/es-toolkit-compat-get.js'),
@@ -168,7 +169,8 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) {
               return 'react-vendor';
             }
-            if (id.includes('node_modules/lucide-react') || id.includes('node_modules/recharts')) return 'ui-vendor';
+            if (id.includes('node_modules/lucide-react')) return 'icons-vendor';
+            if (id.includes('node_modules/recharts')) return 'charts-vendor';
             return undefined;
           },
         },

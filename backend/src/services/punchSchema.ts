@@ -46,7 +46,7 @@ let timeRecordRpcCached: TimeRecordRpc | null = null;
 
 export async function getPunchColumns(): Promise<PunchColumns> {
   if (cached) return cached;
-  const r = await pool.query(
+  const r = await pool.query<{ column_name: string }>(
     `select column_name from information_schema.columns
      where table_schema = 'public' and table_name = 'punches'`,
   );
@@ -62,7 +62,7 @@ export async function getPunchColumns(): Promise<PunchColumns> {
 
 export async function getTimeRecordColumns(): Promise<TimeRecordColumns> {
   if (timeRecordCached) return timeRecordCached;
-  const r = await pool.query(
+  const r = await pool.query<{ column_name: string; data_type: string }>(
     `select column_name, data_type from information_schema.columns
      where table_schema = 'public' and table_name = 'time_records'`,
   );

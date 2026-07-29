@@ -1,6 +1,7 @@
 import type { Response } from 'express';
 import { pool } from '../db/index.js';
 import type { AuthedRequest } from '../middlewares/authMiddleware.js';
+import { getAuthCookie } from '../security/authCookies.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
 import { logger } from '../logger/logger.js';
 import { isAdminOrHr, normalizeRole } from '../utils/authContext.js';
@@ -36,6 +37,7 @@ async function usersSelectColumns(): Promise<string> {
       'cpf',
       'phone',
       'status',
+      'must_change_password',
     ].map(async (column) => [column, await tableHasColumn('users', column)] as const),
   );
   const has = new Map(optional);
@@ -58,6 +60,7 @@ async function usersSelectColumns(): Promise<string> {
     col('cpf'),
     col('phone'),
     col('status', "'active'"),
+    col('must_change_password', 'false'),
   ].join(', ');
 }
 
@@ -172,6 +175,19 @@ async function joinedEmployeeProfileQueryParts(): Promise<{ columns: string; joi
 }
 
 export async function authMeController(req: AuthedRequest, res: Response): Promise<void> {
+  const cookieToken = getAuthCookie(req);
+  logger.info({
+    module: 'auth.me',
+    action: 'AUTH_ME_REQUEST',
+    message: '[AUTH-FLOW] GET /api/auth/me',
+    userId: req.auth?.sub ?? null,
+    companyId: req.auth?.companyId ?? null,
+    meta: {
+      hasAuthCookie: Boolean(cookieToken),
+      hasBearer: Boolean(req.headers.authorization?.startsWith('Bearer ')),
+    },
+  });
+
   const userId = String(req.auth?.sub || '').trim();
   if (!userId) {
     res.status(401).json({
@@ -276,6 +292,7 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       cpf: row.cpf != null ? String(row.cpf) : null,
       phone: row.phone != null ? String(row.phone) : null,
       status: row.status != null ? String(row.status) : 'active',
+      must_change_password: row.must_change_password != null ? Boolean(row.must_change_password) : false,
       departamento: row.departamento != null ? String(row.departamento) : null,
       jornada_tipo: row.jornada_tipo != null ? String(row.jornada_tipo) : null,
       carga_horaria: row.carga_horaria != null ? Number(row.carga_horaria) : null,
@@ -285,6 +302,13 @@ export async function authMeController(req: AuthedRequest, res: Response): Promi
       success: true,
       user,
       data: user,
+    });
+    logger.info({
+      module: 'auth.me',
+      action: 'AUTH_ME_SUCCESS',
+      message: '[AUTH-FLOW] /api/auth/me OK',
+      userId: user.id,
+      companyId: user.company_id,
     });
   } catch (e) {
     logger.error({

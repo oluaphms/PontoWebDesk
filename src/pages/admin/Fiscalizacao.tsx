@@ -8,7 +8,8 @@ import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import PageHeader from '../../components/PageHeader';
 import { Button } from '../../../components/UI';
-import { db, auth, isSupabaseConfigured } from '../../services/supabaseClient';
+import { isSupabaseConfigured } from '../../services/supabaseClient';
+import { buildApiUrl, buildSessionAuthHeaders } from '../../services/api';
 import { validateIntegrity } from '../../rep/repEngine';
 import type { IntegrityResult } from '../../rep/repEngine';
 import {
@@ -21,11 +22,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { messageFromUnknown } from '@/utils/messageFromUnknown';
-
-const getBaseUrl = () => {
-  if (typeof window !== 'undefined') return window.location.origin;
-  return '';
-};
 
 export default function AdminFiscalizacao() {
   const { user, loading } = useCurrentUser();
@@ -51,25 +47,17 @@ export default function AdminFiscalizacao() {
 
   const handleExport = useCallback(
     async (type: 'afd' | 'aej') => {
-      if (!isSupabaseConfigured() || !auth) return;
       setExportLoading(type);
       try {
-        const session = await auth.getSession();
-        const token = session?.data?.session?.access_token;
-        if (!token) {
-          alert('Faça login novamente para exportar.');
-          return;
-        }
-        const base = getBaseUrl();
-        const path = type === 'afd' ? '/api/export/afd' : '/api/export/aej';
-        const url = `${base}${path}`;
-        const res = await fetch(url, {
+        const path = type === 'afd' ? '/export/afd' : '/export/aej';
+        const res = await fetch(buildApiUrl(path), {
           method: 'GET',
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
+          headers: buildSessionAuthHeaders(),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err?.error || `Erro ${res.status}`);
+          throw new Error(err?.message || err?.error || `Erro ${res.status}`);
         }
         const blob = await res.blob();
         const disposition = res.headers.get('Content-Disposition');

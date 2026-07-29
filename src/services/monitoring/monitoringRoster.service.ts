@@ -69,7 +69,7 @@ function buildMonitoringRosterFromUsers(
   const aliases = new Map<string, string[]>();
   const roster = users
     .filter(isActiveMonitoringUser)
-    .map((user) => {
+    .map((user): MonitoringRosterUser | null => {
       const id = String(user.id ?? '').trim();
       if (!id) return null;
       aliases.set(id, [id]);

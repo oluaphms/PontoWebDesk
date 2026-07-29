@@ -1,5 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
+import React, { memo, useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -34,7 +34,10 @@ const SmartDock: React.FC = () => {
   const [cardStyle, setCardStyle] = useState<{ left: number; bottom: number; width: number } | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
 
-  const dockEntries = Object.entries(groups) as [string, NavigationGroupSchema][];
+  const dockEntries = useMemo(
+    () => Object.entries(groups) as [string, NavigationGroupSchema][],
+    [groups],
+  );
   const openGroup = dockFloatingGroupKey ? groups[dockFloatingGroupKey] : null;
 
   /** Esconde o rodapé quando algum modal/dialog está aberto para não sobrepor botões */
@@ -53,7 +56,7 @@ const SmartDock: React.FC = () => {
   /** Calcula posição do card para ficar centralizado no botão e dentro da viewport */
   const updateCardPosition = useCallback(() => {
     if (!dockFloatingGroupKey || !openGroup) {
-      setCardStyle(null);
+      setCardStyle((current) => (current === null ? current : null));
       return;
     }
     const idx = dockEntries.findIndex(([k]) => k === dockFloatingGroupKey);
@@ -65,16 +68,17 @@ const SmartDock: React.FC = () => {
     let left = centerX - cardWidth / 2;
     if (left < CARD_MARGIN) left = CARD_MARGIN;
     if (left + cardWidth > window.innerWidth - CARD_MARGIN) left = window.innerWidth - cardWidth - CARD_MARGIN;
-    setCardStyle({
-      left,
-      bottom: window.innerHeight - rect.top + 8,
-      width: cardWidth,
-    });
+    const bottom = window.innerHeight - rect.top + 8;
+    setCardStyle((current) =>
+      current?.left === left && current.bottom === bottom && current.width === cardWidth
+        ? current
+        : { left, bottom, width: cardWidth },
+    );
   }, [dockFloatingGroupKey, openGroup, dockEntries]);
 
   useEffect(() => {
     if (!dockFloatingGroupKey || !openGroup) {
-      setCardStyle(null);
+      setCardStyle((current) => (current === null ? current : null));
       return;
     }
     const t = requestAnimationFrame(updateCardPosition);
@@ -154,8 +158,10 @@ const SmartDock: React.FC = () => {
     <>
       <nav
         className={`
-          fixed bottom-0 left-0 right-0 z-40 flex items-center backdrop-blur-xl bg-white/80 dark:bg-slate-900/80
-          border-t border-slate-200/80 dark:border-slate-800/80 safe-area-pb py-2
+          fixed bottom-0 left-0 right-0 z-40 flex items-center backdrop-blur-xl bg-white/96 dark:bg-slate-900/80
+          border-t border-border dark:border-slate-800/80 shadow-[0_-4px_20px_rgb(15_23_42/0.08)] dark:shadow-none
+          ds-dock
+          safe-area-pb py-2
           transition-transform duration-200 ease-out
           ${modalOpen ? 'translate-y-full opacity-0 pointer-events-none' : ''}
         `}
@@ -184,8 +190,10 @@ const SmartDock: React.FC = () => {
                   onPointerLeave={isSmart ? handleSmartPointerUp : undefined}
                   className={`
                     flex flex-col items-center justify-center min-w-[48px] sm:min-w-[56px] lg:min-w-[64px] py-2 px-1 sm:px-2 rounded-2xl
-                    transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900
-                    ${isOpen ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}
+                    transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900
+                    ${isOpen
+                      ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 ring-1 ring-indigo-200/80 dark:ring-indigo-500/30 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}
                   `}
                   aria-label={label}
                   aria-expanded={isOpen}
@@ -235,7 +243,7 @@ const SmartDock: React.FC = () => {
             />
             <motion.div
               key="dock-menu"
-              className="fixed z-[100] px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl pointer-events-auto overflow-hidden"
+              className="fixed z-[100] px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-elevated pointer-events-auto overflow-hidden"
               style={{ left: cardStyle.left, bottom: cardStyle.bottom, width: cardStyle.width }}
               initial={{ opacity: 0, y: 8, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -264,7 +272,7 @@ const SmartDock: React.FC = () => {
                   </motion.div>
                 )}
               </AnimatePresence>
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2 pb-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-500 uppercase tracking-wider px-2 pb-2 border-b border-slate-200 dark:border-slate-800 mb-2">
                 {i18n.t(openGroup.labelKey)}
               </p>
               <div className={`flex flex-col gap-0.5 max-h-[min(60vh,320px)] overflow-y-auto ${logoutBusy ? 'pointer-events-none opacity-60' : ''}`}>

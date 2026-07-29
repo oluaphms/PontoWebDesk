@@ -27,6 +27,7 @@ const AFD_ALLOWED_MIME = new Set([
   'text/csv',
   'application/csv',
   'application/vnd.ms-excel',
+  'application/octet-stream',
   '',
 ]);
 

@@ -6,6 +6,7 @@ import { observabilityConsole } from '../src/shared/logger/observabilityConsole'
 import { InAppNotification, NotificationStatus } from '../types';
 import { db, isSupabaseConfigured, supabase, type Filter } from './supabaseClient';
 import { NOTIFICATION_LIST_COLUMNS } from '../src/services/egressSelectColumns';
+import { IS_DEV } from '../src/config/runtimeEnv';
 
 /** Evita inundar o console quando vários componentes chamam getAll e o Supabase está lento. */
 let lastNotifSlowWarnAt = 0;
@@ -181,7 +182,7 @@ export const NotificationService = {
               const now = Date.now();
               if (now - lastNotifSlowWarnAt >= NOTIF_SLOW_WARN_INTERVAL_MS) {
                 lastNotifSlowWarnAt = now;
-                if (import.meta.env.DEV && typeof console !== 'undefined') {
+                if (IS_DEV && typeof console !== 'undefined') {
                   observabilityConsole.debug(
                     '[notifications] Lista indisponível (rede lenta ou lock); usando notificações locais se houver.',
                   );

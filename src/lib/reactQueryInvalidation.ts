@@ -2,6 +2,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import type { InvalidateQueryFilters, Query, QueryKey } from '@tanstack/react-query';
 import { queryClient } from './queryClient';
 import { apiQueryKeys } from './apiQueryKeys';
+import { IS_DEV } from '../config/runtimeEnv';
 
 const DEBOUNCE_MS = 300;
 const BACKOFF_BASE_MS = 2000;
@@ -55,7 +56,7 @@ function logDecision(
   key: QueryKey | undefined,
   reason: 'fresh' | 'fetching' | 'backoff' | 'debounce' | 'execute',
 ): void {
-  if (!import.meta.env.DEV || typeof console === 'undefined') return;
+  if (!IS_DEV || typeof console === 'undefined') return;
   const { domain, tenantId } = parseDomainTenant(key);
   observabilityConsole.info('[CACHE DECISION]', { key, domain, tenantId, reason });
 }
@@ -72,7 +73,7 @@ function devCacheLog(
     | 'SKIP_STILL_FRESH',
   detail: Record<string, unknown>,
 ): void {
-  if (!import.meta.env.DEV || typeof console === 'undefined') return;
+  if (!IS_DEV || typeof console === 'undefined') return;
   const label =
     kind === 'INVALIDATE'
       ? '[CACHE INVALIDATE]'
@@ -146,7 +147,7 @@ async function refetchMatchingWithGuards(
     try {
       await query.fetch();
       refetchBackoffByDomainTenant.delete(aggregateKey);
-      if (import.meta.env.DEV && typeof console !== 'undefined') {
+      if (IS_DEV && typeof console !== 'undefined') {
         observabilityConsole.info('[CACHE STATE]', {
           key: query.queryKey,
           isStale: query.isStale(),
@@ -168,7 +169,7 @@ async function refetchMatchingWithGuards(
           backoffMs,
           consecutiveErrors,
         });
-      } else if (import.meta.env.DEV) {
+      } else if (IS_DEV) {
         devCacheLog('REFETCH_ERR', {
           queryKey: query.queryKey,
           debounceKey: aggregateKey,
@@ -188,7 +189,7 @@ async function invalidateThenRefetchInner(
   const queries = findQueries(filters);
 
   if (!queries.length) {
-    if (import.meta.env.DEV) {
+    if (IS_DEV) {
       devCacheLog('SKIP_MISS', { queryKey: filters.queryKey });
     }
     await queryClient.invalidateQueries(

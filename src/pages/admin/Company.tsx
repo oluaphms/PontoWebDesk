@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import PageHeader from '../../components/PageHeader';
 import { db, isSupabaseConfigured } from '../../services/supabaseClient';
 import { LoadingState } from '../../../components/UI';
-import { Building2, User, MapPin, FileCheck, Cloud, Loader2 } from 'lucide-react';
+import { Building2, User, MapPin, FileCheck, Cloud, Loader2, Shield } from 'lucide-react';
 import { PontoService } from '../../../services/pontoService';
 import { firestoreService } from '../../../services/firestoreService';
 import { clearTenantMetadataSyncCache } from '../../../services/authService';
@@ -57,6 +57,82 @@ function normalizeReceiptFields(value: unknown): string[] {
     }
   }
   return [];
+}
+
+type CommercialSnapshot = {
+  plan: string;
+  commercialPlan: string;
+  commercialMode: string;
+  licenseStatus: string;
+  licenseExpiresAt: string | null;
+  subscriptionStatus: string;
+  paymentStatus: string;
+  contractedLimits: string;
+  commercialBlocked: boolean;
+  commercialBlockReason: string | null;
+  commercialSyncedAt: string | null;
+};
+
+const EMPTY_COMMERCIAL: CommercialSnapshot = {
+  plan: '—',
+  commercialPlan: '—',
+  commercialMode: '—',
+  licenseStatus: '—',
+  licenseExpiresAt: null,
+  subscriptionStatus: '—',
+  paymentStatus: '—',
+  contractedLimits: '—',
+  commercialBlocked: false,
+  commercialBlockReason: null,
+  commercialSyncedAt: null,
+};
+
+function readCommercialSnapshot(row: Record<string, unknown> | null | undefined): CommercialSnapshot {
+  if (!row) return EMPTY_COMMERCIAL;
+  const limits = row.contracted_limits;
+  let limitsLabel = '—';
+  if (limits && typeof limits === 'object') {
+    try {
+      limitsLabel = JSON.stringify(limits);
+    } catch {
+      limitsLabel = '—';
+    }
+  } else if (typeof limits === 'string' && limits.trim()) {
+    limitsLabel = limits;
+  }
+  return {
+    plan: String(row.plan ?? '—'),
+    commercialPlan: String(row.commercial_plan ?? row.plan ?? '—'),
+    commercialMode: String(row.commercial_mode ?? '—'),
+    licenseStatus: String(row.license_status ?? '—'),
+    licenseExpiresAt: row.license_expires_at != null ? String(row.license_expires_at) : null,
+    subscriptionStatus: String(row.subscription_status ?? '—'),
+    paymentStatus: String(row.payment_status ?? '—'),
+    contractedLimits: limitsLabel,
+    commercialBlocked: row.commercial_blocked === true,
+    commercialBlockReason:
+      row.commercial_block_reason != null ? String(row.commercial_block_reason) : null,
+    commercialSyncedAt:
+      row.commercial_synced_at != null ? String(row.commercial_synced_at) : null,
+  };
+}
+
+function formatCommercialDate(iso: string | null): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
+    new Date(t),
+  );
+}
+
+function CommercialReadOnly({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+      <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-slate-800 dark:text-slate-200 break-all">{value || '—'}</p>
+    </div>
+  );
 }
 
 type CompanyFormState = {
@@ -178,6 +254,7 @@ const AdminCompany: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   /** Exibir seção "Configuração do Módulo Web na Nuvem" (quando permitir inclusão de ponto manual) */
   const [showWebModuleConfig, setShowWebModuleConfig] = useState(true);
+  const [commercial, setCommercial] = useState<CommercialSnapshot>(EMPTY_COMMERCIAL);
 
   useEffect(() => {
     if (!user) return;
@@ -197,6 +274,7 @@ const AdminCompany: React.FC = () => {
           if (company) {
             setCompanyId(company.id);
             setShowWebModuleConfig(company.settings?.allowManualPunch ?? true);
+            setCommercial(readCommercialSnapshot(company as unknown as Record<string, unknown>));
               setForm((f) => ({
                 ...f,
                 name: company.name ?? company.nome ?? f.name ?? 'Nova Empresa',
@@ -224,6 +302,7 @@ const AdminCompany: React.FC = () => {
               }));
           } else {
             setCompanyId(user.companyId);
+            setCommercial(EMPTY_COMMERCIAL);
             setForm((f) => ({ ...f, name: f.name || 'Nova Empresa' }));
           }
         } else {
@@ -234,6 +313,7 @@ const AdminCompany: React.FC = () => {
             const c = rows[0];
             setCompanyId(c.id);
             setShowWebModuleConfig(c.settings?.allowManualPunch ?? true);
+            setCommercial(readCommercialSnapshot(c));
             setForm({
               name: c.name ?? c.nome ?? '',
               cnpj: c.cnpj ?? '',
@@ -259,6 +339,7 @@ const AdminCompany: React.FC = () => {
             });
           } else {
             setCompanyId(user.companyId);
+            setCommercial(EMPTY_COMMERCIAL);
             setForm((f) => ({ ...f, name: f.name || 'Nova Empresa' }));
           }
         }
@@ -342,15 +423,11 @@ const AdminCompany: React.FC = () => {
           if (existing?.length) {
             await db.update('companies', idToUse, payload);
           } else {
-            await db.insert('companies', {
-              id: idToUse,
-              slug: (form.name || 'empresa')
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[^a-z0-9-]/g, ''),
-              ...payload,
-              created_at: new Date().toISOString(),
+            setMessage({
+              type: 'error',
+              text: 'Empresa operacional não encontrada. Cadastre a empresa no Painel Master — o Sistema Operacional não cria empresas.',
             });
+            return;
           }
         } catch (err: unknown) {
           observabilityConsole.error('Erro ao salvar empresa:', err);
@@ -452,8 +529,10 @@ const AdminCompany: React.FC = () => {
             <Building2 className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Dados da empresa</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Altere e salve as informações abaixo.</p>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Dados operacionais</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Cadastro e parâmetros de operação. Plano, licença e cobrança são gerenciados apenas no Painel Master.
+            </p>
           </div>
         </div>
 
@@ -461,6 +540,41 @@ const AdminCompany: React.FC = () => {
           <div className="p-8 text-center text-slate-500">Carregando...</div>
         ) : (
           <div className="p-6 space-y-8">
+            {/* Contrato e licença — somente leitura (fonte: Painel Master) */}
+            <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-slate-800 dark:text-slate-200">
+                <Shield className="w-4 h-4" /> Contrato e licença
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Informações comerciais somente leitura. Alterações exclusivas no Painel Master.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <CommercialReadOnly label="Plano" value={commercial.commercialPlan || commercial.plan} />
+                <CommercialReadOnly label="Modo" value={commercial.commercialMode} />
+                <CommercialReadOnly label="Status da licença" value={commercial.licenseStatus} />
+                <CommercialReadOnly
+                  label="Vencimento da licença"
+                  value={formatCommercialDate(commercial.licenseExpiresAt)}
+                />
+                <CommercialReadOnly label="Status da assinatura" value={commercial.subscriptionStatus} />
+                <CommercialReadOnly label="Situação de pagamento" value={commercial.paymentStatus} />
+                <CommercialReadOnly
+                  label="Bloqueio"
+                  value={
+                    commercial.commercialBlocked
+                      ? `Bloqueado${commercial.commercialBlockReason ? ` (${commercial.commercialBlockReason})` : ''}`
+                      : 'Ativo'
+                  }
+                />
+                <CommercialReadOnly label="Limites contratados" value={commercial.contractedLimits} />
+              </div>
+              {commercial.commercialSyncedAt && (
+                <p className="text-[11px] text-slate-400">
+                  Última sincronização Master → SaaS: {formatCommercialDate(commercial.commercialSyncedAt)}
+                </p>
+              )}
+            </section>
+
             {/* Seção: Empresa */}
             <section className="space-y-4">
               <h3 className="flex items-center gap-2 text-base font-semibold text-slate-800 dark:text-slate-200">

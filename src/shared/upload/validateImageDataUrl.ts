@@ -41,7 +41,7 @@ export function validateImageDataUrl(
     mimeType,
     size: approxBytes,
   });
-  if (!policyCheck.ok) {
+  if (policyCheck.ok === false) {
     return {
       ok: false,
       message:

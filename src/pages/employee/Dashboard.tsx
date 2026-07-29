@@ -26,7 +26,7 @@ import { NOTIFICATION_LIST_COLUMNS } from '../../services/egressSelectColumns';
 import { getAdaptiveRefetchIntervalMs, isPollingSuppressedByVisibility } from '../../performance/pollingGovernor';
 
 function logDashboardDebug(label: string, payload: unknown): void {
-  console.log(label, payload);
+  observabilityConsole.debug(label, payload);
 }
 
 function formatSignedHours(hours: number): string {
@@ -416,8 +416,9 @@ const EmployeeDashboard: React.FC = () => {
           </p>
         </div>
         <div className="text-left sm:text-right">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Próxima escala</p>
-          <p className="text-lg font-bold text-slate-900 dark:text-white">{loadingData ? '—' : scheduleName}</p>
+          <p className="text-lg font-bold text-slate-900 dark:text-white">
+            {loadingData ? '—' : `Sua escala é ${scheduleName}`}
+          </p>
           {todaySchedule?.start_time && todaySchedule?.end_time && (
             <p className="text-sm text-slate-600 dark:text-slate-400 tabular-nums">
               Hoje: {formatScheduleTimeDisplay(todaySchedule.start_time)} –{' '}

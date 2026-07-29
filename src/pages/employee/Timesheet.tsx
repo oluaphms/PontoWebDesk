@@ -56,7 +56,7 @@ function localMonthStartKey(d = new Date()): string {
 }
 
 function logTimesheetDebug(label: string, payload: unknown): void {
-  console.log(label, payload);
+  observabilityConsole.debug(label, payload);
 }
 
 function formatDateBR(dateStr: string) {

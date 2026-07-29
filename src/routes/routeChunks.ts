@@ -3,8 +3,11 @@
  * Permite prefetch no hover/foco do menu antes do clique.
  */
 import { attemptChunkAutoRecover, isLikelyChunkLoadFailure } from '../utils/chunkLoadRecovery';
+import type { ComponentType } from 'react';
+import type { User } from '../../types';
 
-type RouteLoader = () => Promise<unknown>;
+type RouteModule = { default: ComponentType<{ user?: User }> };
+type RouteLoader = () => Promise<RouteModule>;
 
 function withTransientRetry(loader: RouteLoader, retries = 2, delayMs = 400): RouteLoader {
   return async () => {
@@ -13,7 +16,7 @@ function withTransientRetry(loader: RouteLoader, retries = 2, delayMs = 400): Ro
     } catch (error) {
       if (isLikelyChunkLoadFailure(error) && retries <= 0) {
         if (attemptChunkAutoRecover()) {
-          return new Promise(() => {});
+          return new Promise<RouteModule>(() => {});
         }
         throw error;
       }
@@ -138,7 +141,7 @@ function normalizePath(path: string): string {
 export function prefetchPortalRoute(pathname: string): void {
   const p = normalizePath(pathname);
   if (!p || prefetched.has(p)) return;
-  const loader = (ROUTE_LOADERS as Record<string, () => Promise<unknown>>)[p];
+  const loader = ROUTE_LOADERS[p];
   if (typeof loader !== 'function') return;
   prefetched.add(p);
   void loader().catch(() => {

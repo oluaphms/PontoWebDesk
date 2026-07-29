@@ -58,8 +58,6 @@ interface HelpCenterViewProps {
 
 export const HelpCenterView: React.FC<HelpCenterViewProps> = ({
   className = '',
-  companyId,
-  totalEmployees = 0,
 }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const contentRef = useRef<HTMLDivElement>(null);
@@ -493,7 +491,7 @@ export const HelpCenterView: React.FC<HelpCenterViewProps> = ({
 
           <div ref={contentRef} className="flex-1 overflow-y-auto px-6 py-6">
             {!loadingDoc && !loadError && content && (
-              <HelpDocImpactBanner doc={activeSlug} companyId={companyId} totalEmployees={totalEmployees} />
+              <HelpDocImpactBanner doc={activeSlug} />
             )}
             {!loadingDoc && !loadError && content && quickSummary && (
               <div className="mb-6 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/60 dark:bg-indigo-950/25 p-4">

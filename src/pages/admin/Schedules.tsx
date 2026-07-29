@@ -250,7 +250,6 @@ const AdminSchedules: React.FC = () => {
         ativo: form.ativo,
         updated_at: new Date().toISOString(),
       };
-      console.log('[Schedules] payload', payload);
       if (editingId) {
         await db.update('schedules', editingId, payload);
         setMessage({ type: 'success', text: 'Escala atualizada com sucesso.' });

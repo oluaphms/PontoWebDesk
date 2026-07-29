@@ -59,14 +59,14 @@ describe('parseAfdLine — layout Portaria (NSR + tipo 3/7 + data + hora + PIS)'
 });
 
 describe('parseAfdLine — AFD Portaria 1510 com CRC hex no fim', () => {
-  it('ignora sufixo CRC de 3 caracteres hex após PIS de 11 dígitos', () => {
+  it('prioriza layout Control iD HHMM + PIS de 12 dígitos + CRC de 4 caracteres', () => {
     const line = '000000296315082018113001296400076111b6';
     const r = parseAfdLine(line);
     expect(r).not.toBeNull();
     expect(r!.nsr).toBe(296);
     expect(r!.data).toBe('2018-08-15');
-    expect(r!.hora).toMatch(/^11:30:/);
-    expect(r!.cpfOuPis).toBe('29640007611');
+    expect(r!.hora).toBe('11:30:00');
+    expect(r!.cpfOuPis).toBe('12964000761');
   });
 });
 

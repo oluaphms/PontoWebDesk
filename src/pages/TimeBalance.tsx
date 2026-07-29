@@ -56,7 +56,7 @@ function minutesToHoursLabel(m: number): string {
 }
 
 function logTimeBalanceDebug(label: string, payload: unknown): void {
-  console.log(label, payload);
+  observabilityConsole.debug(label, payload);
 }
 
 type DailyRefRow = {

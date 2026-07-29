@@ -185,10 +185,16 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: (...args: unknown[]) => createClientMock(...args),
 }));
 
+vi.mock('../../modules/rep-integration/repTimesheetMirror.js', () => ({
+  syncEspelhoAfterRepPromote: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('handleRepPunchRpcLite', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    createClientMock.mockReset();
+    createClientMock.mockImplementation(() => new MockSupabase());
     process.env.API_KEY = 'rep-test-key';
     process.env.SUPABASE_URL = 'https://mock.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
@@ -246,7 +252,7 @@ describe('handleRepPunchRpcLite', () => {
         raw_data: {},
       },
     ];
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -271,7 +277,7 @@ describe('handleRepPunchRpcLite', () => {
   it('não quebra a API quando reconciliação falha', async () => {
     const mock = new MockSupabase();
     mock.timesheetQueryError = { message: 'timesheets_daily_unavailable' };
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -333,7 +339,7 @@ describe('handleRepPunchRpcLite', () => {
         raw_data: {},
       },
     ];
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -357,7 +363,7 @@ describe('handleRepPunchRpcLite', () => {
     mock.deviceIdentifierType = 'pis';
     mock.matchByCpfUserId = 'user-by-cpf-priority';
     mock.matchByPisUserId = 'user-by-pis';
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -383,7 +389,7 @@ describe('handleRepPunchRpcLite', () => {
     const mock = new MockSupabase();
     mock.deviceIdentifierType = 'cpf';
     mock.matchByCpfUserId = 'user-by-cpf';
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -407,7 +413,7 @@ describe('handleRepPunchRpcLite', () => {
     mock.deviceIdentifierType = 'both';
     mock.matchByPisUserId = null;
     mock.matchByCpfUserId = 'user-by-cpf-priority';
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -435,7 +441,7 @@ describe('handleRepPunchRpcLite', () => {
     mock.deviceIdentifierType = 'both';
     mock.matchByCpfUserId = null;
     mock.matchByPisUserId = 'user-by-pis-fallback';
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(
@@ -459,7 +465,7 @@ describe('handleRepPunchRpcLite', () => {
   it('retorna sucesso com duplicate=true e não executa reconciliação', async () => {
     const mock = new MockSupabase();
     mock.rpcResult = { success: false, duplicate: true, error: 'NSR já importado' };
-    createClientMock.mockReturnValueOnce(mock);
+    createClientMock.mockReturnValue(mock);
 
     const handler = await importHandler();
     const res = await handler(

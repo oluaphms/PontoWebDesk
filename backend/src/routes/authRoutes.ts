@@ -4,6 +4,7 @@ import { authChangePasswordController } from '../controllers/authPasswordControl
 import { authMeController } from '../controllers/authMeController.js';
 import { authLogoutController } from '../controllers/authLogoutController.js';
 import { authRecoveryCompleteController } from '../controllers/authRecoveryController.js';
+import { authResetPasswordController } from '../controllers/authResetPasswordController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { rateLimit } from '../middlewares/rateLimit.js';
 
@@ -18,6 +19,15 @@ router.post('/login', rateLimit({
     return String(body.identifier ?? body.email ?? '');
   },
 }), loginController);
+router.post('/reset-password', rateLimit({
+  keyPrefix: 'auth:reset-password',
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000,
+  key: (req) => {
+    const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    return String(body.email ?? '');
+  },
+}), authResetPasswordController);
 router.post('/recovery/complete', rateLimit({
   keyPrefix: 'auth:recovery-complete',
   maxRequests: 8,

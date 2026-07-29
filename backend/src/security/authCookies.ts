@@ -13,6 +13,14 @@ export function authCookieSameSite(): 'lax' | 'strict' | 'none' {
   return 'lax';
 }
 
+/** Produção HTTPS: Secure=true. Local HTTP: Secure=false (AUTH_COOKIE_SECURE ou NODE_ENV=development). */
+export function authCookieSecure(): boolean {
+  const explicit = String(process.env.AUTH_COOKIE_SECURE || '').trim().toLowerCase();
+  if (explicit === 'true' || explicit === '1') return true;
+  if (explicit === 'false' || explicit === '0') return false;
+  return isProduction() || authCookieSameSite() === 'none';
+}
+
 function sameSite(): 'lax' | 'strict' | 'none' {
   return authCookieSameSite();
 }
@@ -34,7 +42,7 @@ export function authCookieMaxAgeMs(): number {
 export function setAuthCookie(res: Response, token: string): void {
   res.cookie(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isProduction() || sameSite() === 'none',
+    secure: authCookieSecure(),
     sameSite: sameSite(),
     path: '/',
     maxAge: authCookieMaxAgeMs(),
@@ -44,7 +52,7 @@ export function setAuthCookie(res: Response, token: string): void {
 export function clearAuthCookie(res: Response): void {
   res.clearCookie(AUTH_COOKIE_NAME, {
     httpOnly: true,
-    secure: isProduction() || sameSite() === 'none',
+    secure: authCookieSecure(),
     sameSite: sameSite(),
     path: '/',
   });

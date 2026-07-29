@@ -209,7 +209,7 @@ const AdminMonitoring: React.FC = () => {
           subtitle={
             usingOperationalStateTable
               ? 'Fonte única: batidas do dia + current_operational_state + live location.'
-              : 'Presença derivada das batidas do dia operacional (mesma base da Dashboard).'
+              : 'Presença derivada das batidas do dia operacional (mesma base da Página inicial).'
           }
           icon={<Users size={24} />}
         />
@@ -259,7 +259,7 @@ const AdminMonitoring: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-200">
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Dia operacional: <strong>{todayYmd}</strong>
-                {' — presença e mapa derivados das batidas do dia (mesma base da Dashboard).'}
+                {' — presença e mapa derivados das batidas do dia (mesma base da Página inicial).'}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon={<LogIn className="text-green-600" size={20} />} label="Trabalhando agora" value={working.length} />

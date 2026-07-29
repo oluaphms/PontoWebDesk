@@ -24,6 +24,62 @@ export const SECRET_REGISTRY: SecretDefinition[] = [
     description: 'Assinatura dos JWTs da API local.',
   },
   {
+    name: 'MASTER_JWT_SECRET',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Assinatura exclusiva dos JWTs do Painel Master.',
+  },
+  {
+    name: 'MASTER_API_KEY',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Chave de bootstrap e automação do Painel Master.',
+  },
+  {
+    name: 'API_KEY',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Chave legada compartilhada das APIs serverless.',
+  },
+  {
+    name: 'REP_API_KEY',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Chave dedicada dos agentes REP.',
+  },
+  {
+    name: 'CLOCK_AGENT_API_KEY',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Chave de autenticação do agente de relógio.',
+  },
+  {
+    name: 'REP_BRIDGE_TOKEN',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Token legado do bridge REP.',
+  },
+  {
+    name: 'SUPABASE_SERVICE_ROLE_KEY',
+    required: false,
+    minLength: 32,
+    rotationDays: 90,
+    managed: true,
+    description: 'Credencial privilegiada server-side do Supabase.',
+  },
+  {
     name: 'DEVICE_CREDENTIALS_MASTER_KEY',
     required: true,
     minLength: 32,
@@ -64,7 +120,10 @@ export const SECRET_REGISTRY: SecretDefinition[] = [
 
 function looksWeak(value: string): boolean {
   const lower = value.toLowerCase();
-  return ['test', '123456', 'changeme', 'secret', 'password', 'admin'].includes(lower);
+  return (
+    ['test', '123456', 'changeme', 'secret', 'password', 'admin'].includes(lower) ||
+    /(?:change[-_ ]?me|generate[-_ ]|placeholder|your[_-].*key)/i.test(value)
+  );
 }
 
 export function validateSecret(definition: SecretDefinition): SecretValidationResult {

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogSeverity } from '../types';
 
-const insertMock = vi.fn(async () => undefined);
+const { insertMock } = vi.hoisted(() => ({
+  insertMock: vi.fn(async (_table: string, _data: unknown) => undefined),
+}));
 
 vi.mock('./supabaseClient', () => ({
   isSupabaseConfigured: () => true,
   db: {
-    insert: (...args: unknown[]) => insertMock(...args),
+    insert: insertMock,
   },
 }));
 

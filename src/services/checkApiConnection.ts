@@ -8,6 +8,7 @@ export type ApiConnectionStatus =
   | 'offline'
   | 'not_configured'
   | 'unknown'
+  | 'circuit_breaker'
   | 'local_mode';
 
 export type ApiConnectionCheckResult = {

@@ -1,15 +1,25 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
+import { PlatformService } from '../platform/PlatformService';
+import { DEFAULT_API_BASE as PLATFORM_DEFAULT_API_BASE } from '../platform/configService';
 import { DEFAULT_PROVIDER, type DataProviderMode } from './providers';
+import { IS_DEV } from './runtimeEnv';
+
+/**
+ * Leitura oficial de variáveis VITE_* do frontend.
+ * Decisões de provider/API passam por PlatformService (Data Provider ≠ DeploymentMode).
+ * Ver docs/environments.md.
+ */
 
 /** Fallback quando `VITE_API_URL` / `VITE_LOCAL_API_BASE_URL` estão ausentes. */
-export const DEFAULT_API_BASE = 'https://api.phmsdev.com.br/api';
+export const DEFAULT_API_BASE = PLATFORM_DEFAULT_API_BASE;
 
+/** Parser puro — não decide DeploymentMode. */
 export function parseDataProviderMode(raw: string | undefined): DataProviderMode {
   const normalized = String(raw ?? '')
     .trim()
     .toUpperCase();
   if (normalized === 'SUPABASE') return 'SUPABASE';
-  if (normalized && normalized !== 'LOCAL_API' && import.meta.env.DEV) {
+  if (normalized && normalized !== 'LOCAL_API' && IS_DEV) {
     observabilityConsole.warn(
       `[env] VITE_DATA_PROVIDER="${raw}" inválido — usando ${DEFAULT_PROVIDER}. Valores aceitos: LOCAL_API, SUPABASE.`,
     );
@@ -17,58 +27,60 @@ export function parseDataProviderMode(raw: string | undefined): DataProviderMode
   return DEFAULT_PROVIDER;
 }
 
+/** Valor bruto de `VITE_DATA_PROVIDER` (via Platform/Config). */
 export function readDataProviderEnv(): string | undefined {
-  return (import.meta.env.VITE_DATA_PROVIDER as string | undefined)?.trim() || undefined;
+  const raw = PlatformService.getRawDataProviderEnv();
+  return raw || undefined;
 }
 
 export function readEnvApiUrl(): string {
-  return (
-    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
-    (import.meta.env.VITE_LOCAL_API_BASE_URL as string | undefined)?.trim() ||
-    ''
-  );
+  return PlatformService.getRawApiUrl();
 }
 
 export function readSupabaseUrl(): string {
-  return (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
+  return PlatformService.getSupabaseUrl();
 }
 
 export function readSupabaseAnonKey(): string {
-  return (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
+  return PlatformService.getSupabaseAnonKey();
 }
 
 /**
  * Base da API VPS — deve terminar em `/api`.
  * Se o env vier só com o host, acrescenta `/api`.
+ * Sem argumento: usa PlatformService (mesmo valor que ConfigService).
  */
 export function normalizeApiBase(raw?: string): string {
-  const trimmed = (raw ?? readEnvApiUrl()).replace(/\/+$/, '');
-  if (!trimmed) return DEFAULT_API_BASE;
-  if (trimmed.endsWith('/api')) return trimmed;
-  return `${trimmed}/api`;
+  if (raw !== undefined) {
+    const trimmed = String(raw).replace(/\/+$/, '');
+    if (!trimmed) return DEFAULT_API_BASE;
+    if (trimmed.endsWith('/api')) return trimmed;
+    return `${trimmed}/api`;
+  }
+  return PlatformService.getApiBaseUrl();
 }
 
-/** API VPS configurada (independente do provider mode). */
+/** API VPS configurada (independente do provider mode / DeploymentMode). */
 export function isApiConfigured(): boolean {
-  return Boolean(readEnvApiUrl());
+  return PlatformService.isApiConfigured();
 }
 
 /** Credenciais Supabase cloud presentes (uso futuro em modo SUPABASE). */
 export function isSupabaseCloudEnvConfigured(): boolean {
-  return Boolean(readSupabaseUrl() && readSupabaseAnonKey());
+  return PlatformService.isSupabaseCloudEnvConfigured();
 }
 
 function logDevEnvWarnings(mode: DataProviderMode): void {
-  if (!import.meta.env.DEV) return;
+  if (!IS_DEV) return;
 
-  if (mode === 'LOCAL_API' && !readEnvApiUrl()) {
+  if (mode === 'LOCAL_API' && !PlatformService.getRawApiUrl()) {
     observabilityConsole.warn(
-      `[env] VITE_API_URL ausente — usando fallback ${DEFAULT_API_BASE}. Defina em .env.local para apontar à VPS.`,
+      `[env] VITE_API_URL ausente — usando fallback ${DEFAULT_API_BASE}. Defina em .env.development ou .env.local.`,
     );
   }
 
   if (mode === 'SUPABASE') {
-    if (!readSupabaseUrl() || !readSupabaseAnonKey()) {
+    if (!PlatformService.getSupabaseUrl() || !PlatformService.getSupabaseAnonKey()) {
       observabilityConsole.warn(
         '[env] VITE_DATA_PROVIDER=SUPABASE mas VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY incompletos (provider ainda não implementado).',
       );

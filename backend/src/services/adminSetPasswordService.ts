@@ -4,6 +4,7 @@ import { generateTemporaryPassword } from '../security/passwords/generateTempora
 import { BCRYPT_COST, validatePasswordWithPolicy } from '../security/passwords/passwordPolicy.js';
 import { loadPasswordPolicyForCompany } from './passwordPolicySettings.service.js';
 import { ensureAuthUserMirror, ensureUserForEmployee } from './employeeUserSync.js';
+import { tableHasColumn } from '../db/schemaColumns.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -45,12 +46,14 @@ export async function setUserPasswordForTenant(params: {
   companyId: string;
   email: string;
   newPassword: string;
+  markMustChangePassword?: boolean;
 }): Promise<SetPasswordResult> {
   const companyId = String(params.companyId || '').trim();
   const email = String(params.email || '').trim().toLowerCase();
   const requestedPassword = String(params.newPassword || '');
   const generatedTemporary = !requestedPassword.trim();
   const newPassword = generatedTemporary ? generateTemporaryPassword() : requestedPassword;
+  const mustChange = params.markMustChangePassword === true;
 
   if (!companyId) {
     return { ok: false, status: 403, error: 'Empresa não identificada.' };
@@ -68,19 +71,39 @@ export async function setUserPasswordForTenant(params: {
   const expiresAt = generatedTemporary
     ? new Date(Date.now() + Number(process.env.TEMP_PASSWORD_TTL_HOURS || 24) * 60 * 60 * 1000).toISOString()
     : undefined;
+  const usersHasMustChangePassword = await tableHasColumn('users', 'must_change_password');
+  const usersHasTemporaryPasswordCreatedAt = await tableHasColumn('users', 'temporary_password_created_at');
+  const usersHasTemporaryPasswordExpiresAt = await tableHasColumn('users', 'temporary_password_expires_at');
+  const setMustChangeSql =
+    usersHasMustChangePassword && mustChange ? ', must_change_password = true' : '';
+  const setTemporaryCreatedSql =
+    usersHasTemporaryPasswordCreatedAt && generatedTemporary
+      ? ', temporary_password_created_at = now()'
+      : '';
+  const setTemporaryExpiresSql =
+    usersHasTemporaryPasswordExpiresAt && generatedTemporary
+      ? ', temporary_password_expires_at = $4'
+      : '';
+  const valuesUsers: unknown[] = [hash, email, companyId];
+  if (setTemporaryExpiresSql) valuesUsers.push(expiresAt ?? null);
 
-  const userUpd = await pool.query(
+  // queryMaster: enxerga INSERT do provisionamento na mesma MasterDomainTransaction
+  // (pool.query abre outra conexão e não vê o usuário ainda não commitado).
+  const userUpd = await pool.queryMaster(
     `update public.users
      set password_hash = $1
+         ${setMustChangeSql}
+         ${setTemporaryCreatedSql}
+         ${setTemporaryExpiresSql}
      where lower(trim(email)) = $2
        and company_id::text = $3
      returning id::text, nome, role`,
-    [hash, email, companyId],
+    valuesUsers,
   );
   if ((userUpd.rowCount ?? 0) > 0) {
     const userId = String(userUpd.rows[0]?.id ?? '');
     if (await employeesHasPasswordHash()) {
-      await pool.query(
+      await pool.queryMaster(
         `update public.employees
          set password_hash = $1
          where lower(trim(email)) = $2 and company_id::text = $3`,
@@ -106,7 +129,7 @@ export async function setUserPasswordForTenant(params: {
     };
   }
 
-  const employeeRow = await pool.query(
+  const employeeRow = await pool.queryMaster(
     `select id::text, nome, email, role, status, schedule_id, shift_id
      from public.employees
      where lower(trim(email)) = $1 and company_id::text = $2
@@ -130,7 +153,7 @@ export async function setUserPasswordForTenant(params: {
       pool,
     );
     if (await employeesHasPasswordHash()) {
-      await pool.query(
+      await pool.queryMaster(
         `update public.employees
          set password_hash = $1
          where id::text = $2 and company_id::text = $3`,

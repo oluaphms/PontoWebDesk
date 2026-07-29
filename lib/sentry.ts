@@ -1,5 +1,6 @@
 import { observabilityConsole } from '../src/shared/logger/observabilityConsole';
 import * as Sentry from '@sentry/react';
+import { getAppEnvLabel } from '../src/config/runtimeEnv';
 
 const dsn = import.meta.env.VITE_SENTRY_DSN;
 
@@ -11,7 +12,7 @@ export function initSentry() {
     tracesSampleRate: 0.1,
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1,
-    environment: import.meta.env.DEV ? 'development' : 'production',
+    environment: getAppEnvLabel(),
   });
 }
 

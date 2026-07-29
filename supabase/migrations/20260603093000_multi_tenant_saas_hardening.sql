@@ -475,40 +475,40 @@ BEGIN
       v_values := ARRAY[public._pwd_company_param_ref('work_shifts', '$1'), '$2'];
 
       IF public._pwd_column_exists('work_shifts', 'start_time') THEN
-        v_columns := v_columns || 'start_time';
-        v_values := v_values || '$3::time';
+        v_columns := array_append(v_columns, 'start_time');
+        v_values := array_append(v_values, '$3::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'end_time') THEN
-        v_columns := v_columns || 'end_time';
-        v_values := v_values || '$4::time';
+        v_columns := array_append(v_columns, 'end_time');
+        v_values := array_append(v_values, '$4::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'entry_time') THEN
-        v_columns := v_columns || 'entry_time';
-        v_values := v_values || '$3::time';
+        v_columns := array_append(v_columns, 'entry_time');
+        v_values := array_append(v_values, '$3::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'exit_time') THEN
-        v_columns := v_columns || 'exit_time';
-        v_values := v_values || '$4::time';
+        v_columns := array_append(v_columns, 'exit_time');
+        v_values := array_append(v_values, '$4::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'break_duration') THEN
-        v_columns := v_columns || 'break_duration';
-        v_values := v_values || '60';
+        v_columns := array_append(v_columns, 'break_duration');
+        v_values := array_append(v_values, '60');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'break_start') THEN
-        v_columns := v_columns || 'break_start';
-        v_values := v_values || '''12:00''::time';
+        v_columns := array_append(v_columns, 'break_start');
+        v_values := array_append(v_values, '''12:00''::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'break_end') THEN
-        v_columns := v_columns || 'break_end';
-        v_values := v_values || '''13:00''::time';
+        v_columns := array_append(v_columns, 'break_end');
+        v_values := array_append(v_values, '''13:00''::time');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'tolerance_minutes') THEN
-        v_columns := v_columns || 'tolerance_minutes';
-        v_values := v_values || '10';
+        v_columns := array_append(v_columns, 'tolerance_minutes');
+        v_values := array_append(v_values, '10');
       END IF;
       IF public._pwd_column_exists('work_shifts', 'active') THEN
-        v_columns := v_columns || 'active';
-        v_values := v_values || 'true';
+        v_columns := array_append(v_columns, 'active');
+        v_values := array_append(v_values, 'true');
       END IF;
 
       v_sql := format(

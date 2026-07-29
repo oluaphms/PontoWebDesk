@@ -49,7 +49,7 @@ import {
   type TrendArrow,
 } from '../../services/repOperationsCenter.service';
 import { markRepPunchInvestigating } from '../../services/repPendingSequenceReconciliation.service';
-import { SYSTEM_CONFIG } from '../../config/system';
+import { PlatformService } from '../../platform/PlatformService';
 
 /** `badIsUp`: quando true, aumento do valor é mau (vermelho no ↑). */
 function TrendGlyph({ trend, badIsUp = true }: { trend: TrendArrow; badIsUp?: boolean }) {
@@ -165,7 +165,7 @@ const RepOperationsCenter: React.FC = () => {
   const [modalCtx, setModalCtx] = useState<{ employeeId: string; dateYmd: string; logId: string } | null>(null);
 
   const reviewedBy = String(user?.id ?? '').trim();
-  const offlineMode = SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API';
+  const offlineMode = PlatformService.isLocalApiProvider();
 
   const loadKpi = useCallback(async () => {
     if (!supabase || !companyId) return;

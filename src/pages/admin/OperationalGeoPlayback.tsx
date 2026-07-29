@@ -9,7 +9,11 @@ import PageHeader from '../../components/PageHeader';
 import { Button, LoadingState } from '../../../components/UI';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { db, getSupabaseClient, isSupabaseConfigured } from '../../services/supabaseClient';
-import { OperationalGeoPlayback, type OperationalGeoTrailPoint } from '../../domain/operational/geo/operationalGeoPlayback.service';
+import {
+  OperationalGeoPlayback,
+  type OperationalGeoClient,
+  type OperationalGeoTrailPoint,
+} from '../../domain/operational/geo/operationalGeoPlayback.service';
 
 const OperationalGeoPlaybackPage: React.FC = () => {
   const { user, loading } = useCurrentUser();
@@ -46,7 +50,7 @@ const OperationalGeoPlaybackPage: React.FC = () => {
       const { trail: t } = await OperationalGeoPlayback.loadTrail(
         user.companyId,
         employeeId,
-        getSupabaseClient(),
+        getSupabaseClient() as unknown as OperationalGeoClient | null,
         {
           fromIso,
           toIso,

@@ -29,12 +29,12 @@ export interface NavigationGroupSchema {
 
 export const navigationGroups: Record<string, NavigationGroupSchema> = {
   dashboard: {
-    label: 'Dashboard',
+    label: 'Página inicial',
     labelKey: 'nav.groupDashboard',
     icon: 'home',
     items: [
-      { name: 'Dashboard', nameKey: 'menu.dashboard', path: '/admin/dashboard', roles: ['admin', 'hr'] },
-      { name: 'Dashboard', nameKey: 'menu.dashboard', path: '/employee/dashboard', roles: ['employee'] },
+      { name: 'Página inicial', nameKey: 'menu.dashboard', path: '/admin/dashboard', roles: ['admin', 'hr'] },
+      { name: 'Página inicial', nameKey: 'menu.dashboard', path: '/employee/dashboard', roles: ['employee'] },
     ],
   },
 

@@ -30,8 +30,7 @@ import { addDaysYmd } from '../utils/resolveOperationalDate';
 import { operationalClockMs } from '../utils/operationalClock';
 import { opLog } from '../utils/operationalLogger';
 import type { LiveEmployeeLocationRow } from './liveEmployeeLocation.service';
-import { isCloudEnabled } from './cloudService';
-import { cloudFallback } from './cloudFallback';
+import { PlatformService } from '../platform/PlatformService';
 import { enableDegradedMode } from './systemMode';
 import { isSupabaseBlocked } from '../utils/supabaseGuard';
 import {
@@ -636,8 +635,8 @@ function mapLocalLastToAdmin(row: LocalDashboardLastRecord): AdminDashboardLastR
 
 export async function getAdminDashboardCardsQuick(companyId: string): Promise<AdminDashboardCards | null> {
   const localFallback = () => getLocalAdminDashboardCards(companyId);
-  if (!isCloudEnabled()) {
-    return cloudFallback(await localFallback());
+  if (!PlatformService.isDataLayerConfigured()) {
+    return await localFallback();
   }
   return runSingleFlight(`adminDashCardsQuick:${companyId}`, async () => {
     recordCriticalRequest('adminDashCardsQuick');
@@ -713,7 +712,7 @@ export async function getAdminDashboardCardsQuick(companyId: string): Promise<Ad
 export async function getAdminDashboardLastRecordsOnly(companyId: string): Promise<AdminDashboardLastRecord[]> {
   const localFallback = async () =>
     (await getLocalAdminLastRecords(companyId)).map(mapLocalLastToAdmin);
-  if (!isCloudEnabled()) return cloudFallback(await localFallback());
+  if (!PlatformService.isDataLayerConfigured()) return await localFallback();
   return runSingleFlight(`adminDashLastRecOnly:${companyId}`, async () => {
     recordCriticalRequest('adminDashLastRecOnly');
     try {
@@ -764,8 +763,8 @@ export async function getAdminDashboardLastRecordsOnly(companyId: string): Promi
  * Agrega dados do painel admin em chamadas controladas (evita N queries na UI).
  */
 export async function getAdminDashboardData(companyId: string): Promise<AdminDashboardPayload | null> {
-  if (!isCloudEnabled()) {
-    return cloudFallback({
+  if (!PlatformService.isDataLayerConfigured()) {
+    return ({
       cards: {
         totalEmployees: 0,
         activeEmployees: 0,

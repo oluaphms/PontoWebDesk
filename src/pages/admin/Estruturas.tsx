@@ -79,8 +79,6 @@ const AdminEstruturas: React.FC = () => {
         .catch(() => [] as UserLinkRow[]),
     ]);
     const activeEmployees = employees.filter(isSelectableEmployee);
-    console.log('EMPLOYEES', employees);
-    console.log('ACTIVE_EMPLOYEES', activeEmployees);
 
     const userIdByEmail = new Map<string, string>();
     for (const linked of linkedUsers ?? []) {
@@ -158,7 +156,6 @@ const AdminEstruturas: React.FC = () => {
         const ids = Array.from(new Set(respMap.get(e.id) ?? []));
         e.responsaveis = ids.map((user_id) => ({ user_id, nome: activeNameById.get(user_id) || user_id }));
       });
-      console.log('STRUCTURES', list);
       setRows(list);
     } catch (e) {
       observabilityConsole.error(e);

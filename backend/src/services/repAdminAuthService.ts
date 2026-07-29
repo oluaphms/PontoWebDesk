@@ -7,6 +7,10 @@ import { getAuthCookie } from '../security/authCookies.js';
 import { resolveAuthToken } from '../security/sessionToken.js';
 import { isAdminOrHr } from '../utils/authContext.js';
 import { resolveCallerFromDb } from './callerContextService.js';
+import {
+  isCommercialGateUnavailableError,
+  readCompanySessionGate,
+} from '../master/commercial/companySessionRevocation.js';
 
 export type RepAdminCaller = {
   userId: string;
@@ -18,6 +22,8 @@ export type RepAdminAuthCode =
   | 'AUTH_USER_NOT_FOUND'
   | 'AUTH_TENANT_CHANGED'
   | 'AUTH_USER_INACTIVE'
+  | 'COMMERCIAL_BLOCKED_BY_MASTER'
+  | 'COMMERCIAL_GATE_UNAVAILABLE'
   | 'unauthorized'
   | 'invalid_token';
 
@@ -74,6 +80,22 @@ export async function resolveRepAdminCaller(
     if (visibility.rows[0]?.invisivel === true) {
       return { ok: false, failure: { status: 401, code: 'AUTH_USER_INACTIVE' } };
     }
+  }
+
+  // Fase 6.2 — bloqueio administrativo Master também vale para rotas REP admin.
+  try {
+    const gate = await readCompanySessionGate(caller.companyId);
+    if (!gate) {
+      return { ok: false, failure: { status: 503, code: 'COMMERCIAL_GATE_UNAVAILABLE' } };
+    }
+    if (gate.commercialBlocked) {
+      return { ok: false, failure: { status: 401, code: 'COMMERCIAL_BLOCKED_BY_MASTER' } };
+    }
+  } catch (error) {
+    if (isCommercialGateUnavailableError(error)) {
+      return { ok: false, failure: { status: 503, code: 'COMMERCIAL_GATE_UNAVAILABLE' } };
+    }
+    throw error;
   }
 
   return { ok: true, caller };

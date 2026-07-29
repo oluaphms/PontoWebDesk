@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { tableHasColumn } from '../db/schemaColumns.js';
 import { logger } from '../logger/logger.js';
+import { PlatformService } from '../platform/PlatformService.js';
 
 function secureCompare(a: string, b: string): boolean {
   const aa = Buffer.from(String(a || ''));
@@ -11,16 +12,11 @@ function secureCompare(a: string, b: string): boolean {
 }
 
 function bridgeToken(): string {
-  return String(
-    process.env.REP_BRIDGE_TOKEN || process.env.REP_AGENT_TOKEN || process.env.API_KEY || process.env.REP_API_KEY || '',
-  ).trim();
+  return PlatformService.getRepBridgeToken();
 }
 
 function isBridgeLegacyEnabled(): boolean {
-  const raw = String(process.env.REP_BRIDGE_LEGACY_ENABLED ?? '').trim().toLowerCase();
-  if (raw === 'false' || raw === '0') return false;
-  if (raw === 'true' || raw === '1') return true;
-  return Boolean(bridgeToken());
+  return PlatformService.isRepBridgeLegacyEnabled();
 }
 
 export type RepAgentAuthCode = 'DEVICE_INACTIVE' | 'unauthorized';
@@ -108,15 +104,25 @@ export async function isRepDeviceOperational(deviceId: string): Promise<boolean>
   if (hasVisible && !rowIsTruthyActive(device.visible)) return false;
 
   const companyId = String(device.company_id).trim();
-  const [hasCompanyStatus, hasCompanyAtivo, hasCompanyActive] = await Promise.all([
+  const [hasCompanyStatus, hasCompanyAtivo, hasCompanyActive, hasCommercialBlocked] = await Promise.all([
     tableHasColumn('companies', 'status'),
     tableHasColumn('companies', 'ativo'),
     tableHasColumn('companies', 'active'),
+    tableHasColumn('companies', 'commercial_blocked'),
   ]);
 
-  if (!hasCompanyStatus && !hasCompanyAtivo && !hasCompanyActive) {
-    const exists = await pool.query(`select 1 from public.companies where id::text = $1 limit 1`, [companyId]);
-    return (exists.rowCount ?? 0) > 0;
+  // Fase 6.2: sem a migration do gate comercial, o REP falha fechado.
+  if (!hasCommercialBlocked) return false;
+
+  // Mesma reavaliação de vigência do login operacional (BRT → projeção → gate).
+  try {
+    const { readCompanySessionGate } = await import(
+      '../master/commercial/companySessionRevocation.js'
+    );
+    const gate = await readCompanySessionGate(companyId);
+    if (!gate || gate.commercialBlocked === true) return false;
+  } catch {
+    return false;
   }
 
   const companySelect: string[] = ['id::text as id'];
@@ -168,12 +174,19 @@ export async function verifyRepAgentTokenVps(
   if (!trimmed) return { ok: false, code: 'unauthorized' };
 
   const id = String(deviceId || '').trim();
+  const acceptOperational = async (
+    method: Extract<RepAgentAuthResult, { ok: true }>['method'],
+  ): Promise<RepAgentAuthResult> =>
+    (await isRepDeviceOperational(id))
+      ? { ok: true, method }
+      : { ok: false, code: 'DEVICE_INACTIVE' };
+
   if (id) {
     if (await validateDeviceKeyHash(id, trimmed)) {
-      return { ok: true, method: 'device_key' };
+      return acceptOperational('device_key');
     }
     if (await validateRepDeviceApiKeyHash(id, trimmed)) {
-      return { ok: true, method: 'device_api_key_hash' };
+      return acceptOperational('device_api_key_hash');
     }
     const r = await pool.query(
       `select api_key::text from public.rep_devices where id::text = $1 limit 1`,
@@ -181,7 +194,7 @@ export async function verifyRepAgentTokenVps(
     );
     const deviceKey = String(r.rows[0]?.api_key || '').trim();
     if (deviceKey && secureCompare(trimmed, deviceKey)) {
-      return { ok: true, method: 'device_api_key' };
+      return acceptOperational('device_api_key');
     }
   }
 
@@ -189,15 +202,15 @@ export async function verifyRepAgentTokenVps(
     const bridge = bridgeToken();
     if (bridge && secureCompare(trimmed, bridge)) {
       if (!id) return { ok: false, code: 'unauthorized' };
-      const operational = await isRepDeviceOperational(id);
-      if (!operational) return { ok: false, code: 'DEVICE_INACTIVE' };
+      const operational = await acceptOperational('bridge');
+      if (!operational.ok) return operational;
       logger.warn({
         module: 'rep.agent.auth',
         action: 'REP_BRIDGE_LEGACY_USED',
         message: '[SECURITY] Autenticação REP via bridge token legado — migre para device_key',
         meta: { deviceId: id },
       });
-      return { ok: true, method: 'bridge' };
+      return operational;
     }
   }
 

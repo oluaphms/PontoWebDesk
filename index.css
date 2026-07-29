@@ -34,6 +34,44 @@
   --color-slate-800: #1e293b;
   --color-slate-900: #0f172a;
   --color-slate-950: #020617;
+
+  /*
+   * Light theme — escada de profundidade (canvas → shell → card → raised).
+   * Não usa branco absoluto no canvas; cards brancos ganham contraste e sombra.
+   */
+  --ds-canvas: #d8dde5;
+  --ds-canvas-subtle: #c9d0db;
+  --ds-surface: #ffffff;
+  --ds-surface-raised: #ffffff;
+  --ds-surface-sunken: #f4f6f9;
+  --ds-surface-muted: #eef2f7;
+  --ds-header: rgba(255, 255, 255, 0.88);
+  --ds-sidebar: #f7f8fb;
+  --ds-sidebar-hover: #eef2f7;
+  --ds-sidebar-active: #eef2ff;
+  --ds-input: #ffffff;
+  --ds-input-hover: #f8fafc;
+  --ds-table-head: #eef2f7;
+  --ds-table-row-alt: #f8fafc;
+  --ds-table-row-hover: #eef2ff;
+  --ds-border: #e5e7eb;
+  --ds-border-strong: #d1d5db;
+  --ds-divider: #e5e7eb;
+  --ds-text: #0f172a;
+  --ds-text-secondary: #334155;
+  --ds-text-muted: #64748b;
+  --ds-text-disabled: #94a3b8;
+  --ds-primary: #4f46e5;
+  --ds-primary-hover: #4338ca;
+  --ds-ring: rgba(79, 70, 229, 0.32);
+  --ds-shadow-card:
+    0 0 0 1px rgb(15 23 42 / 0.03),
+    0 1px 2px rgb(15 23 42 / 0.05),
+    0 2px 8px rgb(15 23 42 / 0.04);
+  --ds-shadow-elevated:
+    0 0 0 1px rgb(15 23 42 / 0.04),
+    0 4px 16px rgb(15 23 42 / 0.08),
+    0 1px 3px rgb(15 23 42 / 0.05);
   
   /* Cores de Status */
   --color-green-500: #22c55e;
@@ -44,11 +82,11 @@
   --color-amber-600: #d97706;
   
   /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
-  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.05);
+  --shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(15 23 42 / 0.08);
+  --shadow-2xl: 0 25px 50px -12px rgb(15 23 42 / 0.18);
   
   /* Transições */
   --transition-fast: 150ms ease;
@@ -82,6 +120,34 @@
   --color-slate-100: #1e293b;
   --color-slate-200: #334155;
   --color-slate-300: #475569;
+
+  --ds-canvas: #020617;
+  --ds-canvas-subtle: #0f172a;
+  --ds-surface: #0f172a;
+  --ds-surface-raised: #1e293b;
+  --ds-surface-sunken: #020617;
+  --ds-surface-muted: #1e293b;
+  --ds-header: rgba(15, 23, 42, 0.88);
+  --ds-sidebar: #0f172a;
+  --ds-sidebar-hover: #1e293b;
+  --ds-sidebar-active: rgba(79, 70, 229, 0.12);
+  --ds-input: #1e293b;
+  --ds-input-hover: #334155;
+  --ds-table-head: rgba(15, 23, 42, 0.85);
+  --ds-table-row-alt: rgba(30, 41, 59, 0.35);
+  --ds-table-row-hover: rgba(79, 70, 229, 0.12);
+  --ds-border: #334155;
+  --ds-border-strong: #475569;
+  --ds-divider: #334155;
+  --ds-text: #f8fafc;
+  --ds-text-secondary: #cbd5e1;
+  --ds-text-muted: #94a3b8;
+  --ds-text-disabled: #64748b;
+  --ds-primary: #818cf8;
+  --ds-primary-hover: #a5b4fc;
+  --ds-ring: rgba(129, 140, 248, 0.45);
+  --ds-shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --ds-shadow-elevated: 0 8px 24px rgb(0 0 0 / 0.35);
 
   /* Logo (tema escuro) */
   --logo-primary: #e5e7eb;        /* Cinza claro - relógio e PONTO */
@@ -873,6 +939,347 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-tap-highlight-color: transparent;
   transition: background-color var(--transition-base), color var(--transition-base);
+  background-color: var(--ds-canvas);
+  color: var(--ds-text);
+}
+
+/* —— Design System surfaces (light depth + dark parity) —— */
+@layer components {
+  .ds-canvas {
+    background-color: var(--ds-canvas);
+    color: var(--ds-text);
+  }
+
+  .ds-surface {
+    background-color: var(--ds-surface);
+    border: 1px solid var(--ds-border);
+    box-shadow: var(--ds-shadow-card);
+    border-radius: 1rem;
+  }
+
+  .ds-surface-raised {
+    background-color: var(--ds-surface-raised);
+    border: 1px solid var(--ds-border);
+    box-shadow: var(--ds-shadow-elevated);
+    border-radius: 1rem;
+  }
+
+  .ds-header-bar {
+    background-color: var(--ds-header);
+    border-bottom: 1px solid var(--ds-border);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .ds-sidebar-shell {
+    background-color: var(--ds-sidebar);
+    border-right: 1px solid var(--ds-border);
+    color: var(--ds-text-secondary);
+    box-shadow: var(--ds-shadow-card);
+  }
+
+  .ds-type-page-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--ds-text);
+  }
+
+  .ds-type-title {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    color: var(--ds-text);
+  }
+
+  .ds-type-subtitle {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    color: var(--ds-text-secondary);
+  }
+
+  .ds-type-label {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ds-text-muted);
+  }
+
+  .ds-type-body {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--ds-text-secondary);
+  }
+
+  .ds-type-helper {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    color: var(--ds-text-muted);
+  }
+
+  .ds-type-disabled {
+    font-size: 0.875rem;
+    color: var(--ds-text-disabled);
+  }
+
+  .ds-input {
+    background-color: var(--ds-input);
+    border: 1px solid var(--ds-border-strong);
+    color: var(--ds-text);
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+      background-color var(--transition-fast);
+  }
+
+  .ds-input::placeholder {
+    color: var(--ds-text-disabled);
+  }
+
+  .ds-input:hover:not(:disabled):not(:focus) {
+    background-color: var(--ds-input-hover);
+    border-color: var(--ds-border-strong);
+  }
+
+  .ds-input:focus {
+    outline: none;
+    border-color: var(--ds-primary);
+    box-shadow: 0 0 0 3px var(--ds-ring);
+  }
+
+  .ds-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background-color: var(--ds-surface-muted);
+    color: var(--ds-text-disabled);
+  }
+
+  .ds-input-error {
+    border-color: #f87171 !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+
+  .ds-input-success {
+    border-color: #34d399 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+  }
+
+  .ds-table-wrap {
+    overflow: auto;
+    border: 1px solid var(--ds-border);
+    border-radius: 0.75rem;
+    background: var(--ds-surface);
+    box-shadow: var(--ds-shadow-card);
+  }
+
+  .ds-table thead {
+    background-color: var(--ds-table-head);
+  }
+
+  .ds-table thead th {
+    color: var(--ds-text-secondary);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--ds-border);
+    padding: 0.75rem 0.875rem;
+  }
+
+  .ds-table tbody tr {
+    border-bottom: 1px solid var(--ds-divider);
+    transition: background-color var(--transition-fast);
+  }
+
+  .ds-table tbody td {
+    padding: 0.75rem 0.875rem;
+    color: var(--ds-text-secondary);
+  }
+
+  .ds-table tbody tr:nth-child(even) {
+    background-color: var(--ds-table-row-alt);
+  }
+
+  .ds-table tbody tr:hover {
+    background-color: var(--ds-table-row-hover);
+  }
+
+  .ds-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .ds-badge-success {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+  }
+
+  .ds-badge-warning {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #b45309;
+  }
+
+  .ds-badge-danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #b91c1c;
+  }
+
+  .ds-badge-info {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    color: #4338ca;
+  }
+
+  .ds-badge-neutral {
+    background: #f8fafc;
+    border-color: #e5e7eb;
+    color: #475569;
+  }
+
+  .ds-badge-processing {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+  }
+
+  .dark .ds-badge-success {
+    background: rgba(6, 78, 59, 0.35);
+    border-color: rgba(52, 211, 153, 0.35);
+    color: #6ee7b7;
+  }
+
+  .dark .ds-badge-warning {
+    background: rgba(120, 53, 15, 0.35);
+    border-color: rgba(251, 191, 36, 0.35);
+    color: #fcd34d;
+  }
+
+  .dark .ds-badge-danger {
+    background: rgba(127, 29, 29, 0.35);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+  }
+
+  .dark .ds-badge-info {
+    background: rgba(49, 46, 129, 0.4);
+    border-color: rgba(129, 140, 248, 0.35);
+    color: #a5b4fc;
+  }
+
+  .dark .ds-badge-neutral {
+    background: rgba(30, 41, 59, 0.6);
+    border-color: rgba(71, 85, 105, 0.6);
+    color: #cbd5e1;
+  }
+
+  .dark .ds-badge-processing {
+    background: rgba(30, 58, 138, 0.4);
+    border-color: rgba(96, 165, 250, 0.35);
+    color: #93c5fd;
+  }
+}
+
+/* Light: inputs/selects genéricos ganham evidência sem reescrever páginas */
+html:not(.dark) input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']),
+html:not(.dark) select,
+html:not(.dark) textarea {
+  border-color: var(--ds-border-strong);
+  background-color: var(--ds-input);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+html:not(.dark) input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):hover:not(:disabled):not(:focus),
+html:not(.dark) select:hover:not(:disabled):not(:focus),
+html:not(.dark) textarea:hover:not(:disabled):not(:focus) {
+  background-color: var(--ds-input-hover);
+  border-color: #cbd5e1;
+}
+
+html:not(.dark) input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):focus,
+html:not(.dark) select:focus,
+html:not(.dark) textarea:focus {
+  border-color: var(--ds-primary);
+  box-shadow: 0 0 0 3px var(--ds-ring);
+}
+
+/*
+ * Light depth: cards brancos sobre canvas cinza ganham sombra e borda nítida
+ * (sem reescrever páginas). Escopo em main para não afetar overlays.
+ */
+html:not(.dark) main [class*='bg-white'][class*='border']:is(
+    [class*='rounded-2xl'],
+    [class*='rounded-xl'],
+    [class*='rounded-lg']
+  ),
+html:not(.dark) main [class*='bg-surface'][class*='border']:is(
+    [class*='rounded-2xl'],
+    [class*='rounded-xl'],
+    [class*='rounded-lg']
+  ) {
+  box-shadow: var(--ds-shadow-card);
+  border-color: var(--ds-border);
+}
+
+/* Tabelas comuns no light: cabeçalho, zebra e hover */
+html:not(.dark) main table thead tr {
+  background-color: var(--ds-table-head);
+}
+
+html:not(.dark) main table thead th {
+  color: var(--ds-text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+html:not(.dark) main table tbody tr {
+  transition: background-color var(--transition-fast);
+  border-color: var(--ds-divider);
+}
+
+html:not(.dark) main table tbody tr:nth-child(even) {
+  background-color: var(--ds-table-row-alt);
+}
+
+html:not(.dark) main table tbody tr:hover {
+  background-color: var(--ds-table-row-hover);
+}
+
+html:not(.dark) main table tbody td {
+  color: var(--ds-text-secondary);
+}
+
+/* Tipografia light: títulos mais densos; secundário não compete com primary */
+html:not(.dark) main h1 {
+  color: var(--ds-text);
+  letter-spacing: -0.025em;
+}
+
+html:not(.dark) main h2,
+html:not(.dark) main h3 {
+  color: var(--ds-text);
+}
+
+/* Dock/footer bar no light */
+html:not(.dark) .ds-dock,
+html:not(.dark) [data-ds='dock'] {
+  background-color: rgba(255, 255, 255, 0.96);
+  border-color: var(--ds-border);
+  box-shadow: 0 -4px 20px rgb(15 23 42 / 0.08);
 }
 
 /* Links */

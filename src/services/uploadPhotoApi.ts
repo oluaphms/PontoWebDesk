@@ -84,9 +84,9 @@ export async function uploadPhotoViaApi(
       type: file.type,
       normalizedMime: detectedMime,
       kind,
-      validationCode: fileCheck.ok ? null : fileCheck.code,
+      validationCode: fileCheck.ok === true ? null : fileCheck.code,
     });
-    if (!fileCheck.ok) {
+    if (fileCheck.ok === false) {
       return { ok: false, error: uploadValidationMessage(fileCheck.code, policy) };
     }
     const head = await readFileHead(file, 32);

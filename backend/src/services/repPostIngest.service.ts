@@ -1,5 +1,6 @@
 import { pool } from '../db/index.js';
 import { logger } from '../logger/logger.js';
+import { PlatformService } from '../platform/PlatformService.js';
 
 export type RepPromotedRow = {
   user_id: string;
@@ -7,6 +8,167 @@ export type RepPromotedRow = {
   nsr?: number | null;
   time_record_id?: string | null;
 };
+
+/** TEMP — rastreio pontual pós-POST /api/rep/punches (não altera regras). */
+export async function traceRepPunchPipelineByNsr(input: {
+  companyId: string;
+  nsrs: readonly number[];
+  phase: string;
+}): Promise<void> {
+  const cid = String(input.companyId || '').trim();
+  const nsrs = [...new Set(input.nsrs.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!cid || nsrs.length === 0) return;
+
+  try {
+    const logs = await pool.query(
+      `select
+         nsr,
+         id as rep_log_id,
+         status,
+         promotion_status,
+         promotion_error_code,
+         resolved_user_id,
+         time_record_id,
+         tipo_marcacao,
+         data_hora at time zone 'America/Sao_Paulo' as data_hora_sp,
+         (time_record_id is not null) as has_time_record,
+         (status = 'promoted') as status_promoted,
+         (time_record_id is not null and coalesce(status, '') <> 'promoted') as inconsistent_pending_with_tr
+       from public.rep_punch_logs
+      where company_id::text = $1
+        and nsr = any($2::bigint[])
+      order by nsr`,
+      [cid, nsrs],
+    );
+
+    const trIds = logs.rows
+      .map((r) => (r.time_record_id != null ? String(r.time_record_id) : ''))
+      .filter(Boolean);
+    const trs =
+      trIds.length > 0
+        ? await pool.query(
+            `select id, type, nsr, source, user_id,
+                    timestamp at time zone 'America/Sao_Paulo' as ts_sp
+               from public.time_records
+              where id = any($1::text[])`,
+            [trIds],
+          )
+        : { rows: [] as Record<string, unknown>[] };
+    const trById = new Map(trs.rows.map((r) => [String(r.id), r]));
+
+    const userIds = [
+      ...new Set(
+        logs.rows
+          .map((r) => (r.resolved_user_id != null ? String(r.resolved_user_id) : ''))
+          .filter(Boolean),
+      ),
+    ];
+    const sheets =
+      userIds.length > 0
+        ? await pool.query(
+            `select employee_id, date, worked_minutes, raw_data->>'source' as src, updated_at
+               from public.timesheets_daily
+              where company_id::text = $1
+                and employee_id = any($2::uuid[])
+                and date = date '2026-07-13'`,
+            [cid, userIds],
+          )
+        : { rows: [] as Record<string, unknown>[] };
+
+    const bank =
+      userIds.length > 0
+        ? await pool.query(
+            `select
+               (select count(*)::int from public.bank_hours
+                 where employee_id = any($1::uuid[]) and date = date '2026-07-13') as bank_hours_rows,
+               (select count(*)::int from public.bank_hours_ledger
+                 where employee_id = any($1::uuid[]) and date = date '2026-07-13') as bank_ledger_rows`,
+            [userIds],
+          )
+        : { rows: [{ bank_hours_rows: 0, bank_ledger_rows: 0 }] };
+
+    for (const row of logs.rows) {
+      const nsr = Number(row.nsr);
+      const trId = row.time_record_id != null ? String(row.time_record_id) : null;
+      const tr = trId ? trById.get(trId) : null;
+      const sheet = sheets.rows.find(
+        (s) => String(s.employee_id) === String(row.resolved_user_id),
+      );
+      const classification = row.has_time_record
+        ? row.status_promoted
+          ? 'promoted'
+          : 'promoted_tr_but_status_pending'
+        : row.promotion_error_code
+          ? `failed:${row.promotion_error_code}`
+          : 'pending_no_tr';
+
+      logger.info({
+        module: 'rep.pipeline',
+        action: 'TEMP_REP_NSR_TRACE',
+        message: `[TEMP REP PIPELINE] NSR ${nsr} @ ${input.phase}`,
+        companyId: cid,
+        meta: {
+          phase: input.phase,
+          nsr,
+          stage_received: true,
+          stage_rep_punch_logs: true,
+          rep_log_id: row.rep_log_id,
+          employee_id: row.resolved_user_id ?? null,
+          stage_employee_identified: Boolean(row.resolved_user_id),
+          classification,
+          status: row.status,
+          promotion_status: row.promotion_status,
+          tipo_marcacao: row.tipo_marcacao,
+          data_hora_sp: row.data_hora_sp,
+          inconsistent_pending_with_tr: row.inconsistent_pending_with_tr === true,
+          stage_time_record: Boolean(tr),
+          time_record_id: trId,
+          time_record_type: tr?.type ?? null,
+          time_record_ts_sp: tr?.ts_sp ?? null,
+          stage_timesheet: Boolean(sheet),
+          timesheet_worked_minutes: sheet?.worked_minutes ?? null,
+          timesheet_source: sheet?.src ?? null,
+          stage_bank_hours: Number(bank.rows[0]?.bank_hours_rows ?? 0) > 0,
+          bank_hours_rows: Number(bank.rows[0]?.bank_hours_rows ?? 0),
+          bank_ledger_rows: Number(bank.rows[0]?.bank_ledger_rows ?? 0),
+          stage_dashboard_via_time_records: Boolean(tr),
+          drop_off_hint: !tr
+            ? 'stopped_before_time_records'
+            : row.inconsistent_pending_with_tr === true
+              ? 'time_record_ok_but_rep_punch_logs.status_not_promoted'
+              : Number(bank.rows[0]?.bank_hours_rows ?? 0) === 0
+                ? 'pipeline_does_not_write_bank_hours_on_CALC_DAY'
+                : 'ok_end_to_end',
+        },
+      });
+    }
+
+    const missing = nsrs.filter((n) => !logs.rows.some((r) => Number(r.nsr) === n));
+    for (const nsr of missing) {
+      logger.warn({
+        module: 'rep.pipeline',
+        action: 'TEMP_REP_NSR_TRACE',
+        message: `[TEMP REP PIPELINE] NSR ${nsr} @ ${input.phase} — AUSENTE em rep_punch_logs`,
+        companyId: cid,
+        meta: {
+          phase: input.phase,
+          nsr,
+          stage_received: false,
+          stage_rep_punch_logs: false,
+          drop_off_hint: 'never_persisted_in_rep_punch_logs',
+        },
+      });
+    }
+  } catch (error) {
+    logger.warn({
+      module: 'rep.pipeline',
+      action: 'TEMP_REP_NSR_TRACE_FAILED',
+      message: '[TEMP REP PIPELINE] falha no trace',
+      companyId: cid,
+      error,
+    });
+  }
+}
 
 export type RepPromotePendingResult = {
   promoted: RepPromotedRow[];
@@ -17,8 +179,7 @@ export type RepPromotePendingResult = {
 
 /** SaaS: `REP_POST_INGEST_ASYNC=1` — promote/recalc fora do await do HTTP (default sync = compat). */
 export function isRepPostIngestAsync(): boolean {
-  const v = String(process.env.REP_POST_INGEST_ASYNC ?? '').trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+  return PlatformService.isRepPostIngestAsync();
 }
 
 /** Fire-and-forget com log — não altera o contrato da resposta HTTP. */
@@ -153,6 +314,23 @@ export async function promotePendingRepLogsAfterBatch(
       },
     });
 
+    // TEMP: detalhe por NSR retornado pela promoção em lote (órfãos time_record_id IS NULL)
+    for (const row of promoted) {
+      logger.info({
+        module: 'rep.pipeline',
+        action: 'TEMP_REP_PROMOTE_ROW',
+        message: `[TEMP REP PIPELINE] promotePending NSR ${row.nsr ?? 'n/a'}`,
+        companyId: cid,
+        meta: {
+          nsr: row.nsr ?? null,
+          employee_id: row.user_id,
+          data_hora: row.data_hora,
+          time_record_id: row.time_record_id ?? null,
+          stage_promoted_by_batch: true,
+        },
+      });
+    }
+
     return { promoted, promotedCount, skippedCount, errorCount };
   } catch (error) {
     logger.warn({
@@ -172,11 +350,12 @@ async function recalcTimesheetDayWithPool(
   employeeId: string,
   dateYmd: string,
 ): Promise<void> {
+  // $1/$2 não usados na query — node-pg falha com "could not determine data type of parameter $1"
   const dayBounds = await pool.query(
     `select
-       ($3::date::timestamp at time zone 'America/Sao_Paulo') as day_start,
-       (($3::date + interval '1 day')::timestamp at time zone 'America/Sao_Paulo') as day_end`,
-    [companyId, employeeId, dateYmd],
+       ($1::date::timestamp at time zone 'America/Sao_Paulo') as day_start,
+       (($1::date + interval '1 day')::timestamp at time zone 'America/Sao_Paulo') as day_end`,
+    [dateYmd],
   );
   const dayStart = dayBounds.rows[0]?.day_start;
   const dayEnd = dayBounds.rows[0]?.day_end;
@@ -226,6 +405,24 @@ async function recalcTimesheetDayWithPool(
       }),
     ],
   );
+
+  // TEMP: espelho recalculado (CALC_DAY / pós-promote)
+  logger.info({
+    module: 'rep.pipeline',
+    action: 'TEMP_REP_TIMESHEET_RECALC',
+    message: `[TEMP REP PIPELINE] timesheets_daily recalc ${dateYmd}`,
+    companyId,
+    meta: {
+      employee_id: employeeId,
+      date: dateYmd,
+      worked_minutes: workedMinutes,
+      time_records_count: recs.rowCount ?? 0,
+      time_record_ids: recs.rows.map((r) => String(r.id)),
+      stage_timesheet: true,
+      stage_bank_hours: false,
+      note: 'CALC_DAY atualiza timesheets_daily; nao grava bank_hours/bank_hours_ledger',
+    },
+  });
 }
 
 /** Processa jobs CALC_DAY pendentes imediatamente (VPS não depende de cron externo). */
@@ -293,10 +490,7 @@ export async function processRepCalcDayJobsImmediate(companyId: string, limit = 
 }
 
 export async function logRepPipelineDbDiagnostics(companyId?: string | null): Promise<Record<string, number>> {
-  const enabled =
-    process.env.REP_PIPELINE_DIAG === '1' ||
-    process.env.REP_PIPELINE_DIAG === 'true' ||
-    process.env.NODE_ENV === 'development';
+  const enabled = PlatformService.isRepPipelineDiagEnabled();
   if (!enabled) {
     return {
       rep_punch_logs_24h: -1,

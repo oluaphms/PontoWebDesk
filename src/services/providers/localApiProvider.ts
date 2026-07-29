@@ -2,11 +2,28 @@ import type { IDataProvider, ProviderLoginParams, ProviderPunchPayload } from '.
 import { ApiError, apiPost, buildApiUrl, getApiBaseUrl } from '../api';
 import { getToken, isCookieSessionToken, setToken } from '../authToken';
 import { setCsrfToken } from '../csrfToken';
+import { beginPostLoginQueryCooldown } from '../../app/postLoginQueryGate';
 import { fetchEmployees } from '../employeesApi.service';
+import {
+  isCommercialBlockedCode,
+  redirectToLicenseBlocked,
+} from '../commercialBlockRedirect';
+
+function extractErrorCode(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const record = body as Record<string, unknown>;
+  return String(record.code || record.error || '').trim();
+}
 
 export const localApiProvider: IDataProvider = {
   async login(params: ProviderLoginParams): Promise<any> {
     const endpoint = '/auth/login';
+    console.info('LOGIN_PROVIDER_SELECTED', { provider: 'LOCAL_API' });
+    console.info('LOGIN_ENDPOINT', { endpoint: '/api/auth/login' });
+    console.info('LOGIN_PAYLOAD', {
+      identifier: String(params.identifier || '').trim().toLowerCase(),
+      hasPassword: Boolean(params.password),
+    });
     try {
       const data = (await apiPost(endpoint, params)) as Record<string, unknown>;
       if (!data?.ok) {
@@ -14,15 +31,30 @@ export const localApiProvider: IDataProvider = {
       }
       const token = String(data?.token || '').trim();
       const csrfToken = String(data?.csrfToken || '').trim();
+      if (!token) {
+        console.warn('[AUTH-FLOW] LOGIN_NO_TOKEN_IN_BODY', {
+          hint: 'Em localhost cross-port o cookie pode falhar; o body deve trazer JWT.',
+        });
+      }
       setToken(token || '__http_only_cookie_session__');
       if (csrfToken) setCsrfToken(csrfToken);
+      beginPostLoginQueryCooldown('local_api_login');
       console.info('[AUTH-FLOW] TOKEN SAVED', {
         mode: token ? 'bearer' : 'cookie',
         userId: (data.user as Record<string, unknown> | undefined)?.id ?? null,
+        hasTokenInBody: Boolean(token),
       });
       return data;
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;
+      const code = extractErrorCode(apiError?.body);
+      if (isCommercialBlockedCode(code)) {
+        redirectToLicenseBlocked(
+          typeof (apiError?.body as Record<string, unknown> | null)?.message === 'string'
+            ? String((apiError?.body as Record<string, unknown>).message)
+            : null,
+        );
+      }
       console.error('LOGIN FAILURE', {
         apiUrl: getApiBaseUrl(),
         endpoint: buildApiUrl(endpoint),

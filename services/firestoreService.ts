@@ -320,36 +320,19 @@ class SupabaseService {
       safeSetJson(`company_${company.id}`, company);
       return;
     }
-    const createdAtIso =
-      (company as any).createdAt instanceof Date
-        ? (company as any).createdAt.toISOString()
-        : new Date().toISOString();
+    // FASE 6.6+: Sistema Operacional NÃO cria companies — somente UPDATE.
     try {
-      await db.insert('companies', {
-        id: company.id,
+      await db.update('companies', {
         nome: company.nome,
         cnpj: company.cnpj,
         endereco: company.endereco,
         geofence: company.geofence,
         settings: company.settings,
-        created_at: createdAtIso,
         updated_at: new Date().toISOString()
-      });
-    } catch (error) {
-      observabilityConsole.error('Erro ao salvar empresa no Supabase:', error);
-      // Tentar atualizar se já existir
-      try {
-        await db.update('companies', {
-          nome: company.nome,
-          cnpj: company.cnpj,
-          endereco: company.endereco,
-          geofence: company.geofence,
-          settings: company.settings,
-          updated_at: new Date().toISOString()
-        }, [{ column: 'id', operator: 'eq', value: company.id }]);
-      } catch (updateError) {
-        throw error;
-      }
+      }, [{ column: 'id', operator: 'eq', value: company.id }]);
+    } catch (updateError) {
+      observabilityConsole.error('Erro ao atualizar empresa no Supabase:', updateError);
+      throw updateError;
     }
   }
 
@@ -417,8 +400,8 @@ class SupabaseService {
   async uploadPhoto(userId: string, photoBase64: string): Promise<string> {
     const { uploadPhotoViaApi } = await import('../src/services/uploadPhotoApi');
     const result = await uploadPhotoViaApi({ dataUrl: photoBase64, kind: 'punch', filename: `${userId}/punch.jpg` });
-    if (result.ok) return result.url;
-    throw new Error(result.error || 'Falha ao enviar foto');
+    if (result.ok === false) throw new Error(result.error || 'Falha ao enviar foto');
+    return result.url;
   }
 
   /**

@@ -21,6 +21,25 @@ const inflight = new Map<string, Promise<boolean>>();
 
 let loggedSchemaAuto = false;
 
+type SchemaProbeResult = {
+  data: { column_name?: string } | null;
+  error: { message: string } | null;
+};
+
+type SchemaProbeQuery = {
+  eq: (column: string, value: string) => SchemaProbeQuery;
+  limit: (limit: number) => SchemaProbeQuery;
+  maybeSingle: () => Promise<SchemaProbeResult>;
+};
+
+type SchemaCapableClient = {
+  schema: (schema: string) => {
+    from: (table: string) => {
+      select: (columns: string) => SchemaProbeQuery;
+    };
+  };
+};
+
 function cacheKey(tableSchema: string, tableName: string, columnName: string): string {
   return `${tableSchema}:${tableName}:${columnName}`;
 }
@@ -62,7 +81,17 @@ export async function hasColumn(tableName: string, columnName: string, tableSche
 
 async function probeColumnExists(tableSchema: string, tableName: string, columnName: string): Promise<boolean> {
   const client = getSupabaseClientOrThrow();
-  const res = await client
+  const candidate: unknown = client;
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    !('schema' in candidate) ||
+    typeof candidate.schema !== 'function'
+  ) {
+    throw new Error('schema_introspection_not_supported');
+  }
+  const schemaClient = candidate as SchemaCapableClient;
+  const res = await schemaClient
     .schema('information_schema')
     .from('columns')
     .select('column_name')

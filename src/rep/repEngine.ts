@@ -15,13 +15,10 @@ import {
 
 export { onWebPunchQueueSynced };
 import type { SavePunchEvidenceParams } from '../services/punchEvidenceService';
-import { SYSTEM_CONFIG } from '../config/system';
+import { PlatformService } from '../platform/PlatformService';
 import { getProvider } from '../services/getProvider';
 
-const WEB_PUNCH_QUEUE =
-  typeof import.meta !== 'undefined' &&
-  import.meta.env &&
-  import.meta.env.VITE_REP_WEB_PUNCH_QUEUE !== '0';
+const WEB_PUNCH_QUEUE = PlatformService.isRepWebPunchQueueEnabled();
 
 export interface RegisterPunchParams {
   userId: string;
@@ -123,7 +120,7 @@ export function normalizePunchRegistrationError(err: unknown): Error {
  * Usa RPC no Supabase para garantir sequência e hash no servidor.
  */
 export async function registerPunch(params: RegisterPunchParams): Promise<RegisterPunchResult> {
-  if (SYSTEM_CONFIG.DATA_PROVIDER_MODE === 'LOCAL_API') {
+  if (PlatformService.isLocalApiProvider()) {
     return enqueueAndMaybeSyncWebPunch(params as RegisterPunchSecureParams);
   }
   const {

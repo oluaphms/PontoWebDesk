@@ -37,10 +37,13 @@ vi.mock('../services/repUserMatch.service.js', () => ({
 vi.mock('../services/repPostIngest.service.js', () => ({
   enqueueRepTimesheetRecalcJobs: vi.fn(),
   isRepIngestMigrationError: vi.fn().mockReturnValue(false),
+  isRepPostIngestAsync: vi.fn().mockReturnValue(false),
   logRepPipelineDbDiagnostics: vi.fn(),
   logRepPipelineTelemetry: vi.fn(),
   processRepCalcDayJobsImmediate: vi.fn().mockResolvedValue(0),
   promotePendingRepLogsAfterBatch: vi.fn().mockResolvedValue({ promoted: [] }),
+  scheduleRepBackgroundWork: vi.fn(),
+  traceRepPunchPipelineByNsr: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../services/repRpcProxy.service.js', () => ({

@@ -5,8 +5,7 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
 import { getSupabaseClient } from './supabaseClient';
 import { withTimeout } from '../utils/withTimeout';
-import { isCloudEnabled } from './cloudService';
-import { cloudFallback } from './cloudFallback';
+import { PlatformService } from '../platform/PlatformService';
 import { listCachedEmployeesByCompany } from './localDb';
 
 const BATCH_LIMIT = 100;
@@ -25,7 +24,7 @@ export async function loadUsersBatchesForCompany(
   companyId: string,
   onBatch: (rows: UserBatchRow[]) => void | Promise<void>,
 ): Promise<void> {
-  if (!isCloudEnabled()) {
+  if (!PlatformService.isDataLayerConfigured()) {
     const cached = await listCachedEmployeesByCompany(companyId);
     await onBatch(cached as UserBatchRow[]);
     return;
@@ -92,7 +91,7 @@ export async function loadUsersBatchesForCompany(
 
 /** Coleta company_ids para jobs multi-tenant (scan paginado apenas de company_id). */
 export async function collectDistinctCompanyIdsFromUsers(): Promise<string[]> {
-  if (!isCloudEnabled()) return cloudFallback([]);
+  if (!PlatformService.isDataLayerConfigured()) return [];
   const client = getSupabaseClient();
   if (!client) return [];
 

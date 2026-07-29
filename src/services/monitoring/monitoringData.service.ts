@@ -8,8 +8,7 @@ import { listTimeRecords } from '../../../services/timeRecords.service';
 import { queryCache, TTL } from '../queryCache';
 import { buildOperationalDayRange, getOperationalTodayYmd } from '../../utils/operationalDateHardLock';
 import { recordPunchInstantIso } from '../../utils/punchOrigin';
-import { isCloudEnabled } from '../cloudService';
-import { cloudFallback } from '../cloudFallback';
+import { PlatformService } from '../../platform/PlatformService';
 import type { OperationalPunchRecord } from './monitoringGeoHardLock.service';
 
 const MONITORING_DAILY_RECORD_QUERY_LIMIT = 120;
@@ -33,7 +32,7 @@ function mergeMonitoringRecordRows(...recordGroups: OperationalPunchRecord[][]):
 
 /** Batidas do dia operacional (timestamp + created_at), alinhado à Dashboard. */
 export async function fetchMonitoringDailyRecordCandidates(companyId: string): Promise<OperationalPunchRecord[]> {
-  if (!isCloudEnabled()) return cloudFallback([]);
+  if (!PlatformService.isDataLayerConfigured()) return [];
   const todayLocal = getOperationalTodayYmd();
   const { startUtcIso, endUtcIso } = buildOperationalDayRange(todayLocal);
   const columns =
@@ -83,7 +82,7 @@ export async function fetchMonitoringDailyRecordCandidates(companyId: string): P
 
 /** Registros recentes + dia operacional (evita perder batidas de hoje em empresas com alto volume). */
 export async function fetchMonitoringTimeRecordsBundle(companyId: string): Promise<OperationalPunchRecord[]> {
-  if (!isCloudEnabled()) return cloudFallback([]);
+  if (!PlatformService.isDataLayerConfigured()) return [];
   const columns =
     'id,user_id,company_id,type,timestamp,created_at,accuracy,latitude,longitude,raw_data,origin,source,method';
   const [daily, recent] = await Promise.all([

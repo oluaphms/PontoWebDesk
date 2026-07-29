@@ -12,6 +12,7 @@ import { DateTime } from 'luxon';
 import { OPERATIONAL_TIMEZONE } from './operationalClock';
 import { computeNightAwareWorkedMinutes, getOperationalDate } from './resolveOperationalDate';
 import { auditDayPunchSequence, type PunchSequenceWarning } from '../domain/attendance/punchSequenceAudit';
+import { IS_DEV, APP_MODE } from '../config/runtimeEnv';
 
 export { calendarDateForEspelhoRow, extractLocalCalendarDateFromIso } from './calendarUtils';
 export {
@@ -186,7 +187,7 @@ function emitMirrorAudit(
   entry: MirrorConsolidationAuditEntry,
 ): void {
   audit?.push(entry);
-  if (import.meta.env.MODE === 'test') return;
+  if (APP_MODE === 'test') return;
   if (!isDevVerboseLogsEnabled()) return;
   if (typeof globalThis !== 'undefined' && globalThis.console) {
     observabilityConsole.warn(`[${entry.kind}]`, {
@@ -616,7 +617,7 @@ export function classifyPunch(recordsDoDia: TimeRecord[], dayDateStr: string): {
   const sanitized = dedupeRepRecordsForMirror(sortedFirst, dayDateStr);
   const sorted = sortRecordsByTime(sanitized, dayDateStr);
   const times = sorted.map((r) => extractTime(recordEffectiveMirrorInstant(r, dayDateStr)));
-  if (import.meta.env.DEV && sorted.length === 4) {
+  if (IS_DEV && sorted.length === 4) {
      
     observabilityConsole.log('[CLASSIFY] registros do dia:', sorted.length);
      

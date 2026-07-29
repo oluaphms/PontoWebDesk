@@ -14,10 +14,8 @@ import {
 } from './egressSelectColumns';
 import { ApiError, apiGet, apiPost } from './api';
 import { getToken } from './authToken';
-import { isApiConfigured } from '../config/env';
 import { queryCache, TTL } from './queryCache';
-import { isCloudEnabled } from './cloudService';
-import { cloudFallback } from './cloudFallback';
+import { PlatformService } from '../platform/PlatformService';
 import { cloudSafe } from './cloudSafe';
 import { enableDegradedMode } from './systemMode';
 import { isSupabaseBlocked } from '../utils/supabaseGuard';
@@ -180,13 +178,13 @@ function mapRow(row: any): GlobalSettings | null {
 export async function getSettings(companyId?: string | null): Promise<GlobalSettings | null> {
   const localFallback = async () => {
     const cached = await getCachedSettings<GlobalSettings>();
-    return cloudFallback(cached ?? DEFAULT_SETTINGS);
+    return cached ?? DEFAULT_SETTINGS;
   };
-  if (!isCloudEnabled()) {
+  if (!PlatformService.isDataLayerConfigured()) {
     return localFallback();
   }
   if (!checkSupabaseConfigured()) return DEFAULT_SETTINGS;
-  if (isApiConfigured() && !getToken()) {
+  if (PlatformService.isApiConfigured() && !getToken()) {
     return DEFAULT_SETTINGS;
   }
   return cloudSafe(
@@ -194,7 +192,7 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
       queryCache.getOrFetch(`global_settings:${companyId || 'session'}`, async () => {
         try {
           let mapped: GlobalSettings | null = null;
-          if (isApiConfigured()) {
+          if (PlatformService.isApiConfigured()) {
             try {
               mapped = await fetchSettingsViaAdminApi(String(companyId || '').trim());
             } catch (adminErr) {
@@ -221,7 +219,7 @@ export async function getSettings(companyId?: string | null): Promise<GlobalSett
           }
           if (!mapped && companyId) {
             try {
-              if (isApiConfigured()) {
+              if (PlatformService.isApiConfigured()) {
                 mapped = await saveSettingsViaAdminApi({
                   ...DEFAULT_GLOBAL_SETTINGS,
                   allow_manual_punch: true,
@@ -328,7 +326,7 @@ export async function upsertSettingsForCompany(
 
   const payload = prepareSettingsWritePayload(data);
   try {
-    if (isApiConfigured()) {
+    if (PlatformService.isApiConfigured()) {
       const mapped = await saveSettingsViaAdminApi(payload);
       queryCache.invalidate('global_settings:');
       if (mapped) await cacheSettings(mapped as unknown as Record<string, unknown>);

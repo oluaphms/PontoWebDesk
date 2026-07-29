@@ -19,6 +19,15 @@ import type { User } from '../../types';
 import { fetchAuthMeSessionCheck } from '../services/authMe.service';
 import { clearToken, getToken } from '../services/authToken';
 import { setUnauthorizedHandler } from '../services/api';
+import {
+  isCommercialBlockedCode,
+  redirectToLicenseBlocked,
+} from '../services/commercialBlockRedirect';
+import { isPostLoginQueryCooldownActive } from '../app/postLoginQueryGate';
+import {
+  disconnectAllOperationalRealtime,
+  resumeOperationalRealtime,
+} from '../services/dbHttp';
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 import { SMARTPONTO_PROFILE_ENRICHED_EVENT } from '../app/appShellBootstrap';
 import {
@@ -69,12 +78,34 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const refreshGenerationRef = useRef(0);
 
   const setSessionUser = useCallback((next: User | null | ((prev: User | null) => User | null)) => {
-    commitUser(setUser, next);
+    let authenticated = false;
+    commitUser(setUser, (prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      if (resolved) {
+        authenticated = true;
+        resumeOperationalRealtime();
+      }
+      return resolved;
+    });
+    if (authenticated) {
+      // Invalida refresh()/boot /auth/me em voo — evita clearSession pós-login.
+      refreshGenerationRef.current += 1;
+      authFlowLog('AUTH SESSION COMMIT', {
+        at: new Date().toISOString(),
+        refreshGeneration: refreshGenerationRef.current,
+        reason: 'set_session_user',
+      });
+    }
     setLoading(false);
   }, []);
 
   const clearSession = useCallback(() => {
-    authFlowLog('AUTH LOGOUT', { source: 'AuthSessionProvider.clearSession' });
+    authFlowLog('AUTH LOGOUT', {
+      source: 'AuthSessionProvider.clearSession',
+      at: new Date().toISOString(),
+    });
+    refreshGenerationRef.current += 1;
+    disconnectAllOperationalRealtime('auth_session_cleared');
     clearStoredSessionUser();
     setUser(null);
     setLoading(false);
@@ -86,7 +117,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     try {
       const result = await fetchAuthMeSessionCheck();
       if (generation !== refreshGenerationRef.current) {
-        authFlowLog('AUTH CHECK STALE', { generation });
+        authFlowLog('AUTH CHECK STALE', {
+          generation,
+          current: refreshGenerationRef.current,
+          at: new Date().toISOString(),
+          reason: 'superseded_by_login_or_newer_refresh',
+        });
         return;
       }
       if (result.user) {
@@ -94,10 +130,16 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (result.invalidateSession) {
-        authFlowLog('AUTH LOGOUT', { reason: result.reason ?? 'auth_me_invalidate' });
+        authFlowLog('AUTH LOGOUT', {
+          reason: result.reason ?? 'auth_me_invalidate',
+          at: new Date().toISOString(),
+        });
         clearToken();
         authFlowLog('TOKEN REMOVED', { reason: result.reason });
         clearSession();
+        if (isCommercialBlockedCode(result.reason)) {
+          redirectToLicenseBlocked();
+        }
         return;
       }
       authFlowLog('AUTH CHECK TRANSIENT', { reason: result.reason ?? 'unknown' });
@@ -124,17 +166,51 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      authFlowLog('AUTH LOGOUT', { source: 'api.unauthorizedHandler' });
+    setUnauthorizedHandler((code) => {
+      const normalized = String(code || '').trim();
+      // Pós-login: 401 paralelo (token_revoked / missing_token) não pode derrubar sessão nova.
+      if (
+        isPostLoginQueryCooldownActive() &&
+        (normalized === 'AUTH_TOKEN_REVOKED' ||
+          normalized === 'token_revoked' ||
+          normalized === 'AUTH_MISSING_TOKEN' ||
+          normalized === 'missing_token')
+      ) {
+        authFlowLog('AUTH LOGOUT SUPPRESSED', {
+          source: 'api.unauthorizedHandler',
+          code: normalized,
+          reason: 'post_login_cooldown',
+          at: new Date().toISOString(),
+        });
+        return;
+      }
+      authFlowLog('AUTH LOGOUT', {
+        source: 'api.unauthorizedHandler',
+        code: normalized,
+        at: new Date().toISOString(),
+      });
       clearToken();
-      authFlowLog('TOKEN REMOVED', { source: 'unauthorizedHandler' });
+      authFlowLog('TOKEN REMOVED', { source: 'unauthorizedHandler', code: normalized });
       clearSession();
+      if (isCommercialBlockedCode(normalized)) {
+        redirectToLicenseBlocked();
+      }
     });
     return () => setUnauthorizedHandler(null);
   }, [clearSession]);
 
   useEffect(() => {
     if (bootRefreshDoneRef.current) return;
+    // Painel Master não usa sessão operacional — evita GET /api/auth/me no boot.
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.pathname === '/master' ||
+        window.location.pathname.startsWith('/master/'))
+    ) {
+      bootRefreshDoneRef.current = true;
+      setLoading(false);
+      return;
+    }
     bootRefreshDoneRef.current = true;
     void refresh();
   }, [refresh]);

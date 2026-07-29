@@ -4,11 +4,12 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 // Conforme Portaria MTP 671/2021
 // ============================================================
 
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import type { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import CryptoJS from 'crypto-js';
 import type { DayMirror } from '../utils/timesheetMirror';
+
+type JsPdfConstructor = typeof import('jspdf').default;
 
 // Tipos de dados
 export interface EmployeeData {
@@ -152,8 +153,8 @@ class PDFBuilder {
   private margin: number;
   private currentY: number;
 
-  constructor() {
-    this.doc = new jsPDF({
+  constructor(JsPDF: JsPdfConstructor) {
+    this.doc = new JsPDF({
       orientation: 'landscape',
       unit: 'mm',
       format: 'a4',
@@ -579,7 +580,11 @@ class PDFBuilder {
  * Gera PDF profissional do espelho de ponto conforme Portaria 671/2021
  */
 export async function generateProfessionalTimesheetPDF(data: TimesheetPDFData): Promise<void> {
-  const builder = new PDFBuilder();
+  const [{ default: JsPDF }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
+  const builder = new PDFBuilder(JsPDF);
 
   // Cabeçalho oficial
   builder.addOfficialHeader();

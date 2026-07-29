@@ -1,6 +1,19 @@
 import { HELP_DOC_SLUGS, HELP_DOC_LABELS, type HelpDocSlug } from './helpCenterCatalog';
 import { loadHelpDoc, preloadAllHelpDocs, getCachedHelpDoc } from './helpDocLoader';
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return entities[character];
+  });
+}
+
 /**
  * Exporta manual consolidado em Markdown (download único).
  */
@@ -54,7 +67,7 @@ export async function exportHelpManualAsPrintablePdf(): Promise<void> {
       .replace(/\*\*/g, '')
       .replace(/`/g, '')
       .slice(0, 8000);
-    sections.push(`<h2>${HELP_DOC_LABELS[slug]}</h2><pre style="white-space:pre-wrap;font-family:sans-serif;font-size:11px">${plain}</pre>`);
+    sections.push(`<h2>${escapeHtml(HELP_DOC_LABELS[slug])}</h2><pre style="white-space:pre-wrap;font-family:sans-serif;font-size:11px">${escapeHtml(plain)}</pre>`);
   }
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Manual PontoWebDesk</title></head><body>${sections.join('<hr/>')}</body></html>`;

@@ -23,6 +23,7 @@ import { measureSupabaseAsync } from '../src/auth/supabaseAuthLatency';
 import { scheduleDeferredBootstrap } from '../src/auth/authBootstrapPriority';
 import { normalizeAuthenticatedSession } from '../src/auth/authSessionNormalizer';
 import { getCachedAuthProfile, setCachedAuthProfile, clearAuthProfileCache } from '../src/auth/authProfileCache';
+import { IS_DEV } from '../src/config/runtimeEnv';
 import { runProfileHydrationSingleFlight, clearProfileHydrationInflight } from '../src/auth/profileHydrationSingleFlight';
 import {
   setAuthDuplicateContext,
@@ -1040,10 +1041,24 @@ class AuthService {
     let resolvedEmail = '';
     const isEmailInput = (identifier || '').trim().includes('@');
     const preLoginCachedUser = tryReadUserFromProfileStoreUnsafe();
+    const loginMode = isLocalApiMode() ? 'LOCAL_API' : 'SUPABASE';
+    observabilityConsole.info('LOGIN_PROVIDER_SELECTED', {
+      provider: loginMode,
+      identifierPreview: String(identifier || '').trim().slice(0, 3),
+    });
     if (isLocalApiMode()) {
       try {
         const resolvedForApi = await this.resolveLoginEmail(identifier);
         const loginIdentifier = resolvedForApi || identifier.trim().toLowerCase();
+        observabilityConsole.info('LOGIN_ENDPOINT', {
+          provider: 'LOCAL_API',
+          endpoint: '/api/auth/login',
+        });
+        observabilityConsole.info('LOGIN_PAYLOAD', {
+          provider: 'LOCAL_API',
+          identifier: loginIdentifier,
+          hasPassword: Boolean(password),
+        });
         const apiRes = await getProvider().login({ identifier: loginIdentifier, password });
         const apiUser = apiRes?.user as
           | {
@@ -1109,6 +1124,15 @@ class AuthService {
       return { user: null, error: 'Credenciais inválidas' };
     }
     try {
+      observabilityConsole.info('LOGIN_ENDPOINT', {
+        provider: 'SUPABASE',
+        endpoint: 'supabase.auth.signInWithPassword',
+      });
+      observabilityConsole.info('LOGIN_PAYLOAD', {
+        provider: 'SUPABASE',
+        identifier: String(identifier || '').trim().toLowerCase(),
+        hasPassword: Boolean(password),
+      });
       // Resolver identificador (email, CPF, nome) para um email válido
       resolvedEmail = await this.resolveLoginEmail(identifier);
 
@@ -1610,7 +1634,12 @@ class AuthService {
 
   /** URL base para redirect de recuperação (VITE_APP_URL ou origin). */
   private getResetRedirectUrl(): string {
-    return getAppBaseUrl();
+    const base = getAppBaseUrl().replace(/\/+$/, '');
+    // Evitar apontar para a API local (:3000) — a SPA vive em :3010.
+    if (/^https?:\/\/(localhost|127\.0\.0\.1):3000$/i.test(base)) {
+      return 'http://localhost:3010';
+    }
+    return base || 'http://localhost:3010';
   }
 
   /**
@@ -1994,7 +2023,7 @@ class AuthService {
        * próprio login em localhost ou faz o pedido falhar por timeout.
        */
       if (event === 'SIGNED_OUT' && !session?.user && this._passwordSignInActive) {
-        if (import.meta.env.DEV && typeof console !== 'undefined') {
+        if (IS_DEV && typeof console !== 'undefined') {
           observabilityConsole.log(
             '[AUTH EVENT] SIGNED_OUT — ignorado (signOut local pré-login; não bloquear fila auth) [OK]',
           );
@@ -2017,7 +2046,7 @@ class AuthService {
         !this._passwordSignInActive &&
         !hasSbAuthKeysInBrowser()
       ) {
-        if (import.meta.env.DEV && typeof console !== 'undefined') {
+        if (IS_DEV && typeof console !== 'undefined') {
           observabilityConsole.log(
             '[AUTH EVENT] SIGNED_OUT null — eco cold start, ignorado (sem chaves sb-* no storage) [OK]',
           );
@@ -2025,7 +2054,7 @@ class AuthService {
         return;
       }
 
-      if (import.meta.env.DEV && typeof console !== 'undefined') {
+      if (IS_DEV && typeof console !== 'undefined') {
         if (event === 'INITIAL_SESSION' && !session?.user) {
           const sbOrfa = hasSbAuthKeysInBrowser();
           observabilityConsole.log(
@@ -2155,7 +2184,7 @@ class AuthService {
             !this._passwordSignInActive &&
             !this._isSigningOut
           ) {
-            if (import.meta.env.DEV && typeof console !== 'undefined') {
+            if (IS_DEV && typeof console !== 'undefined') {
               observabilityConsole.warn(
                 '[AUTH] Removendo tokens sb-* locais órfãos (getSession continuou sem utilizador válido).',
               );

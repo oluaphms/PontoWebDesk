@@ -144,6 +144,51 @@ async function handler(request: Request): Promise<Response> {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  /** Fase 6.2 — bloqueio administrativo Master impede ingestão via API_KEY. */
+  async function assertCompanyNotCommerciallyBlocked(companyId: string): Promise<Response | null> {
+    const { data, error } = await supabase
+      .from('companies')
+      .select('id, commercial_blocked')
+      .eq('id', companyId)
+      .maybeSingle();
+
+    if (error) {
+      observabilityConsole.error('[API /punch] Falha ao consultar bloqueio comercial:', error);
+      return noCache(Response.json(
+        {
+          error: 'Não foi possível validar a situação comercial da empresa.',
+          code: 'COMMERCIAL_GATE_UNAVAILABLE',
+          companyId,
+        },
+        { status: 503, headers: corsHeaders },
+      ));
+    }
+
+    if (!data) {
+      return noCache(Response.json(
+        {
+          error: 'Empresa não encontrada.',
+          code: 'COMMERCIAL_GATE_UNAVAILABLE',
+          companyId,
+        },
+        { status: 503, headers: corsHeaders },
+      ));
+    }
+
+    if (data.commercial_blocked === true) {
+      return noCache(Response.json(
+        {
+          error: 'Acesso bloqueado pelo Painel Master. Entre em contato com o suporte comercial.',
+          code: 'COMMERCIAL_BLOCKED_BY_MASTER',
+          companyId,
+        },
+        { status: 403, headers: corsHeaders },
+      ));
+    }
+
+    return null;
+  }
+
   const maybeLegacy = typeof body === 'object' && body !== null && 'employeeId' in body && 'timestamp' in body;
   const isLegacyPunches = maybeLegacy;
   if (isLegacyPunches) {
@@ -155,6 +200,8 @@ async function handler(request: Request): Promise<Response> {
       ));
     }
     const { employeeId, companyId, type, method, timestamp } = parsed.data;
+    const blocked = await assertCompanyNotCommerciallyBlocked(companyId);
+    if (blocked) return blocked;
     const ts = new Date(timestamp);
     if (Number.isNaN(ts.getTime())) {
       return noCache(Response.json({ error: 'timestamp inválido.' }, { status: 400, headers: corsHeaders }));
@@ -184,6 +231,9 @@ async function handler(request: Request): Promise<Response> {
   }
 
   const { deviceId, companyId, punches } = parsed.data;
+
+  const commerciallyBlocked = await assertCompanyNotCommerciallyBlocked(companyId);
+  if (commerciallyBlocked) return commerciallyBlocked;
 
   // ===== VALIDAÇÃO DE DEVICE =====
   // Verificar se o device existe, pertence à company e está ativo

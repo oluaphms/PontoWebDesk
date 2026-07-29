@@ -12,6 +12,7 @@ import { reportSchemaGuardState } from '@/services/schemaGuardReporter';
 import { getCurrentEngineVersion, getCurrentRulesVersion } from '@/services/timesheetCalculationAudit';
 import { installMobileRuntimeStability } from '../performance/mobileRuntimeStability';
 import { devVerboseInfo, isDevVerboseLogsEnabled } from '@/utils/devVerboseLogs';
+import { APP_MODE } from '../config/runtimeEnv';
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -31,7 +32,7 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       if (isDevVerboseLogsEnabled()) {
         console.group('[ENV]');
         observabilityConsole.log('API URL:', apiUrl);
-        observabilityConsole.log('Mode:', import.meta.env.MODE);
+        observabilityConsole.log('Mode:', APP_MODE);
         observabilityConsole.log('Online:', typeof navigator === 'undefined' ? true : navigator.onLine);
         console.groupEnd();
       }
@@ -39,6 +40,8 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       readAuditLogsTenantIdFromEnv();
       const schemaError = getSchemaGuardError();
       if (schemaError) {
+        // Em Vite DEV o Schema Guard não deve gravar production-error; se gravou,
+        // é config inconsistente — reporta uma vez em warn, sem flood de error.
         void reportSchemaGuardState({
           mode: schemaError.mode,
           env: schemaError.env,
@@ -47,10 +50,10 @@ export const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
           correlation_id: schemaError.correlation_id,
           origin: 'AppInitializer',
         });
-        if (schemaError.mode === 'production-error') {
+        if (schemaError.mode === 'production-error' && import.meta.env.PROD) {
           observabilityConsole.error('[APP INIT] Schema Guard CRÍTICO:', schemaError);
         } else {
-          observabilityConsole.warn('[APP INIT] Schema Guard (dev):', schemaError);
+          observabilityConsole.warn('[APP INIT] Schema Guard:', schemaError);
         }
       }
 

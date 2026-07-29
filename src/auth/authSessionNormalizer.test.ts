@@ -53,7 +53,7 @@ describe('normalizeAuthenticatedSession', () => {
       user: baseUser,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toBe('user_session_mismatch');
       expect(result.detail).toContain('22222222');
     }

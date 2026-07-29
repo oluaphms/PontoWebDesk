@@ -4,8 +4,6 @@ import { observabilityConsole } from '../shared/logger/observabilityConsole';
 // ============================================================
 
 import { Report, ReportType } from '@/types/reports';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import type { CellInput, ColumnInput, RowInput } from 'jspdf-autotable';
 
 /**
@@ -13,6 +11,11 @@ import type { CellInput, ColumnInput, RowInput } from 'jspdf-autotable';
  */
 export const exportReportToPDF = async (report: Report, type: ReportType): Promise<void> => {
   try {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
+
     const doc = new jsPDF({
       orientation: 'landscape',
       unit: 'mm',

@@ -20,7 +20,8 @@ export async function resolveCallerFromDb(jwt: JwtPayload): Promise<CallerContex
     tableHasColumn('employees', 'status'),
   ]);
 
-  const fromUsers = await pool.query(
+  // Bootstrap após jwt.verify: descobre companyId/role reais antes de fixar o contexto RLS.
+  const fromUsers = await pool.queryTrustedBootstrap(
     `SELECT company_id::text AS company_id,
             coalesce(nullif(trim(role), ''), 'employee') AS role,
             ${usersHasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} AS status
@@ -37,7 +38,7 @@ export async function resolveCallerFromDb(jwt: JwtPayload): Promise<CallerContex
     };
   }
 
-  const fromEmployees = await pool.query(
+  const fromEmployees = await pool.queryTrustedBootstrap(
     `SELECT company_id::text AS company_id,
             coalesce(nullif(trim(role), ''), 'employee') AS role,
             ${employeesHasStatus ? "coalesce(nullif(trim(status), ''), 'active')" : "'active'"} AS status

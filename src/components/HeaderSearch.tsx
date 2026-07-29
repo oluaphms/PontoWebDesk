@@ -164,7 +164,7 @@ const HeaderSearch: React.FC<HeaderSearchProps> = ({ user }) => {
 
   return (
     <div ref={containerRef} className="relative flex-1 hidden sm:block max-w-xs">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} aria-hidden="true" />
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none" size={18} aria-hidden="true" />
       <input
         ref={inputRef}
         type="search"
@@ -181,14 +181,14 @@ const HeaderSearch: React.FC<HeaderSearchProps> = ({ user }) => {
         aria-controls="header-search-results"
         aria-autocomplete="list"
         autoComplete="off"
-        className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all text-slate-900 dark:text-white"
+        className="w-full pl-10 pr-4 py-2.5 bg-surface border border-border-strong rounded-xl text-sm outline-none shadow-sm placeholder:text-foreground-disabled hover:bg-white hover:border-slate-300 focus:ring-2 focus:ring-brand focus:border-primary focus:bg-white transition-all duration-150 text-foreground dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-800 dark:focus:bg-slate-800 dark:text-white"
       />
 
       {showDropdown && (
         <div
           id="header-search-results"
           role="listbox"
-          className="absolute left-0 right-0 top-full mt-2 z-50 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl"
+          className="absolute left-0 right-0 top-full mt-2 z-50 max-h-72 overflow-y-auto rounded-xl border border-border bg-surface shadow-elevated dark:border-slate-700 dark:bg-slate-900"
         >
           {searchingEmployees && isAdmin && results.length === 0 ? (
             <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">

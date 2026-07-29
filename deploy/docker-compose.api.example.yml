@@ -1,4 +1,7 @@
 # Exemplo: API PontoWebDesk na VPS Hostinger (Ubuntu + Docker + Traefik)
+# Ambientes: ver docs/environments.md
+# Production stack: Frontend Vercel + API VPS + PostgreSQL VPS
+#
 # Copie para a VPS, ajuste labels/domínio e ligue à rede do Postgres.
 #
 # Uso típico:

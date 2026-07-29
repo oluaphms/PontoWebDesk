@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { isProduction } from './env.js';
-import { authCookieSameSite } from './authCookies.js';
+import { authCookieSameSite, authCookieSecure } from './authCookies.js';
 
 export const CSRF_COOKIE_NAME = 'pwd_csrf';
 export const CSRF_HEADER_NAME = 'x-csrf-token';
@@ -13,7 +12,7 @@ export function generateCsrfToken(): string {
 export function setCsrfCookie(res: Response, token: string): void {
   res.cookie(CSRF_COOKIE_NAME, token, {
     httpOnly: false,
-    secure: isProduction() || authCookieSameSite() === 'none',
+    secure: authCookieSecure(),
     sameSite: authCookieSameSite(),
     path: '/',
     maxAge: 2 * 60 * 60 * 1000,
@@ -23,7 +22,7 @@ export function setCsrfCookie(res: Response, token: string): void {
 export function clearCsrfCookie(res: Response): void {
   res.clearCookie(CSRF_COOKIE_NAME, {
     httpOnly: false,
-    secure: isProduction() || authCookieSameSite() === 'none',
+    secure: authCookieSecure(),
     sameSite: authCookieSameSite(),
     path: '/',
   });

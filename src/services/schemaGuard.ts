@@ -1,5 +1,5 @@
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
-import { IS_PRODUCTION, getEnvBoolean } from '@/config/runtimeEnv';
+import { IS_PRODUCTION, APP_MODE, getEnvBoolean } from '@/config/runtimeEnv';
 
 let hasWarned = false;
 
@@ -37,7 +37,7 @@ export function clearSchemaGuardError(): void {
     }),
   );
 
-  if (import.meta.env.MODE !== 'production') {
+  if (APP_MODE !== 'production') {
     observabilityConsole.info('[SCHEMA GUARD] estado resetado com sucesso');
   }
 }

@@ -1,10 +1,15 @@
 import { normalizeApiBase as normalizeApiBaseFromEnv } from '../config/env';
 import { clearToken, getToken, isCookieSessionToken, setToken } from './authToken';
+import {
+  getAuthSessionEpoch,
+  isStaleAuthSessionEpoch,
+} from './authSessionEpoch';
 import { getCsrfToken } from './csrfToken';
+import { isPostLoginQueryCooldownActive } from '../app/postLoginQueryGate';
 import { logger } from '../shared/logger/logger';
 import { observabilityConsole } from '../shared/logger/observabilityConsole';
 
-type UnauthorizedHandler = () => void;
+type UnauthorizedHandler = (code?: string) => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 /** Definido após o primeiro 403 `data_api_writes_disabled` da API genérica `/data`. */
 let dataApiWritesDisabledFlag = false;
@@ -256,12 +261,59 @@ function shouldClearSessionOnUnauthorized(body: unknown): boolean {
     code === 'AUTH_TOKEN_REVOKED' ||
     code === 'AUTH_USER_NOT_FOUND' ||
     code === 'AUTH_TENANT_CHANGED' ||
+    code === 'COMMERCIAL_BLOCKED_BY_MASTER' ||
+    code === 'commercial_blocked' ||
     code === 'invalid_token' ||
     code === 'token_expired' ||
     code === 'token_revoked' ||
     code === 'user_not_found' ||
     code === 'tenant_changed'
   );
+}
+
+function isTokenRevokedCode(code: string): boolean {
+  return code === 'AUTH_TOKEN_REVOKED' || code === 'token_revoked';
+}
+
+/** Confirma se o bearer/cookie atual ainda autentica — evita logout por 401 paralelo pós-login. */
+async function confirmCurrentSessionValid(): Promise<boolean> {
+  const requestEpoch = getAuthSessionEpoch();
+  const token = getToken();
+  if (!token) return false;
+  try {
+    const url = buildApiUrl('/auth/me');
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        ...(token && !isCookieSessionToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (isStaleAuthSessionEpoch(requestEpoch)) return true;
+    return res.ok;
+  } catch {
+    return isStaleAuthSessionEpoch(requestEpoch);
+  }
+}
+
+let postLoginRevokeVerifyInflight: Promise<boolean> | null = null;
+
+async function shouldIgnorePostLoginTokenRevoke(code: string): Promise<boolean> {
+  if (!isPostLoginQueryCooldownActive() || !isTokenRevokedCode(code)) return false;
+  if (!postLoginRevokeVerifyInflight) {
+    postLoginRevokeVerifyInflight = confirmCurrentSessionValid().finally(() => {
+      postLoginRevokeVerifyInflight = null;
+    });
+  }
+  const valid = await postLoginRevokeVerifyInflight;
+  if (valid) {
+    observabilityConsole.info('[AUTH-FLOW] TOKEN_REVOKED_IGNORED_POST_LOGIN', {
+      code,
+      at: new Date().toISOString(),
+      reason: 'current_bearer_still_valid_on_auth_me',
+    });
+  }
+  return valid;
 }
 
 function payloadKeys(body: unknown): string[] | undefined {
@@ -286,7 +338,14 @@ function responseStack(body: unknown): string | undefined {
 
 async function parseResponse<T>(
   res: Response,
-  context: { method: string; path: string; url: string; requestBody?: unknown },
+  context: {
+    method: string;
+    path: string;
+    url: string;
+    requestBody?: unknown;
+    /** Época da sessão no início da request — evita logout por 401 pré-login. */
+    requestEpoch?: number;
+  },
 ): Promise<T> {
   const resLike = res as unknown as {
     ok?: boolean;
@@ -322,21 +381,62 @@ async function parseResponse<T>(
   const status = typeof resLike.status === 'number' ? resLike.status : 200;
   const ok = typeof resLike.ok === 'boolean' ? resLike.ok : status >= 200 && status < 300;
   if (!ok) {
+    const requestEpoch = context.requestEpoch ?? getAuthSessionEpoch();
+    const staleAuthResponse = isStaleAuthSessionEpoch(requestEpoch);
     if (status === 401 && shouldClearSessionOnUnauthorized(body)) {
       const code = authFailureCode(body);
-      observabilityConsole.info('[AUTH-FLOW] API 401', {
-        path: normalizeApiPath(context.path),
-        code,
-        triggersLogout: true,
-      });
-      clearToken();
-      observabilityConsole.info('[AUTH-FLOW] TOKEN REMOVED', { source: 'api.parseResponse', code });
-      unauthorizedHandler?.();
+      if (staleAuthResponse) {
+        observabilityConsole.info('[AUTH-FLOW] API 401 STALE_IGNORED', {
+          path: normalizeApiPath(context.path),
+          code,
+          requestEpoch,
+          currentEpoch: getAuthSessionEpoch(),
+          at: new Date().toISOString(),
+          reason: 'response_from_pre_login_or_prior_session',
+        });
+      } else if (await shouldIgnorePostLoginTokenRevoke(code)) {
+        // Sessão nova ainda válida — 401 paralelo (cookie antigo / corrida de versão).
+      } else {
+        observabilityConsole.info('[AUTH-FLOW] API 401', {
+          path: normalizeApiPath(context.path),
+          code,
+          triggersLogout: true,
+          requestEpoch,
+          hasToken: Boolean(getToken()),
+          tokenMode: getToken()
+            ? isCookieSessionToken(getToken())
+              ? 'cookie_marker'
+              : 'bearer'
+            : 'none',
+          at: new Date().toISOString(),
+        });
+        clearToken();
+        observabilityConsole.info('[AUTH-FLOW] TOKEN REMOVED', { source: 'api.parseResponse', code });
+        unauthorizedHandler?.(code);
+      }
     } else if (status === 403) {
+      const code = authFailureCode(body);
       observabilityConsole.info('[AUTH-FLOW] API 403', {
         path: normalizeApiPath(context.path),
-        code: authFailureCode(body),
+        code,
       });
+      if (
+        (code === 'COMMERCIAL_BLOCKED_BY_MASTER' || code === 'commercial_blocked') &&
+        !staleAuthResponse
+      ) {
+        clearToken();
+        unauthorizedHandler?.(code);
+      } else if (
+        (code === 'COMMERCIAL_BLOCKED_BY_MASTER' || code === 'commercial_blocked') &&
+        staleAuthResponse
+      ) {
+        observabilityConsole.info('[AUTH-FLOW] API 403 STALE_IGNORED', {
+          path: normalizeApiPath(context.path),
+          code,
+          requestEpoch,
+          currentEpoch: getAuthSessionEpoch(),
+        });
+      }
     }
     const errMsg = extractApiErrorMessage(body, status);
     const writesDisabled = isDataApiWritesDisabledResponse(status, body, context);
@@ -363,10 +463,17 @@ async function parseResponse<T>(
       correlationId: currentCorrelationId || undefined,
     };
     const consoleMessage = `API ERROR ${context.method} ${context.path} ${status}: ${errMsg}`;
+    const failureCode = authFailureCode(body);
     const missingToken =
-      status === 401 && authFailureCode(body) === 'missing_token';
-    if (status === 401 && normalizeApiPath(context.path) === '/auth/me') {
-      console.warn(consoleMessage, errorContext);
+      status === 401 &&
+      (failureCode === 'missing_token' || failureCode === 'AUTH_MISSING_TOKEN');
+    const authMeProbe =
+      status === 401 && normalizeApiPath(context.path) === '/auth/me';
+    // Probe de sessão no boot (sem cookie/bearer) é esperado — não poluir console como erro.
+    if (authMeProbe && missingToken) {
+      observabilityConsole.info('[API] /auth/me sem sessão (boot)', errorContext);
+    } else if (authMeProbe) {
+      observabilityConsole.warn(consoleMessage, errorContext);
     } else if (missingToken && context.method === 'GET') {
       observabilityConsole.info('[API] GET sem sessão (ignorado)', errorContext);
     } else if (writesDisabled) {
@@ -413,6 +520,18 @@ async function parseResponse<T>(
           cooldown_until: apiRateLimitedUntil,
         },
       });
+    } else if (authMeProbe && missingToken) {
+      logger.info({
+        module: 'frontend.api',
+        action: 'AUTH_ME_NO_SESSION',
+        message: 'Probe /auth/me sem credencial (esperado no boot)',
+        correlationId: currentCorrelationId || undefined,
+        meta: {
+          method: context.method,
+          path: context.path,
+          status,
+        },
+      });
     } else {
       logger.error({
         module: 'frontend.api',
@@ -441,11 +560,19 @@ async function parseResponse<T>(
 
 const inflightGets = new Map<string, Promise<unknown>>();
 
-export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
-  const key = `GET:${normalizeApiPath(path)}`;
-  const existing = inflightGets.get(key);
-  if (existing) return existing as Promise<T>;
+/** /auth/me nunca deve compartilhar inflight entre épocas (boot pré-login × pós-login). */
+function shouldDedupeGet(path: string): boolean {
+  return normalizeApiPath(path) !== '/auth/me';
+}
 
+export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
+  const key = `GET:${normalizeApiPath(path)}:e${getAuthSessionEpoch()}`;
+  if (shouldDedupeGet(path)) {
+    const existing = inflightGets.get(key);
+    if (existing) return existing as Promise<T>;
+  }
+
+  const requestEpoch = getAuthSessionEpoch();
   const promise = (async (): Promise<T> => {
     const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
     const url = buildApiUrl(path);
@@ -459,16 +586,19 @@ export async function apiGet<T = ApiResult>(path: string, init?: RequestInit): P
         ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
       },
     });
-    return parseResponse<T>(res, { method: 'GET', path, url });
+    return parseResponse<T>(res, { method: 'GET', path, url, requestEpoch });
   })().finally(() => {
     inflightGets.delete(key);
   });
 
-  inflightGets.set(key, promise);
+  if (shouldDedupeGet(path)) {
+    inflightGets.set(key, promise);
+  }
   return promise;
 }
 
 export async function apiPost<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  const requestEpoch = getAuthSessionEpoch();
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const url = buildApiUrl(path);
   const res = await fetch(url, {
@@ -483,10 +613,11 @@ export async function apiPost<T = ApiResult>(path: string, body: unknown, init?:
     },
     body: JSON.stringify(body),
   });
-  return parseResponse<T>(res, { method: 'POST', path, url, requestBody: body });
+  return parseResponse<T>(res, { method: 'POST', path, url, requestBody: body, requestEpoch });
 }
 
 export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  const requestEpoch = getAuthSessionEpoch();
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const url = buildApiUrl(path);
   const res = await fetch(url, {
@@ -501,10 +632,11 @@ export async function apiPatch<T = ApiResult>(path: string, body: unknown, init?
     },
     body: JSON.stringify(body),
   });
-  return parseResponse<T>(res, { method: 'PATCH', path, url, requestBody: body });
+  return parseResponse<T>(res, { method: 'PATCH', path, url, requestBody: body, requestEpoch });
 }
 
 export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit): Promise<T> {
+  const requestEpoch = getAuthSessionEpoch();
   const requestCorrelationId = currentCorrelationId || crypto.randomUUID();
   const url = buildApiUrl(path);
   const res = await fetch(url, {
@@ -517,7 +649,7 @@ export async function apiDelete<T = ApiResult>(path: string, init?: RequestInit)
       ...sanitizeExtraHeaders(init?.headers as Record<string, string> | undefined),
     },
   });
-  return parseResponse<T>(res, { method: 'DELETE', path, url });
+  return parseResponse<T>(res, { method: 'DELETE', path, url, requestEpoch });
 }
 
 /** @deprecated use getToken from authToken.ts */
