@@ -148,6 +148,7 @@ export const MasterApiServices = {
       createdAt?: string;
       dueAt?: string | null;
       id?: string;
+      invoiceId?: string | null;
     }> = options?.payments ?? [];
     if (!options?.payments) {
       try {
@@ -159,6 +160,7 @@ export const MasterApiServices = {
           paidAt: p.paidAt ?? null,
           createdAt: p.createdAt,
           dueAt: null,
+          invoiceId: p.invoiceId ?? null,
         }));
       } catch {
         payments = [];
@@ -453,21 +455,17 @@ export const MasterApiServices = {
   },
 
   async getSubscriptions() {
-    const rows = await this.dashboard().subscriptions.list();
+    const [rows, tenants] = await Promise.all([
+      this.dashboard().subscriptions.list(),
+      this.tenants().list(),
+    ]);
     const { MasterSubscriptionsService } = await import(
       '../../subscriptions/MasterSubscriptionsService.js'
     );
     const helper = new MasterSubscriptionsService();
-    const subscriptions = await Promise.all(
-      rows.map(async (s) => {
-        let empresa = s.tenantId;
-        try {
-          empresa = (await this.tenants().get(s.tenantId)).company.name;
-        } catch {
-          /* keep id — sem fallback para legacyRepos */
-        }
-        return helper.toCommercialView(s, empresa);
-      }),
+    const nameByTenant = new Map(tenants.map((t) => [t.id, t.company.name] as const));
+    const subscriptions = rows.map((s) =>
+      helper.toCommercialView(s, nameByTenant.get(s.tenantId) ?? s.tenantId),
     );
     return {
       ok: true,
@@ -480,21 +478,33 @@ export const MasterApiServices = {
   },
 
   async getPayments() {
-    const engine = MasterPlatformService.getBillingEngine();
-    const [payments, refunds, snap] = await Promise.all([
-      engine.listPayments(),
-      engine.listRefunds(),
-      engine.snapshot(),
-    ]);
+    const { SubscriptionFinanceService } = await import(
+      '../../subscriptionFinance/SubscriptionFinanceService.js'
+    );
+    const finance = new SubscriptionFinanceService();
+    const entries = await finance.listAllPayments(5000);
+    const payments = entries
+      .filter((e) => e.status === 'PAID')
+      .map((e) => ({
+        id: e.id,
+        status: 'paid',
+        amountCents: e.amountCents || 0,
+        currency: e.currency || 'BRL',
+        paidAt: e.paidAt,
+        createdAt: e.createdAt,
+        tenantId: e.tenantId,
+        subscriptionId: e.subscriptionId,
+        description: e.description,
+      }));
     return {
       ok: true,
-      provider: snap.provider,
+      provider: 'subscription_finance',
       payments,
-      refunds,
+      refunds: [],
       gateway: this.dashboard().gateway.list(),
       count: payments.length,
       persistence: masterPersistenceLabel(),
-      note: 'DecoupledBillingEngine — store único do registry',
+      note: 'SoT: master_subscription_finance_entries (PAID)',
     };
   },
 

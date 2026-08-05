@@ -54,10 +54,9 @@ export async function loginController(req: Request, res: Response): Promise<void
       return;
     }
 
-    const returnTokenInBody =
-      !isProduction() ||
-      /localhost|127\.0\.0\.1/i.test(String(req.headers.origin || '')) ||
-      /^(1|true|yes)$/i.test(String(process.env.AUTH_RETURN_TOKEN_IN_BODY || '').trim());
+    // Cross-origin local (Vite :3010 → API :3000): JWT no body só fora de produção.
+    // Em production: nunca retornar JWT no body (cookie HttpOnly + CSRF).
+    const returnTokenInBody = !isProduction();
 
     // Evita reaproveitar cookie antigo em localhost cross-port (3010→3000).
     clearAuthCookie(res);

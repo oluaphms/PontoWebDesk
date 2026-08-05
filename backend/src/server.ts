@@ -39,6 +39,13 @@ async function verifyDatabase(): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  if (String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production') {
+    const { clearMemoryRateLimitStore } = await import(
+      './security/rateLimit/distributedRateLimit.js'
+    );
+    clearMemoryRateLimitStore();
+  }
+
   if (process.env.NODE_ENV === 'production' && isUnsafeProductionSecret(process.env.JWT_SECRET)) {
     throw new Error('JWT_SECRET ausente, curto ou placeholder em produção.');
   }
@@ -52,12 +59,9 @@ async function start(): Promise<void> {
   }
 
   if (process.env.NODE_ENV === 'production' && !isVpsRlsEnforced()) {
-    logger.warn({
-      module: 'bootstrap.server',
-      action: 'VPS_RLS_NOT_ENFORCED',
-      message:
-        'VPS_RLS_ENFORCED=false em produção — ative após aplicar 016_vps_rls_tenant_isolation.sql (ver backend/.env.example)',
-    });
+    throw new Error(
+      'VPS_RLS_ENFORCED deve estar ativo em produção (fail-closed). Aplique as migrations RLS e defina VPS_RLS_ENFORCED=true.',
+    );
   }
 
   await new Promise<void>((resolve, reject) => {

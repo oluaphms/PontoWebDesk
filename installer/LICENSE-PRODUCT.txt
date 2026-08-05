@@ -1,0 +1,11 @@
+# PontoWebDesk Local — licença do produto (instalador)
+# Este arquivo NÃO substitui a licença do NSSM (GPL) em nssm.exe.
+
+Copyright (c) PontoWebDesk. Todos os direitos reservados.
+
+O software PontoWebDesk Local é distribuído sob licença comercial /
+contrato de uso com o cliente. Redistribuição do código-fonte do produto
+não é autorizada sem acordo escrito.
+
+Componentes de terceiros (Docker Desktop, PostgreSQL, Node.js nas imagens,
+NSSM) mantêm suas respectivas licenças.

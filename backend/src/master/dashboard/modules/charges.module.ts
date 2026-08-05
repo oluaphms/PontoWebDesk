@@ -89,10 +89,10 @@ export class ChargesModule {
   }
 
   async countOpenCharges(subscriptionIds: string[]): Promise<number> {
-    let n = 0;
-    for (const id of subscriptionIds) {
-      n += (await this.engine.listCharges(id)).filter((c) => c.status === 'open').length;
-    }
-    return n;
+    const { SubscriptionFinanceService } = await import(
+      '../../subscriptionFinance/SubscriptionFinanceService.js'
+    );
+    const finance = new SubscriptionFinanceService();
+    return finance.countOpenPayments(subscriptionIds);
   }
 }

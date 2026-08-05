@@ -30,7 +30,17 @@ function readMasterApiKey(): string {
   return String(process.env.MASTER_API_KEY || '').trim();
 }
 
+function isMasterApiKeyEnabled(): boolean {
+  const explicit = String(process.env.MASTER_API_KEY_ENABLED || '').trim().toLowerCase();
+  if (explicit === '1' || explicit === 'true' || explicit === 'yes') {
+    return true;
+  }
+  // Default deny (RC): exige flag explícita em qualquer ambiente.
+  return false;
+}
+
 export function hasValidMasterApiKey(req: { headers: Record<string, unknown> }): boolean {
+  if (!isMasterApiKeyEnabled()) return false;
   const expected = readMasterApiKey();
   if (!expected) return false;
   const raw = req.headers['x-master-key'] ?? req.headers['X-Master-Key'];
@@ -63,9 +73,18 @@ export function requireMasterLogin() {
         userId: 'master-api-key',
         email: 'api-key@master.local',
         name: 'Master API Key',
-        role: 'MASTER_OWNER',
+        role: 'MASTER_AUDITOR',
         viaApiKey: true,
       };
+      if (req.method.toUpperCase() !== 'GET') {
+        res.status(403).json({
+          ok: false,
+          error: 'forbidden',
+          code: 'MASTER_API_KEY_READ_ONLY',
+          message: 'MASTER_API_KEY permite somente rotas de leitura.',
+        });
+        return;
+      }
       next();
       return;
     }

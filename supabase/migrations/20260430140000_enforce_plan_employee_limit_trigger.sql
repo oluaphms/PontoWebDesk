@@ -1,5 +1,6 @@
--- Travamento de licenças no banco: impede INSERT de colaborador ativo além do plano
--- (complementa validação em API / app). Limites alinhados a services/planLimitsCore.ts
+-- Travamento de licenças no banco: impede INSERT de colaborador ativo além do assento contratado.
+-- Alinhado a services/planLimitsCore.ts (max null = ilimitado) e companies.contracted_limits.maxUsers.
+-- Não bloqueia UPDATE (edição/reativação/inativação) nem DELETE.
 
 CREATE OR REPLACE FUNCTION public.enforce_company_plan_employee_limit()
 RETURNS TRIGGER
@@ -11,6 +12,7 @@ DECLARE
   v_max int;
   v_plan text;
   v_cnt int;
+  v_max_raw text;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
     RETURN NEW;
@@ -25,7 +27,10 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT lower(btrim(COALESCE(c.plan, 'free'))) INTO v_plan
+  SELECT
+    lower(btrim(COALESCE(c.plan, 'free'))),
+    nullif(btrim(c.contracted_limits->>'maxUsers'), '')
+  INTO v_plan, v_max_raw
   FROM public.companies c
   WHERE c.id = NEW.company_id;
 
@@ -36,10 +41,15 @@ BEGIN
   IF v_plan = 'enterprise' THEN
     RETURN NEW;
   END IF;
-  IF v_plan = 'pro' THEN
-    v_max := 50;
-  ELSE
-    v_max := 5;
+
+  -- Sem assento contratado explícito: ilimitado (planLimitsCore.getMaxEmployeesForPlan → null).
+  IF v_max_raw IS NULL OR v_max_raw !~ '^[0-9]+$' THEN
+    RETURN NEW;
+  END IF;
+
+  v_max := v_max_raw::int;
+  IF v_max < 0 THEN
+    RETURN NEW;
   END IF;
 
   SELECT COUNT(*)::int INTO v_cnt
@@ -64,4 +74,4 @@ CREATE TRIGGER trg_users_enforce_plan_employee_limit
   EXECUTE PROCEDURE public.enforce_company_plan_employee_limit();
 
 COMMENT ON FUNCTION public.enforce_company_plan_employee_limit() IS
-  'Bloqueia INSERT de employee ativo quando o tenant já atingiu o máximo do plano (free=5, pro=50, enterprise=ilimitado).';
+  'Bloqueia somente INSERT de employee ativo quando contracted_limits.maxUsers foi atingido. Enterprise/sem maxUsers = ilimitado. Não age em UPDATE/DELETE.';

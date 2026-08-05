@@ -1,0 +1,29 @@
+# PostgreSQL local do SaaS-Local (NÃO é o banco do SaaS-Demo)
+#
+# Uso:
+#   docker compose -f docker-compose.local-postgres.yml up -d
+#   docker compose -f docker-compose.local-postgres.yml down
+#
+# Porta host 55432 (ver backend/.env.development).
+# SaaS-Demo usa 5433 — os dois podem coexistir.
+
+services:
+  pg16-restore:
+    image: postgres:16
+    container_name: pg16-restore
+    restart: unless-stopped
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pontowebdesk
+    volumes:
+      # Volume nomeado estável (migração: se já existir container com volume anônimo, mantenha-o)
+      - pg16_restore_data:/var/lib/postgresql/data
+
+volumes:
+  pg16_restore_data:
+    # Se o volume antigo anônimo ainda for o da sua base, NÃO rode este compose
+    # sem migrar dados — use o container já recriado `pg16-restore`.
+    name: pontowebdesk_pg16_restore_data

@@ -1,0 +1,60 @@
+name: pontowebdesk-saas-demo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-pontowebdesk}
+    ports:
+      # Host 5433 para nao conflitar com Postgres do SaaS-Local (:5432)
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - saas_demo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pontowebdesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - backend/.env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pontowebdesk}
+      PGHOST: postgres
+      PGPORT: "5432"
+    ports:
+      # Host 3100 → container 3000 (SaaS-Local usa :3000)
+      - "3100:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - frontend/.env
+    environment:
+      VITE_API_URL: http://localhost:3100/api
+      VITE_APP_URL: http://localhost:3110
+      VITE_DATA_PROVIDER: LOCAL_API
+    ports:
+      # Host 3110 → container 3010 (SaaS-Local / Vite usa :3010)
+      - "3110:3010"
+    depends_on:
+      - backend
+
+volumes:
+  saas_demo_pgdata:

@@ -1,0 +1,9 @@
+# Artefatos gerados / binários grandes — não versionar
+staging/
+dist-installer/
+updates/*.zip
+prereqs/DockerDesktopInstaller.exe
+build-installer.log
+CLEAN-MACHINE-SIMULATION.md
+*.exe
+!download-nssm.ps1

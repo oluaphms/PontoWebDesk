@@ -1,0 +1,20 @@
+API Health|PASS
+Readiness|PASS
+Liveness|PASS
+Login|PASS role=admin
+Auth Me|PASS role=admin
+Funcionarios|PASS n=5
+Empresa|PASS n=1
+Ponto leitura|PASS n=5
+Banco horas|PASS n=5
+Logout|PASS
+Master Login|PASS
+Dashboard|PASS
+Financeiro|PASS source=subscription_finance
+Relatorios|PASS
+Ledger|PASS source=subscription_finance n=2
+RLS 043|PASS 109/109
+Cross-tenant SQL|PASS A sees own; B sees 0 of A
+backend tsc|PASS
+npm run build|PASS
+backend critical tests|PASS (24)

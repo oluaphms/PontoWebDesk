@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
   .split(/\r?\n/)
   .filter(Boolean)
   .filter((file) => /\.(ts|tsx|js|mjs|cjs|sql|yml|yaml|json|env|example)$/.test(file))
-  .filter((file) => !/(^docs\/|^dist\/|node_modules|\.test\.|\.spec\.|^coverage\/)/.test(file));
+  .filter((file) => !/(^docs\/|^dist\/|node_modules|\.test\.|\.spec\.|^coverage\/)/.test(file))
+  // Arquivos removidos no working tree (ainda listados pelo índice) não devem quebrar o audit.
+  .filter((file) => existsSync(file));
 
 const checks = [
   {

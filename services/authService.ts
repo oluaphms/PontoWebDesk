@@ -86,6 +86,27 @@ function parseDbUserRole(v: unknown, fallback: User['role']): User['role'] {
   if (!raw) return fallback;
   return normalizeUserRole(raw);
 }
+
+type AuthLikeUser = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
+
+function readAuthLikeUser(value: unknown): AuthLikeUser | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = typeof row.id === 'string' ? row.id.trim() : '';
+  if (!id) return null;
+  return {
+    id,
+    email: typeof row.email === 'string' ? row.email : null,
+    user_metadata:
+      row.user_metadata && typeof row.user_metadata === 'object' && !Array.isArray(row.user_metadata)
+        ? (row.user_metadata as Record<string, unknown>)
+        : null,
+  };
+}
 import { LogSeverity } from '../types';
 import { logTenantLoginSuccess } from '../src/services/tenantAudit';
 import { resolveTenantId } from '../src/services/tenantScope';
@@ -1260,26 +1281,11 @@ class AuthService {
             ]);
             return { user: mapped, error: null, source: 'local' };
           }
-          const forcedLocalSession: LocalSession = {
-            user_id: 'offline-user',
-            name: 'Usuário Offline',
-            company_id: 'offline-company',
-            role: 'admin',
-            last_login: Date.now(),
+          // RC: nunca promover admin sem autenticar (fail-open removido).
+          return {
+            user: null,
+            error: 'Serviço indisponível. Credenciais locais inválidas ou inexistentes.',
           };
-          await saveLocalSession(forcedLocalSession);
-          const forcedUser = mapLocalSessionToUser(forcedLocalSession);
-          persistCurrentUserToProfileStore(forcedUser);
-          await cacheEmployees([
-            {
-              id: forcedUser.id,
-              nome: forcedUser.nome,
-              company_id: forcedUser.companyId,
-              role: forcedUser.role,
-              status: 'active',
-            },
-          ]);
-          return { user: forcedUser, error: null, source: 'offline-forced' };
         }
         return { user: null, error: 'Sem conexão e sem sessão local' };
       }
@@ -1329,54 +1335,62 @@ class AuthService {
     companyId: string
   ): Promise<AuthResult> {
     try {
-      const data = await auth.signUp(email, password, {
-        nome,
-        company_id: companyId
+      const result = await auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            nome,
+            company_id: companyId,
+          },
+        },
       });
+      const authUser = readAuthLikeUser(
+        (result as { user?: unknown } | null)?.user ??
+          (result as { data?: { user?: unknown } | null } | null)?.data?.user,
+      );
 
-      if (!data || !data.user) {
+      if (!authUser) {
         return { user: null, error: 'Erro ao criar conta. Tente novamente.' };
       }
+      // Criar usuário no banco de dados
+      const newUser: User = {
+        id: authUser.id,
+        nome,
+        email,
+        cargo: 'Colaborador',
+        role: 'employee',
+        createdAt: new Date(),
+        companyId,
+        tenantId: companyId,
+        departmentId: '',
+        avatar:
+          authUser.user_metadata && typeof authUser.user_metadata.avatar_url === 'string'
+            ? authUser.user_metadata.avatar_url
+            : undefined,
+        preferences: {
+          notifications: true,
+          theme: 'light',
+          allowManualPunch: true,
+          language: 'pt-BR'
+        }
+      };
 
-      if (data.user) {
-        // Criar usuário no banco de dados
-        const newUser: User = {
-          id: data.user.id,
-          nome,
-          email,
-          cargo: 'Colaborador',
-          role: 'employee',
-          createdAt: new Date(),
-          companyId,
-          tenantId: companyId,
-          departmentId: '',
-          avatar: data.user.user_metadata?.avatar_url,
-          preferences: {
-            notifications: true,
-            theme: 'light',
-            allowManualPunch: true,
-            language: 'pt-BR'
-          }
-        };
+      await db.insert('users', {
+        id: newUser.id,
+        nome: newUser.nome,
+        email: newUser.email,
+        cargo: newUser.cargo,
+        role: newUser.role,
+        company_id: newUser.companyId,
+        department_id: newUser.departmentId,
+        avatar: newUser.avatar,
+        preferences: newUser.preferences,
+        created_at: new Date().toISOString()
+      });
 
-        await db.insert('users', {
-          id: newUser.id,
-          nome: newUser.nome,
-          email: newUser.email,
-          cargo: newUser.cargo,
-          role: newUser.role,
-          company_id: newUser.companyId,
-          department_id: newUser.departmentId,
-          avatar: newUser.avatar,
-          preferences: newUser.preferences,
-          created_at: new Date().toISOString()
-        });
-
-        persistCurrentUserToProfileStore(newUser);
-        return { user: newUser, error: null };
-      }
-
-      return { user: null, error: 'Erro ao criar conta' };
+      persistCurrentUserToProfileStore(newUser);
+      return { user: newUser, error: null };
     } catch (error: any) {
       let errorMessage = 'Erro ao criar conta';
 
@@ -1536,7 +1550,11 @@ class AuthService {
         await getProvider().updatePassword(newPassword);
         return;
       }
-      await auth.updatePassword(newPassword);
+      if (typeof auth.updatePassword === 'function') {
+        await auth.updatePassword(newPassword);
+      } else {
+        throw new Error('Alteração de senha indisponível neste provedor');
+      }
     } catch (error: any) {
       throw new Error(error.message || 'Erro ao alterar senha');
     }
@@ -1576,7 +1594,11 @@ class AuthService {
 
     try {
       const redirectTo = `${this.getResetRedirectUrl()}/reset-password`;
-      await auth.resetPassword(normalizedEmail, redirectTo);
+      if (typeof auth.resetPassword === 'function') {
+        await auth.resetPassword({ email: normalizedEmail, redirectTo });
+      } else {
+        await auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
+      }
       return { success: true, error: null };
     } catch (error: any) {
       let errorMessage = 'Erro ao enviar email de recuperação';
@@ -1684,7 +1706,7 @@ class AuthService {
       if (typeof supabase.auth.initialize === 'function') await supabase.auth.initialize();
       const { data: sessionData } = await auth.getSession();
       const session = sessionData?.session ?? null;
-      if (session?.user?.id) return { session };
+      if (readAuthLikeUser(session?.user)) return { session };
       if (typeof window === 'undefined' || !window.location?.hash) return { session: null };
       const hash = window.location.hash.replace(/^#/, '');
       const params = new URLSearchParams(hash);
@@ -2063,8 +2085,15 @@ class AuthService {
               : '[AUTH EVENT] INITIAL_SESSION null — sem sessão guardada (normal antes de fazer login) [OK]',
           );
         } else {
-          const detail = session?.user
-            ? { userId: session.user.id, expires_at: session.expires_at }
+          const sessionAuthUser = readAuthLikeUser(session?.user);
+          const detail = sessionAuthUser
+            ? {
+                userId: sessionAuthUser.id,
+                expires_at:
+                  session && typeof session === 'object' && 'expires_at' in session
+                    ? (session as { expires_at?: unknown }).expires_at
+                    : undefined,
+              }
             : hasSbAuthKeysInBrowser()
               ? 'payload sem user · há sb-* no storage (revalidando / possível token órfão)'
               : 'payload sem user';
@@ -2147,7 +2176,8 @@ class AuthService {
               const raw = readCurrentUserFromProfileStore();
               if (raw) {
                 const cached = JSON.parse(raw) as User;
-                if (cached?.id === sess.user.id) {
+                const sessAuthUser = readAuthLikeUser(sess?.user);
+                if (sessAuthUser && cached?.id === sessAuthUser.id) {
                   callback(cached);
                   return;
                 }

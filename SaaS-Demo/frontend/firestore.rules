@@ -1,0 +1,33 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Verifica se o usuário é administrador
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Coleção de Usuários
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin(); // Apenas admins criam/editam usuários ou cargos
+    }
+
+    // Coleção de Registros de Ponto
+    match /time_records/{recordId} {
+      // Funcionários podem ler seus próprios pontos. Admins leem tudo.
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Criação permitida apenas para o próprio usuário autenticado
+      allow create: if request.auth != null 
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time; // Força server timestamp
+      
+      // Edição/Deleção estritamente proibida para funcionários. 
+      // Apenas admins podem realizar ajustes (que geram logs).
+      allow update: if isAdmin();
+      allow delete: if false; 
+    }
+  }
+}

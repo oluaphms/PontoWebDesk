@@ -1,0 +1,22 @@
+==================================================
+ PDF da apresentacao
+==================================================
+
+Para abrir automaticamente um PDF junto com a demo,
+coloque um destes arquivos na pasta SaaS-Demo:
+
+  Apresentacao.pdf
+  Apresentação.pdf
+  Presentation.pdf
+
+Ou dentro da pasta docs\:
+
+  docs\Apresentacao.pdf
+  docs\Apresentação.pdf
+  docs\Presentation.pdf
+
+Depois execute novamente: Apresentacao.bat
+
+O modo apresentacao (Apresentacao.bat) procura esses
+nomes na ordem acima e abre o primeiro que encontrar.
+==================================================

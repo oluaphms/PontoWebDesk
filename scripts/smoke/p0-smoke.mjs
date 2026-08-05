@@ -70,8 +70,25 @@ async function main() {
     record('Health time', res.ok, `status=${res.status}`);
   }
   {
-    const { res, json } = await req('GET', '/metrics/summary');
-    record('Metrics summary', res.ok && json?.ok === true, `status=${res.status}`);
+    // Endpoint protegido (Master key) desde hardening — anônimo deve ser 401.
+    const anon = await req('GET', '/metrics/summary');
+    const masterKey = String(process.env.MASTER_API_KEY || '').trim();
+    if (masterKey) {
+      const auth = await req('GET', '/metrics/summary', {
+        headers: { 'x-master-key': masterKey },
+      });
+      record(
+        'Metrics summary',
+        anon.res.status === 401 && auth.res.ok && auth.json?.ok === true,
+        `anon=${anon.res.status} auth=${auth.res.status}`,
+      );
+    } else {
+      record(
+        'Metrics summary',
+        anon.res.status === 401 || (anon.res.ok && anon.json?.ok === true),
+        `status=${anon.res.status} (MASTER_API_KEY ausente — só valida bloqueio anônimo)`,
+      );
+    }
   }
 
   // --- Auth / tenant (opcional) ---

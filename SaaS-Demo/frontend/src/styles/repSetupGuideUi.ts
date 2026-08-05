@@ -1,0 +1,15 @@
+export const repSetupUi = {
+  c001: 'mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200',
+  c002: 'mt-0.5 text-slate-700 dark:text-slate-300',
+  c003: 'text-emerald-600 dark:text-emerald-300',
+  c004: 'min-w-0',
+  c005: 'mb-4',
+  c006: 'text-xs font-medium text-slate-800 dark:text-slate-100',
+  c007: 'mr-1.5',
+  c008: 'text-base font-semibold text-slate-900 dark:text-white',
+  c009: 'text-base font-semibold text-slate-900 dark:text-slate-100',
+  c010: 'mt-3 border border-slate-200/90 bg-slate-100/80 rounded-lg px-3 py-2 dark:border-slate-700 dark:bg-slate-800/70',
+  c011: 'cursor-pointer select-none',
+  c012: 'inline-flex items-center justify-between w-full',
+  c013: 'text-xs text-slate-500 dark:text-slate-400 ml-2',
+} as const;

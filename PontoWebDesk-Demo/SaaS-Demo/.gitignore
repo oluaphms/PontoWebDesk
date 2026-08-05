@@ -1,0 +1,7 @@
+diagnostico_ultimo.txt
+setup_log.txt
+frontend/node_modules/
+frontend/dist/
+backend/node_modules/
+backend/dist/
+releases/*.zip

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PontoWebDesk | Ponto Inteligente</title>
+    <meta name="theme-color" content="#7c3aed">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta http-equiv="Permissions-Policy" content="camera=*, geolocation=*">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" href="/res/mipmap-xxxhdpi/ic_launcher.png" sizes="192x192">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/res/mipmap-xxxhdpi/ic_launcher.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/play_store_512.png" sizes="512x512">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        :root { --app-height: 100%; }
+        body { 
+          font-family: 'Inter', sans-serif; 
+          -webkit-tap-highlight-color: transparent;
+          transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .glass-card { 
+          background: rgba(255, 255, 255, 0.7); 
+          backdrop-filter: blur(16px); 
+          border: 1px solid rgba(255, 255, 255, 0.4); 
+          box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05);
+        }
+        .dark .glass-card {
+          background: rgba(30, 41, 59, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+        }
+        .gradient-bg {
+          background: var(--ds-canvas, #d8dde5);
+        }
+        .dark .gradient-bg {
+          background: var(--ds-canvas, #020617);
+        }
+        @keyframes subtle-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(0.98); }
+        }
+        .active-pulse { animation: subtle-pulse 2s infinite ease-in-out; }
+        
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
+
+        /* Acessibilidade: Skip Link */
+        .skip-link {
+          position: absolute;
+          top: -40px;
+          left: 0;
+          background: #4f46e5;
+          color: white;
+          padding: 8px;
+          z-index: 1000;
+          transition: top 0.3s;
+        }
+        .skip-link:focus {
+          top: 0;
+        }
+
+        /* Foco visível aprimorado para navegação por teclado */
+        :focus-visible {
+          outline: 3px solid #4f46e5;
+          outline-offset: 2px;
+        }
+        .dark :focus-visible {
+          outline: 3px solid #818cf8;
+        }
+    </style>
+</head>
+<body class="gradient-bg text-slate-900 dark:text-slate-100 min-h-screen">
+    <a href="#main-content" class="skip-link">Pular para o conteúdo principal</a>
+    <div id="root"></div>
+<script>
+  // CRÍTICO: desregistrar SWs legados ANTES do type="module" (evita HTML em cache servido como JS).
+  // Não usar location.reload() aqui: corrida com o primeiro carregamento dos chunks no Vercel.
+  (function() {
+    'use strict';
+    var CLEANUP_KEY = '__pwb_sw_cleanup_done_v1';
+    try {
+      if (sessionStorage.getItem(CLEANUP_KEY) === '1') return;
+      sessionStorage.setItem(CLEANUP_KEY, '1');
+    } catch (_) {
+      // segue sem sessionStorage
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        if (registrations.length === 0) return;
+        console.log('[CLEANUP] Found', registrations.length, 'Service Worker(s), unregistering...');
+        return Promise.all(registrations.map(function(r) { return r.unregister(); }));
+      }).then(function() {
+        if ('caches' in window) {
+          return caches.keys().then(function(names) {
+            if (names.length === 0) return;
+            console.log('[CLEANUP] Clearing', names.length, 'cache(s)');
+            return Promise.all(names.map(function(n) { return caches.delete(n); }));
+          });
+        }
+      }).catch(function(err) {
+        console.error('[CLEANUP] Error:', err);
+      });
+    }
+  })();
+</script>
+<!-- Supabase: use .env na raiz (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) — sem env-config.js -->
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

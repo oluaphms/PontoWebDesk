@@ -23,6 +23,11 @@ const memoryStore = new Map<string, MemoryEntry>();
 
 let memoryFallbackLogged = false;
 
+/** Limpa o store in-memory (dev/hot-reload). Redis não é afetado. */
+export function clearMemoryRateLimitStore(): void {
+  memoryStore.clear();
+}
+
 function logMemoryFallbackOnce(): void {
   if (memoryFallbackLogged) return;
   memoryFallbackLogged = true;
@@ -54,6 +59,14 @@ export async function checkDistributedRateLimit(
   }
 
   logMemoryFallbackOnce();
+
+  const isProd = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  const redisRequired =
+    isProd ||
+    /^(1|true|yes)$/i.test(String(process.env.RATE_LIMIT_REDIS_REQUIRED || '').trim());
+  if (redisRequired) {
+    throw new Error('RATE_LIMIT_REDIS_REQUIRED');
+  }
 
   const current = memoryStore.get(input.key);
   if (!current || now > current.resetAt) {
