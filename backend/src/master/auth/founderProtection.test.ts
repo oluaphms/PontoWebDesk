@@ -76,13 +76,15 @@ describe('Founder protection', () => {
     ).toBe(true);
   });
 
-  it('bootstrap marca slot 1 como Founder por padrão', () => {
+  it('bootstrap só marca Founder com env explícito', () => {
     delete process.env.MASTER_OWNER_1_IS_FOUNDER;
     delete process.env.MASTER_OWNER_2_IS_FOUNDER;
-    expect(bootstrapSlotIsFounder('MASTER_OWNER_1')).toBe(true);
+    expect(bootstrapSlotIsFounder('MASTER_OWNER_1')).toBe(false);
     expect(bootstrapSlotIsFounder('MASTER_OWNER_2')).toBe(false);
     process.env.MASTER_OWNER_2_IS_FOUNDER = 'true';
     expect(bootstrapSlotIsFounder('MASTER_OWNER_2')).toBe(true);
+    process.env.MASTER_OWNER_1_IS_FOUNDER = 'true';
+    expect(bootstrapSlotIsFounder('MASTER_OWNER_1')).toBe(true);
   });
 
   it('service bloqueia bloqueio/rebaixamento e exclusão do Founder', async () => {

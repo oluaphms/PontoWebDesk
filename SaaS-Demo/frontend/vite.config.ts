@@ -72,11 +72,12 @@ export default defineConfig(({ mode }) => {
     ],
 
     server: {
-      port: 3010,
+      // SaaS-Local: padrao 3010. Override: set VITE_DEV_PORT=3020 (ex.)
+      // SaaS-Demo Docker usa host 3110 para nao conflitar.
+      port: Number(process.env.VITE_DEV_PORT || 3010),
       strictPort: true,
       host: true,
-      // Em Docker não há browser/xdg-open; localmente o iniciar.bat já abre a URL.
-      open: false,
+      open: true,
     },
 
     esbuild: {
@@ -86,7 +87,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(projectRoot, 'src'),
-        '@pontowebdesk/master-contract': path.resolve(projectRoot, '../shared/master-contract/index.ts'),
+        '@pontowebdesk/master-contract': path.resolve(projectRoot, 'shared/master-contract/index.ts'),
         ...reactAlias,
         // recharts (DataUtils.js) usa "import get from 'es-toolkit/compat/get'" mas es-toolkit só expõe named export
         'es-toolkit/compat/get': path.resolve(projectRoot, 'src/shim/es-toolkit-compat-get.js'),

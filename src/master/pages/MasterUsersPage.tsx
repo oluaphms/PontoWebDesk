@@ -328,14 +328,14 @@ export function MasterUsersPage() {
                         )}
                         {founder && (
                           <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                            Fundador
+                            Idealizador
                           </span>
                         )}
                       </p>
                       <p className="text-xs text-slate-500">{user.email}</p>
                       {founder && (
                         <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                          Conta protegida — não pode ser excluída, bloqueada ou rebaixada.
+                          Autor do sistema — conta protegida (não pode ser excluída, bloqueada ou rebaixada).
                         </p>
                       )}
                     </td>
@@ -390,7 +390,7 @@ export function MasterUsersPage() {
                           disabled={!canReset || busyId === user.id}
                           title={
                             founder && !sessionIsFounder
-                              ? 'Somente outro Founder pode redefinir esta senha'
+                              ? 'Somente o idealizador ou outro idealizador pode redefinir esta senha'
                               : undefined
                           }
                           onClick={() => {
@@ -407,7 +407,7 @@ export function MasterUsersPage() {
                           disabled={!canBlock || busyId === user.id}
                           title={
                             founder
-                              ? 'Conta Founder não pode ser bloqueada'
+                              ? 'Conta do idealizador não pode ser bloqueada'
                               : undefined
                           }
                           onClick={() => void toggleActive(user)}

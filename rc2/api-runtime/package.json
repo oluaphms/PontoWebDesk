@@ -1,0 +1,26 @@
+{
+  "name": "@pontowebdesk/api-runtime",
+  "version": "0.1.0-rc2.3.1",
+  "private": true,
+  "type": "module",
+  "description": "RC2.3.1 — infraestrutura de runtime da API (sem SCM, sem Docker).",
+  "main": "./dist/public.js",
+  "types": "./dist/public.d.ts",
+  "bin": {
+    "pwd-api-runtime": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

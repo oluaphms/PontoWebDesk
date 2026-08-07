@@ -131,6 +131,40 @@ export class SubscriptionFinanceService {
     return result.rows.map(mapEntry);
   }
 
+  /** Ledger global — SoT de cobranças/pagamentos Master (kind=PAYMENT). */
+  async listAllPayments(limit = 2000): Promise<SubscriptionFinanceEntry[]> {
+    const safeLimit = Math.min(5000, Math.max(1, Math.floor(Number(limit) || 2000)));
+    const result = await this.sql<FinanceRow>(
+      `${FINANCE_SELECT}
+        WHERE e.kind = 'PAYMENT'
+        ORDER BY e.event_at DESC, e.created_at DESC
+        LIMIT $1`,
+      [safeLimit],
+    );
+    return result.rows.map(mapEntry);
+  }
+
+  async countOpenPayments(subscriptionIds?: string[]): Promise<number> {
+    if (subscriptionIds && subscriptionIds.length > 0) {
+      const result = await this.sql<{ n: string | number }>(
+        `SELECT count(*)::int AS n
+           FROM public.master_subscription_finance_entries
+          WHERE kind = 'PAYMENT'
+            AND status IN ('PENDING', 'OVERDUE')
+            AND subscription_id = ANY($1::text[])`,
+        [subscriptionIds],
+      );
+      return Number(result.rows[0]?.n || 0);
+    }
+    const result = await this.sql<{ n: string | number }>(
+      `SELECT count(*)::int AS n
+         FROM public.master_subscription_finance_entries
+        WHERE kind = 'PAYMENT'
+          AND status IN ('PENDING', 'OVERDUE')`,
+    );
+    return Number(result.rows[0]?.n || 0);
+  }
+
   async getEntry(id: string): Promise<SubscriptionFinanceEntry> {
     const result = await this.sql<FinanceRow>(
       `${FINANCE_SELECT} WHERE e.id = $1 LIMIT 1`,

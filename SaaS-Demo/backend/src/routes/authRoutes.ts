@@ -10,10 +10,13 @@ import { rateLimit } from '../middlewares/rateLimit.js';
 
 const router = Router();
 
+/** Em desenvolvimento o store é in-memory: tentativas falhas locais esgotavam o limite rápido. */
+const isDevAuth = String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+
 router.post('/login', rateLimit({
   keyPrefix: 'auth:login',
-  maxRequests: 5,
-  windowMs: 15 * 60 * 1000,
+  maxRequests: isDevAuth ? 60 : 5,
+  windowMs: isDevAuth ? 5 * 60 * 1000 : 15 * 60 * 1000,
   key: (req) => {
     const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
     return String(body.identifier ?? body.email ?? '');

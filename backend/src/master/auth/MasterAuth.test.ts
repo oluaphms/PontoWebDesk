@@ -476,9 +476,10 @@ describe('MasterAuth', () => {
     expect((await auth.listUsers()).filter((user) => user.active)).toHaveLength(1);
   });
 
-  it('bootstrap marca slot 1 como Founder por padrão e impede bloqueio', async () => {
+  it('bootstrap marca slot 1 como Founder quando env explícito e impede bloqueio', async () => {
     process.env.MASTER_OWNER_1_EMAIL = 'founder-owner@master.test';
     process.env.MASTER_OWNER_1_PASSWORD = 'founder-secret-123';
+    process.env.MASTER_OWNER_1_IS_FOUNDER = 'true';
     const auth = MasterAuthService.createInMemory();
     const [founder] = await auth.ensureBootstrapOwners();
     expect(founder.isFounder).toBe(true);

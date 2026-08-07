@@ -54,7 +54,7 @@ export type CommercialReportsSnapshot = {
   sources: {
     tenants: 'master_tenants' | 'unavailable';
     crm: 'master_crm' | 'unavailable';
-    billing: 'billing' | 'payments+finance' | 'unavailable';
+    billing: 'billing' | 'payments+finance' | 'subscription_finance' | 'unavailable';
     licenses: 'license_manager' | 'unavailable';
     updates: 'update_control_plane' | 'unavailable';
     journey: 'commercial_onboardings' | 'unavailable';

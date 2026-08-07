@@ -29,15 +29,11 @@ if errorlevel 1 (
   goto wait
 )
 
-echo [restaurar_banco] Copiando dump para o container...
-docker compose cp "database\backup_demo.sql" postgres:/tmp/backup_demo.sql
+echo [restaurar_banco] Restaurando database\backup_demo.sql ...
+type "database\backup_demo.sql" | docker compose exec -T postgres psql -U postgres -d pontowebdesk
 if errorlevel 1 (
-  echo Falha ao copiar o SQL para o container.
-  exit /b 1
+  echo Aviso: psql retornou erro (comum com dumps parciais). Verifique o log acima.
+) else (
+  echo [restaurar_banco] Concluido.
 )
-
-echo [restaurar_banco] Aplicando SQL (erros pontuais de dump legado podem aparecer)...
-docker compose exec -T postgres psql -U postgres -d pontowebdesk -v ON_ERROR_STOP=0 -f /tmp/backup_demo.sql
-echo [restaurar_banco] Concluido.
-echo Se API/frontend ja estavam no ar, reinicie com scripts\parar.bat e scripts\iniciar.bat
 exit /b 0

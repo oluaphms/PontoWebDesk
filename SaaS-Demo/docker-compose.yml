@@ -9,8 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-pontowebdesk}
     ports:
-      # Host 5433 para nao conflitar com Postgres do SaaS-Local (:5432)
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - saas_demo_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -32,11 +31,18 @@ services:
       PGHOST: postgres
       PGPORT: "5432"
     ports:
-      # Host 3100 → container 3000 (SaaS-Local usa :3000)
-      - "3100:3000"
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
 
   frontend:
     build:
@@ -47,12 +53,11 @@ services:
       - .env
       - frontend/.env
     environment:
-      VITE_API_URL: http://localhost:3100/api
-      VITE_APP_URL: http://localhost:3110
+      VITE_API_URL: http://localhost:3000/api
+      VITE_APP_URL: http://localhost:3010
       VITE_DATA_PROVIDER: LOCAL_API
     ports:
-      # Host 3110 → container 3010 (SaaS-Local / Vite usa :3010)
-      - "3110:3010"
+      - "3010:3010"
     depends_on:
       - backend
 

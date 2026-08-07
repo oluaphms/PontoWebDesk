@@ -19,6 +19,7 @@ pnpm-lock.yaml
 # Build outputs
 dist
 dist-ssr
+dist-installer/
 build
 *.local
 

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "state": "NOT_STARTED",
+  "currentStep": "idle",
+  "updatedAt": "2026-08-06T00:00:00.000Z",
+  "architectureVersion": "RC2-ARCH-1.0.0",
+  "phase": "rc2.4.2-pipeline",
+  "productVersion": "0.2.0-rc2.4.2",
+  "completedSteps": [],
+  "errors": [],
+  "history": [
+    {
+      "state": "NOT_STARTED",
+      "at": "2026-08-06T00:00:00.000Z",
+      "message": "template",
+      "step": "idle"
+    }
+  ]
+}

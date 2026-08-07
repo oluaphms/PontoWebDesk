@@ -29,6 +29,11 @@ const SENSITIVE_KEYS = new Set([
   'file',
   'cpf',
   'email',
+  'identifier',
+  'login',
+  'passwordhash',
+  'password_hash',
+  'encrypted_password',
   'telefone',
   'endereco',
 ]);

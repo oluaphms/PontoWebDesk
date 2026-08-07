@@ -31,6 +31,14 @@ Opcional: variável `INNO_SETUP_ISCC` apontando para `ISCC.exe`.
 
 ## Gerar o .exe
 
+**Antes do build**, sincronize o runtime com a branch RC1:
+
+```bat
+cd ..
+node scripts\sync-installer-runtime.mjs
+node scripts\verify-installer-runtime.mjs
+```
+
 ```bat
 cd installer
 build-installer.bat

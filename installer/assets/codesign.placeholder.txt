@@ -1,0 +1,19 @@
+RC2.4.3 — Assinatura de código (placeholder)
+==========================================
+
+O Setup.exe gerado em dist-installer/Setup.exe NAO e assinado neste pipeline.
+
+Para assinar em producao:
+
+1. Obtenha um certificado Authenticode (PFX).
+2. Instale o Windows SDK (signtool.exe).
+3. Descomente SignTool em installer/PontoWebDeskProfessional.iss
+4. Defina PWD_CODESIGN_PFX e PWD_CODESIGN_PASSWORD no ambiente de release.
+
+Exemplo (pos-build):
+
+  signtool sign /fd SHA256 /f "%PWD_CODESIGN_PFX%" /p "%PWD_CODESIGN_PASSWORD%" ^
+    /tr http://timestamp.digicert.com /td SHA256 ^
+    "dist-installer\Setup.exe"
+
+Nunca commite o PFX ou senha no repositorio.

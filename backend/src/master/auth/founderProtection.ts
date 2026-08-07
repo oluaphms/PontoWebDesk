@@ -115,12 +115,12 @@ export function assertFounderMutationAllowed(
   }
 }
 
-/** Bootstrap: slot 1 é Founder por padrão; slot 2 só se env explícito. */
+/** Bootstrap: Founder (idealizador) só com env explícito — nunca assume slot 1. */
 export function bootstrapSlotIsFounder(slotLabel: string): boolean {
   const label = String(slotLabel || '').trim().toUpperCase();
   if (label === 'MASTER_OWNER_1' || label === 'MASTER_OWNER') {
-    const raw = String(process.env.MASTER_OWNER_1_IS_FOUNDER ?? 'true').trim().toLowerCase();
-    return raw !== 'false' && raw !== '0' && raw !== 'no';
+    const raw = String(process.env.MASTER_OWNER_1_IS_FOUNDER ?? 'false').trim().toLowerCase();
+    return raw === 'true' || raw === '1' || raw === 'yes';
   }
   if (label === 'MASTER_OWNER_2') {
     const raw = String(process.env.MASTER_OWNER_2_IS_FOUNDER ?? 'false').trim().toLowerCase();

@@ -303,7 +303,8 @@ export function normalizeReverseGeocodeAddress(payload: {
 }
 
 async function fetchFromApi(lat: number, lng: number): Promise<GeocodeSnapshot> {
-  const u = new URL('/api/reverse-geocode', getOrigin());
+  const { buildApiUrl } = await import('../api');
+  const u = new URL(buildApiUrl('/reverse-geocode'));
   u.searchParams.set('lat', String(lat));
   u.searchParams.set('lon', String(lng));
   geoPipelineDiag('GEO REVERSE REQUEST', { lat, lng, provider: 'api_reverse_geocode', url: u.toString() });

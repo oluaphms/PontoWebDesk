@@ -189,6 +189,29 @@ copyTree(path.join(ROOT, 'shared', 'master-contract'), path.join(DEST, 'shared',
   relBase: 'shared/master-contract',
 });
 
+// --- Schema completo (db:migrate:full no runtime Local / instalador) ---
+console.log('[pack] Copiando supabase + supabase_full_schema…');
+if (fs.existsSync(path.join(ROOT, 'supabase', 'migrations'))) {
+  copyTree(path.join(ROOT, 'supabase'), path.join(DEST, 'supabase'), { relBase: 'supabase' });
+} else {
+  skipped.push({ path: 'supabase', reason: 'pasta supabase/migrations ausente na origem RC1' });
+}
+const fullSchema = path.join(ROOT, 'supabase_full_schema.sql');
+if (fs.existsSync(fullSchema)) {
+  fs.copyFileSync(fullSchema, path.join(DEST, 'supabase_full_schema.sql'));
+  copied.push('supabase_full_schema.sql');
+} else {
+  skipped.push({ path: 'supabase_full_schema.sql', reason: 'arquivo ausente na origem RC1' });
+}
+
+const versionSrc = fs.existsSync(path.join(ROOT, 'VERSION'))
+  ? path.join(ROOT, 'VERSION')
+  : path.join(ROOT, 'installer', 'VERSION');
+if (fs.existsSync(versionSrc)) {
+  fs.copyFileSync(versionSrc, path.join(DEST, 'VERSION'));
+  copied.push('VERSION');
+}
+
 // Patch frontend package.json file: dep
 patchTextFile('frontend/package.json', (t) =>
   t.replace(/"file:shared\/master-contract"/g, '"file:../shared/master-contract"'),
@@ -327,7 +350,10 @@ writeFile(
 
 WORKDIR /app
 
-# Dependência local file:../shared/master-contract
+# Contexto = raiz SaaS-Demo (paridade RC1: migrate:full + master-contract compilado)
+COPY VERSION /app/VERSION
+COPY supabase_full_schema.sql /app/supabase_full_schema.sql
+COPY supabase /app/supabase
 COPY shared/master-contract /app/shared/master-contract
 COPY backend/package.json backend/package-lock.json* /app/backend/
 
@@ -335,7 +361,7 @@ WORKDIR /app/backend
 RUN npm install --include=dev
 
 COPY backend/ /app/backend/
-RUN npm run build
+RUN npm run release
 
 ENV NODE_ENV=production
 EXPOSE 3000
@@ -402,6 +428,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
 
   frontend:
     build:
@@ -512,11 +546,25 @@ if (!backupOk) {
     'database/backup_demo.sql',
     `-- Placeholder: backup não gerado automaticamente.
 -- Execute scripts\\exportar_backup.bat com o PostgreSQL de origem ligado.
+-- Schema Master/operacional: aplicado por db:migrate:full no primeiro start (instalador).
 SELECT 1;
 `,
   );
   dbInfo.note = (dbInfo.note || '') + ' | placeholder criado';
 }
+
+writeFile(
+  'database/initial.sql',
+  `-- PontoWebDesk Local RC1 — marcador de restore opcional (dados).
+-- O schema completo (Master master_tenants/master_users, migrations 041–043, RLS)
+-- é aplicado pelo instalador via: cd backend && npm run db:migrate:full
+-- dentro do container backend após o Postgres subir.
+--
+-- Para incluir dados demo, substitua database/backup_demo.sql e copie para initial.sql no install.
+SELECT 1;
+`,
+);
+copied.push('database/initial.sql');
 
 writeFile(
   'scripts/exportar_backup.bat',
@@ -749,7 +797,9 @@ O script executa \`docker compose up -d --build\`, aguarda os serviços e abre *
 
 ## Como restaurar o banco
 
-Se a aplicação subir sem dados (ou após volume limpo):
+1. **Primeiro start (instalador / start-stack.ps1):** aplica \`npm run db:migrate:full\` no container backend (schema RC1, incl. Master).
+
+2. **Dados demo opcionais** (se \`backup_demo.sql\` tiver conteúdo real):
 
 \`\`\`bat
 scripts\\restaurar_banco.bat

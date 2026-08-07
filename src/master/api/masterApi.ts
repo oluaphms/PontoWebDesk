@@ -228,7 +228,7 @@ export type MasterUser = {
   name: string;
   role: MasterRole;
   active: boolean;
-  /** Fundador do SaaS — atributo imutável. */
+  /** Idealizador do SaaS (autor do sistema) — atributo imutável is_founder. */
   isFounder?: boolean;
   createdAt: string;
   updatedAt: string;

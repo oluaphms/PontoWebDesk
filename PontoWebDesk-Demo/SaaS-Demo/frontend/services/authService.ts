@@ -1281,26 +1281,11 @@ class AuthService {
             ]);
             return { user: mapped, error: null, source: 'local' };
           }
-          const forcedLocalSession: LocalSession = {
-            user_id: 'offline-user',
-            name: 'Usuário Offline',
-            company_id: 'offline-company',
-            role: 'admin',
-            last_login: Date.now(),
+          // RC: nunca promover admin sem autenticar (fail-open removido).
+          return {
+            user: null,
+            error: 'Serviço indisponível. Credenciais locais inválidas ou inexistentes.',
           };
-          await saveLocalSession(forcedLocalSession);
-          const forcedUser = mapLocalSessionToUser(forcedLocalSession);
-          persistCurrentUserToProfileStore(forcedUser);
-          await cacheEmployees([
-            {
-              id: forcedUser.id,
-              nome: forcedUser.nome,
-              company_id: forcedUser.companyId,
-              role: forcedUser.role,
-              status: 'active',
-            },
-          ]);
-          return { user: forcedUser, error: null, source: 'offline-forced' };
         }
         return { user: null, error: 'Sem conexão e sem sessão local' };
       }

@@ -96,6 +96,9 @@ export function isGenericDataApiWritesEnabled(): boolean {
 export function isTableReadable(table: string, role: string | undefined): boolean {
   if (!ALLOWED_TABLES.has(table)) return false;
   if (table === 'global_settings') return true;
+  // companies: leitura liberada (dataController já força id = companyId da sessão).
+  // Escrita continua admin/hr via isTableWritable + bloqueios Master no controller.
+  if (table === 'companies') return Boolean(normalizeRole(role));
   if (ADMIN_ONLY_TABLES.has(table) || TENANT_ADMIN_TABLES.has(table)) return isAdminOrHr(role);
   if (PRIVILEGED_ONLY_TABLES.has(table)) return isPrivilegedRole(role);
   return true;

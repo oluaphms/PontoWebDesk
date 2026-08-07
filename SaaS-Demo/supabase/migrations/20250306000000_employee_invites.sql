@@ -1,0 +1,264 @@
+-- Tabela de convites por link (estilo GestaoQualividaResidence).
+-- Rode no SQL Editor do Supabase (Dashboard → SQL Editor).
+
+create table if not exists public.employee_invites (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  role text not null default 'employee',
+  token text not null unique,
+  expires_at timestamptz not null,
+  created_by uuid references auth.users(id) on delete set null,
+  used_at timestamptz,
+  company_id uuid
+);
+
+create index if not exists idx_employee_invites_token on public.employee_invites(token);
+create index if not exists idx_employee_invites_expires_at on public.employee_invites(expires_at);
+
+alter table public.employee_invites enable row level security;
+
+-- Só usuários autenticados da mesma empresa podem criar convites.
+drop policy if exists "employee_invites_insert" on public.employee_invites;
+create policy "employee_invites_insert"
+  on public.employee_invites for insert
+  to authenticated
+  with check (
+
+ -- Versão simplificada: apenas garante que o usuário autenticado existe em public.users.
+    -- public.users.id é UUID (igual a auth.uid()).
+    exists (
+      select 1
+      from public.users
+      where id = auth.uid()
+    )
+  );
+
+-- Leitura via service_role (APIs) ou mesmo usuário que criou (opcional).
+drop policy if exists "employee_invites_select_service" on public.employee_invites;
+create policy "employee_invites_select_service"
+  on public.employee_invites for select
+  to service_role
+  using (true);
+
+comment on table public.employee_invites is 'Convites por link para funcionários; token único, usado na página /accept-invite';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   

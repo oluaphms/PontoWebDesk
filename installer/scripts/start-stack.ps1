@@ -38,9 +38,34 @@ do {
   } catch { }
 } while ((Get-Date) -lt $deadline)
 
-# Restore banco inicial (uma vez)
+# Restore banco inicial (uma vez) — dados opcionais; schema já veio do migrate
 $marker = Join-Path $DataDir 'database\.restored'
 $initial = Join-Path $DataDir 'database\initial.sql'
+$schemaMarker = Join-Path $DataDir 'database\.schema_migrated'
+
+# Schema RC1 (idempotente — ledger _schema_migrations)
+if (-not (Test-Path $schemaMarker)) {
+  . "$PSScriptRoot\write-log.ps1" -Message "Aplicando db:migrate:full no backend..." -LogDir $LogDir
+  $migrateDeadline = (Get-Date).AddMinutes(8)
+  $migrateOk = $false
+  while ((Get-Date) -lt $migrateDeadline) {
+    try {
+      & docker compose -f docker-compose.yml exec -T backend sh -c "cd /app/backend && npm run db:migrate:full"
+      if ($LASTEXITCODE -eq 0) {
+        $migrateOk = $true
+        break
+      }
+    } catch { }
+    Start-Sleep -Seconds 5
+  }
+  if ($migrateOk) {
+    Set-Content -Path $schemaMarker -Value (Get-Date -Format o) -Encoding UTF8
+    . "$PSScriptRoot\write-log.ps1" -Message "db:migrate:full OK." -LogDir $LogDir
+  } else {
+    . "$PSScriptRoot\write-log.ps1" -Message "db:migrate:full falhou ou timeout — ver logs do container backend." -Level WARN -LogDir $LogDir
+  }
+}
+
 if (-not $SkipRestore -and (Test-Path $initial) -and -not (Test-Path $marker)) {
   . "$PSScriptRoot\write-log.ps1" -Message "Restaurando banco inicial..." -LogDir $LogDir
   Get-Content -Raw $initial | & docker compose -f docker-compose.yml exec -T postgres psql -U postgres -d pontowebdesk

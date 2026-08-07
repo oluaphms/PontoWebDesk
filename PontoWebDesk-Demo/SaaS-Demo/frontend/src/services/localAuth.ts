@@ -48,7 +48,7 @@ async function sha256(text: string): Promise<string> {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   }
-  return `hash-${text}`;
+  throw new Error('crypto.subtle_unavailable');
 }
 
 export async function saveLocalUser(input: {
@@ -105,15 +105,25 @@ export async function verifyLocalCredentials(identifier: string, secret: string)
 }
 
 export async function ensureDefaultLocalAdmin(): Promise<void> {
+  // RC produção: nunca seedar senha/PIN padrão.
+  if (import.meta.env.PROD) return;
+  const allowSeed = String(import.meta.env.VITE_ALLOW_OFFLINE_ADMIN_SEED || '')
+    .trim()
+    .toLowerCase();
+  if (allowSeed !== '1' && allowSeed !== 'true' && allowSeed !== 'yes') return;
+
   const existing = await getLocalUserByIdentifier('admin');
   if (existing) return;
+  const password = String(import.meta.env.VITE_OFFLINE_ADMIN_PASSWORD || '').trim();
+  const pin = String(import.meta.env.VITE_OFFLINE_ADMIN_PIN || '').trim();
+  if (password.length < 10 || pin.length < 4) return;
   await saveLocalUser({
     identifier: 'admin',
     name: 'Administrador Local',
     company_id: 'offline-company',
     role: 'admin',
-    password: 'offline123',
-    pin: '1234',
+    password,
+    pin,
   });
 }
 

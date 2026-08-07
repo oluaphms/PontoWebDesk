@@ -44,11 +44,8 @@ function isMasterApiKeyEnabled(): boolean {
   if (explicit === '1' || explicit === 'true' || explicit === 'yes') {
     return true;
   }
-  if (explicit === '0' || explicit === 'false' || explicit === 'no') {
-    return false;
-  }
-  const isProd = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
-  return !isProd;
+  // Default deny (RC): exige flag explícita em qualquer ambiente.
+  return false;
 }
 
 export function hasValidMasterApiKey(req: { headers: Record<string, unknown> }): boolean {

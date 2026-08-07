@@ -33,7 +33,7 @@ describe('dataTablePolicy multi-tenant hardening', () => {
 
   it('keeps companies outside generic tenant payload injection', () => {
     expect(isTableReadable('companies', 'admin')).toBe(true);
-    expect(isTableReadable('companies', 'employee')).toBe(false);
+    expect(isTableReadable('companies', 'employee')).toBe(true);
     expect(tableHasTenantScope('companies')).toBe(false);
     expect(applyTenantToRow('companies', { name: 'Empresa B' }, 'company-a')).toEqual({ name: 'Empresa B' });
   });

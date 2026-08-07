@@ -152,33 +152,36 @@ export async function composeCommercialReports(opts?: {
     // keep
   }
 
-  // Receita mensal/anual = caixa real (payments + finance PAID).
-  // Não usa invoices paid do Billing Engine (causava fantasma após apagar pagamentos).
+  // Receita mensal/anual = caixa real do ledger oficial (finance PAID).
+  // SoT: master_subscription_finance_entries — não soma payments do Billing Engine.
   let revenueMonthCents = 0;
   let revenueYearCents = 0;
   try {
-    const [enginePayments, financePaid] = await Promise.all([
-      MasterPlatformService.getBillingEngine()
-        .listPayments()
-        .catch(() => [] as Array<{ status: string; amountCents: number; paidAt?: string | null; createdAt?: string }>),
-      pool
-        .queryMaster<{ amount_cents: string | number; paid_at: Date | string | null; event_at: Date | string | null; created_at: Date | string }>(
-          `SELECT amount_cents, paid_at, event_at, created_at
-             FROM public.master_subscription_finance_entries
-            WHERE kind = 'PAYMENT' AND status = 'PAID'`,
-        )
-        .catch(() => ({ rows: [] as Array<{ amount_cents: string | number; paid_at: Date | string | null; event_at: Date | string | null; created_at: Date | string }> })),
-    ]);
-    sources.billing = 'payments+finance';
+    const financePaid = await pool
+      .queryMaster<{
+        amount_cents: string | number;
+        paid_at: Date | string | null;
+        event_at: Date | string | null;
+        created_at: Date | string;
+      }>(
+        `SELECT amount_cents, paid_at, event_at, created_at
+           FROM public.master_subscription_finance_entries
+          WHERE kind = 'PAYMENT' AND status = 'PAID'`,
+      )
+      .catch(
+        () =>
+          ({
+            rows: [] as Array<{
+              amount_cents: string | number;
+              paid_at: Date | string | null;
+              event_at: Date | string | null;
+              created_at: Date | string;
+            }>,
+          }) as const,
+      );
+    sources.billing = 'subscription_finance';
 
     const cashEvents: Array<{ amountCents: number; at: string }> = [];
-    for (const pay of enginePayments) {
-      const status = String(pay.status || '').toLowerCase();
-      if (status !== 'paid' && status !== 'succeeded' && status !== 'confirmed') continue;
-      const at = pay.paidAt || pay.createdAt;
-      if (!at) continue;
-      cashEvents.push({ amountCents: Math.max(0, Math.floor(pay.amountCents || 0)), at });
-    }
     for (const row of financePaid.rows) {
       const at = row.paid_at || row.event_at || row.created_at;
       if (!at) continue;

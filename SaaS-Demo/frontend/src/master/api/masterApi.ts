@@ -48,9 +48,9 @@ export function clearMasterSession(): void {
 /** Controle de UX; a autorização definitiva continua no backend. */
 export function hasMasterPermission(permission: string): boolean {
   const permissions = getMasterSession()?.permissions;
-  // Sessões locais anteriores à matriz não tinham esse campo; o backend ainda
-  // autoriza cada request e o próximo login/refresh atualiza o snapshot.
-  return !Array.isArray(permissions) || permissions.includes(permission);
+  // Fail-closed: sessão sem matriz não libera UI privilegiada.
+  if (!Array.isArray(permissions)) return false;
+  return permissions.includes(permission);
 }
 
 /** Encerra sessão Master no servidor (revoga + limpa cookies) e no localStorage. */

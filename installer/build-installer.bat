@@ -13,6 +13,7 @@ set "DIST=%~dp0dist-installer"
 set "LOG=%~dp0build-installer.log"
 set "DEMO=%ROOT%\PontoWebDesk-Demo\SaaS-Demo"
 set "ALT_DEMO=%ROOT%\SaaS-Demo"
+REM Fonte oficial: node scripts/sync-installer-runtime.mjs (RC1 → Demo + PontoWebDesk-Demo)
 
 echo ================================================== > "%LOG%"
 echo build-installer %DATE% %TIME%>> "%LOG%"

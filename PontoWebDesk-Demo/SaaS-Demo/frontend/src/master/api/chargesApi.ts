@@ -8,7 +8,7 @@ export type ChargeHistoryEvent = {
 
 export type MasterChargeRow = {
   id: string;
-  source: 'invoice' | 'engine_charge';
+  source: 'invoice' | 'engine_charge' | 'subscription_finance';
   empresa: string;
   customerId: string | null;
   tenantId: string | null;
@@ -59,7 +59,7 @@ export async function fetchMasterCharges(): Promise<MasterChargesResponse> {
 
 export async function markChargePaid(
   id: string,
-  source: 'invoice' | 'engine_charge',
+  source: 'invoice' | 'engine_charge' | 'subscription_finance' = 'subscription_finance',
 ): Promise<MasterChargeRow> {
   const res = await masterApi<{ ok: boolean; charge: MasterChargeRow }>(
     `/charges/${encodeURIComponent(id)}/actions/mark_paid`,

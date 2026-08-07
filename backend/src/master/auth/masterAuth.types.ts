@@ -28,7 +28,7 @@ export type MasterUser = {
   passwordHash: string;
   active: boolean;
   /**
-   * Fundador do SaaS — atributo imutável.
+   * Idealizador do SaaS (autor do sistema) — atributo imutável is_founder.
    * Proteção permanente (não usar e-mail/nome como regra).
    */
   isFounder: boolean;
