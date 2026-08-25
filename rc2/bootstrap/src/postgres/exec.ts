@@ -1,4 +1,12 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
+
+/** psql.exe em Database\\tools depende de DLLs em Database\\bin no PATH (Windows). */
+export function pgProcessEnv(binDir: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
+  const current = process.env[pathKey] ?? process.env.PATH ?? '';
+  return { ...process.env, ...extra, [pathKey]: `${binDir}${path.delimiter}${current}` };
+}
 
 export interface ExecResult {
   exitCode: number;

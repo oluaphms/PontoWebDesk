@@ -8,6 +8,7 @@ import { RecoveryManager } from './RecoveryManager.js';
 import { InstallManager } from './InstallManager.js';
 import { PostgresInstallOrchestrator } from './postgres/PostgresInstallOrchestrator.js';
 import { loadBackendInstallPort } from './api/loadBackendInstall.js';
+import { loadFrontendInstallPort } from './api/loadFrontendInstall.js';
 import { RollbackCoordinator } from './pipeline/RollbackCoordinator.js';
 import type { StructuralRunResult } from './types.js';
 import type { InstallStepId } from './installSteps.js';
@@ -22,6 +23,9 @@ export interface BootstrapOptions extends ConfigManagerOptions {
   /** RC2.3.2: serviço API via api-service quando disponível */
   apiService?: boolean;
   apiServiceStub?: boolean;
+  /** RC2.4.3.1: serviço Frontend via api-service quando disponível */
+  frontendService?: boolean;
+  frontendServiceStub?: boolean;
 }
 
 function resolveEmbedded(options: BootstrapOptions): boolean {
@@ -47,6 +51,19 @@ function resolveApiService(options: BootstrapOptions, embedded: boolean): boolea
 function resolveApiServiceStub(options: BootstrapOptions): boolean {
   if (options.apiServiceStub === true) return true;
   return process.env['RC2_BOOTSTRAP_API_SERVICE_STUB'] === '1';
+}
+
+function resolveFrontendService(options: BootstrapOptions, embedded: boolean): boolean {
+  if (options.frontendService === false) return false;
+  if (options.frontendService === true) return true;
+  if (process.env['RC2_BOOTSTRAP_FRONTEND_SERVICE'] === '0') return false;
+  if (process.env['RC2_BOOTSTRAP_FRONTEND_SERVICE'] === '1') return true;
+  return embedded && process.platform === 'win32';
+}
+
+function resolveFrontendServiceStub(options: BootstrapOptions): boolean {
+  if (options.frontendServiceStub === true) return true;
+  return process.env['RC2_BOOTSTRAP_FRONTEND_SERVICE_STUB'] === '1';
 }
 
 /**
@@ -108,12 +125,18 @@ export class Bootstrap {
       wantApi && !resolveApiServiceStub(this.bootstrapOptions)
         ? await loadBackendInstallPort(paths)
         : undefined;
+    const wantFrontend = embedded && resolveFrontendService(this.bootstrapOptions, embedded);
+    const frontendInstall =
+      wantFrontend && !resolveFrontendServiceStub(this.bootstrapOptions)
+        ? await loadFrontendInstallPort(paths)
+        : undefined;
 
     this.logger.info('Bootstrap.runInstall start', {
       architectureVersion: 'RC2-ARCH-1.0.0',
       phase: pipelineMode === 'full' ? 'rc2.4.2-full' : 'rc2.4.2-structural',
       embeddedPostgres: embedded,
       apiService: Boolean(backendInstall),
+      frontendService: Boolean(frontendInstall),
       simulateFailureAtStep: this.simulateFailureAtStep,
     });
 
@@ -132,6 +155,8 @@ export class Bootstrap {
       postgresStub: this.postgresStub,
       backendInstall,
       backendInstallStub: resolveApiServiceStub(this.bootstrapOptions),
+      frontendInstall,
+      frontendInstallStub: resolveFrontendServiceStub(this.bootstrapOptions),
     });
 
     return mgr.runInstall({

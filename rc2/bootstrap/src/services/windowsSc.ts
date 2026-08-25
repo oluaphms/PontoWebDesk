@@ -20,5 +20,6 @@ export function netStopService(serviceName: string): { ok: boolean; message: str
 export const WINDOWS_SERVICE_NAMES = {
   postgresql: 'PontoWebDeskPostgreSQL',
   api: 'PontoWebDeskApi',
+  web: 'PontoWebDeskFrontend',
   repAgent: 'PontoWebDeskAgent',
 } as const;

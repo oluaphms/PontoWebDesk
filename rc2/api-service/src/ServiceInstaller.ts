@@ -7,9 +7,11 @@ import {
   SERVICE_NAME,
   SERVICE_START_TYPE,
   buildServiceBinPath,
+  serviceHostExePath,
+  writeApiServiceHostConfig,
   type ApiServicePaths,
 } from './ServiceConfig.js';
-import type { ScExecutor } from './scExec.js';
+import { scCreateArgs, scOpt, type ScExecutor } from './scExec.js';
 
 export class ServiceInstaller {
   constructor(
@@ -41,18 +43,20 @@ export class ServiceInstaller {
       return { ok: true, message: 'ALREADY_INSTALLED' };
     }
     this.writeServiceHostFromDist();
+    const hostExe = serviceHostExePath(this.paths);
+    if (!fs.existsSync(hostExe)) {
+      return { ok: false, message: `SERVICE_HOST_EXE_MISSING: ${hostExe}` };
+    }
+    writeApiServiceHostConfig(this.paths);
     const binPath = buildServiceBinPath(this.paths);
-    const create = this.sc([
-      'create',
-      SERVICE_NAME,
-      `binPath= ${binPath}`,
-      `DisplayName= ${SERVICE_DISPLAY_NAME}`,
-    ]);
+    const create = this.sc(
+      scCreateArgs(SERVICE_NAME, binPath, SERVICE_DISPLAY_NAME, SERVICE_START_TYPE),
+    );
     if (create.exitCode !== 0) {
       return { ok: false, message: create.stderr || create.stdout };
     }
     this.sc(['description', SERVICE_NAME, SERVICE_DESCRIPTION]);
-    this.sc(['config', SERVICE_NAME, `start= ${SERVICE_START_TYPE}`]);
+    this.sc(['config', SERVICE_NAME, ...scOpt('start', SERVICE_START_TYPE)]);
     return { ok: true, message: 'INSTALLED' };
   }
 

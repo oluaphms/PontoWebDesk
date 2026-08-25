@@ -1,7 +1,19 @@
 -- Cadastro corporativo de justificativas: ausências, abonos, afastamentos e ocorrências de ponto.
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'justificativas'
+       AND column_name = 'tenant_id'
+  ) THEN
+    ALTER TABLE public.justificativas ADD COLUMN tenant_id TEXT;
+  END IF;
+END $$;
+
 ALTER TABLE public.justificativas
-  ADD COLUMN IF NOT EXISTS tenant_id TEXT,
   ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'Outro',
   ADD COLUMN IF NOT EXISTS sigla TEXT,
   ADD COLUMN IF NOT EXISTS cor_exibicao TEXT DEFAULT '#64748b',
@@ -31,16 +43,27 @@ ALTER TABLE public.justificativas
   ADD COLUMN IF NOT EXISTS updated_by TEXT;
 
 UPDATE public.justificativas
-   SET tenant_id = COALESCE(tenant_id, company_id),
-       sigla = COALESCE(NULLIF(sigla, ''), NULLIF(nome, ''), NULLIF(codigo, '')),
+   SET sigla = COALESCE(NULLIF(sigla, ''), NULLIF(nome, ''), NULLIF(codigo, '')),
        tipo = COALESCE(NULLIF(tipo, ''), 'Outro'),
        ativa = COALESCE(ativa, true)
- WHERE tenant_id IS NULL
-    OR sigla IS NULL
+ WHERE sigla IS NULL
     OR tipo IS NULL;
 
-ALTER TABLE public.justificativas
-  ALTER COLUMN tenant_id SET NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'justificativas'
+       AND a.attname = 'tenant_id'
+       AND a.attgenerated <> ''
+  ) THEN
+    ALTER TABLE public.justificativas ALTER COLUMN tenant_id SET NOT NULL;
+  END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -111,7 +134,18 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  NEW.tenant_id := COALESCE(NULLIF(NEW.tenant_id, ''), NEW.company_id);
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'justificativas'
+       AND a.attname = 'tenant_id'
+       AND a.attgenerated <> ''
+  ) THEN
+    NEW.tenant_id := COALESCE(NULLIF(NEW.tenant_id, ''), NEW.company_id);
+  END IF;
   NEW.sigla := upper(left(COALESCE(NULLIF(NEW.sigla, ''), NULLIF(NEW.nome, ''), NEW.codigo), 12));
   NEW.updated_at := now();
   IF TG_OP = 'INSERT' THEN

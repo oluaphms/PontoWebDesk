@@ -7,10 +7,9 @@ import { ServiceController } from './ServiceController.js';
 import { ServiceInstaller } from './ServiceInstaller.js';
 import { ServiceRecovery } from './ServiceRecovery.js';
 import { ServiceValidator } from './ServiceValidator.js';
-import { defaultApiServicePaths, type ApiServicePaths } from './ServiceConfig.js';
+import { API_PORT, defaultApiServicePaths, type ApiServicePaths } from './ServiceConfig.js';
 import { defaultScExecutor } from './scExec.js';
-
-const DEFAULT_HEALTH_PORT = 3011;
+import { freeListeningPort } from './freeListeningPort.js';
 
 export class ApiService {
   private readonly paths: ApiServicePaths;
@@ -25,7 +24,7 @@ export class ApiService {
     this.installer = new ServiceInstaller(this.paths, this.sc);
     this.controller = new ServiceController(this.sc);
     this.recovery = new ServiceRecovery(this.sc);
-    this.validator = new ServiceValidator(this.sc, this.paths, options.healthPort ?? DEFAULT_HEALTH_PORT);
+    this.validator = new ServiceValidator(this.sc, this.paths, options.healthPort ?? API_PORT);
   }
 
   toApiRuntimePaths(): ApiRuntimePaths {
@@ -72,7 +71,7 @@ export class ApiService {
     return this.controller.query();
   }
 
-  /** Bootstrap install_backend: instala SCM, inicia serviço, sobe health sidecar local. */
+  /** Bootstrap install_backend: valida layout, instala SCM e inicia o serviço Windows. */
   async installAndStart(): Promise<{ ok: boolean; message: string }> {
     const installed = await this.install();
     if (!installed.ok) return installed;
@@ -80,10 +79,17 @@ export class ApiService {
     const runtime = new ApiRuntime({
       paths: this.toApiRuntimePaths(),
       dryRun: true,
-      healthPort: DEFAULT_HEALTH_PORT,
     });
-    await runtime.validate();
-    await runtime.start();
+    const validation = await runtime.validate();
+    if (!validation.ok) {
+      return {
+        ok: false,
+        message: `API_RUNTIME_VALIDATE_FAILED: ${validation.errors.map((e) => e.message).join('; ')}`,
+      };
+    }
+
+    // Libera :3000 de processos órfãos (senão /health/ready fala com API velha / DATABASE_URL errado).
+    await freeListeningPort(API_PORT);
 
     const started = this.start();
     if (!started.ok) return started;

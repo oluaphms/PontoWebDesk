@@ -1,11 +1,9 @@
 -- Bootstrap PostgreSQL na VPS (sem Supabase Cloud)
 -- Executado antes do schema base e das migrations em supabase/migrations/
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
 -- Roles referenciadas nas policies RLS (API Node usa conexão direta; RLS fica para compatibilidade)
 DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;

@@ -4,6 +4,7 @@ import type { Logger } from '../Logger.js';
 import type { ServiceManager } from '../ServiceManager.js';
 import type { PostgresInstallOrchestrator } from '../postgres/PostgresInstallOrchestrator.js';
 import type { BackendInstallPort } from '../api/BackendInstallPort.js';
+import type { FrontendInstallPort } from '../api/FrontendInstallPort.js';
 import type { RollbackCoordinator } from './RollbackCoordinator.js';
 
 export type PipelineMode = 'full' | 'structural';
@@ -18,6 +19,8 @@ export interface InstallPipelineContext {
   postgresStub?: boolean;
   backendInstall?: BackendInstallPort;
   backendInstallStub?: boolean;
+  frontendInstall?: FrontendInstallPort;
+  frontendInstallStub?: boolean;
   rollback: RollbackCoordinator;
 }
 

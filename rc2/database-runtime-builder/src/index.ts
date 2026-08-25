@@ -5,8 +5,12 @@ export {
   parsePostgresVersion,
   probeSourceRoot,
   SourceVersionError,
+  SourceValidationError,
   assertSupportedSource,
+  validatePostgreSqlSourceRoot,
 } from './discoverSource.js';
+export type { ValidateSourceOptions } from './discoverSource.js';
+export { isAmd64Pe, readPeMachineType } from './peUtil.js';
 export { buildManifestFromTree, readManifest, writeManifest } from './manifest.js';
 export { validateRuntime } from './validator.js';
 export type { ValidateOptions } from './validator.js';

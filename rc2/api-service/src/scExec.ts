@@ -8,12 +8,48 @@ export interface ScExecResult {
 
 export type ScExecutor = (args: string[]) => ScExecResult;
 
+/** sc.exe exige espaço depois de `=` — chave e valor em argv separados. */
+export function scQuote(value: string): string {
+  if (value.startsWith('"') && value.endsWith('"')) return value;
+  if (/[\s&<>^|]/.test(value)) return `"${value.replace(/"/g, '\\"')}"`;
+  return value;
+}
+
+export function scOpt(key: string, value: string): [string, string] {
+  return [`${key}=`, scQuote(value)];
+}
+
+/**
+ * Valor de binPath= quando o serviço é `node.exe script.js`.
+ * sc.exe trata o primeiro trecho entre aspas como o exe; aspas internas
+ * precisam ser escapadas para ImagePath ficar `"node.exe" "script.js"`.
+ */
+export function scBinPathValue(executable: string, script: string): string {
+  return `"\\"${executable}\\" \\"${script}\\""`;
+}
+
+export function scCreateArgs(
+  serviceName: string,
+  binPathValue: string,
+  displayName: string,
+  startType: string,
+): string[] {
+  return [
+    'create',
+    serviceName,
+    ...scOpt('binPath', binPathValue),
+    ...scOpt('DisplayName', displayName),
+    ...scOpt('start', startType),
+  ];
+}
+
 export function defaultScExecutor(): ScExecutor {
   return (args: string[]) => {
-    const r = spawnSync('sc', args, {
+    const r = spawnSync('sc.exe', args, {
       encoding: 'utf8',
       windowsHide: true,
-      shell: process.platform === 'win32',
+      shell: false,
+      windowsVerbatimArguments: true,
     });
     return {
       exitCode: r.status ?? 1,

@@ -61,9 +61,11 @@ export async function checkDistributedRateLimit(
   logMemoryFallbackOnce();
 
   const isProd = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  const flag = String(process.env.RATE_LIMIT_REDIS_REQUIRED || '').trim().toLowerCase();
+  // Explicit false allows in-memory fallback (Professional single-node / demo without Redis).
+  const allowMemoryFallback = flag === 'false' || flag === '0' || flag === 'no';
   const redisRequired =
-    isProd ||
-    /^(1|true|yes)$/i.test(String(process.env.RATE_LIMIT_REDIS_REQUIRED || '').trim());
+    !allowMemoryFallback && (isProd || flag === 'true' || flag === '1' || flag === 'yes');
   if (redisRequired) {
     throw new Error('RATE_LIMIT_REDIS_REQUIRED');
   }

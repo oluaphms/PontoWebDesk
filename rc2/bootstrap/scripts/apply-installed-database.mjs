@@ -4,8 +4,21 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const backendNodeModules =
+  process.env.RC2_BACKEND_NODE_MODULES ??
+  path.join(scriptDir, '..', 'Backend', 'server', 'node_modules');
+const pgPkg = path.join(backendNodeModules, 'pg');
+if (!fs.existsSync(pgPkg)) {
+  console.error('[migrate] pg não encontrado em', pgPkg);
+  process.exit(1);
+}
+
+const require = createRequire(import.meta.url);
+const pg = require(pgPkg);
 
 const migrationsRoot = process.env.RC2_MIGRATIONS_ROOT;
 if (!migrationsRoot) {
@@ -72,6 +85,27 @@ async function markApplied(client, name) {
   );
 }
 
+async function ensurePgExtensions(client) {
+  await client.query('CREATE SCHEMA IF NOT EXISTS extensions');
+  const extRes = await client.query(`
+    SELECT e.extname, n.nspname AS schema
+    FROM pg_extension e
+    JOIN pg_namespace n ON n.oid = e.extnamespace
+    WHERE e.extname IN ('pgcrypto', 'uuid-ossp')
+  `);
+  const byName = new Map(extRes.rows.map((r) => [r.extname, r.schema]));
+  if (byName.get('pgcrypto') === 'public') {
+    await client.query('ALTER EXTENSION pgcrypto SET SCHEMA extensions');
+  } else if (!byName.has('pgcrypto')) {
+    await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions');
+  }
+  if (byName.get('uuid-ossp') === 'public') {
+    await client.query('ALTER EXTENSION "uuid-ossp" SET SCHEMA extensions');
+  } else if (!byName.has('uuid-ossp')) {
+    await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions');
+  }
+}
+
 async function runSqlFile(client, filePath, name) {
   if (!(await isApplied(client, name))) {
     const sql = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
@@ -87,19 +121,44 @@ try {
   const client = await pool.connect();
   try {
     await ensureTrackingTable(client);
+    await ensurePgExtensions(client);
+    await client.query('SET search_path TO public, extensions');
     for (const step of STEPS) {
       if (!fs.existsSync(step.path)) {
         throw new Error(`Arquivo não encontrado: ${step.path}`);
       }
       await runSqlFile(client, step.path, `vps/${step.key}`);
     }
-    for (const file of listSqlDir('supabase/migrations')) {
-      const name = `supabase/${file}`;
-      await runSqlFile(client, path.join(migrationsRoot, 'supabase', 'migrations', file), name);
+
+    const supabaseFiles = listSqlDir('supabase/migrations').map((file) => ({
+      file,
+      abs: path.join(migrationsRoot, 'supabase', 'migrations', file),
+      name: `supabase/${file}`,
+    }));
+    const supabaseEarly = [];
+    const supabaseAfterMaster = [];
+    for (const item of supabaseFiles) {
+      const sql = fs.readFileSync(item.abs, 'utf8');
+      // Depende de master_* já existentes (control plane).
+      if (/\bmaster_[a-z0-9_]+\b/i.test(sql)) {
+        supabaseAfterMaster.push(item);
+      } else {
+        supabaseEarly.push(item);
+      }
     }
+
+    // 1) Operacional (employees, etc.) sem depender do Master.
+    for (const item of supabaseEarly) {
+      await runSqlFile(client, item.abs, item.name);
+    }
+    // 2) Backend (inclui master_tenants / master_users + patches em employees).
     for (const file of listSqlDir('backend/db/migrations')) {
       const name = `backend/${file}`;
       await runSqlFile(client, path.join(migrationsRoot, 'backend', 'db', 'migrations', file), name);
+    }
+    // 3) Supabase restante que referencia master_*.
+    for (const item of supabaseAfterMaster) {
+      await runSqlFile(client, item.abs, item.name);
     }
     console.log('[migrate] Concluído');
   } finally {

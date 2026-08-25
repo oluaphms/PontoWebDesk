@@ -5,4 +5,10 @@ declare module '@pontowebdesk/api-service' {
     installBackend(): Promise<void>;
     validateHealth(): Promise<void>;
   };
+
+  export function createBootstrapFrontendInstall(paths: ResolvedRuntimePaths): {
+    installFrontend(): Promise<void>;
+    validateFrontend(): Promise<void>;
+    rollbackFrontend(reason: string): Promise<void>;
+  };
 }

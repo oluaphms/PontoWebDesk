@@ -45,6 +45,7 @@
     "build:agent": "node scripts/build-rep-agent-exe.mjs",
     "installer:sync-runtime": "node scripts/sync-installer-runtime.mjs",
     "installer:verify-runtime": "node scripts/verify-installer-runtime.mjs",
+    "build:database-runtime:rc2": "node scripts/build-database-runtime-rc2.mjs",
     "stage:rc2": "node scripts/stage-rc2-professional.mjs",
     "stage:rc2:partial": "node scripts/stage-rc2-professional.mjs --allow-missing-database",
     "verify:rc2": "node scripts/verify-installer-runtime-rc2.mjs",

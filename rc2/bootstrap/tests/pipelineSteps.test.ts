@@ -28,6 +28,7 @@ function pipelineCtx(tmp: string, mode: 'full' | 'structural' = 'structural') {
       services: new ServiceManager(log),
       postgresStub: true,
       backendInstallStub: true,
+      frontendInstallStub: true,
       rollback: new RollbackCoordinator(log),
     }),
     paths,
@@ -69,7 +70,7 @@ describe('InstallPipelineExecutor', () => {
     expect(fs.existsSync(paths.backendEnvFile)).toBe(true);
   });
 
-  it('import_initial_data skip sem initial.sql', async () => {
+  it('import_initial_data structural sem initial.sql (professional seed path)', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pwd-pl-id-'));
     const { executor } = pipelineCtx(tmp);
     await expect(executor.runStep('import_initial_data')).resolves.toBeUndefined();
@@ -99,6 +100,34 @@ describe('InstallPipelineExecutor', () => {
     await executor.runStep('install_backend');
     expect(installBackend).toHaveBeenCalled();
     expect(validateHealth).toHaveBeenCalled();
+  });
+
+  it('install_frontend chama port quando full', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pwd-pl-fe-full-'));
+    const installRoot = path.join(tmp, 'PF', 'PontoWebDesk');
+    const programDataRoot = path.join(tmp, 'PD', 'PontoWebDesk');
+    writeInstalledLayoutFixture({ installRoot, programDataRoot, touchFiles: true });
+    const ctx = InstallationContext.load({ programFilesRoot: installRoot, programDataRoot });
+    const paths = toBootstrapPaths(ctx.paths);
+    const log = new Logger({ logDir: path.join(programDataRoot, 'Logs'), component: 'test' });
+    const installFrontend = vi.fn(async () => {});
+    const validateFrontend = vi.fn(async () => {});
+    const rollbackFrontend = vi.fn(async () => {});
+    const executor = new InstallPipelineExecutor({
+      mode: 'full',
+      paths,
+      layoutManifest: ctx.layoutManifest,
+      log,
+      services: new ServiceManager(log),
+      frontendInstall: { installFrontend, validateFrontend, rollbackFrontend },
+      frontendInstallStub: false,
+      postgresStub: true,
+      backendInstallStub: true,
+      rollback: new RollbackCoordinator(log),
+    });
+    await executor.runStep('install_frontend');
+    expect(installFrontend).toHaveBeenCalled();
+    expect(validateFrontend).toHaveBeenCalled();
   });
 });
 

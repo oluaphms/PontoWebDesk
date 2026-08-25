@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseScQueryState } from '../src/scExec.js';
+import { parseScQueryState, scCreateArgs, scOpt } from '../src/scExec.js';
 import { buildServiceBinPath, RECOVERY_ACTIONS } from '../src/ServiceConfig.js';
 
 describe('scExec helpers', () => {
@@ -31,6 +31,25 @@ describe('buildServiceBinPath quotes', () => {
       logsDir: 'l',
       apiRuntimeLogFile: 'l',
     });
-    expect(p).toContain('"');
+    expect(p).toContain('\\"');
+    expect(p).toContain('PontoWebDeskServiceHost.exe');
+    expect(p).toContain('api-service-host.ini');
+  });
+});
+
+describe('scCreateArgs', () => {
+  it('separa chave= e valor para sc.exe', () => {
+    const args = scCreateArgs('PontoWebDeskApi', '"\\"C:\\\\n\\\\node.exe\\" \\"C:\\\\n\\\\host.js\\""', 'PontoWebDesk API', 'auto');
+    expect(args).toEqual([
+      'create',
+      'PontoWebDeskApi',
+      'binPath=',
+      '"\\"C:\\\\n\\\\node.exe\\" \\"C:\\\\n\\\\host.js\\""',
+      'DisplayName=',
+      '"PontoWebDesk API"',
+      'start=',
+      'auto',
+    ]);
+    expect(scOpt('start', 'auto')).toEqual(['start=', 'auto']);
   });
 });

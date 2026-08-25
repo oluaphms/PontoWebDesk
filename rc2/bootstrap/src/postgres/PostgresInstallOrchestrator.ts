@@ -56,7 +56,7 @@ export class PostgresInstallOrchestrator {
         await this.applySchema();
         return;
       case 'db_migrate_full':
-        await this.migrateFull();
+        await this.migrateFull(discovered);
         return;
       default:
         throw new Error(`PG_STEP_UNKNOWN: ${step}`);
@@ -72,12 +72,36 @@ export class PostgresInstallOrchestrator {
       try {
         await pg.registerService();
       } catch (err) {
-        this.log.warn('PostgresEmbeddedService.registerService failed — falling back to pg_ctl start', {
+        this.log.warn('PostgresEmbeddedService.registerService failed — service may already exist', {
           err: String(err),
         });
       }
+      try {
+        await pg.startWindowsService();
+      } catch (err) {
+        // Rollback deixa postgres.exe órfão via pg_ctl; SCM não sobe enquanto o cluster está up.
+        this.log.warn(
+          'PostgresEmbeddedService.startWindowsService failed — stopping orphan cluster and retrying SCM',
+          { err: String(err) },
+        );
+        await pg.stop();
+        await pg.startWindowsService();
+      }
+      // Aguarda o SCM refletir RUNNING (sc query PT/EN) após net start.
+      let running = false;
+      for (let i = 0; i < 10; i++) {
+        running = await pg.isWindowsServiceRunning();
+        if (running) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!running) {
+        throw new Error(
+          'PG_SERVICE_NOT_RUNNING: PontoWebDeskPostgreSQL must be Running (pg_ctl-only is not accepted)',
+        );
+      }
+    } else {
+      await pg.start();
     }
-    await pg.start();
     await pg.waitReady(port);
     await pg.setSuperuserPassword(secrets.postgresSuperuserPassword, port);
     await pg.writeProductionHba();
@@ -85,8 +109,9 @@ export class PostgresInstallOrchestrator {
   }
 
   private async createDatabase(discovered: Awaited<ReturnType<PostgresDiscovery['discover']>>): Promise<void> {
-    const secrets = this.secrets.load();
-    if (!secrets) throw new Error('PG_SECRETS_MISSING');
+    const loaded = this.secrets.load();
+    if (!loaded) throw new Error('PG_SECRETS_MISSING');
+    const secrets = this.secrets.ensureInstallSecrets(loaded);
     const base = this.secrets.toConnectionConfig(secrets);
     const config: PostgresConnectionConfig = { ...base, database: 'postgres' };
     const provisioner = new DatabaseProvisioner(this.paths, this.log, discovered);
@@ -105,12 +130,23 @@ export class PostgresInstallOrchestrator {
     this.log.info('PostgresInstallOrchestrator.applySchema OK — files present; migrate at db_migrate_full');
   }
 
-  private async migrateFull(): Promise<void> {
-    const secrets = this.secrets.load();
-    if (!secrets) throw new Error('PG_SECRETS_MISSING');
+  private async migrateFull(
+    discovered: Awaited<ReturnType<PostgresDiscovery['discover']>>,
+  ): Promise<void> {
+    const loaded = this.secrets.load();
+    if (!loaded) throw new Error('PG_SECRETS_MISSING');
+    const secrets = this.secrets.ensureInstallSecrets(loaded);
     const base = this.secrets.toConnectionConfig(secrets);
-    const migrateUrl = `postgresql://${base.migrateUser}:${encodeURIComponent(base.migratePassword)}@${base.host}:${base.port}/pontowebdesk`;
+    // Schema Supabase cria roles com BYPASSRLS — exige superuser no install inicial.
+    const migrateUrl = `postgresql://${base.superuser}:${encodeURIComponent(base.superuserPassword)}@${base.host}:${base.port}/pontowebdesk`;
     const runner = new DbMigrateRunner(this.paths, this.log);
     await runner.runMigrateFull(migrateUrl);
+
+    // Tabelas criadas como postgres: conceder DML ao app (Master + operacional).
+    const provisioner = new DatabaseProvisioner(this.paths, this.log, discovered);
+    const config: PostgresConnectionConfig = { ...base, database: 'postgres' };
+    await provisioner.grantAppDmlPrivileges(config);
+    // Regrava backend.env com MASTER_* (idempotente) antes do install_backend copiar para o serviço.
+    await provisioner.writeBackendEnv(config);
   }
 }

@@ -42,7 +42,7 @@ export class DbMigrateRunner {
         DATABASE_URL: databaseUrlMigrate,
         DATABASE_SSL: 'false',
         RC2_MIGRATIONS_ROOT: this.getMigrationsRoot(),
-        NODE_PATH: nodeModules,
+        RC2_BACKEND_NODE_MODULES: nodeModules,
       },
       timeoutMs: 600_000,
     });

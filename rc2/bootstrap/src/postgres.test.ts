@@ -41,6 +41,7 @@ describe('Embedded PG stub pipeline', () => {
       embeddedPostgres: true,
       postgresStub: true,
       apiServiceStub: true,
+      frontendServiceStub: true,
     });
     const result = await bootstrap.runEmbeddedInstall();
     expect(result.ok).toBe(true);

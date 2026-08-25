@@ -530,7 +530,7 @@ node dist/index.js doctor
 
 - **Program Files:** `{commonpf}\PontoWebDesk` — cópia recursiva do staging
 - **ProgramData:** `{commonappdata}\PontoWebDesk` — Config, Logs, Storage, Backups, `Database\pgdata`
-- **[Run]:** `professional-install.ps1` → Bootstrap `RC2_BOOTSTRAP_MODE=embedded` (PostgreSQL + API Service)
+- **[Run]:** `professional-install.ps1` → Bootstrap `RC2_BOOTSTRAP_MODE=embedded` (PostgreSQL + API Service + **Frontend Service**)
 - **Atalhos:** menu Iniciar / Área de trabalho → `http://127.0.0.1:3010/`
 - **Desinstalação:** `professional-uninstall.ps1` (para/remove serviços SCM)
 - **Inno:** `/SILENT`, `/VERYSILENT`, `/LOG=...`, `SetupLogging=yes`
@@ -551,6 +551,90 @@ scripts\build-professional-installer.bat
 ```bat
 dist-installer\Setup.exe /VERYSILENT /NORESTART /LOG=%TEMP%\pwd-professional-inno.log
 ```
+
+---
+
+## 15. RC2.4.3.1 STATUS — Frontend Runtime Lifecycle
+
+**Marco:** `RC2.4.3.1` — serviço Windows **`PontoWebDeskFrontend`** na porta **3010**, instalado e validado pelo **Bootstrap** (autoridade única; Inno Setup não duplica lógica).
+
+### Cadeia após instalação bem-sucedida
+
+```
+PostgreSQL → PontoWebDeskApi :3000 → PontoWebDeskFrontend :3010
+```
+
+### Serviço SCM
+
+| Campo | Valor |
+|-------|--------|
+| Nome | `PontoWebDeskFrontend` |
+| DisplayName | `PontoWebDesk Frontend` |
+| Executável | `{installRoot}\Backend\node\node.exe` |
+| Script | `{installRoot}\Bin\serve-frontend.mjs` |
+| Porta | `3010` |
+| Start | automático |
+| Recovery | restart 5s / 30s / 60s; reset 86400s |
+| Config runtime | `%ProgramData%\PontoWebDesk\Config\frontend-service.json` |
+| Logs | `%ProgramData%\PontoWebDesk\Logs\frontend-service.log` |
+
+### Implementação (`@pontowebdesk/api-service`)
+
+- `FrontendServiceInstaller` — SC create, `frontend-service.json`, validação de layout
+- `FrontendServiceController` — start/stop/query
+- `FrontendServiceRecovery` — `sc failure`
+- `FrontendServiceValidator` — TCP **3010** + HTTP GET `/` (200)
+- `FrontendService` — `installAndStart`, rollback (stop + delete se criado na sessão)
+- `createBootstrapFrontendInstall` — ponte Bootstrap
+
+### Pipeline Bootstrap
+
+| Step | Comportamento |
+|------|----------------|
+| `install_frontend` | Valida `Frontend\www\index.html` e `Bin\serve-frontend.mjs`; instala/inicia serviço; aguarda TCP+HTTP; **sucesso só com 3010 OK** |
+| `register_services` | Registra kind `web` → `PontoWebDeskFrontend` |
+| `first_run` | Revalida saúde do frontend (modo `full`) |
+| Rollback falha | `rollbackFrontend` + `RollbackCoordinator` para `web`; `install-state.json` com erro; logs preservados |
+
+### Setup / desinstalação
+
+- `professional-install.ps1` — apenas Bootstrap embedded (sem `professional-start-frontend.ps1`)
+- `professional-rollback.ps1` — inclui stop/delete `PontoWebDeskFrontend`
+
+### Staging / verify
+
+- `npm run stage:rc2` copia `Bin/serve-frontend.mjs`
+- `npm run verify:rc2` exige `Bin/serve-frontend.mjs`
+
+### Testes
+
+- `rc2/api-service/tests/FrontendService.test.ts` — install, start/stop, health (HTTP real), rollback, uninstall (SC mock)
+- `rc2/bootstrap/tests/pipelineSteps.test.ts` — `install_frontend` full chama port
+
+### Env Bootstrap
+
+| Variável | Efeito |
+|----------|--------|
+| `RC2_BOOTSTRAP_FRONTEND_SERVICE=0` | Não carrega port frontend |
+| `RC2_BOOTSTRAP_FRONTEND_SERVICE_STUB=1` | Stub (structural de serviço) |
+
+---
+
+## 16. RC2.4.3.2 — Release gate (staging + Setup)
+
+**Problema observado em instalação real:** `Setup.exe` antigo ou staging incompleto copiava só parte do layout (`Frontend/www` sem `Bootstrap/dist`, sem `Bin/serve-frontend.mjs`), o Inno concluía a cópia e o utilizador ficava sem serviços SCM.
+
+**Correções no pipeline (sem alterar backend/frontend app):**
+
+| Camada | Comportamento |
+|--------|----------------|
+| `stage-rc2-professional.mjs` | `serve-frontend.mjs` obrigatório; `STAGING_CRITICAL_FILES` no assert final |
+| `verify:rc2` | Falha fechada em qualquer ficheiro crítico (sem warnings para Database) |
+| `build-professional-installer.bat` | Bloqueia ISCC se faltar Bootstrap, serve-frontend ou postgres embarcado |
+| `PontoWebDeskProfessional.iss` | `#error` em compile-time se staging crítico ausente |
+| `professional-install.ps1` | Valida layout em `{app}` antes do Bootstrap; pós-install: serviços + portas 3000/3010 + HTTP 2xx |
+
+**Critério:** não gerar `Setup.exe` nem declarar instalação OK sem PostgreSQL **embarcado** em `{app}\Database` (runtime 16.8 via Builder — não PG externo 16.14/18).
 
 ---
 

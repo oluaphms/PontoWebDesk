@@ -4,6 +4,23 @@ import type { BootstrapPaths } from '../types.js';
 import { execFileAsync } from './exec.js';
 
 const EXPECTED_MAJOR = 16;
+const EXPECTED_MINOR = 8;
+
+/** Saída típica: `postgres (PostgreSQL) 16.8` */
+export function parsePostgresVersionLine(stdout: string): {
+  major: number;
+  minor: number;
+  patch: number;
+  versionFull: string;
+} | null {
+  const match = /PostgreSQL\)\s+(\d+)\.(\d+)(?:\.(\d+))?/i.exec(stdout);
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = match[3] !== undefined ? Number(match[3]) : 0;
+  const versionFull = patch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
+  return { major, minor, patch, versionFull };
+}
 
 export interface DiscoveryResult {
   ok: boolean;
@@ -74,26 +91,28 @@ export class PostgresDiscovery {
         errors: [...discovery.errors, `PG_VERSION_FAILED: ${r.stderr}`],
       };
     }
-    const match = /PostgreSQL\s+(\d+)\.(\d+)/i.exec(r.stdout);
-    if (!match) {
+    const parsed = parsePostgresVersionLine(r.stdout);
+    if (!parsed) {
       return {
         ...discovery,
         ok: false,
         errors: [...discovery.errors, 'PG_VERSION_UNPARSEABLE'],
       };
     }
-    const major = Number(match[1]);
-    if (major !== EXPECTED_MAJOR) {
+    if (parsed.major !== EXPECTED_MAJOR || parsed.minor !== EXPECTED_MINOR) {
       return {
         ...discovery,
         ok: false,
-        errors: [...discovery.errors, `PG_VERSION_MISMATCH: expected ${EXPECTED_MAJOR}, got ${major}`],
+        errors: [
+          ...discovery.errors,
+          `PG_VERSION_MISMATCH: expected ${EXPECTED_MAJOR}.${EXPECTED_MINOR}, got ${parsed.versionFull}`,
+        ],
       };
     }
     return {
       ...discovery,
-      versionMajor: major,
-      versionFull: r.stdout.trim(),
+      versionMajor: parsed.major,
+      versionFull: parsed.versionFull,
     };
   }
 }

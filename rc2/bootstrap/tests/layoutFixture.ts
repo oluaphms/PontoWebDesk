@@ -68,6 +68,7 @@ export function writeInstalledLayoutFixture(params: {
   touch('Backend/node/node.exe');
   touch('Backend/server/dist/server.js');
   touch('Bin/api-service-host.js');
+  touch('Bin/serve-frontend.mjs');
   touch('Frontend/www/index.html');
   touch('Database/bin/postgres.exe');
   touch('Agent/rep-agent.exe');

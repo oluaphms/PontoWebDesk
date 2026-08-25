@@ -11,6 +11,7 @@ import type { Logger } from './Logger.js';
 import type { RecoveryManager } from './RecoveryManager.js';
 import type { PostgresInstallOrchestrator } from './postgres/PostgresInstallOrchestrator.js';
 import type { BackendInstallPort } from './api/BackendInstallPort.js';
+import type { FrontendInstallPort } from './api/FrontendInstallPort.js';
 import type { BootstrapPaths } from './types.js';
 import type { LayoutManifest } from '@pontowebdesk/api-runtime';
 import { INSTALLING_PIPELINE_STEPS } from './installSteps.js';
@@ -34,6 +35,8 @@ export interface InstallManagerDeps {
   postgresStub?: boolean;
   backendInstall?: BackendInstallPort;
   backendInstallStub?: boolean;
+  frontendInstall?: FrontendInstallPort;
+  frontendInstallStub?: boolean;
 }
 
 /**
@@ -53,6 +56,8 @@ export class InstallManager {
       postgresStub: deps.postgresStub,
       backendInstall: deps.backendInstall,
       backendInstallStub: deps.backendInstallStub,
+      frontendInstall: deps.frontendInstall,
+      frontendInstallStub: deps.frontendInstallStub,
       rollback: deps.rollback,
     });
   }
@@ -68,7 +73,8 @@ export class InstallManager {
     if (current.state === 'NOT_STARTED') {
       current = this.deps.store.transition(current, 'PRECHECK', 'precheck started', undefined, 'precheck');
       this.deps.store.save(current);
-    } else if (current.state === 'FAILED') {
+    } else if (current.state === 'FAILED' || current.state === 'RECOVERY') {
+      // Retentativa oficial: FAILED|RECOVERY → NOT_STARTED → PRECHECK (não exige apagar install-state.json).
       current = this.deps.recovery.retryFromFailed(current);
       current = this.deps.store.transition(current, 'PRECHECK', 'precheck retry', undefined, 'precheck');
       this.deps.store.save(current);

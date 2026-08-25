@@ -23,6 +23,26 @@
   #error "Staging RC2 ausente. Execute: npm run stage:rc2 (e npm run verify:rc2) antes do ISCC."
 #endif
 
+#if !FileExists(StagingDir + "\Bootstrap\dist\index.js")
+  #error "Staging incompleto: Bootstrap\dist\index.js ausente. Execute npm run stage:rc2 e verify:rc2."
+#endif
+
+#if !FileExists(StagingDir + "\Bin\serve-frontend.mjs")
+  #error "Staging incompleto: Bin\serve-frontend.mjs ausente. Execute npm run stage:rc2 e verify:rc2."
+#endif
+
+#if !FileExists(StagingDir + "\Database\bin\postgres.exe")
+  #error "Staging incompleto: Database\bin\postgres.exe ausente. Gere o runtime PG 16.8 (RC2_DATABASE_RUNTIME_DIR) antes do stage:rc2."
+#endif
+
+#if !FileExists(StagingDir + "\Backend\node\node.exe")
+  #error "Staging incompleto: Backend\node\node.exe ausente."
+#endif
+
+#if !FileExists(StagingDir + "\Frontend\www\index.html")
+  #error "Staging incompleto: Frontend\www\index.html ausente."
+#endif
+
 #if !FileExists(AddBackslash(SourcePath) + "scripts\professional-install.ps1")
   #error "installer\scripts\professional-install.ps1 ausente."
 #endif
@@ -93,7 +113,8 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{code:GetAppUrl}"; Tasks: deskt
 Filename: "powershell.exe"; \
   Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\scripts\professional-install.ps1"" -InstallDir ""{app}"" -ProgramDataDir ""{#DataRoot}"" -LogFile ""{#DataRoot}\Logs\installer.log"" {code:SilentFlags} {code:BrowserFlag}"; \
   StatusMsg: "Configurando PostgreSQL, API e Bootstrap..."; \
-  Flags: runhidden waituntilterminated
+  Flags: runhidden waituntilterminated; \
+  WorkingDir: "{app}"
 
 [UninstallRun]
 Filename: "powershell.exe"; \

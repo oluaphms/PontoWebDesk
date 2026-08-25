@@ -4,7 +4,7 @@ import type { InstallPipelineContext, ComponentRegistryEntry } from './pipelineT
 import type { InstallStepId } from '../installSteps.js';
 import { fetchHealthJson } from '@pontowebdesk/api-runtime';
 import { SecretsStore } from '../postgres/SecretsStore.js';
-import { execFileAsync } from '../postgres/exec.js';
+import { execFileAsync, pgProcessEnv } from '../postgres/exec.js';
 
 const PG_STEPS = new Set<InstallStepId>([
   'install_postgresql',
@@ -105,48 +105,88 @@ export class InstallPipelineExecutor {
       path.join(this.ctx.paths.programDataRoot, 'Database', 'initial.sql'),
     ];
     const sqlFile = candidates.find((p) => fs.existsSync(p));
-    if (!sqlFile) {
-      this.ctx.log.info('import_initial_data skipped — no initial.sql');
-      return;
-    }
 
     if (this.ctx.mode === 'structural' || this.ctx.postgresStub) {
-      this.ctx.log.info('import_initial_data structural — file present', { sqlFile });
+      this.ctx.log.info(
+        sqlFile
+          ? 'import_initial_data structural — file present'
+          : 'import_initial_data structural — professional seed',
+        sqlFile ? { sqlFile } : {},
+      );
       return;
     }
 
-    const secrets = new SecretsStore(this.ctx.paths.secretsFile).load();
-    if (!secrets) throw new Error('PG_SECRETS_MISSING');
-    const psql = path.join(this.ctx.paths.databaseToolsDir, 'psql.exe');
-    if (!fs.existsSync(psql)) throw new Error(`PSQL_MISSING: ${psql}`);
-    const r = await execFileAsync(
-      psql,
-      [
-        '-h',
-        '127.0.0.1',
-        '-p',
-        String(secrets.port),
-        '-U',
-        'pontoweb_migrate',
-        '-d',
-        'pontowebdesk',
-        '-v',
-        'ON_ERROR_STOP=1',
-        '-f',
-        sqlFile,
-      ],
-      {
-        env: {
-          ...process.env,
-          PGPASSWORD: secrets.pontowebMigratePassword,
+    if (sqlFile) {
+      const secrets = new SecretsStore(this.ctx.paths.secretsFile).load();
+      if (!secrets) throw new Error('PG_SECRETS_MISSING');
+      const psql = path.join(this.ctx.paths.databaseToolsDir, 'psql.exe');
+      if (!fs.existsSync(psql)) throw new Error(`PSQL_MISSING: ${psql}`);
+      const r = await execFileAsync(
+        psql,
+        [
+          '-h',
+          '127.0.0.1',
+          '-p',
+          String(secrets.port),
+          '-U',
+          'pontoweb_migrate',
+          '-d',
+          'pontowebdesk',
+          '-v',
+          'ON_ERROR_STOP=1',
+          '-f',
+          sqlFile,
+        ],
+        {
+          env: pgProcessEnv(this.ctx.paths.databaseBinDir, {
+            PGPASSWORD: secrets.pontowebMigratePassword,
+          }),
+          timeoutMs: 600_000,
         },
-        timeoutMs: 600_000,
-      },
-    );
-    if (r.exitCode !== 0) {
-      throw new Error(`IMPORT_INITIAL_DATA_FAILED: ${r.stderr || r.stdout}`);
+      );
+      if (r.exitCode !== 0) {
+        throw new Error(`IMPORT_INITIAL_DATA_FAILED: ${r.stderr || r.stdout}`);
+      }
+      this.ctx.log.info('import_initial_data OK', { sqlFile, version: manifestVersion });
+      return;
     }
-    this.ctx.log.info('import_initial_data OK', { sqlFile, version: manifestVersion });
+
+    await this.seedProfessionalDefaults();
+  }
+
+  /** Sem initial.sql: empresa + admin + colaborador padrão Professional. */
+  private async seedProfessionalDefaults(): Promise<void> {
+    const script = path.join(this.ctx.paths.binDir, 'seed-professional-defaults.mjs');
+    if (!fs.existsSync(script)) {
+      throw new Error(`SEED_PROFESSIONAL_SCRIPT_MISSING: ${script}`);
+    }
+    const store = new SecretsStore(this.ctx.paths.secretsFile);
+    const secrets = store.loadOrCreate(55432);
+    const cfg = store.toConnectionConfig(secrets);
+    const encApp = encodeURIComponent(cfg.appPassword);
+    const encMig = encodeURIComponent(cfg.migratePassword);
+    const encSuper = encodeURIComponent(cfg.superuserPassword);
+    const databaseUrl = `postgresql://${cfg.appUser}:${encApp}@${cfg.host}:${cfg.port}/pontowebdesk`;
+    const databaseUrlMigrate = `postgresql://${cfg.migrateUser}:${encMig}@${cfg.host}:${cfg.port}/pontowebdesk`;
+    // Seed precisa bypassar RLS (INSERT companies/users) — usa superuser embutido.
+    const databaseUrlAdmin = `postgresql://${cfg.superuser}:${encSuper}@${cfg.host}:${cfg.port}/pontowebdesk`;
+    const nodeModules = path.join(this.ctx.paths.backendRoot, 'server', 'node_modules');
+    const r = await execFileAsync(this.ctx.paths.nodeExecutable, [script], {
+      cwd: path.dirname(script),
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        DATABASE_URL_MIGRATE: databaseUrlMigrate,
+        DATABASE_URL_ADMIN: databaseUrlAdmin,
+        DATABASE_SSL: 'false',
+        RC2_BACKEND_NODE_MODULES: nodeModules,
+      },
+      timeoutMs: 120_000,
+    });
+    if (r.exitCode !== 0) {
+      throw new Error(`SEED_PROFESSIONAL_FAILED: ${r.stderr || r.stdout}`);
+    }
+    this.ctx.log.info('import_initial_data OK — professional seed defaults');
   }
 
   private async installBackend(): Promise<void> {
@@ -162,6 +202,7 @@ export class InstallPipelineExecutor {
 
   private async installFrontend(): Promise<void> {
     const index = path.join(this.ctx.paths.frontendWwwDir, 'index.html');
+    const serveScript = path.join(this.ctx.paths.binDir, 'serve-frontend.mjs');
     if (!fs.existsSync(index)) {
       if (this.ctx.mode === 'structural') {
         this.ctx.log.warn('install_frontend structural — index.html absent');
@@ -169,6 +210,36 @@ export class InstallPipelineExecutor {
       }
       throw new Error(`FRONTEND_WWW_MISSING: ${index}`);
     }
+    if (!fs.existsSync(serveScript)) {
+      if (this.ctx.mode === 'structural') {
+        this.ctx.log.warn('install_frontend structural — serve-frontend.mjs absent');
+        return;
+      }
+      throw new Error(`FRONTEND_SERVE_SCRIPT_MISSING: ${serveScript}`);
+    }
+
+    if (
+      this.ctx.mode === 'full' &&
+      !this.ctx.frontendInstallStub &&
+      this.ctx.frontendInstall
+    ) {
+      try {
+        await this.ctx.frontendInstall.installFrontend();
+        await this.ctx.frontendInstall.validateFrontend();
+        this.ctx.rollback.trackStarted('web');
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        try {
+          await this.ctx.frontendInstall.rollbackFrontend(reason);
+        } catch (rbErr) {
+          this.ctx.log.warn('install_frontend rollback error', { err: String(rbErr) });
+        }
+        throw err;
+      }
+    } else if (this.ctx.mode === 'full' && !this.ctx.frontendInstallStub && !this.ctx.frontendInstall) {
+      throw new Error('FRONTEND_INSTALL_PORT_MISSING');
+    }
+
     const version = this.ctx.layoutManifest.components.frontend.version;
     writeComponentRegistry(this.ctx, {
       component: 'frontend',
@@ -176,7 +247,7 @@ export class InstallPipelineExecutor {
       registeredAt: new Date().toISOString(),
       path: this.ctx.paths.frontendWwwDir,
     });
-    this.ctx.log.info('install_frontend OK', { index });
+    this.ctx.log.info('install_frontend OK — PontoWebDeskFrontend', { index, serveScript });
   }
 
   private async installAgent(): Promise<void> {
@@ -213,14 +284,16 @@ export class InstallPipelineExecutor {
   }
 
   private async registerServices(): Promise<void> {
-    const kinds = ['postgresql', 'api', 'repAgent'] as const;
+    const kinds = ['postgresql', 'api', 'web', 'repAgent'] as const;
     for (const kind of kinds) {
       const display =
         kind === 'postgresql'
           ? 'PontoWebDeskPostgreSQL'
           : kind === 'api'
             ? 'PontoWebDeskApi'
-            : 'PontoWebDeskAgent';
+            : kind === 'web'
+              ? 'PontoWebDeskFrontend'
+              : 'PontoWebDeskAgent';
       await this.ctx.services.registerService(kind, display);
     }
     this.ctx.log.info('register_services OK');
@@ -269,6 +342,15 @@ export class InstallPipelineExecutor {
         }
       } catch (err) {
         this.ctx.log.warn('first_run health check skipped', { err: String(err) });
+      }
+    }
+
+    if (this.ctx.mode === 'full' && this.ctx.frontendInstall && !this.ctx.frontendInstallStub) {
+      try {
+        await this.ctx.frontendInstall.validateFrontend();
+      } catch (err) {
+        this.ctx.log.warn('first_run frontend health failed', { err: String(err) });
+        throw err;
       }
     }
 

@@ -37,18 +37,32 @@ if not exist "%STAGING%\layout.manifest.json" (
   exit /b 1
 )
 
+if not exist "%STAGING%\Bootstrap\dist\index.js" (
+  echo [ERRO] Staging critico ausente: Bootstrap\dist\index.js
+  exit /b 1
+)
+if not exist "%STAGING%\Bin\serve-frontend.mjs" (
+  echo [ERRO] Staging critico ausente: Bin\serve-frontend.mjs
+  exit /b 1
+)
+if not exist "%STAGING%\Database\bin\postgres.exe" (
+  echo [ERRO] Staging critico ausente: Database\bin\postgres.exe — gere runtime PG 16.8 antes do stage:rc2
+  exit /b 1
+)
+
 echo.
-echo [3/4] Sincronizando versao Inno com staging VERSION ...
-powershell -NoProfile -Command ^
-  "$v = (Get-Content -LiteralPath '%STAGING%\VERSION' -Raw).Trim();" ^
-  "$lines = @('; Gerado por build-professional-installer.bat', '#define MyAppVersion \"' + $v + '\"');" ^
-  "Set-Content -LiteralPath '%ROOT%\installer\rc2-staging-version.inc' -Value ($lines -join [Environment]::NewLine) -Encoding UTF8"
-if errorlevel 1 (
+echo [3/5] Sincronizando versao Inno com staging VERSION ...
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "(Get-Content -LiteralPath '%STAGING%\VERSION' -Raw).Trim().Replace('\"','')"` ) do set "STAGING_VERSION=%%V"
+> "%ROOT%\installer\rc2-staging-version.inc" (
+  echo ; Gerado por build-professional-installer.bat
+  echo #define MyAppVersion "%STAGING_VERSION%"
+)
+if not defined STAGING_VERSION (
   echo [AVISO] Nao foi possivel ler VERSION do staging; usando rc2-staging-version.inc existente
 )
 
 echo.
-echo [4/4] Localizando Inno Setup ^(ISCC.exe^)...
+echo [4/5] Localizando Inno Setup ^(ISCC.exe^)...
 set "ISCC="
 if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LocalAppData%\Programs\Inno Setup 6\ISCC.exe"
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"

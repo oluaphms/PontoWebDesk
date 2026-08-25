@@ -24,8 +24,14 @@ describe('ServiceInstaller', () => {
       nodeExecutable: path.join(root, 'node.exe'),
       backendEntry: path.join(root, 'server.js'),
       programFilesRoot: root,
+      configDir: path.join(root, 'Config'),
+      logsDir: path.join(root, 'Logs'),
+      backendEnvFile: path.join(root, 'Config', 'backend.env'),
     });
     fs.mkdirSync(paths.binDir, { recursive: true });
+    fs.mkdirSync(paths.configDir, { recursive: true });
+    fs.mkdirSync(paths.logsDir, { recursive: true });
+    fs.writeFileSync(path.join(paths.binDir, 'PontoWebDeskServiceHost.exe'), 'exe', 'utf8');
     fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
     fs.writeFileSync(path.join(root, 'dist', 'serviceHost.js'), '// host', 'utf8');
     const calls: string[][] = [];
