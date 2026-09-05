@@ -433,9 +433,12 @@ const ConfiguracaoHorasExtrasModal: React.FC<ConfiguracaoHorasExtrasModalProps> 
                     value={d.bancoHorasTipo ?? 'extras'}
                     onChange={(e) => set({ bancoHorasTipo: e.target.value as ExtrasConfig['bancoHorasTipo'] })}
                   >
-                    <option value="extras">Extras</option>
-                    <option value="faltas">Faltas</option>
-                    <option value="atrasos">Atrasos</option>
+                    <option value="extras_faltas_atrasos">Todas extras, faltas, atrasos</option>
+                    <option value="extras_faltas">Apenas extras e faltas</option>
+                    <option value="extras_atrasos">Apenas extras e atrasos</option>
+                    <option value="extras">Apenas extras</option>
+                    <option value="faltas">Apenas faltas</option>
+                    <option value="atrasos">Apenas atrasos</option>
                   </select>
                 </div>
               </div>
