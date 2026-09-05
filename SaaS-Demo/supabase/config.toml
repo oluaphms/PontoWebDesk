@@ -1,6 +1,0 @@
-# Templates Auth — sincronize com: node scripts/sync-supabase-auth-email-templates.mjs
-# (hosted) ou supabase config push (CLI linkado).
-
-[auth.email.template.recovery]
-subject = "Redefinir sua senha — PontoWebDesk"
-content_path = "./supabase/email-templates/recovery.html"

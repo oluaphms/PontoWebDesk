@@ -389,7 +389,14 @@ export interface ExtrasConfig {
   numeroFaixas?: number;
   faixas?: { de: number; ate: number; percentual: number }[];
   bancoHorasHabilitado?: boolean;
-  bancoHorasTipo?: 'extras' | 'faltas' | 'atrasos';
+  /** Quais movimentos entram no banco de horas quando habilitado. */
+  bancoHorasTipo?:
+    | 'extras_faltas_atrasos'
+    | 'extras_faltas'
+    | 'extras_atrasos'
+    | 'extras'
+    | 'faltas'
+    | 'atrasos';
   /** Subpainéis do diálogo “Configuração de Horas Extras” */
   diasUteis?: ExtrasPainelFaixas;
   diaEspecial?: ExtrasPainelFaixas & { usarEspecialPara?: string };
